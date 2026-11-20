@@ -186,6 +186,22 @@ esbozo-editor::before {
 
 .rail button:hover .k { opacity: 0.5; }
 
+/* the page's own light/dark switch, in the hand, across from the status */
+.theme {
+  all: unset;
+  position: fixed;
+  right: 20px;
+  bottom: 14px;
+  z-index: 25;
+  cursor: pointer;
+  font-family: var(--font-hand);
+  font-size: 13px;
+  color: var(--muted);
+  border-bottom: 1px solid transparent;
+}
+
+.theme:hover { color: var(--ink); border-bottom-color: var(--line-strong); }
+
 /* corner status, in the hand */
 .status {
   position: absolute;

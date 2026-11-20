@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="light">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -9,9 +9,33 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Kalam:wght@300;400;700&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="editor.css" />
+<script>
+  // The page owns light and dark; the element only inherits the CSS variables.
+  // It follows the system by default, live, until a person picks a theme.
+  (() => {
+    const media = matchMedia('(prefers-color-scheme: dark)');
+    let chosen = null;
+    const show = (theme) => {
+      document.documentElement.dataset.theme = theme;
+      const button = document.querySelector('.theme');
+      if (button !== null) button.textContent = theme === 'dark' ? 'Light' : 'Dark';
+    };
+    show(media.matches ? 'dark' : 'light');
+    media.addEventListener('change', (event) => {
+      if (chosen === null) show(event.matches ? 'dark' : 'light');
+    });
+    document.addEventListener('DOMContentLoaded', () => {
+      document.querySelector('.theme').addEventListener('click', () => {
+        chosen = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+        show(chosen);
+      });
+    });
+  })();
+</script>
 </head>
 <body>
 <esbozo-editor></esbozo-editor>
+<button type="button" class="theme">Dark</button>
 <script type="module" src="editor.js"></script>
 </body>
 </html>

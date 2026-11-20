@@ -71,7 +71,6 @@ const SHELL = `
 <footer class="status">
   <button type="button" data-act="open">Open folder…</button>
   <button type="button" data-act="grid" aria-pressed="true">Grid</button>
-  <button type="button" data-act="theme">Dark</button>
   <span class="zoom">100%</span>
   <span class="where"></span>
   <span class="saved" role="status" data-state="idle"></span>
@@ -115,7 +114,6 @@ export class EsbozoEditorElement extends HTMLElement {
   #zoomLabel!: HTMLElement;
   #whereLabel!: HTMLElement;
   #savedLabel!: HTMLElement;
-  #themeButton!: HTMLButtonElement;
 
   connectedCallback(): void {
     if (this.#canvas !== undefined) {
@@ -136,7 +134,6 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#zoomLabel = this.querySelector('.zoom')!;
     this.#whereLabel = this.querySelector('.where')!;
     this.#savedLabel = this.querySelector('.saved')!;
-    this.#themeButton = this.querySelector('[data-act="theme"]')!;
 
     this.#canvas.addEventListener('pointerdown', this.#onPointerDown);
     this.#canvas.addEventListener('pointermove', this.#onPointerMove);
@@ -152,7 +149,6 @@ export class EsbozoEditorElement extends HTMLElement {
     document.addEventListener('keyup', this.#onKeyUp);
     window.addEventListener('resize', this.#onResize);
 
-    this.#applyTheme(this.#preferredTheme());
     requestAnimationFrame(() => this.#drawRailArt());
     this.#view = fittedView(this.#scene, this.#viewportSize());
     this.#paint();
@@ -236,13 +232,6 @@ export class EsbozoEditorElement extends HTMLElement {
   #toggleGrid(): void {
     this.#grid = !this.#grid;
     this.querySelector('[data-act="grid"]')!.setAttribute('aria-pressed', String(this.#grid));
-    this.#paint();
-  }
-
-  /** Toggle light and dark, which only swaps the page's CSS variables. */
-  #toggleTheme(): void {
-    const next = document.documentElement.dataset['theme'] === 'dark' ? 'light' : 'dark';
-    this.#applyTheme(next);
     this.#paint();
   }
 
@@ -631,8 +620,6 @@ export class EsbozoEditorElement extends HTMLElement {
       void this.#openFolder();
     } else if (action === 'grid') {
       this.#toggleGrid();
-    } else if (action === 'theme') {
-      this.#toggleTheme();
     }
   };
 
@@ -705,15 +692,6 @@ export class EsbozoEditorElement extends HTMLElement {
           : state === 'saved'
             ? 'saved'
             : '';
-  }
-
-  #preferredTheme(): 'light' | 'dark' {
-    return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  }
-
-  #applyTheme(theme: 'light' | 'dark'): void {
-    document.documentElement.dataset['theme'] = theme;
-    this.#themeButton.textContent = theme === 'dark' ? 'Light' : 'Dark';
   }
 }
 
