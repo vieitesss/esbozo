@@ -11,7 +11,8 @@
  * grey step is a fixed `color-mix` of ink into paper, an opaque colour, so an
  * overlap never darkens and a host backdrop other than paper never shows
  * through. A hachure or cross-hatch fill takes one step more ink than a solid
- * fill so the two read as the same weight. The Scene hash is written into
+ * fill of the same grey, and its hatch gap leaves a lattice rather than a
+ * wash at every roughness, so the two line fills stay a texture. The Scene hash is written into
  * `data-scene-hash` so an SVG can always be traced back to the Scene it came
  * from, and the root `<svg role="img">` carries its accessible name as its own
  * first-child `<title>`, with no document-wide id to collide with.
@@ -195,8 +196,10 @@ function renderOutlined(element: OutlinedElement): string {
   const paths: string[] = [];
 
   if (element.fill.kind !== 'none') {
-    // A hachure or cross-hatch fill is drawn as lines, so it needs one step
-    // more ink than a solid wash to read as the same grey.
+    // A hachure or cross-hatch fill is drawn as lines, so it takes one step
+    // more ink than a solid wash at the same grey. The gap follows the stroke
+    // width, wide enough that a cross-hatch at roughness 2 keeps both
+    // directions visible instead of filling in as a dense mesh.
     const lineFilled = element.fill.kind !== 'solid';
     const grey = lineFilled
       ? Math.min(element.fill.grey + 1, GREY_LAST)
@@ -208,6 +211,7 @@ function renderOutlined(element: OutlinedElement): string {
       fill: colour,
       fillStyle: element.fill.kind,
       fillWeight: Math.max(1, width / 2),
+      hachureGap: Math.max(8, width * 3),
     };
     for (const path of outlinedPaths(generator, element, options)) {
       if (path.fill !== 'none') {
