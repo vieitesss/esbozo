@@ -27,8 +27,6 @@ const kalam = opentype.parse(
   kalamBytes.buffer.slice(kalamBytes.byteOffset, kalamBytes.byteOffset + kalamBytes.byteLength) as ArrayBuffer,
 );
 
-/** Layout's room between the words and the outline, before the stroke width. */
-const PADDING = 8;
 /** Renderer's padding around the Scene's Elements. */
 const PAGE_PADDING = 16;
 

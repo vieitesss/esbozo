@@ -44,7 +44,6 @@
  * The built-in light and dark palettes are sb's Excalidraw converter defaults,
  * the prior art.
  */
-import { readFile } from 'node:fs/promises';
 import { initWasm, Resvg } from '@resvg/resvg-wasm';
 import resvgWasm from '@resvg/resvg-wasm/index_bg.wasm';
 import {
