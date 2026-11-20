@@ -92,6 +92,41 @@ export function at(point: Point, view: View = VIEW): Point {
   return { x: point.x * view.zoom + view.panX, y: point.y * view.zoom + view.panY };
 }
 
+/**
+ * A thick horizontal line, and a diagonal arrow whose bounding box holds a
+ * rectangle: the shapes whose boxes lie about where their ink is.
+ */
+export const CROSSED_SCENE = {
+  version: 1,
+  title: 'Crossed',
+  defaults: { roughness: 1 },
+  elements: [
+    { id: 'sheet', type: 'rectangle', x: 40, y: 40, width: 120, height: 80 },
+    {
+      id: 'slant',
+      type: 'arrow',
+      points: [
+        { x: 40, y: 40 },
+        { x: 240, y: 160 },
+      ],
+      heads: { start: 'none', end: 'arrow' },
+    },
+    {
+      id: 'rule',
+      type: 'line',
+      points: [
+        { x: 60, y: 200 },
+        { x: 320, y: 200 },
+      ],
+      heads: { start: 'none', end: 'none' },
+      stroke: { width: 'extra' },
+    },
+  ],
+};
+
+/** The view `CROSSED_SCENE` lands in, worked out the same way as `VIEW`. */
+export const CROSSED: View = { zoom: 1, panX: 460, panY: 280 };
+
 /** A Scene worth looking at, for the light and dark screenshots. */
 export const POSTER_SCENE = {
   version: 1,

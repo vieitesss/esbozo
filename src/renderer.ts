@@ -161,6 +161,23 @@ export function elementBounds(element: Element, byId: ReadonlyMap<string, Elemen
 }
 
 /**
+ * The two ends an arrow or line draws, each Snapped end resolved onto its
+ * target's outline: the shaft the editor picks by, so a click follows the ink
+ * rather than the empty box around it.
+ */
+export function drawnShaft(
+  element: ArrowOrLineElement,
+  byId: ReadonlyMap<string, Element>,
+): [Point, Point] {
+  return arrowOrLinePoints(element, byId);
+}
+
+/** The stroke width an Element draws with, in pixels. */
+export function strokeWidthOf(element: Element): number {
+  return STROKE_WIDTH_PX[element.stroke.width];
+}
+
+/**
  * Provisional Text extent, so a Text fits its page and its alignment has an
  * edge to align to. #4 Layout replaces it with measurement of the real font;
  * until then it is a rough advance width, not measurement.

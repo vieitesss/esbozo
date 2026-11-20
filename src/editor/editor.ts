@@ -39,6 +39,8 @@ const HANDLE_SIZE = 8;
 const NUDGE = 1;
 const NUDGE_WITH_SHIFT = 10;
 const ZOOM_STEP = 1.2;
+/** How far off the ink a click still picks an arrow or line, in screen pixels. */
+const PICK_TOLERANCE = 6;
 
 /** Where the open Scene saves: the folder and the name it was opened from. */
 interface SaveTarget {
@@ -420,7 +422,7 @@ export class EsbozoEditorElement extends HTMLElement {
     }
 
     const point = this.#scenePoint(event);
-    const hit = elementAt(this.#scene.elements, point);
+    const hit = elementAt(this.#scene.elements, point, PICK_TOLERANCE / this.#view.zoom);
     if (hit !== null) {
       if (event.shiftKey) {
         this.#selected = this.#selected.includes(hit.id)

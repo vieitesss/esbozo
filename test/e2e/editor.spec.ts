@@ -10,6 +10,8 @@
  */
 import { expect, test } from '@playwright/test';
 import {
+  CROSSED,
+  CROSSED_SCENE,
   MIXED,
   MIXED_SCENE,
   SCENE,
@@ -29,6 +31,7 @@ import type { Rect } from './pixels.js';
 
 const SCENE_SOURCE = JSON.stringify(SCENE, null, 2);
 const MIXED_SOURCE = JSON.stringify(MIXED_SCENE, null, 2);
+const CROSSED_SOURCE = JSON.stringify(CROSSED_SCENE, null, 2);
 
 /** The middle of `b`, the one solid grey box in the fixture. */
 const GREY_BOX: Rect = { x: 700, y: 390, width: 40, height: 40 };
@@ -143,6 +146,54 @@ test('a box that only overlaps an Element does not select it', async ({ page }) 
   // Nothing is selected, so a nudge writes nothing.
   await page.keyboard.press('Shift+ArrowRight');
   expect((await savedFiles(page))['scene.json']).toBe(SCENE_SOURCE);
+});
+
+test('a thick horizontal line is picked a pixel off its centre', async ({ page }) => {
+  await openEditor(page, { A: { 'crossed.json': CROSSED_SOURCE } }, 'crossed.json');
+
+  // The line draws at y 200 with a 4px stroke; its box has no height at all.
+  await clickScene(page, { x: 190, y: 201 }, [], CROSSED);
+  await page.keyboard.press('Shift+ArrowRight');
+
+  const scene = await savedScene(page, 'crossed.json');
+  expect(scene.elements.find((element) => element.id === 'rule')?.points).toEqual([
+    { x: 70, y: 200 },
+    { x: 330, y: 200 },
+  ]);
+});
+
+test('a click on a rectangle inside an arrow\'s box selects the rectangle', async ({ page }) => {
+  await openEditor(page, { A: { 'crossed.json': CROSSED_SOURCE } }, 'crossed.json');
+
+  // The point is inside the diagonal arrow's box but 15px off its ink.
+  await clickScene(page, { x: 120, y: 70 }, [], CROSSED);
+  await page.keyboard.press('Shift+ArrowRight');
+
+  const scene = await savedScene(page, 'crossed.json');
+  const saved = new Map(scene.elements.map((element) => [element.id, element]));
+  expect(saved.get('sheet')?.x).toBe(50);
+  expect(saved.get('slant')?.points).toEqual([
+    { x: 40, y: 40 },
+    { x: 240, y: 160 },
+  ]);
+});
+
+test('a box drag starts inside an arrow\'s empty box', async ({ page }) => {
+  await openEditor(page, { A: { 'crossed.json': CROSSED_SOURCE } }, 'crossed.json');
+
+  // The drag starts in the arrow's box and sweeps up its own box left edge:
+  // the rectangle is the only Element fully enclosed, and it is the only one
+  // that moves.
+  await drag(page, at({ x: 40, y: 160 }, CROSSED), at({ x: 200, y: 20 }, CROSSED));
+  await page.keyboard.press('Shift+ArrowRight');
+
+  const scene = await savedScene(page, 'crossed.json');
+  const saved = new Map(scene.elements.map((element) => [element.id, element]));
+  expect(saved.get('sheet')?.x).toBe(50);
+  expect(saved.get('slant')?.points).toEqual([
+    { x: 40, y: 40 },
+    { x: 240, y: 160 },
+  ]);
 });
 
 test('a resize handle changes the saved geometry', async ({ page }) => {

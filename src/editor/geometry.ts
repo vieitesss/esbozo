@@ -4,11 +4,12 @@
  * serves the pointer handlers and the tests.
  *
  * Where an Element is comes from the Renderer (`elementBounds`, `pageBounds`),
- * so the editor and a drawn page can never disagree. Hit testing and box-select
- * work on those boxes for every Element type; a diagonal arrow's empty corner is
- * part of its box until a later ticket gives the pointer a real outline pick.
+ * so the editor and a drawn page can never disagree. An arrow or line is picked
+ * by how far the pointer is from the shaft it draws, not by the box around it: a
+ * diagonal arrow's empty corner is bare canvas. Box-select still works on boxes,
+ * because a box sweeps up only what it encloses.
  */
-import { elementBounds, elementsById, pageBounds } from '../renderer.js';
+import { drawnShaft, elementBounds, elementsById, pageBounds, strokeWidthOf } from '../renderer.js';
 import { MIN_SIZE, isOutlined } from '../scene.js';
 import type { Element, Scene } from '../scene.js';
 
@@ -52,11 +53,27 @@ export function boxOf(elements: readonly Element[], byId: ReadonlyMap<string, El
   return { x: left, y: top, width: right - left, height: bottom - top };
 }
 
-/** The topmost Element under a point: list order is layer order. */
-export function elementAt(elements: readonly Element[], point: Point): Element | null {
+/**
+ * The topmost Element under a point: list order is layer order. An arrow or
+ * line is picked by its drawn shaft, `tolerance` Scene units off it; every other
+ * Element by its box.
+ */
+export function elementAt(
+  elements: readonly Element[],
+  point: Point,
+  tolerance: number,
+): Element | null {
   const byId = elementsById(elements);
   for (let index = elements.length - 1; index >= 0; index--) {
     const element = elements[index]!;
+    if (element.type === 'arrow' || element.type === 'line') {
+      const [start, end] = drawnShaft(element, byId);
+      const reach = Math.max(tolerance, strokeWidthOf(element) / 2);
+      if (distanceToSegment(point, start, end) <= reach) {
+        return element;
+      }
+      continue;
+    }
     const box = boxOfElement(element, byId);
     if (
       point.x >= box.x &&
@@ -68,6 +85,19 @@ export function elementAt(elements: readonly Element[], point: Point): Element |
     }
   }
   return null;
+}
+
+/** How far a point is from the segment `from`-`to`. */
+function distanceToSegment(point: Point, from: Point, to: Point): number {
+  const across = to.x - from.x;
+  const down = to.y - from.y;
+  const lengthSquared = across * across + down * down;
+  const along =
+    lengthSquared === 0
+      ? 0
+      : Math.min(1, Math.max(0, ((point.x - from.x) * across + (point.y - from.y) * down) / lengthSquared));
+  const nearest = { x: from.x + across * along, y: from.y + down * along };
+  return Math.hypot(point.x - nearest.x, point.y - nearest.y);
 }
 
 /** Every Element the box fully encloses: a box sweeps up only what is inside it. */
