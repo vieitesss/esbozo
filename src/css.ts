@@ -148,7 +148,8 @@ export function readColour(text: string): Rgba | null {
     return readFunctionalColour(functional[1] ?? '');
   }
 
-  return NAMED_COLOURS[trimmed.toLowerCase()] ?? null;
+  // Only names in the table: `constructor` and friends are Object's, not CSS's.
+  return NAMED_COLOURS.get(trimmed.toLowerCase()) ?? null;
 }
 
 /** `rgb()`/`rgba()` text for a colour, the form the SVG is resolved to. */
@@ -540,7 +541,8 @@ const NAMED_HEX: Readonly<Record<string, string>> = {
   transparent: '00000000',
 };
 
-const NAMED_COLOURS: Readonly<Record<string, Rgba>> = Object.fromEntries(
+/** The names above, as colours. A Map, so only own keys are ever looked up. */
+const NAMED_COLOURS: ReadonlyMap<string, Rgba> = new Map(
   Object.entries(NAMED_HEX).map(([name, hex]) => [name, readColour(`#${hex}`) as Rgba]),
 );
 

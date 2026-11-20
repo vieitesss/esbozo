@@ -370,6 +370,24 @@ test('a colour the subset cannot resolve exits 5 and names it', async () => {
   }
 });
 
+test('a name that is only a property of Object is not a colour', async () => {
+  const folder = await sceneFolder({
+    version: 1,
+    elements: [{ id: 'box', type: 'rectangle', x: 20, y: 20, width: 120, height: 80 }],
+  });
+  await writeFile(
+    join(folder, 'site.css'),
+    ':root { --ink: constructor; --paper: #fafafa; --muted: #777777; }',
+    'utf8',
+  );
+
+  const run = await ez(['png', 'scene.json', '--theme', 'light', '--css', 'site.css'], folder);
+
+  assert.equal(run.code, 5);
+  assert.match(run.stderr, /^stylesheet colour --ink is not a colour: constructor$/m);
+  assert.equal(existsSync(join(folder, 'scene.light.png')), false);
+});
+
 test('--css supplies the colours of each theme', async () => {
   const folder = await sceneFolder();
   await writeFile(
