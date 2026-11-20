@@ -32,6 +32,11 @@
  * `Layout` the caller measured: `renderScene(scene, layout)`. Nothing here
  * reads a file, and nothing here grows an Element: a Label that does not fit is
  * drawn where it is and `ez check` reports it.
+ *
+ * Each Element is measured once per drawing, and both the box it covers and the
+ * SVG that draws it come from that one result. The editor reads the same boxes
+ * through `elementBounds` and `pageBounds`, so selection, fitting and the page
+ * cannot disagree with the ink.
  */
 import { RoughGenerator } from 'roughjs/bin/generator.js';
 import type { Options, PathInfo } from 'roughjs/bin/core.js';
@@ -44,6 +49,7 @@ import type {
   Point,
   Scene,
   StrokeWidth,
+  TextElement,
 } from './scene.js';
 import { STROKE_WIDTH_PX } from './layout.js';
 import type { Block, Box, Layout, Shaft } from './layout.js';
@@ -76,12 +82,20 @@ const EMPTY_PAGE = { width: 320, height: 240 };
 const GREY_INK_PERCENT = [0, 12, 24, 38, 55, 72, 100] as const;
 const GREY_LAST = GREY_INK_PERCENT.length - 1;
 
+/** A box in Scene units: what an Element covers, and what a page shows. */
+export type { Box } from './layout.js';
+
+/** Every Element by id, so a Snapped arrow or line end resolves its target. */
+export function elementsById(elements: readonly Element[]): Map<string, Element> {
+  return new Map(elements.map((element) => [element.id, element]));
+}
+
 export function renderScene(scene: Scene, layout: Layout): string {
   const canonical = canonicalScene(scene);
   const hash = hashScene(canonical);
-  const byId = new Map(canonical.elements.map((element) => [element.id, element]));
+  const byId = elementsById(canonical.elements);
   const drawn = canonical.elements.map((element) => drawElement(element, byId, layout));
-  const page = pageBounds(drawn);
+  const page = pageOf(drawn.map((element) => element.bounds));
   const body = drawn.map((element) => element.svg).join('');
 
   return [
@@ -95,26 +109,29 @@ export function renderScene(scene: Scene, layout: Layout): string {
   ].join('\n');
 }
 
-interface Page {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+/**
+ * The page a Scene occupies: the box around every Element, padded, or the empty
+ * page when there are none. Exported so a host fits the page the Renderer
+ * draws, not a second copy of the same arithmetic.
+ */
+export function pageBounds(scene: Scene, layout: Layout): Box {
+  const byId = elementsById(scene.elements);
+  return pageOf(scene.elements.map((element) => elementBounds(element, byId, layout)));
 }
 
-function pageBounds(drawn: readonly Drawn[]): Page {
-  if (drawn.length === 0) {
+function pageOf(bounds: readonly Box[]): Box {
+  if (bounds.length === 0) {
     return { x: 0, y: 0, ...EMPTY_PAGE };
   }
   let left = Number.POSITIVE_INFINITY;
   let top = Number.POSITIVE_INFINITY;
   let right = Number.NEGATIVE_INFINITY;
   let bottom = Number.NEGATIVE_INFINITY;
-  for (const { bounds } of drawn) {
-    left = Math.min(left, bounds.x);
-    top = Math.min(top, bounds.y);
-    right = Math.max(right, bounds.x + bounds.width);
-    bottom = Math.max(bottom, bounds.y + bounds.height);
+  for (const box of bounds) {
+    left = Math.min(left, box.x);
+    top = Math.min(top, box.y);
+    right = Math.max(right, box.x + box.width);
+    bottom = Math.max(bottom, box.y + box.height);
   }
   const x = Math.floor(left - PADDING);
   const y = Math.floor(top - PADDING);
@@ -126,51 +143,112 @@ function pageBounds(drawn: readonly Drawn[]): Page {
   };
 }
 
+/** The box an Element covers, its words included: its selection outline, and what a box sweeps up. */
+export function elementBounds(
+  element: Element,
+  byId: ReadonlyMap<string, Element>,
+  layout: Layout,
+): Box {
+  const placed = placement(element, byId, layout);
+  return joined(placed.box, placed.words);
+}
+
+/**
+ * The two ends an arrow or line draws, each Snapped end resolved onto its
+ * target's outline: the shaft the editor picks by, so a click follows the ink
+ * rather than the empty box around it.
+ */
+export function drawnShaft(
+  element: ArrowOrLineElement,
+  byId: ReadonlyMap<string, Element>,
+): [Point, Point] {
+  return arrowOrLinePoints(element, byId);
+}
+
+/** The stroke width an Element draws with, in pixels. */
+export function strokeWidthOf(element: Element): number {
+  return STROKE_WIDTH_PX[element.stroke.width];
+}
+
+/**
+ * What Layout places for one Element, and the box it is drawn against: a shaft's
+ * two ends, a Text's own block, or a container's outline. Both the bounds and
+ * the SVG come from this one result, so where the page ends and where the ink
+ * goes cannot drift apart.
+ */
+type Placement =
+  | {
+      kind: 'shaft';
+      element: ArrowOrLineElement;
+      shaft: Shaft;
+      words: Block | null;
+      box: Box;
+    }
+  | { kind: 'text'; element: TextElement; words: Block; box: Box }
+  | { kind: 'outline'; element: OutlinedElement; words: Block | null; box: Box };
+
+function placement(
+  element: Element,
+  byId: ReadonlyMap<string, Element>,
+  layout: Layout,
+): Placement {
+  switch (element.type) {
+    case 'arrow':
+    case 'line': {
+      const [start, end] = arrowOrLinePoints(element, byId);
+      const shaft = { start, end };
+      return {
+        kind: 'shaft',
+        element,
+        shaft,
+        words: layout.label(element, shaft),
+        box: shaftBox(shaft),
+      };
+    }
+    case 'text': {
+      const words = layout.text(element);
+      return { kind: 'text', element, words, box: words };
+    }
+    default:
+      return {
+        kind: 'outline',
+        element,
+        words: layout.label(element),
+        box: { x: element.x, y: element.y, width: element.width, height: element.height },
+      };
+  }
+}
+
+/** The box a shaft covers, before its words are added. */
+function shaftBox(shaft: Shaft): Box {
+  return {
+    x: Math.min(shaft.start.x, shaft.end.x),
+    y: Math.min(shaft.start.y, shaft.end.y),
+    width: Math.abs(shaft.end.x - shaft.start.x),
+    height: Math.abs(shaft.end.y - shaft.start.y),
+  };
+}
+
 /** One Element drawn: the box it takes on the page and the SVG that draws it. */
 interface Drawn {
   bounds: Box;
   svg: string;
 }
 
-/**
- * One Element, measured once: Layout places its words and the Snap geometry
- * resolves its shaft, and both the page bounds and the drawing come from those
- * same results. Nothing is derived twice, so where the page ends and where the
- * ink goes cannot drift apart.
- */
-function drawElement(element: Element, byId: Map<string, Element>, layout: Layout): Drawn {
-  switch (element.type) {
-    case 'arrow':
-    case 'line': {
-      const [start, end] = arrowOrLinePoints(element, byId);
-      const shaft = { start, end };
-      const words = layout.label(element, shaft);
-      const bounds = joined(
-        {
-          x: Math.min(start.x, end.x),
-          y: Math.min(start.y, end.y),
-          width: Math.abs(end.x - start.x),
-          height: Math.abs(end.y - start.y),
-        },
-        words,
-      );
-      return { bounds, svg: arrowOrLineSvg(element, shaft, words) };
-    }
-    case 'text': {
-      const words = layout.text(element);
-      return {
-        bounds: words,
-        svg: renderBlock(words, element.tone === 'muted' ? MUTED : INK),
-      };
-    }
-    default: {
-      const words = layout.label(element);
-      const bounds = joined(
-        { x: element.x, y: element.y, width: element.width, height: element.height },
-        words,
-      );
-      return { bounds, svg: outlinedSvg(element, words) };
-    }
+/** One Element: measured once, then both bounded and drawn from that result. */
+function drawElement(element: Element, byId: ReadonlyMap<string, Element>, layout: Layout): Drawn {
+  const placed = placement(element, byId, layout);
+  return { bounds: joined(placed.box, placed.words), svg: svgOf(placed) };
+}
+
+function svgOf(placed: Placement): string {
+  switch (placed.kind) {
+    case 'shaft':
+      return arrowOrLineSvg(placed.element, placed.shaft, placed.words);
+    case 'text':
+      return renderBlock(placed.words, placed.element.tone === 'muted' ? MUTED : INK);
+    case 'outline':
+      return outlinedSvg(placed.element, placed.words);
   }
 }
 
@@ -417,7 +495,7 @@ function headPaths(
  */
 function arrowOrLinePoints(
   element: ArrowOrLineElement,
-  byId: Map<string, Element>,
+  byId: ReadonlyMap<string, Element>,
 ): [Point, Point] {
   const [start, end] = element.points;
   const startTarget = snapTarget(element, start, byId);
@@ -455,7 +533,7 @@ function runsAgainst(from: Point, to: Point, fromCentre: Point, toCentre: Point)
 function snapTarget(
   element: ArrowOrLineElement,
   point: Point,
-  byId: Map<string, Element>,
+  byId: ReadonlyMap<string, Element>,
 ): OutlinedElement | undefined {
   if (point.snap === undefined) {
     return undefined;

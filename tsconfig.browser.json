@@ -9,6 +9,7 @@
     "types": []
   },
   "include": [
-    "src/editor"
+    "src/editor",
+    "src/opentype.d.ts"
   ]
 }

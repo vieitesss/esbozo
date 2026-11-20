@@ -7,6 +7,7 @@
  * folder only changes what the Scenes note lists: the open Scene keeps its own
  * `{ folder, name }` destination.
  */
+import type { Layout } from '../layout.js';
 import { elementsById, renderScene } from '../renderer.js';
 import { emptyScene, isOutlined, parseScene, serialiseScene } from '../scene.js';
 import type { Element as SceneElement, Scene } from '../scene.js';
@@ -89,6 +90,8 @@ const SHELL = `
 `;
 
 export class EsbozoEditorElement extends HTMLElement {
+  /** The page's font, measured: every Text and Label is placed with it. */
+  readonly #layout: Layout;
   #scene: Scene = emptyScene();
   #selected: string[] = [];
   #view: View = { zoom: 1, panX: 0, panY: 0 };
@@ -116,6 +119,11 @@ export class EsbozoEditorElement extends HTMLElement {
   #zoomLabel!: HTMLElement;
   #whereLabel!: HTMLElement;
   #savedLabel!: HTMLElement;
+
+  constructor(layout: Layout) {
+    super();
+    this.#layout = layout;
+  }
 
   connectedCallback(): void {
     if (this.#canvas !== undefined) {
@@ -151,7 +159,7 @@ export class EsbozoEditorElement extends HTMLElement {
     window.addEventListener('resize', this.#onResize);
 
     requestAnimationFrame(() => this.#drawRailArt());
-    this.#view = fittedView(this.#scene, this.#viewportSize());
+    this.#view = fittedView(this.#scene, this.#viewportSize(), this.#layout);
     this.#paint();
   }
 
@@ -223,7 +231,7 @@ export class EsbozoEditorElement extends HTMLElement {
       return;
     }
     const sceneSource = serialiseScene(this.#scene);
-    const svgSource = renderScene(this.#scene);
+    const svgSource = renderScene(this.#scene, this.#layout);
     this.#setSaved('saving');
     const writing = this.#saveQueue.then(async () => {
       try {
@@ -251,7 +259,7 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#target = target;
     this.#selected = [];
     this.#paintedFor = null;
-    this.#view = fittedView(scene, this.#viewportSize());
+    this.#view = fittedView(scene, this.#viewportSize(), this.#layout);
     this.#whereLabel.textContent = `${target.folder.name} / ${target.name}`;
     this.#note.hidden = true;
     this.#paint();
@@ -307,7 +315,10 @@ export class EsbozoEditorElement extends HTMLElement {
       return;
     }
     this.#paintedFor = key;
-    const document_ = new DOMParser().parseFromString(renderScene(this.#scene), 'image/svg+xml');
+    const document_ = new DOMParser().parseFromString(
+      renderScene(this.#scene, this.#layout),
+      'image/svg+xml',
+    );
     const root = document_.documentElement;
     if (root.nodeName !== 'svg') {
       throw new Error('the Renderer did not return an SVG document');
@@ -326,7 +337,7 @@ export class EsbozoEditorElement extends HTMLElement {
     overlay.replaceChildren();
     const selected = this.#selectedElements();
     const first = selected[0];
-    const box = boxOf(selected, elementsById(this.#scene.elements));
+    const box = boxOf(selected, elementsById(this.#scene.elements), this.#layout);
     if (box !== null) {
       const padding = SELECTION_PADDING / this.#view.zoom;
       this.#appendRect(overlay, {
@@ -423,7 +434,7 @@ export class EsbozoEditorElement extends HTMLElement {
           kind: 'resize',
           id,
           handle: handle.getAttribute('data-handle') as Handle,
-          origin: boxOfElement(element, elementsById(this.#scene.elements)),
+          origin: boxOfElement(element, elementsById(this.#scene.elements), this.#layout),
           from: this.#scenePoint(event),
           before: serialiseScene(this.#scene),
         };
@@ -432,7 +443,12 @@ export class EsbozoEditorElement extends HTMLElement {
     }
 
     const point = this.#scenePoint(event);
-    const hit = elementAt(this.#scene.elements, point, PICK_TOLERANCE / this.#view.zoom);
+    const hit = elementAt(
+      this.#scene.elements,
+      point,
+      PICK_TOLERANCE / this.#view.zoom,
+      this.#layout,
+    );
     if (hit !== null) {
       if (event.shiftKey) {
         this.#selected = this.#selected.includes(hit.id)
@@ -510,7 +526,9 @@ export class EsbozoEditorElement extends HTMLElement {
 
     if (drag.kind === 'box') {
       const swept = boxBetween(drag.from, drag.to);
-      const picked = elementsInBox(this.#scene.elements, swept).map((element) => element.id);
+      const picked = elementsInBox(this.#scene.elements, swept, this.#layout).map(
+        (element) => element.id,
+      );
       this.#selected = drag.additive ? [...new Set([...this.#selected, ...picked])] : picked;
       this.#paint();
       return;
@@ -577,7 +595,7 @@ export class EsbozoEditorElement extends HTMLElement {
         this.#zoomBy(1 / ZOOM_STEP);
       } else if (event.key === '0') {
         event.preventDefault();
-        this.#view = fittedView(this.#scene, this.#viewportSize());
+        this.#view = fittedView(this.#scene, this.#viewportSize(), this.#layout);
         this.#paint();
       }
     }
@@ -724,8 +742,20 @@ function normaliseSceneName(raw: string): string {
   return /\.json$/i.test(trimmed) ? trimmed : `${trimmed}.json`;
 }
 
-export function defineEditorElement(): void {
+/**
+ * Registers the element with the measurement its page draws words with. The
+ * browser builds a custom element with no arguments, so the Layout arrives
+ * through this closure rather than through the constructor call.
+ */
+export function defineEditorElement(layout: Layout): void {
   if (!customElements.get('esbozo-editor')) {
-    customElements.define('esbozo-editor', EsbozoEditorElement);
+    customElements.define(
+      'esbozo-editor',
+      class extends EsbozoEditorElement {
+        constructor() {
+          super(layout);
+        }
+      },
+    );
   }
 }

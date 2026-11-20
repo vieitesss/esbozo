@@ -286,8 +286,9 @@ test('every Element type moves, and only a box-like one gets resize handles', as
   await dragBy(ui, { x: 120, y: 110 }, 30, 20, MIXED);
 
   // Text carries no width and height, so its corner drags it; nothing resizes.
-  await clickScene(ui, { x: 277, y: 110 }, [], MIXED);
-  await dragBy(ui, { x: 295, y: 130 }, 10, 10, MIXED);
+  // Its box is the words measured with Kalam, so the drag starts inside them.
+  await clickScene(ui, { x: 270, y: 110 }, [], MIXED);
+  await dragBy(ui, { x: 280, y: 120 }, 10, 10, MIXED);
 
   // An arrow moves by both of its ends.
   await dragBy(ui, { x: 200, y: 280 }, 0, -20, MIXED);

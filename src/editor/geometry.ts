@@ -10,6 +10,7 @@
  * because a box sweeps up only what it encloses.
  */
 import { drawnShaft, elementBounds, elementsById, pageBounds, strokeWidthOf } from '../renderer.js';
+import type { Layout } from '../layout.js';
 import { MIN_SIZE, isOutlined } from '../scene.js';
 import type { Element, Scene } from '../scene.js';
 
@@ -30,12 +31,20 @@ export const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const;
 export type Handle = (typeof HANDLES)[number];
 
 /** The box an Element covers, as the Renderer draws it. */
-export function boxOfElement(element: Element, byId: ReadonlyMap<string, Element>): Box {
-  return elementBounds(element, byId);
+export function boxOfElement(
+  element: Element,
+  byId: ReadonlyMap<string, Element>,
+  layout: Layout,
+): Box {
+  return elementBounds(element, byId, layout);
 }
 
 /** The box around every given Element, or null when there is none. */
-export function boxOf(elements: readonly Element[], byId: ReadonlyMap<string, Element>): Box | null {
+export function boxOf(
+  elements: readonly Element[],
+  byId: ReadonlyMap<string, Element>,
+  layout: Layout,
+): Box | null {
   if (elements.length === 0) {
     return null;
   }
@@ -44,7 +53,7 @@ export function boxOf(elements: readonly Element[], byId: ReadonlyMap<string, El
   let right = Number.NEGATIVE_INFINITY;
   let bottom = Number.NEGATIVE_INFINITY;
   for (const element of elements) {
-    const box = boxOfElement(element, byId);
+    const box = boxOfElement(element, byId, layout);
     left = Math.min(left, box.x);
     top = Math.min(top, box.y);
     right = Math.max(right, box.x + box.width);
@@ -62,6 +71,7 @@ export function elementAt(
   elements: readonly Element[],
   point: Point,
   tolerance: number,
+  layout: Layout,
 ): Element | null {
   const byId = elementsById(elements);
   for (let index = elements.length - 1; index >= 0; index--) {
@@ -74,7 +84,7 @@ export function elementAt(
       }
       continue;
     }
-    const box = boxOfElement(element, byId);
+    const box = boxOfElement(element, byId, layout);
     if (
       point.x >= box.x &&
       point.x <= box.x + box.width &&
@@ -100,10 +110,14 @@ function distanceToSegment(point: Point, from: Point, to: Point): number {
 }
 
 /** Every Element the box fully encloses: a box sweeps up only what is inside it. */
-export function elementsInBox(elements: readonly Element[], box: Box): Element[] {
+export function elementsInBox(
+  elements: readonly Element[],
+  box: Box,
+  layout: Layout,
+): Element[] {
   const byId = elementsById(elements);
   return elements.filter((element) => {
-    const other = boxOfElement(element, byId);
+    const other = boxOfElement(element, byId, layout);
     return (
       other.x >= box.x &&
       other.y >= box.y &&
@@ -237,8 +251,9 @@ export function zoomedAt(view: View, factor: number, screenX: number, screenY: n
 export function fittedView(
   scene: Scene,
   viewport: { width: number; height: number },
+  layout: Layout,
 ): View {
-  const box = pageBounds(scene);
+  const box = pageBounds(scene, layout);
   const margin = 80;
   const zoom = clampZoom(
     Math.min(
