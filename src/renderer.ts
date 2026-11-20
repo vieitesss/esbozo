@@ -576,6 +576,10 @@ function snappedEnd(
 /**
  * Measured words as one `<text>` per line, on the baseline and at the anchor
  * Layout placed them on. A blank line takes its space and draws nothing.
+ *
+ * `xml:space="preserve"` keeps a run of ASCII spaces as wide as Layout measured
+ * it: without it an SVG host collapses the run to one space and the drawing is
+ * narrower than the box the words were wrapped and placed for.
  */
 function renderBlock(block: Block | null, colour: string): string {
   if (block === null) {
@@ -587,7 +591,7 @@ function renderBlock(block: Block | null, colour: string): string {
       (line) =>
         `<text x="${formatNumber(line.x)}" y="${formatNumber(line.baseline)}"` +
         ` font-size="${formatNumber(block.size)}" text-anchor="${block.anchor}"` +
-        ` fill="${colour}">${escapeXml(line.text)}</text>`,
+        ` xml:space="preserve" fill="${colour}">${escapeXml(line.text)}</text>`,
     )
     .join('');
 }

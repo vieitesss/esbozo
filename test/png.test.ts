@@ -381,6 +381,39 @@ test('a dashed or dotted Snap reaches its target as ink, not bare paper', async 
   }
 });
 
+test('repeated ASCII spaces are drawn, not collapsed into one', async () => {
+  const folder = await sceneFolder({
+    version: 1,
+    title: 'Spaces',
+    elements: [
+      { id: 'one', type: 'text', x: 20, y: 20, content: 'a b', fontSize: 'XL' },
+      { id: 'two', type: 'text', x: 20, y: 120, content: 'a  b', fontSize: 'XL' },
+    ],
+  });
+
+  const { png } = await pngOne(['png', 'scene.json', '--theme', 'light'], folder);
+
+  // Each Element has its own band of the page: the rightmost inked column of
+  // the words with two spaces has to be a whole space further right than the
+  // same words with one. Collapsing them would draw both the same width.
+  const rightmost = (top: number, bottom: number): number => {
+    let right = -1;
+    for (let y = top; y < bottom; y += 1) {
+      for (let x = 0; x < png.width; x += 1) {
+        if (isInk(png.pixel(x, y))) {
+          right = Math.max(right, x);
+        }
+      }
+    }
+    return right;
+  };
+  const one = rightmost(0, png.height / 2);
+  const two = rightmost(png.height / 2, png.height);
+
+  assert.ok(one > 0, 'the single-space words are drawn');
+  assert.ok(two >= one + 8, `two spaces draw wider than one: ${two} vs ${one}`);
+});
+
 test('a colour the subset cannot resolve exits 5 and names it', async () => {
   const folder = await sceneFolder();
   const cases = [
