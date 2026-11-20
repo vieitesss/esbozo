@@ -9,7 +9,7 @@
  */
 import { fontSizePx } from '../layout.js';
 import type { Layout } from '../layout.js';
-import { elementsById, outlineBox, renderScene } from '../renderer.js';
+import { elementBounds, elementsById, outlineBox, renderScene } from '../renderer.js';
 import {
   emptyScene,
   isOutlined,
@@ -31,6 +31,11 @@ import {
   without,
 } from './elements.js';
 import type { DrawingTool } from './elements.js';
+import { arranged } from './arrange.js';
+import type { ArrangeAct } from './arrange.js';
+import { menuSignature, roughnessNote, styleNote } from './menu.js';
+import { nextRoughness, styled } from './style.js';
+import type { StyleKey } from './style.js';
 import { pickFolder } from './files.js';
 import { servedFolder } from './server-folder.js';
 import type { SceneFolder } from './files.js';
@@ -71,6 +76,8 @@ const PICK_TOLERANCE = 6;
 const COPY_OFFSET = { x: 16, y: 16 };
 /** Nudges closer together than this are one undo step: a held arrow key is one gesture. */
 const NUDGE_BURST_MS = 800;
+/** Breathing room between the Style menu and the selection it must not cover. */
+const MENU_GAP = 16;
 
 /** Where the open Scene saves: the folder and the name it was opened from. */
 interface SaveTarget {
@@ -124,12 +131,14 @@ const SHELL = `
 <footer class="status">
   <button type="button" data-act="open">Open folder…</button>
   <button type="button" data-act="grid" aria-pressed="true">Grid</button>
+  <button type="button" data-act="roughness" title="Scene default roughness for new Elements"></button>
   <span class="zoom">100%</span>
   <span class="where"></span>
   <span class="mode"></span>
   <span class="saved" role="status" data-state="idle"></span>
   <span class="hint">Space pan · wheel zoom · ⌘ +/− · G Grid</span>
 </footer>
+<div class="style-note" role="dialog" aria-label="Style" hidden></div>
 <div class="note" role="dialog" aria-label="Scene files" hidden>
   <div class="note-head"><b>Scenes</b><span class="folder"></span></div>
   <ul class="files"></ul>
@@ -161,6 +170,8 @@ export class EsbozoEditorElement extends HTMLElement {
   #saveQueue: Promise<void> = Promise.resolve();
   #paintQueued = false;
   #paintedFor: string | null = null;
+  /** The selection the Style menu was built for, so a rebuild only happens on a change. */
+  #menuFor: string | null = null;
 
   #canvas!: SVGSVGElement;
   #viewport!: SVGGElement;
@@ -179,6 +190,16 @@ export class EsbozoEditorElement extends HTMLElement {
   #whereLabel!: HTMLElement;
   #modeLabel!: HTMLElement;
   #savedLabel!: HTMLElement;
+  #menu!: HTMLElement;
+  #roughButton!: HTMLButtonElement;
+
+  /**
+   * Where an Element covers, in Scene units, for Arrange. It is the Renderer's
+   * own bounds, so an alignment lands where the drawing is rather than where a
+   * stored box says: a Snapped end and a Label are measured, not guessed.
+   */
+  #boundsOf = (element: SceneElement): Box =>
+    elementBounds(element, elementsById(this.#scene.elements), this.#layout);
 
   constructor(layout: Layout) {
     super();
@@ -205,6 +226,8 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#whereLabel = this.querySelector('.where')!;
     this.#modeLabel = this.querySelector('.mode')!;
     this.#savedLabel = this.querySelector('.saved')!;
+    this.#menu = this.querySelector('.style-note')!;
+    this.#roughButton = this.querySelector('[data-act="roughness"]')!;
 
     this.#canvas.addEventListener('pointerdown', this.#onPointerDown);
     this.#canvas.addEventListener('pointermove', this.#onPointerMove);
@@ -218,6 +241,7 @@ export class EsbozoEditorElement extends HTMLElement {
     document.addEventListener('paste', this.#onPaste);
     this.#newScene.addEventListener('submit', this.#onNewScene);
     this.#files.addEventListener('click', this.#onFileClick);
+    this.#menu.addEventListener('click', this.#onMenuClick);
     document.addEventListener('keydown', this.#onKeyDown);
     document.addEventListener('keyup', this.#onKeyUp);
     // A Space held while the page loses the focus never sends its release: the
@@ -227,6 +251,7 @@ export class EsbozoEditorElement extends HTMLElement {
     window.addEventListener('resize', this.#onResize);
 
     requestAnimationFrame(() => this.#drawRailArt());
+    this.#showDefaultRoughness();
     this.#view = fittedView(this.#scene, this.#viewportSize(), this.#layout);
     this.#paint();
     void this.#joinServer();
@@ -368,6 +393,7 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#selected = [];
     this.#paintedFor = null;
     this.#history.reset(serialiseScene(scene));
+    this.#menuFor = null;
     this.#view = fittedView(scene, this.#viewportSize(), this.#layout);
     this.#whereLabel.textContent = `${target.folder.name} / ${target.name}`;
     this.#note.hidden = true;
@@ -533,14 +559,52 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#paint();
   }
 
+  /**
+   * The one way a style or Arrange change lands: the changed Scene replaces the
+   * current one, the page repaints and the edit autosaves as a single write. A
+   * change that leaves the Scene as it was writes nothing.
+   *
+   * Undo history (#7) hooks here: every style and Arrange edit passes through
+   * this call, so one hook covers them all.
+   */
+  #applyScene(next: Scene): void {
+    if (serialiseScene(next) === serialiseScene(this.#scene)) {
+      return;
+    }
+    this.#scene = next;
+    this.#paint();
+    void this.#save();
+  }
+
+  /** Change the selected Elements' style, every pick arriving here. */
+  #styleSelection(key: StyleKey, value: string): void {
+    const picked = new Set(this.#selected);
+    this.#applyScene({
+      ...this.#scene,
+      elements: this.#scene.elements.map((element) =>
+        picked.has(element.id) ? styled(element, key, value) : element,
+      ),
+    });
+  }
+
+  /** Reorder, align or spread the selected Elements. */
+  #arrangeSelection(act: ArrangeAct): void {
+    this.#applyScene({
+      ...this.#scene,
+      elements: arranged(this.#scene.elements, this.#selected, act, this.#boundsOf),
+    });
+  }
+
   // ------------------------------------------------------------------ painting
 
   /**
    * Pan, zoom and the Grid follow the pointer at once, because they are only
    * numbers the view group already carries. Repainting the Scene is what costs,
-   * so that waits for the next frame.
+   * so that waits for the next frame. The Style menu is synced first, because
+   * it may pan the view to keep itself off the selection.
    */
   #paint(): void {
+    this.#syncMenu();
     this.#applyView();
     if (this.#paintQueued) {
       return;
@@ -663,6 +727,52 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#railArt.setAttribute('height', String(height));
     this.#railArt.setAttribute('viewBox', `0 0 ${width} ${height}`);
     this.#railArt.innerHTML = railArt(width, height);
+  }
+
+  // ------------------------------------------------------------------- menu
+
+  /**
+   * The Style menu is there only with a selection. Its markup is rebuilt only
+   * when the selection or its style changes, so a drag that changes neither
+   * leaves the note alone, and a pick is read back from the same note.
+   */
+  #syncMenu(): void {
+    const selected = this.#selectedElements();
+    this.#menu.hidden = selected.length === 0;
+    if (selected.length === 0) {
+      this.#menuFor = null;
+      return;
+    }
+    const signature = menuSignature(selected);
+    if (signature !== this.#menuFor) {
+      this.#menuFor = signature;
+      this.#menu.innerHTML = styleNote(selected);
+    }
+    this.#panClearOfMenu(selected);
+  }
+
+  /**
+   * The note is docked to the right edge and must never sit on top of what it
+   * edits, so the view pans left just far enough to clear it. Panning waits for
+   * the end of a drag: moving the view out from under the pointer mid-drag would
+   * make the Element chase it. A selection wider than the free space cannot
+   * clear the note, so it stays where it is.
+   */
+  #panClearOfMenu(selected: readonly SceneElement[]): void {
+    if (this.#drag !== null) {
+      return;
+    }
+    const boxes = selected.map((element) => this.#boundsOf(element));
+    const { zoom, panX, panY } = this.#view;
+    const left = Math.min(...boxes.map((box) => box.x)) * zoom + panX;
+    const right = Math.max(...boxes.map((box) => box.x + box.width)) * zoom + panX;
+    const noteLeft = this.#menu.getBoundingClientRect().left;
+    const overflow = right + MENU_GAP - noteLeft;
+    const room = left - MENU_GAP;
+    if (overflow <= 0 || room <= 0) {
+      return;
+    }
+    this.#view = { zoom, panX: panX - Math.min(overflow, room), panY };
   }
 
   // ------------------------------------------------------------------ pointer
@@ -1131,6 +1241,38 @@ export class EsbozoEditorElement extends HTMLElement {
       void (this.#served ? this.#showNote() : this.#openFolder());
     } else if (action === 'grid') {
       this.#toggleGrid();
+    } else if (action === 'roughness') {
+      this.#stepDefaultRoughness();
+    }
+  };
+
+  /**
+   * The Scene-wide default roughness, which new Elements take. It sits in the
+   * status bar rather than in the Style menu, because the menu is only there
+   * with a selection and this default is set with nothing selected. One click
+   * is one autosaved edit, like every other Scene change.
+   */
+  #stepDefaultRoughness(): void {
+    const roughness = nextRoughness(this.#scene.defaults.roughness);
+    this.#applyScene({ ...this.#scene, defaults: { ...this.#scene.defaults, roughness } });
+    this.#showDefaultRoughness();
+  }
+
+  #showDefaultRoughness(): void {
+    this.#roughButton.textContent = roughnessNote(this.#scene.defaults.roughness);
+  }
+
+  #onMenuClick = (event: Event): void => {
+    const button = (event.target as Element | null)?.closest('[data-style],[data-act]') as HTMLElement | null;
+    if (button === null) {
+      return;
+    }
+    const style = button.dataset['style'] as StyleKey | undefined;
+    const act = button.dataset['act'] as ArrangeAct | undefined;
+    if (style !== undefined) {
+      this.#styleSelection(style, button.dataset['value'] ?? '');
+    } else if (act !== undefined) {
+      this.#arrangeSelection(act);
     }
   };
 

@@ -353,3 +353,110 @@ esbozo-editor::before {
 }
 
 .note .new button:hover { border-color: var(--line-strong); background: var(--line); }
+
+/* Style menu: a note taped to the right edge, and only there with a selection.
+   The editor pans the view to keep it off the selection, so nothing here has to
+   follow the pointer. Rows are grouped into look, words and arrange, which is
+   what keeps the note inside a 768px-high window. */
+.style-note {
+  position: absolute;
+  z-index: 30;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%) rotate(-0.45deg);
+  width: 300px;
+  max-height: calc(100vh - 44px);
+  padding: 13px 14px;
+  background: color-mix(in srgb, var(--paper) 96%, var(--ink));
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  box-shadow: 0 1px 0 var(--line), 0 14px 26px -16px var(--shadow), 2px 3px 0 -1px var(--line);
+  font-size: 11.5px;
+}
+
+/* a strip of tape across the top, as on the Scenes note */
+.style-note::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -9px;
+  width: 62px;
+  height: 17px;
+  transform: translateX(-50%) rotate(1.6deg);
+  background: var(--tape);
+  border-left: 1px dashed color-mix(in srgb, var(--ink) 12%, transparent);
+  border-right: 1px dashed color-mix(in srgb, var(--ink) 12%, transparent);
+}
+
+/* scroll rather than overflow a short window, and drop the tape so it is not clipped */
+@media (max-height: 500px) {
+  .style-note { overflow-y: auto; }
+  .style-note::before { display: none; }
+}
+
+.style-note .head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.style-note .head b { font-family: var(--font-hand); font-weight: 400; font-size: 15px; }
+.style-note .head span { color: var(--muted); font-family: var(--font-mono); font-size: 9.5px; }
+
+.style-note .group + .group {
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line-strong);
+}
+
+.style-note .row { display: flex; align-items: center; gap: 8px; margin: 5px 0; }
+
+.style-note .row-label {
+  width: 52px;
+  flex: none;
+  color: var(--muted);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.style-note .seg,
+.style-note .acts { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; flex: 1; }
+
+.style-note .seg button {
+  all: unset;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.style-note .seg button:hover { background: var(--line); color: var(--ink); }
+.style-note .seg button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+
+.style-note .seg.greys button {
+  width: 19px;
+  height: 17px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+}
+
+.style-note .seg.greys button[aria-pressed="true"] { outline: 1.5px solid var(--ink); outline-offset: 1px; }
+
+.style-note .mix { font-family: var(--font-hand); font-size: 10.5px; color: var(--muted); }
+
+.style-note .acts button {
+  all: unset;
+  cursor: pointer;
+  padding: 3px 7px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  font-size: 10.5px;
+  color: var(--ink);
+}
+
+.style-note .acts button:hover { border-color: var(--line-strong); background: var(--line); }
