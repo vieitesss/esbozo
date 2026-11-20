@@ -9,7 +9,7 @@
  * part of its box until a later ticket gives the pointer a real outline pick.
  */
 import { elementBounds, elementsById, pageBounds } from '../renderer.js';
-import { isOutlined } from '../scene.js';
+import { MIN_SIZE, isOutlined } from '../scene.js';
 import type { Element, Scene } from '../scene.js';
 
 export interface Point {
@@ -27,8 +27,6 @@ export interface Box {
 /** The eight resize handles, clockwise from the top left corner. */
 export const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const;
 export type Handle = (typeof HANDLES)[number];
-
-export const MIN_SIZE = 1;
 
 /** The box an Element covers, as the Renderer draws it. */
 export function boxOfElement(element: Element, byId: ReadonlyMap<string, Element>): Box {

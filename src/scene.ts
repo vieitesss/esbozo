@@ -245,6 +245,9 @@ const DEFAULT_STYLE: SceneStyle = {
 
 const DEFAULT_TITLE = 'Scene';
 
+/** The smallest width or height an Element can have: one pixel of ink. */
+export const MIN_SIZE = 1;
+
 const MAX_SEED = 2 ** 31 - 1;
 
 const SCENE_KEYS = ['version', 'title', 'defaults', 'elements'] as const;
@@ -335,15 +338,17 @@ function seedForId(id: string): number {
 
 /**
  * An empty Scene at the current schema version: what a new or missing Scene
- * file opens as. It goes through the same defaults parsing a file does, so a
- * new Scene and a reopened one agree.
+ * file opens as. The title goes through the same check a file's title does, and
+ * the style is a fresh copy of the defaults, so a new Scene and a reopened one
+ * agree without a JSON round trip.
  */
 export function emptyScene(title: string = DEFAULT_TITLE): Scene {
-  const parsed = parseScene(JSON.stringify({ version: SCENE_VERSION, title, elements: [] }));
-  if (!parsed.ok) {
-    throw new Error(`cannot build an empty Scene: ${parsed.problems[0]?.message ?? 'unknown'}`);
+  const problems: Problem[] = [];
+  const parsedTitle = parseTitle(title, problems);
+  if (parsedTitle === null) {
+    throw new Error(`cannot build an empty Scene: ${problems[0]?.message ?? 'invalid title'}`);
   }
-  return parsed.scene;
+  return { version: SCENE_VERSION, title: parsedTitle, defaults: serialiseStyle(DEFAULT_STYLE), elements: [] };
 }
 
 export function parseScene(source: string): ParseResult {
@@ -636,8 +641,8 @@ function parseOutlinedGeometry(
     if (value === null) {
       ok = false;
     } else if (field === 'width' || field === 'height') {
-      if (value < 1) {
-        report(`${field} must be at least 1 pixel, got ${value}`);
+      if (value < MIN_SIZE) {
+        report(`${field} must be at least ${MIN_SIZE} pixel, got ${value}`);
         ok = false;
       }
     }
