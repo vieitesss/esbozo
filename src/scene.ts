@@ -333,6 +333,19 @@ function seedForId(id: string): number {
   return (first % (MAX_SEED - 1)) + 1;
 }
 
+/**
+ * An empty Scene at the current schema version: what a new or missing Scene
+ * file opens as. It goes through the same defaults parsing a file does, so a
+ * new Scene and a reopened one agree.
+ */
+export function emptyScene(title: string = DEFAULT_TITLE): Scene {
+  const parsed = parseScene(JSON.stringify({ version: SCENE_VERSION, title, elements: [] }));
+  if (!parsed.ok) {
+    throw new Error(`cannot build an empty Scene: ${parsed.problems[0]?.message ?? 'unknown'}`);
+  }
+  return parsed.scene;
+}
+
 export function parseScene(source: string): ParseResult {
   let raw: unknown;
   try {
