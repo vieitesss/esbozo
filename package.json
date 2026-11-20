@@ -17,7 +17,9 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "pnpm build && node --test test/*.test.ts"
+    "test": "pnpm build && node --test test/*.test.ts",
+    "e2e": "pnpm build && playwright test",
+    "serve:editor": "node scripts/serve.mjs dist 4319"
   },
   "dependencies": {
     "@resvg/resvg-wasm": "^2.6.2",
@@ -25,6 +27,7 @@
     "roughjs": "^4.6.6"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "@types/node": "^22.10.2",
     "esbuild": "^0.24.0",
     "typescript": "^5.7.2"
