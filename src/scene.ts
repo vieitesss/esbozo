@@ -405,9 +405,6 @@ export function parseScene(source: string): ParseResult {
   const title = raw.title === undefined ? DEFAULT_TITLE : parseTitle(raw.title, problems);
   const defaults = parseDefaults(raw.defaults, problems);
   const elements = parseElements(raw.elements, defaults, problems);
-  if (elements !== null) {
-    validateSnapTargets(elements, problems);
-  }
 
   if (problems.length > 0 || title === null || elements === null) {
     return { ok: false, problems };
@@ -526,6 +523,7 @@ function parseElements(
   }
   const elements: Element[] = [];
   const seen = new Set<string>();
+  const declared = new Set<string>();
   for (const [index, entry] of raw.entries()) {
     if (!isRecord(entry)) {
       problems.push({
@@ -542,6 +540,7 @@ function parseElements(
       });
       continue;
     }
+    declared.add(id);
     if (seen.has(id)) {
       problems.push({ elementId: id, message: 'duplicate id' });
       continue;
@@ -552,6 +551,9 @@ function parseElements(
       elements.push(element);
     }
   }
+  // An Element that failed to parse is still one the author declared, so a Snap
+  // to it is not a Snap to nothing: its own problem is the one to report.
+  validateSnapTargets(elements, declared, problems);
   return elements;
 }
 
@@ -559,8 +561,17 @@ function parseElements(
  * A Snap end is drawn on its target's outline, so the target must exist and
  * must be a rectangle, ellipse or diamond. The problem names the arrow or line,
  * not the target: the Scene's own Element is what the author has to fix.
+ *
+ * `declared` holds every id the Scene lists, including the Elements that failed
+ * to parse. A Snap to one of those is not a Snap to a missing Element: the
+ * target has its own problem, and calling it missing would send the author
+ * looking for the wrong thing.
  */
-function validateSnapTargets(elements: Element[], problems: Problem[]): void {
+function validateSnapTargets(
+  elements: Element[],
+  declared: ReadonlySet<string>,
+  problems: Problem[],
+): void {
   const byId = new Map(elements.map((element) => [element.id, element]));
   for (const element of elements) {
     if (element.type !== 'arrow' && element.type !== 'line') {
@@ -582,10 +593,12 @@ function validateSnapTargets(elements: Element[], problems: Problem[]): void {
       }
       const target = byId.get(point.snap);
       if (target === undefined) {
-        problems.push({
-          elementId: element.id,
-          message: `snap target "${point.snap}" does not exist`,
-        });
+        if (!declared.has(point.snap)) {
+          problems.push({
+            elementId: element.id,
+            message: `snap target "${point.snap}" does not exist`,
+          });
+        }
       } else if (!isOutlined(target)) {
         problems.push({
           elementId: element.id,

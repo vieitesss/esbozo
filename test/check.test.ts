@@ -169,6 +169,29 @@ test('a Scene that does not parse exits 3 before anything is measured', async ()
   }
 });
 
+test('a bad Label does not make its Snap target look missing', async () => {
+  const folder = await sceneFolder({
+    version: 1,
+    elements: [
+      { id: 'box', type: 'rectangle', x: 0, y: 0, width: 120, height: 80, label: '   ' },
+      {
+        id: 'arrow',
+        type: 'arrow',
+        points: [
+          { x: 120, y: 40, snap: 'box' },
+          { x: 300, y: 40 },
+        ],
+      },
+    ],
+  });
+
+  const run = await ez(['check', 'scene.json'], folder);
+
+  assert.equal(run.code, 3);
+  assert.match(run.stderr, /^box: label must be a non-empty string, got "   "$/m);
+  assert.doesNotMatch(run.stderr, /does not exist/, 'the target exists; its Label is what is wrong');
+});
+
 test('a missing Scene exits 3', async () => {
   const folder = await sceneFolder(FITS);
 
