@@ -6,7 +6,7 @@
  * three helpers here means a change to how the CLI is invoked, or to how its
  * exit code is read, cannot make the suites disagree.
  */
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { mkdtemp, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -50,4 +50,55 @@ export async function ez(args: string[], cwd: string): Promise<Run> {
       stderr: failed.stderr ?? '',
     };
   }
+}
+
+/** A server `ez serve` is running on, and the folder it serves. */
+export interface Serve {
+  readonly url: string;
+  readonly folder: string;
+  stop(): Promise<void>;
+}
+
+/**
+ * `ez serve` on `folder`, with the port the operating system picks so tests
+ * never fight over one. Resolves once the server prints the URL it listens on;
+ * the folder is the working directory, as it would be for a person.
+ */
+export async function startServe(folder: string, args: readonly string[] = []): Promise<Serve> {
+  const child = spawn(process.execPath, [CLI, 'serve', folder, '--port', '0', ...args], {
+    cwd: folder,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  let stderr = '';
+  child.stdout!.setEncoding('utf8');
+  child.stderr!.setEncoding('utf8');
+  child.stdout!.on('data', (chunk: string) => (stdout += chunk));
+  child.stderr!.on('data', (chunk: string) => (stderr += chunk));
+
+  const url = await new Promise<string>((resolve_, reject) => {
+    const onData = (): void => {
+      const found = /(http:\/\/[^\s]+)/.exec(stdout);
+      if (found === null) {
+        return;
+      }
+      child.stdout!.off('data', onData);
+      resolve_(found[1]!.replace(/\/$/, ''));
+    };
+    child.stdout!.on('data', onData);
+    child.once('exit', (code) => reject(new Error(`ez serve exited ${code}: ${stderr || stdout}`)));
+  });
+
+  return {
+    url,
+    folder,
+    async stop(): Promise<void> {
+      if (child.exitCode !== null) {
+        return;
+      }
+      const ended = new Promise<void>((resolve_) => child.once('exit', () => resolve_()));
+      child.kill('SIGTERM');
+      await ended;
+    },
+  };
 }

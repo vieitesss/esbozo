@@ -11,6 +11,11 @@ import { opencodeConsole } from 'e2e/oauth/opencode-console';
  * e2e starts the server itself, so a run needs no second terminal. The page is
  * served from `dist`, which `pnpm e2e` builds first.
  *
+ * The server stays `scripts/serve.mjs` rather than `ez serve`: a served page
+ * takes its folder from the save API, and this suite's folder is the stubbed
+ * File System Access handle. `tests/serve.e2e.ts` drives `ez serve` on a real
+ * folder, which is the only place that mode is wanted.
+ *
  * Agent steps run on OpenCode Go: `muse-spark-1.3-contributor` takes images and
  * tool calls. The key comes from the environment, or from a `.env` at the
  * project root that is not in git, and is never read from a committed file.

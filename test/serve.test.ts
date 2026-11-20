@@ -1,0 +1,239 @@
+/**
+ * Seam 1: `ez serve` runs for real, on a temporary folder.
+ *
+ * Every request goes over http to a server the CLI started, and every
+ * assertion reads the folder's files afterwards: nothing here reaches into the
+ * server's own state. Paths that would leave the folder are tried the way an
+ * attacker would try them, and the file outside has to stay untouched.
+ */
+import assert from 'node:assert/strict';
+import { mkdir, readFile, stat, symlink, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { after, test } from 'node:test';
+import { ez, sceneFolder, startServe, tempFolder } from './cli.ts';
+import type { Serve } from './cli.ts';
+
+const SCENE = {
+  version: 1,
+  title: 'Two boxes',
+  elements: [
+    { id: 'a', type: 'rectangle', x: 40, y: 40, width: 120, height: 80 },
+    { id: 'b', type: 'rectangle', x: 200, y: 60, width: 100, height: 100 },
+  ],
+};
+const SCENE_SOURCE = JSON.stringify(SCENE, null, 2);
+const SVG = '<svg xmlns="http://www.w3.org/2000/svg"><title>Two boxes</title></svg>';
+
+/** A server to stop at the end of the file, whatever the test asserted. */
+const running: Serve[] = [];
+after(async () => {
+  await Promise.all(running.map((server) => server.stop()));
+});
+
+async function served(folder: string, args: readonly string[] = []): Promise<Serve> {
+  const server = await startServe(folder, args);
+  running.push(server);
+  return server;
+}
+
+interface Answer {
+  readonly status: number;
+  readonly body: string;
+}
+
+async function request(
+  server: Serve,
+  path: string,
+  method = 'GET',
+  body?: unknown,
+): Promise<Answer> {
+  const response = await fetch(`${server.url}${path}`, {
+    method,
+    ...(body === undefined
+      ? {}
+      : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+  });
+  return { status: response.status, body: await response.text() };
+}
+
+function sent(scene: unknown = SCENE, svg = SVG): { scene: string; svg: string } {
+  return { scene: JSON.stringify(scene, null, 2), svg };
+}
+
+test('the served page and its font come from the built folder', async () => {
+  const server = await served(await sceneFolder(SCENE));
+
+  const page = await request(server, '/editor.html');
+  assert.equal(page.status, 200);
+  assert.match(page.body, /<esbozo-editor>/);
+  assert.match(page.body, /editor\.js/);
+
+  const css = await request(server, '/editor.css');
+  assert.equal(css.status, 200);
+
+  const font = await fetch(`${server.url}/fonts/Kalam-Regular.ttf`);
+  assert.equal(font.status, 200);
+  assert.equal(font.headers.get('content-type'), 'font/ttf');
+  assert.ok((await font.arrayBuffer()).byteLength > 100_000, 'the hand font itself, not an error page');
+
+  // The folder path, so a page opened at / works the same.
+  assert.equal((await request(server, '/')).status, 200);
+});
+
+test('the list names the Scenes at the top level and says the folder is writable', async () => {
+  const folder = await tempFolder();
+  await writeFile(join(folder, 'b.json'), '{}', 'utf8');
+  await writeFile(join(folder, 'a.json'), '{}', 'utf8');
+  await writeFile(join(folder, 'notes.txt'), 'not a Scene', 'utf8');
+  // A Scene in a subfolder is out of reach: the folder is listed, not walked.
+  await mkdir(join(folder, 'nested'));
+  await writeFile(join(folder, 'nested', 'deep.json'), '{}', 'utf8');
+
+  const server = await served(folder);
+  const answer = await request(server, '/api/scenes');
+
+  assert.equal(answer.status, 200);
+  assert.deepEqual(JSON.parse(answer.body), {
+    folder: folder.split('/').pop(),
+    readOnly: false,
+    scenes: ['a.json', 'b.json'],
+  });
+});
+
+test('a Scene reads back byte for byte, and a missing one is not found', async () => {
+  const folder = await sceneFolder(SCENE, 'sketch.json');
+  const server = await served(folder);
+
+  const found = await request(server, '/api/scenes/sketch.json');
+  assert.equal(found.status, 200);
+  assert.equal(found.body, SCENE_SOURCE);
+
+  const missing = await request(server, '/api/scenes/other.json');
+  assert.equal(missing.status, 404);
+  assert.match(missing.body, /no Scene named other\.json/);
+});
+
+test('a write stores the Scene and its SVG side by side', async () => {
+  const folder = await sceneFolder(SCENE);
+  const server = await served(folder);
+  const write = sent({ ...SCENE, title: 'Saved' });
+
+  const answer = await request(server, '/api/scenes/saved.json', 'PUT', write);
+
+  assert.equal(answer.status, 200);
+  assert.deepEqual(JSON.parse(answer.body), { scene: 'saved.json', svg: 'saved.svg' });
+  assert.equal(await read_(join(folder, 'saved.json')), write.scene);
+  assert.equal(await read_(join(folder, 'saved.svg')), write.svg);
+
+  // POST does the same job, and overwriting keeps both files in step.
+  const again = sent(SCENE, '<svg/>');
+  assert.equal((await request(server, '/api/scenes/saved.json', 'POST', again)).status, 200);
+  assert.equal(await read_(join(folder, 'saved.svg')), '<svg/>');
+
+  // No temporary files are left behind either.
+  const list = JSON.parse((await request(server, '/api/scenes')).body) as { scenes: string[] };
+  assert.deepEqual(list.scenes, ['saved.json', 'scene.json']);
+});
+
+test('an invalid Scene is refused and nothing is written', async () => {
+  const folder = await sceneFolder(SCENE);
+  const server = await served(folder);
+  const broken = { version: 1, elements: [{ id: 'box-a', type: 'rectangle', x: 10, y: 10, width: 0, height: 40 }] };
+
+  const answer = await request(server, '/api/scenes/broken.json', 'PUT', sent(broken));
+
+  assert.equal(answer.status, 400);
+  assert.match(answer.body, /width must be at least 1 pixel/);
+  await assertMissing(join(folder, 'broken.json'));
+  await assertMissing(join(folder, 'broken.svg'));
+
+  // A body that is not a Scene and its SVG is refused the same way.
+  assert.equal((await request(server, '/api/scenes/odd.json', 'PUT', { scene: '{}' })).status, 400);
+  await assertMissing(join(folder, 'odd.json'));
+});
+
+test('a read-only folder lists and reads, and refuses every write', async () => {
+  const folder = await sceneFolder(SCENE);
+  const server = await served(folder, ['--read-only']);
+
+  const list = JSON.parse((await request(server, '/api/scenes')).body) as { readOnly: boolean };
+  assert.equal(list.readOnly, true);
+  assert.equal((await request(server, '/api/scenes/scene.json')).body, SCENE_SOURCE);
+
+  const refused = await request(server, '/api/scenes/scene.json', 'PUT', sent({ ...SCENE, title: 'Edited' }));
+  assert.equal(refused.status, 403);
+  assert.match(refused.body, /read-only/);
+  assert.equal(await read_(join(folder, 'scene.json')), SCENE_SOURCE);
+  await assertMissing(join(folder, 'scene.svg'));
+});
+
+test('a name that would leave the folder is refused, and the outside file is untouched', async () => {
+  const folder = await sceneFolder(SCENE);
+  const outside = await tempFolder('esbozo-outside-');
+  const secret = join(outside, 'secret.json');
+  await writeFile(secret, '{"version":1,"elements":[]}', 'utf8');
+  await symlink(secret, join(folder, 'escape.json'));
+  await writeFile(join(outside, 'written.json'), 'keep me', 'utf8');
+  const server = await served(folder);
+
+  for (const name of ['..%2Fsecret.json', '%2E%2E%2Fsecret.json', '%2Fetc%2Fpasswd', 'nested%2Fdeep.json']) {
+    const read = await request(server, `/api/scenes/${name}`);
+    assert.ok(read.status === 400 || read.status === 403, `${name} read answered ${read.status}`);
+    assert.doesNotMatch(read.body, /root:/, 'no file from outside the folder was handed over');
+
+    const write = await request(server, `/api/scenes/${name}`, 'PUT', sent());
+    assert.ok(write.status === 400 || write.status === 403, `${name} write answered ${write.status}`);
+  }
+
+  // A symlink inside the folder that points outside is refused for both calls.
+  const throughLink = await request(server, '/api/scenes/escape.json');
+  assert.equal(throughLink.status, 403);
+  assert.equal(await read_(secret), '{"version":1,"elements":[]}');
+  assert.equal((await request(server, '/api/scenes/escape.json', 'PUT', sent())).status, 403);
+  assert.equal(await read_(secret), '{"version":1,"elements":[]}');
+
+  // Nothing was written into the folder either.
+  await assertMissing(join(folder, 'written.json'));
+  assert.deepEqual(
+    (JSON.parse((await request(server, '/api/scenes')).body) as { scenes: string[] }).scenes,
+    ['scene.json'],
+  );
+});
+
+test('the server binds to 127.0.0.1 unless --host says otherwise', async () => {
+  const server = await served(await sceneFolder(SCENE));
+  assert.equal(new URL(server.url).hostname, '127.0.0.1');
+});
+
+test('a folder it cannot read, a taken port and a bad argument are told apart', async () => {
+  const missing = await ez(['serve', '/no/such/folder/here'], process.cwd());
+  assert.equal(missing.code, 4);
+  assert.match(missing.stderr, /cannot read folder/);
+
+  const running_ = await served(await sceneFolder(SCENE));
+  const port = new URL(running_.url).port;
+  const taken = await ez(['serve', '.', '--port', port], running_.folder);
+  assert.equal(taken.code, 4);
+  assert.match(taken.stderr, new RegExp(`port ${port} .* already in use`));
+
+  const folder = await sceneFolder(SCENE);
+  for (const argv of [
+    ['serve'],
+    ['serve', folder, '--port', 'not-a-number'],
+    ['serve', folder, '--port', '99999'],
+    ['serve', folder, '--nope'],
+    ['serve', folder, 'second-folder'],
+  ]) {
+    const run_ = await ez(argv, folder);
+    assert.equal(run_.code, 2, `${argv.join(' ')} is a usage mistake`);
+    assert.match(run_.stderr, /usage: ez serve/);
+  }
+});
+
+async function read_(path: string): Promise<string> {
+  return readFile(path, 'utf8');
+}
+
+async function assertMissing(path: string): Promise<void> {
+  await assert.rejects(stat(path), `${path} was not written`);
+}
