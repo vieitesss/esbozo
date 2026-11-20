@@ -12,13 +12,15 @@ esbozo has four modules behind small interfaces, and two programs built from the
 
 **Editor** (`src/editor/`) is the `<esbozo-editor>` custom element. It holds the Scene in memory, paints it with the Renderer, and turns pointer and keyboard input into Scene changes. It saves by writing the Scene and its SVG together, through the folder interface in `src/editor/files.ts`. It depends on Scene, Layout and Renderer, and on nothing in the CLI.
 
-```
-Scene  <-  Layout  <-  Renderer  <-  Editor
-  ^                       ^
-  +--------- CLI ---------+
-```
+Each module depends only on the ones before it:
 
-An arrow points from a module to what it depends on. Nothing points back: Scene knows nothing of drawing, Layout knows nothing of SVG, and the Renderer knows nothing of a browser or a file.
+- Scene: nothing.
+- Layout: Scene.
+- Renderer: Scene and Layout.
+- Editor: Scene, Layout and Renderer.
+- CLI: all four, plus font, stylesheet and PNG code the editor never loads.
+
+Nothing depends backwards: Scene knows nothing of rendering, Layout knows nothing of SVG, and the Renderer knows nothing of a browser or a file.
 
 ## One font, three readers
 
