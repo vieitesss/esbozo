@@ -54,9 +54,14 @@ export type FontResult =
   | { ok: true; value: FontFile }
   | { ok: false; problems: string[] };
 
-/** A font chosen for a command, with the notes worth saying that did not stop it. */
+/**
+ * A font chosen for a command, with the notes worth saying that did not stop
+ * it. `family` is the effective `--font-hand` the command draws in, or null
+ * when the drawing takes the family from the file itself: `--font` wins, so a
+ * stylesheet family is only read, and only has to resolve, without one.
+ */
 export type ChosenFont =
-  | { ok: true; value: FontFile; notes: string[] }
+  | { ok: true; value: FontFile; family: string | null; notes: string[] }
   | { ok: false; problems: string[] };
 
 /** The Layout for a font file, so measuring and drawing use the same bytes. */
@@ -86,10 +91,11 @@ export async function readStylesheet(
 
 /**
  * The `--font-hand` a stylesheet sets for a theme, or null when it leaves the
- * font to the file. It only decides which `@font-face` a stylesheet font comes
- * from, so it is read once and shared by the caller that also draws the family.
+ * font to the file. Only `chooseFont` reads it, so the precedence cannot be
+ * split across callers: it decides which `@font-face` a stylesheet font comes
+ * from, and is the family the drawing names.
  */
-export function stylesheetFamily(
+function stylesheetFamily(
   stylesheet: Stylesheet | null,
   theme: Theme,
 ): { ok: true; value: string | null } | { ok: false; problems: string[] } {
@@ -114,19 +120,24 @@ export function stylesheetFamily(
 /**
  * The font a command measures and draws with: `--font`, then a local
  * `@font-face` for the stylesheet's `--font-hand`, then the bundled Kalam.
- * `family` is that `--font-hand`, already resolved for the theme, so this
- * function is the one place the precedence lives; `theme` decides which
- * `@font-face` blocks belong to the theme.
+ * This is the one place the precedence lives: an explicit `--font` returns
+ * before the stylesheet's family is resolved at all, so `check` and `png`
+ * cannot disagree about it. `theme` decides which `@font-face` blocks belong
+ * to the theme.
  */
 export async function chooseFont(
   fontPath: string | undefined,
   stylesheet: Stylesheet | null,
-  family: string | null,
   theme: Theme,
 ): Promise<ChosenFont> {
   if (fontPath !== undefined) {
     const font = await loadFont(fontPath);
-    return font.ok ? { ok: true, value: font.value, notes: [] } : font;
+    return font.ok ? { ok: true, value: font.value, family: null, notes: [] } : font;
+  }
+
+  const family = stylesheetFamily(stylesheet, theme);
+  if (!family.ok) {
+    return family;
   }
 
   const notes: string[] = [];
@@ -135,7 +146,7 @@ export async function chooseFont(
     // light theme never reads it. A later rule wins, as in CSS.
     const face = fontFaces(stylesheet.css)
       .filter((candidate) => theme === 'dark' || !candidate.dark)
-      .findLast((candidate) => familyMatches(candidate.family, family));
+      .findLast((candidate) => familyMatches(candidate.family, family.value));
     if (face !== undefined) {
       if (REMOTE_URL.test(face.url)) {
         notes.push(
@@ -144,13 +155,15 @@ export async function chooseFont(
       } else {
         const path = resolve(dirname(stylesheet.path), face.url);
         const font = await loadFont(path, `${face.url} (from ${stylesheet.path})`);
-        return font.ok ? { ok: true, value: font.value, notes } : font;
+        return font.ok ? { ok: true, value: font.value, family: family.value, notes } : font;
       }
     }
   }
 
   const bundled = await loadFont();
-  return bundled.ok ? { ok: true, value: bundled.value, notes } : bundled;
+  return bundled.ok
+    ? { ok: true, value: bundled.value, family: family.value, notes }
+    : bundled;
 }
 
 /** Whether `family` names the `@font-face` family, allowing a font stack. */

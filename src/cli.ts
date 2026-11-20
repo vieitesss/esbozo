@@ -46,7 +46,7 @@ import { renderScene } from './renderer.js';
 import { THEMES, renderPng } from './png.js';
 import type { PngOptions, Theme } from './png.js';
 import type { Scene } from './scene.js';
-import { chooseFont, layoutFor, readStylesheet, stylesheetFamily } from './font.js';
+import { chooseFont, layoutFor, readStylesheet } from './font.js';
 import type { Layout } from './layout.js';
 
 const EXIT = {
@@ -220,7 +220,8 @@ function parseSceneArguments(
  * Scene cannot be measured without it.
  *
  * `check` has no `--theme`, so it reads the light theme. A font declared in
- * dark scope belongs to `png --theme dark`.
+ * dark scope belongs to `png --theme dark`. It draws nothing, so it does not
+ * ask the chosen font for the family to draw in.
  */
 async function loadLayout(
   fontPath: string | undefined,
@@ -230,11 +231,7 @@ async function loadLayout(
   if (!stylesheet.ok) {
     return failed(stylesheet.problems);
   }
-  const family = stylesheetFamily(stylesheet.value, 'light');
-  if (!family.ok) {
-    return failed(family.problems);
-  }
-  const font = await chooseFont(fontPath, stylesheet.value, family.value, 'light');
+  const font = await chooseFont(fontPath, stylesheet.value, 'light');
   if (!font.ok) {
     return failed(font.problems);
   }

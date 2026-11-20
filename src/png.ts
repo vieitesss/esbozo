@@ -53,7 +53,7 @@ import {
   themeVariables,
 } from './css.js';
 import type { Rgba, Theme, Variables } from './css.js';
-import { chooseFont, layoutFor, readStylesheet, stylesheetFamily } from './font.js';
+import { chooseFont, layoutFor, readStylesheet } from './font.js';
 import type { FontFile, Stylesheet } from './font.js';
 import { renderScene } from './renderer.js';
 import type { Scene } from './scene.js';
@@ -120,44 +120,33 @@ export async function renderPng(scene: Scene, options: PngOptions): Promise<PngR
     return palette;
   }
 
-  const font = await chooseFont(
-    options.fontPath,
-    stylesheet.value,
-    palette.value.fontFamily,
-    options.theme,
-  );
+  const font = await chooseFont(options.fontPath, stylesheet.value, options.theme);
   if (!font.ok) {
     return font;
   }
   const notes = font.notes;
 
-  const family = palette.value.fontFamily ?? font.value.family;
+  const family = font.family ?? font.value.family;
   // The words are measured with the font the glyphs are drawn with, so the PNG
   // wraps exactly as that font makes it wrap.
   const svg = renderScene(scene, layoutFor(font.value));
-  const resolved = resolveSvg(svg, palette.value.palette, family);
+  const resolved = resolveSvg(svg, palette.value, family);
   if (!resolved.ok) {
     return resolved;
   }
 
   try {
-    const png = await rasterise(resolved.value, palette.value.palette, font.value);
+    const png = await rasterise(resolved.value, palette.value, font.value);
     return { ok: true, png, notes };
   } catch (error) {
     return { ok: false, problems: [`cannot rasterise the Scene: ${messageOf(error)}`] };
   }
 }
 
-interface PreparedPalette {
-  palette: Palette;
-  /** The effective `--font-hand`, or null when the stylesheet leaves the font to the file. */
-  fontFamily: string | null;
-}
-
 function preparePalette(
   options: PngOptions,
   stylesheet: Stylesheet | null,
-): { ok: true; value: PreparedPalette } | { ok: false; problems: string[] } {
+): { ok: true; value: Palette } | { ok: false; problems: string[] } {
   const variables: Variables = stylesheet === null ? {} : themeVariables(stylesheet.css, options.theme);
   const flags: Readonly<Record<ColourVariable, string | undefined>> = {
     '--ink': options.ink,
@@ -195,20 +184,7 @@ function preparePalette(
     return { ok: false, problems: [`stylesheet is missing: ${missing.join(', ')}`] };
   }
 
-  // `--font` wins over the stylesheet, so the stylesheet's `--font-hand` is
-  // only read — and only has to resolve — when the font comes from the CSS.
-  // The family itself is one resolver shared with `ez check`, so both commands
-  // read the same stylesheet the same way.
-  const family = stylesheetFamily(
-    options.fontPath === undefined ? stylesheet : null,
-    options.theme,
-  );
-  if (!family.ok) {
-    return family;
-  }
-  const fontFamily = family.value;
-
-  return { ok: true, value: { palette: palette as Palette, fontFamily } };
+  return { ok: true, value: palette as Palette };
 }
 
 function paletteColour(

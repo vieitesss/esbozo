@@ -240,6 +240,23 @@ test('--css measures with the stylesheet font, and --font wins over it', async (
   assert.equal(overridden.code, 0, '--font beats the stylesheet');
 });
 
+test('--font needs no resolvable --font-hand', async () => {
+  const folder = await sceneFolder(FITS);
+  await copyFile(KALAM, join(folder, 'kalam.ttf'));
+  await writeFile(
+    join(folder, 'theme.css'),
+    ':root { --ink: #003366; --paper: #fafafa; --muted: #777777; --font-hand: var(--undefined-family); }',
+    'utf8',
+  );
+
+  const run = await ez(
+    ['check', 'scene.json', '--css', 'theme.css', '--font', 'kalam.ttf'],
+    folder,
+  );
+
+  assert.equal(run.code, 0, run.stderr);
+});
+
 test('a font whose glyphs are tall overflows a box Kalam fits', async () => {
   const folder = await sceneFolder(oneBox({ width: 200, height: 50, label: 'Hamburgefonstiv' }));
   await writeFont(folder, 'tall.ttf', { ascender: 1800, descender: -200, glyphHeight: 1800 });
