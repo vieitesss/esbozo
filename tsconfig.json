@@ -1,28 +1,19 @@
 {
+  "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2023",
     "lib": [
-      "ES2023",
-      "DOM",
-      "DOM.Iterable"
+      "ES2023"
     ],
-    "module": "nodenext",
-    "moduleResolution": "nodenext",
     "types": [
       "node"
-    ],
-    "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "noImplicitOverride": true,
-    "exactOptionalPropertyTypes": true,
-    "verbatimModuleSyntax": true,
-    "skipLibCheck": true,
-    "allowImportingTsExtensions": true,
-    "noEmit": true
+    ]
   },
   "include": [
     "src",
     "scripts",
-    "test"
+    "playwright.config.ts"
+  ],
+  "exclude": [
+    "src/editor"
   ]
 }
