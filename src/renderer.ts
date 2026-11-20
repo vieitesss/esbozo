@@ -412,7 +412,13 @@ function arrowOrLinePoints(
   ];
 }
 
-/** The Element a Snapped end is drawn on, or undefined for a free end. */
+/**
+ * The Element a Snapped end is drawn on, or undefined for a free end. A Snap
+ * the Scene could not honour is an error naming the arrow or line and the
+ * target it asked for: parseScene rejects those Scenes, so only a Scene built in
+ * memory reaches this, and it must not draw a free end while still claiming a
+ * Snap.
+ */
 function snapTarget(
   element: ArrowOrLineElement,
   point: Point,
@@ -422,9 +428,13 @@ function snapTarget(
     return undefined;
   }
   const target = byId.get(point.snap);
-  if (target === undefined || !isOutlined(target)) {
-    // parseScene already rejected this Scene; draw the end where it was asked.
-    return undefined;
+  if (target === undefined) {
+    throw new Error(`${element.id}: snap target "${point.snap}" does not exist`);
+  }
+  if (!isOutlined(target)) {
+    throw new Error(
+      `${element.id}: snap target "${point.snap}" must be a rectangle, ellipse or diamond`,
+    );
   }
   return target;
 }

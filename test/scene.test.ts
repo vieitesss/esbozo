@@ -95,6 +95,40 @@ test('an arrow dragged in memory saves and draws as its whole-pixel points', () 
   assert.equal(parseScene(saved).ok, true, 'the saved Scene still parses');
 });
 
+test('drawing a Snap whose target has no outline fails loudly', () => {
+  // The editor can hold a Scene that never went through parseScene, so the
+  // Renderer refuses to draw a free end where the Scene says there is a Snap.
+  const toWords = parsed({
+    version: 1,
+    elements: [
+      { id: 'words', type: 'text', x: 40, y: 40, content: 'Words' },
+      { id: 'box', type: 'rectangle', x: 200, y: 40, width: 60, height: 60 },
+      {
+        id: 'arrow',
+        type: 'arrow',
+        points: [
+          { x: 40, y: 200 },
+          { x: 100, y: 100, snap: 'box' },
+        ],
+      },
+    ],
+  });
+  const arrow = toWords.elements[2];
+  assert.equal(arrow?.type, 'arrow');
+  if (arrow?.type !== 'arrow') {
+    throw new Error('expected an arrow');
+  }
+
+  arrow.points[1] = { ...arrow.points[1]!, snap: 'words' };
+  assert.throws(
+    () => renderScene(toWords),
+    /arrow: snap target "words" must be a rectangle, ellipse or diamond/,
+  );
+
+  arrow.points[1] = { ...arrow.points[1]!, snap: 'nowhere' };
+  assert.throws(() => renderScene(toWords), /arrow: snap target "nowhere" does not exist/);
+});
+
 const CONNECTOR = {
   version: 1,
   title: 'One arrow',
