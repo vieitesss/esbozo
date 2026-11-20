@@ -25,6 +25,13 @@
  * stroke that ends on an outline ends on a dash rather than on bare paper.
  * Two Snapped ends whose targets overlap draw to the second target's centre
  * instead of turning the head around and out of it.
+ *
+ * Words are measured, never guessed: a Text and a Label are placed by Layout,
+ * with the font the drawing is made for, so the page, the line breaks and the
+ * words a host sees agree. The Renderer is pure, so the font arrives as a
+ * `Layout` the caller measured: `renderScene(scene, layout)`. Nothing here
+ * reads a file, and nothing here grows an Element: a Label that does not fit is
+ * drawn where it is and `ez check` reports it.
  */
 import { RoughGenerator } from 'roughjs/bin/generator.js';
 import type { Options, PathInfo } from 'roughjs/bin/core.js';
@@ -32,14 +39,14 @@ import { canonicalScene, hashScene, isOutlined } from './scene.js';
 import type {
   ArrowOrLineElement,
   Element,
-  FontSize,
   Head,
   OutlinedElement,
   Point,
   Scene,
   StrokeWidth,
-  TextElement,
 } from './scene.js';
+import { STROKE_WIDTH_PX } from './layout.js';
+import type { Block, Box, Layout } from './layout.js';
 import {
   arrowHeadTriangle,
   barThrough,
@@ -54,12 +61,8 @@ const MUTED = 'var(--muted)';
 const PAPER = 'var(--paper)';
 const FONT = 'var(--font-hand)';
 
-/** Stroke width per named width, in pixels. */
-const STROKE_WIDTH_PX: Record<StrokeWidth, number> = { thin: 1, bold: 2, extra: 4 };
 /** Arrow head length per stroke width, in pixels. */
 const HEAD_LENGTH_PX: Record<StrokeWidth, number> = { thin: 9, bold: 13, extra: 18 };
-/** Font size per named size, in pixels. */
-const FONT_SIZE_PX: Record<FontSize, number> = { S: 14, M: 18, L: 24, XL: 32 };
 
 /** Padding around the Scene's Elements, in whole pixels. */
 const PADDING = 16;
@@ -73,17 +76,14 @@ const EMPTY_PAGE = { width: 320, height: 240 };
 const GREY_INK_PERCENT = [0, 12, 24, 38, 55, 72, 100] as const;
 const GREY_LAST = GREY_INK_PERCENT.length - 1;
 
-/** Line height of Text, as a multiple of its font size, until #4 measures the font. */
-const TEXT_LINE_HEIGHT = 1.25;
-/** Rough advance width of one character, as a fraction of the font size, until #4 measures the font. */
-const TEXT_CHAR_WIDTH = 0.55;
-
-export function renderScene(scene: Scene): string {
+export function renderScene(scene: Scene, layout: Layout): string {
   const canonical = canonicalScene(scene);
   const hash = hashScene(canonical);
-  const byId = elementsById(canonical.elements);
-  const page = pageBounds(canonical);
-  const body = canonical.elements.map((element) => renderElement(element, byId)).join('');
+  const byId = new Map(canonical.elements.map((element) => [element.id, element]));
+  const page = pageBounds(canonical, byId, layout);
+  const body = canonical.elements
+    .map((element) => renderElement(element, byId, layout))
+    .join('');
 
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${page.width}" height="${page.height}"` +
@@ -96,35 +96,23 @@ export function renderScene(scene: Scene): string {
   ].join('\n');
 }
 
-/** A box in Scene units: what an Element covers, and what a page shows. */
-export interface Box {
+interface Page {
   x: number;
   y: number;
   width: number;
   height: number;
 }
 
-/** Every Element by id, so a Snapped arrow or line end resolves its target. */
-export function elementsById(elements: readonly Element[]): Map<string, Element> {
-  return new Map(elements.map((element) => [element.id, element]));
-}
-
-/**
- * The page a Scene occupies: the box around every Element, padded, or the empty
- * page when there are none. Exported so a host fits the page the Renderer draws,
- * not a second copy of the same arithmetic.
- */
-export function pageBounds(scene: Scene): Box {
+function pageBounds(scene: Scene, byId: Map<string, Element>, layout: Layout): Page {
   if (scene.elements.length === 0) {
     return { x: 0, y: 0, ...EMPTY_PAGE };
   }
-  const byId = elementsById(scene.elements);
   let left = Number.POSITIVE_INFINITY;
   let top = Number.POSITIVE_INFINITY;
   let right = Number.NEGATIVE_INFINITY;
   let bottom = Number.NEGATIVE_INFINITY;
   for (const element of scene.elements) {
-    const bounds = elementBounds(element, byId);
+    const bounds = elementBounds(element, byId, layout);
     left = Math.min(left, bounds.x);
     top = Math.min(top, bounds.y);
     right = Math.max(right, bounds.x + bounds.width);
@@ -140,71 +128,54 @@ export function pageBounds(scene: Scene): Box {
   };
 }
 
-/** The box an Element covers: its selection outline, and what a box sweeps up. */
-export function elementBounds(element: Element, byId: ReadonlyMap<string, Element>): Box {
+function elementBounds(element: Element, byId: Map<string, Element>, layout: Layout): Box {
   switch (element.type) {
     case 'arrow':
     case 'line': {
       const [start, end] = arrowOrLinePoints(element, byId);
-      return {
+      const shaft = {
         x: Math.min(start.x, end.x),
         y: Math.min(start.y, end.y),
         width: Math.abs(end.x - start.x),
         height: Math.abs(end.y - start.y),
       };
+      return joined(shaft, layout.label(element, midpointOf(start, end)));
     }
     case 'text':
-      return textBounds(element);
+      return layout.text(element);
     default:
-      return { x: element.x, y: element.y, width: element.width, height: element.height };
+      return joined(
+        { x: element.x, y: element.y, width: element.width, height: element.height },
+        layout.label(element),
+      );
   }
 }
 
-/**
- * The two ends an arrow or line draws, each Snapped end resolved onto its
- * target's outline: the shaft the editor picks by, so a click follows the ink
- * rather than the empty box around it.
- */
-export function drawnShaft(
-  element: ArrowOrLineElement,
-  byId: ReadonlyMap<string, Element>,
-): [Point, Point] {
-  return arrowOrLinePoints(element, byId);
+/** The smallest box holding both, so a Label that sticks out still fits the page. */
+function joined(box: Box, words: Block | null): Box {
+  if (words === null || words.lines.length === 0) {
+    return box;
+  }
+  const left = Math.min(box.x, words.x);
+  const top = Math.min(box.y, words.y);
+  const right = Math.max(box.x + box.width, words.x + words.width);
+  const bottom = Math.max(box.y + box.height, words.y + words.height);
+  return { x: left, y: top, width: right - left, height: bottom - top };
 }
 
-/** The stroke width an Element draws with, in pixels. */
-export function strokeWidthOf(element: Element): number {
-  return STROKE_WIDTH_PX[element.stroke.width];
+function midpointOf(from: Point, to: Point): Point {
+  return { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
 }
 
-/**
- * Provisional Text extent, so a Text fits its page and its alignment has an
- * edge to align to. #4 Layout replaces it with measurement of the real font;
- * until then it is a rough advance width, not measurement.
- */
-function textBounds(element: TextElement): Box {
-  const size = FONT_SIZE_PX[element.fontSize];
-  const lines = element.content.split('\n');
-  const width = Math.max(...lines.map((line) => [...line].length)) * size * TEXT_CHAR_WIDTH;
-  const height = lines.length * size * TEXT_LINE_HEIGHT;
-  const x =
-    element.textAlign === 'left'
-      ? element.x
-      : element.textAlign === 'center'
-        ? element.x - width / 2
-        : element.x - width;
-  return { x, y: element.y, width, height };
-}
-
-function renderElement(element: Element, byId: Map<string, Element>): string {
+function renderElement(element: Element, byId: Map<string, Element>, layout: Layout): string {
   switch (element.type) {
     case 'arrow':
     case 'line':
-      return renderArrowOrLine(element, byId);
+      return renderArrowOrLine(element, byId, layout);
     case 'text':
-      return renderText(element);
+      return renderBlock(layout.text(element), element.tone === 'muted' ? MUTED : INK);
     default:
-      return renderOutlined(element);
+      return renderOutlined(element, layout);
   }
 }
 
@@ -212,7 +183,7 @@ function renderElement(element: Element, byId: Map<string, Element>): string {
  * One outlined Element: its fill first, then its outline, so the ink of the
  * outline always sits on top of the fill it belongs to.
  */
-function renderOutlined(element: OutlinedElement): string {
+function renderOutlined(element: OutlinedElement, layout: Layout): string {
   const generator = new RoughGenerator();
   const width = STROKE_WIDTH_PX[element.stroke.width];
   const strokeColour = element.tone === 'muted' ? MUTED : INK;
@@ -262,7 +233,10 @@ function renderOutlined(element: OutlinedElement): string {
     );
   }
 
-  return `<g stroke-linecap="round" stroke-linejoin="round">${paths.join('')}</g>`;
+  return (
+    `<g stroke-linecap="round" stroke-linejoin="round">${paths.join('')}</g>` +
+    renderBlock(layout.label(element), strokeColour)
+  );
 }
 
 /** The outline of an Element, drawn by Rough.js, with whatever options the pass needs. */
@@ -335,7 +309,11 @@ function formatPoint(point: Point): string {
  * One arrow or line: its shaft, then its heads on top. A Snapped end sits on
  * its target's outline, resolved from the other end's point.
  */
-function renderArrowOrLine(element: ArrowOrLineElement, byId: Map<string, Element>): string {
+function renderArrowOrLine(
+  element: ArrowOrLineElement,
+  byId: Map<string, Element>,
+  layout: Layout,
+): string {
   const generator = new RoughGenerator();
   const [start, end] = arrowOrLinePoints(element, byId);
   const width = STROKE_WIDTH_PX[element.stroke.width];
@@ -372,7 +350,10 @@ function renderArrowOrLine(element: ArrowOrLineElement, byId: Map<string, Elemen
     paths.push(...headPaths(generator, element, kind, apex, along, headLength, colour));
   }
 
-  return `<g stroke-linecap="round" stroke-linejoin="round">${paths.join('')}</g>`;
+  return (
+    `<g stroke-linecap="round" stroke-linejoin="round">${paths.join('')}</g>` +
+    renderBlock(layout.label(element, midpointOf(start, end)), colour)
+  );
 }
 
 /** One arrow head, pointing along the arrow with its apex on the end. */
@@ -433,7 +414,7 @@ function headPaths(
  */
 function arrowOrLinePoints(
   element: ArrowOrLineElement,
-  byId: ReadonlyMap<string, Element>,
+  byId: Map<string, Element>,
 ): [Point, Point] {
   const [start, end] = element.points;
   const startTarget = snapTarget(element, start, byId);
@@ -471,7 +452,7 @@ function runsAgainst(from: Point, to: Point, fromCentre: Point, toCentre: Point)
 function snapTarget(
   element: ArrowOrLineElement,
   point: Point,
-  byId: ReadonlyMap<string, Element>,
+  byId: Map<string, Element>,
 ): OutlinedElement | undefined {
   if (point.snap === undefined) {
     return undefined;
@@ -502,28 +483,22 @@ function snappedEnd(
 }
 
 /**
- * Free-standing Text: its content, one line per `\n`, at its font size,
- * alignment and tone. `x` is the aligned edge, `y` the top of the first line.
- * Text draws with tone, font size and text alignment; roughness, stroke, fill
- * and corners belong to outlines, and the remaining font fields are for Labels
- * from #4.
+ * Measured words as one `<text>` per line, on the baseline and at the anchor
+ * Layout placed them on. A blank line takes its space and draws nothing.
  */
-function renderText(element: TextElement): string {
-  const size = FONT_SIZE_PX[element.fontSize];
-  const anchor =
-    element.textAlign === 'left' ? 'start' : element.textAlign === 'center' ? 'middle' : 'end';
-  const colour = element.tone === 'muted' ? MUTED : INK;
-  const lines = element.content.split('\n');
-  const spans = lines
-    .map((line, index) => {
-      const dy = index === 0 ? 0 : size * TEXT_LINE_HEIGHT;
-      return `<tspan x="${formatNumber(element.x)}" dy="${formatNumber(dy)}">${escapeXml(line)}</tspan>`;
-    })
+function renderBlock(block: Block | null, colour: string): string {
+  if (block === null) {
+    return '';
+  }
+  return block.lines
+    .filter((line) => line.text !== '')
+    .map(
+      (line) =>
+        `<text x="${formatNumber(line.x)}" y="${formatNumber(line.baseline)}"` +
+        ` font-size="${formatNumber(block.size)}" text-anchor="${block.anchor}"` +
+        ` fill="${colour}">${escapeXml(line.text)}</text>`,
+    )
     .join('');
-  return (
-    `<text x="${formatNumber(element.x)}" y="${formatNumber(element.y + size)}"` +
-    ` font-size="${formatNumber(size)}" text-anchor="${anchor}" fill="${colour}">${spans}</text>`
-  );
 }
 
 /**

@@ -10,12 +10,8 @@
  * them, and because Rough.js ships imports Node cannot resolve on its own.
  */
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { test } from 'node:test';
-import { pathToFileURL, fileURLToPath } from 'node:url';
-import { build } from 'esbuild';
+import { loadProjectModules } from './modules.ts';
 import type { RectangleElement, Scene } from '../src/scene.ts';
 
 const BOX = {
@@ -25,7 +21,11 @@ const BOX = {
   elements: [{ id: 'a', type: 'rectangle', x: 40, y: 40, width: 120, height: 80 }],
 };
 
-const { hashScene, parseScene, renderScene, serialiseScene } = await loadSceneModules();
+const { hashScene, parseScene, renderScene, serialiseScene, createLayout, measureFont, KALAM } =
+  await loadProjectModules();
+
+/** The drawing is measured with the bundled font, as `ez render` measures it. */
+const LAYOUT = createLayout(measureFont(KALAM));
 
 test('a Scene mutated in memory saves, hashes and draws as its whole pixels', () => {
   const whole = parsed(BOX);
@@ -46,8 +46,8 @@ test('a Scene mutated in memory saves, hashes and draws as its whole pixels', ()
   assert.equal(serialiseScene(reopened.scene), saved, 'saving that Scene again changes nothing');
 
   assert.equal(hashScene(dragged), hashScene(whole), 'the hash follows the saved geometry');
-  assert.equal(renderScene(dragged), renderScene(whole), 'and so does the drawing');
-  assert.match(renderScene(dragged), /viewBox="24 24 152 112"/);
+  assert.equal(renderScene(dragged, LAYOUT), renderScene(whole, LAYOUT), 'and so does the drawing');
+  assert.match(renderScene(dragged, LAYOUT), /viewBox="24 24 152 112"/);
 });
 
 test('saving and drawing leave the Scene the caller holds alone', () => {
@@ -56,7 +56,7 @@ test('saving and drawing leave the Scene the caller holds alone', () => {
   box.x = 40.2;
 
   serialiseScene(scene);
-  renderScene(scene);
+  renderScene(scene, LAYOUT);
 
   assert.equal(box.x, 40.2, 'the editor still owns the value it assigned');
 });
@@ -91,7 +91,7 @@ test('an arrow dragged in memory saves and draws as its whole-pixel points', () 
   assert.equal(saved, serialiseScene(whole), 'the points are saved as whole pixels');
   assert.doesNotMatch(saved, /200\.4|39\.9|100\.3|100\.2/);
   assert.equal(hashScene(scene), hashScene(whole), 'the hash follows the saved points');
-  assert.equal(renderScene(scene), renderScene(whole), 'and so does the drawing');
+  assert.equal(renderScene(scene, LAYOUT), renderScene(whole, LAYOUT), 'and so does the drawing');
   assert.equal(parseScene(saved).ok, true, 'the saved Scene still parses');
 });
 
@@ -121,12 +121,12 @@ test('drawing a Snap whose target has no outline fails loudly', () => {
 
   arrow.points[1] = { ...arrow.points[1]!, snap: 'words' };
   assert.throws(
-    () => renderScene(toWords),
+    () => renderScene(toWords, LAYOUT),
     /arrow: snap target "words" must be a rectangle, ellipse or diamond/,
   );
 
   arrow.points[1] = { ...arrow.points[1]!, snap: 'nowhere' };
-  assert.throws(() => renderScene(toWords), /arrow: snap target "nowhere" does not exist/);
+  assert.throws(() => renderScene(toWords, LAYOUT), /arrow: snap target "nowhere" does not exist/);
 });
 
 const CONNECTOR = {
@@ -160,38 +160,4 @@ function parsed(scene: unknown): Scene {
     throw new Error(`Scene did not parse: ${result.problems.map((p) => p.message).join('; ')}`);
   }
   return result.scene;
-}
-
-interface SceneModules {
-  parseScene: typeof import('../src/scene.ts').parseScene;
-  serialiseScene: typeof import('../src/scene.ts').serialiseScene;
-  hashScene: typeof import('../src/scene.ts').hashScene;
-  renderScene: typeof import('../src/renderer.ts').renderScene;
-}
-
-/** The public Scene and Renderer functions, bundled as one module. */
-async function loadSceneModules(): Promise<SceneModules> {
-  const source = (module: string) =>
-    JSON.stringify(fileURLToPath(new URL(`../src/${module}`, import.meta.url)));
-  const folder = await mkdtemp(join(tmpdir(), 'esbozo-module-'));
-  const entry = join(folder, 'entry.ts');
-  await writeFile(
-    entry,
-    [
-      `export { parseScene, serialiseScene, hashScene } from ${source('scene.ts')};`,
-      `export { renderScene } from ${source('renderer.ts')};`,
-      '',
-    ].join('\n'),
-    'utf8',
-  );
-  const outfile = join(folder, 'entry.mjs');
-  await build({
-    entryPoints: [entry],
-    outfile,
-    bundle: true,
-    platform: 'node',
-    format: 'esm',
-    logLevel: 'silent',
-  });
-  return (await import(pathToFileURL(outfile).href)) as SceneModules;
 }

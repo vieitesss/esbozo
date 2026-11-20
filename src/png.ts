@@ -36,21 +36,19 @@
  * stylesheet whose family matches the effective `--font-hand`, then the bundled
  * Kalam. The stylesheet's `--font-hand` only matters — and only has to resolve —
  * when the font comes from there: `--font` never needs it. A remote `@font-face`
- * is ignored with a note, because only files on this machine can be read. Every
- * candidate is parsed with `opentype.js` once, and its bytes and family travel
- * together: a file that does not parse, or has no glyphs, is a problem rather
- * than a font resvg would silently draw nothing with. WOFF and WOFF2 are named
- * and rejected, because resvg draws no glyphs from them.
+ * is ignored with a note, because only files on this machine can be read. The
+ * font is read once (`./font.ts`), and the same bytes are used for two things:
+ * Layout measures the Scene's words with them, so the drawing that is
+ * rasterised has the line breaks this font makes, and resvg draws the glyphs
+ * with them, so the PNG shows the font it was measured for.
  *
  * The built-in light and dark palettes are sb's Excalidraw converter defaults,
  * the prior art.
  */
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import { parse as parseFont } from 'opentype.js';
 import { initWasm, Resvg } from '@resvg/resvg-wasm';
 import resvgWasm from '@resvg/resvg-wasm/index_bg.wasm';
-import kalam from '../fonts/Kalam-Regular.ttf';
 import {
   colourText,
   fontFaces,
@@ -59,6 +57,10 @@ import {
   themeVariables,
 } from './css.js';
 import type { Rgba, Theme, Variables } from './css.js';
+import { BUNDLED_FONT, BUNDLED_FONT_NAME, checkFont, fontFromFile, layoutFor } from './font.js';
+import type { FontFile, FontResult } from './font.js';
+import { renderScene } from './renderer.js';
+import type { Scene } from './scene.js';
 
 export { THEMES } from './css.js';
 export type { Theme } from './css.js';
@@ -92,8 +94,7 @@ const DEFAULT_COLOURS: Readonly<Record<Theme, Readonly<Record<ColourVariable, Rg
 };
 
 /** Kalam, bundled so `ez png` needs no font file to work. */
-const BUNDLED_FONT: Uint8Array = kalam;
-const BUNDLED_FONT_NAME = 'Kalam';
+const BUNDLED_FONT_BYTES: Uint8Array = BUNDLED_FONT;
 
 /** Only files on this machine can be read; a URL is not one. */
 const REMOTE_URL = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
@@ -117,8 +118,8 @@ type PngResult =
   | { ok: true; png: Uint8Array; notes: string[] }
   | { ok: false; problems: string[] };
 
-/** Resolves the theme, picks the font and rasterises the SVG in one step. */
-export async function renderPng(svg: string, options: PngOptions): Promise<PngResult> {
+/** Resolves the theme, measures and renders the Scene, and rasterises it in one step. */
+export async function renderPng(scene: Scene, options: PngOptions): Promise<PngResult> {
   const stylesheet = await readStylesheet(options.cssPath);
   if (!stylesheet.ok) {
     return stylesheet;
@@ -136,6 +137,9 @@ export async function renderPng(svg: string, options: PngOptions): Promise<PngRe
   }
 
   const family = palette.value.fontFamily ?? font.value.family;
+  // The words are measured with the font the glyphs are drawn with, so the PNG
+  // wraps exactly as that font makes it wrap.
+  const svg = renderScene(scene, layoutFor(font.value));
   const resolved = resolveSvg(svg, palette.value.palette, family);
   if (!resolved.ok) {
     return resolved;
@@ -255,18 +259,12 @@ function paletteColour(
   return { ok: true, value: colourText(colour) };
 }
 
-/** A font file parsed once: the bytes resvg needs and the family it draws as. */
-interface PreparedFont {
-  bytes: Uint8Array;
-  family: string;
-}
-
 async function prepareFont(
   options: PngOptions,
   stylesheet: Stylesheet | null,
   fontFamily: string | null,
   notes: string[],
-): Promise<{ ok: true; value: PreparedFont } | { ok: false; problems: string[] }> {
+): Promise<FontResult> {
   if (options.fontPath !== undefined) {
     return fontFromFile(options.fontPath, options.fontPath);
   }
@@ -287,51 +285,7 @@ async function prepareFont(
     }
   }
 
-  return checkFont(BUNDLED_FONT, BUNDLED_FONT_NAME);
-}
-
-async function fontFromFile(
-  path: string,
-  label: string,
-): Promise<{ ok: true; value: PreparedFont } | { ok: false; problems: string[] }> {
-  let bytes: Uint8Array;
-  try {
-    bytes = await readFile(path);
-  } catch (error) {
-    return { ok: false, problems: [`cannot read font ${label}: ${messageOf(error)}`] };
-  }
-  return checkFont(bytes, label);
-}
-
-/**
- * Parses a font once, so resvg is told a family the file really provides and
- * an unusable file is a problem instead of a blank drawing.
- */
-function checkFont(
-  bytes: Uint8Array,
-  label: string,
-): { ok: true; value: PreparedFont } | { ok: false; problems: string[] } {
-  const tag = tagAt(bytes, 0);
-  if (tag === 'wOFF' || tag === 'wOF2') {
-    return {
-      ok: false,
-      problems: [`${label} is a compressed webfont (${tag}), not a TrueType or OpenType font`],
-    };
-  }
-  let parsed: ReturnType<typeof parseFont>;
-  try {
-    parsed = parseFont(arrayBufferOf(bytes));
-  } catch {
-    return { ok: false, problems: [`${label} is not a TrueType or OpenType font`] };
-  }
-  const family = parsed.getEnglishName('fontFamily')?.trim() ?? '';
-  if (family === '') {
-    return { ok: false, problems: [`${label} has no family name`] };
-  }
-  if (parsed.glyphs.length === 0) {
-    return { ok: false, problems: [`${label} has no glyphs`] };
-  }
-  return { ok: true, value: { bytes, family } };
+  return checkFont(BUNDLED_FONT_BYTES, BUNDLED_FONT_NAME);
 }
 
 /** Whether `family` names the `@font-face` family, allowing a font stack. */
@@ -383,7 +337,7 @@ function resolveSvg(
   return problems.length > 0 ? { ok: false, problems } : { ok: true, value: resolved };
 }
 
-async function rasterise(svg: string, palette: Palette, font: PreparedFont): Promise<Uint8Array> {
+async function rasterise(svg: string, palette: Palette, font: FontFile): Promise<Uint8Array> {
   await readyWasm();
   const resvg = new Resvg(svg, {
     background: palette.paper,
@@ -403,20 +357,6 @@ let wasmReady: Promise<void> | null = null;
 function readyWasm(): Promise<void> {
   wasmReady ??= initWasm(resvgWasm);
   return wasmReady;
-}
-
-function tagAt(bytes: Uint8Array, offset: number): string {
-  return String.fromCharCode(
-    bytes[offset] ?? 0,
-    bytes[offset + 1] ?? 0,
-    bytes[offset + 2] ?? 0,
-    bytes[offset + 3] ?? 0,
-  );
-}
-
-/** A copy of the bytes as the ArrayBuffer opentype.js parses. */
-function arrayBufferOf(bytes: Uint8Array): ArrayBuffer {
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
 
 function messageOf(error: unknown): string {

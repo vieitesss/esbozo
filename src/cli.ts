@@ -3,7 +3,7 @@
  *
  * Surface:
  *
- *   ez render <scene>
+ *   ez render <scene> [--font <file>]
  *   ez png <scene> --theme light|dark [--css <stylesheet>]
  *                  [--ink <colour>] [--paper <colour>] [--muted <colour>]
  *                  [--font <file>]
@@ -12,21 +12,21 @@
  * `png` writes `<name>.<theme>.png` beside the Scene and prints that path, so
  * `sketch.json` gives `sketch.light.png` and `sketch.dark.png`.
  *
- * `png` needs a theme. Colours come from `--css` when given, from the built-in
- * themes otherwise; `--ink`, `--paper` and `--muted` win over both. The font
- * comes from `--font`, then from a local `@font-face` in the stylesheet, then
- * from the bundled Kalam. The stylesheet subset is documented in `src/css.ts`
- * and printed by `ez --help`.
+ * Words are measured: `render` measures with `--font`, or with the bundled
+ * Kalam when it is absent. `png` measures with the font it draws with —
+ * `--font`, then the stylesheet's `@font-face`, then Kalam — so the line breaks
+ * in the PNG are the ones that font makes.
  *
- * Exit codes:
- *   0  the Scene rendered
+ * `png` needs a theme. Colours come from `--css` when given, from the built-in
+ * themes otherwise; `--ink`, `--paper` and `--muted` win over both. The
+ * stylesheet subset is documented in `src/css.ts` and printed by `ez --help`.
+ *
+ * Exit codes — the one place they are defined, `EXIT`:
+ *   0  the Scene is clean, was rendered, or the PNG was written
  *   2  wrong arguments (unknown command, missing or extra arguments, bad flag)
  *   3  the Scene could not be read or parsed
  *   4  the output could not be written
  *   5  missing theme values, or a missing or unreadable font
- *
- * The codes live in one place, `EXIT`, so a caller can tell a bad Scene from a
- * failed write or an incomplete theme.
  *
  * Problems are plain text, one per line, on stderr, and name the Element they
  * belong to: `a: width must be at least 1 pixel, got 0`.
@@ -39,19 +39,31 @@ import { renderScene } from './renderer.js';
 import { THEMES, renderPng } from './png.js';
 import type { PngOptions, Theme } from './png.js';
 import type { Scene } from './scene.js';
+import { BUNDLED_FONT, BUNDLED_FONT_NAME, checkFont, fontFromFile, layoutFor } from './font.js';
+import type { Layout } from './layout.js';
 
 const EXIT = {
   ok: 0,
   usage: 2,
   invalidScene: 3,
   writeFailed: 4,
-  missingTheme: 5,
+  missingThemeOrFont: 5,
 } as const;
 
-const RENDER_USAGE = 'usage: ez render <scene>';
+const RENDER_USAGE = 'usage: ez render <scene> [--font <file>]';
 const PNG_USAGE =
   'usage: ez png <scene> --theme light|dark [--css <stylesheet>]' +
   ' [--ink <colour>] [--paper <colour>] [--muted <colour>] [--font <file>]';
+
+/** Every exit code `ez` returns, so a caller can tell the failures apart. */
+const EXIT_CODES = [
+  'exit codes:',
+  '  0  the Scene is clean, was rendered, or the PNG was written',
+  '  2  wrong arguments (unknown command, missing or extra arguments, bad flag)',
+  '  3  the Scene could not be read or parsed',
+  '  4  the output could not be written',
+  '  5  missing theme values, or a missing or unreadable font',
+].join('\n');
 
 /** The stylesheet subset `png` reads, the same one documented in `src/css.ts`. */
 const CSS_SUBSET = [
@@ -63,7 +75,7 @@ const CSS_SUBSET = [
   'Palette colours must be opaque.',
 ].join('\n');
 
-const USAGE = `${RENDER_USAGE}\n${PNG_USAGE}\n${CSS_SUBSET}\n`;
+const USAGE = `${RENDER_USAGE}\n${PNG_USAGE}\n${CSS_SUBSET}\n${EXIT_CODES}\n`;
 
 export async function main(argv: readonly string[]): Promise<number> {
   const [command, ...rest] = argv;
@@ -82,26 +94,83 @@ export async function main(argv: readonly string[]): Promise<number> {
 }
 
 async function runRender(argv: readonly string[]): Promise<number> {
-  const [scenePath, ...extra] = argv;
-  if (scenePath === undefined || scenePath === '' || extra.length > 0) {
+  const parsed = parseSceneArguments(argv);
+  if (parsed === null) {
     process.stderr.write(`${RENDER_USAGE}\n`);
     return EXIT.usage;
   }
 
-  const scene = await loadScene(scenePath);
+  const scene = await loadScene(parsed.scenePath);
   if (!scene.ok) {
     return scene.exitCode;
   }
+  const layout = await loadLayout(parsed.fontPath);
+  if (!layout.ok) {
+    return layout.exitCode;
+  }
 
-  const outputPath = svgPathFor(scenePath);
+  const outputPath = svgPathFor(parsed.scenePath);
   try {
-    await writeFile(outputPath, renderScene(scene.value), 'utf8');
+    await writeFile(outputPath, renderScene(scene.value, layout.value), 'utf8');
   } catch (error) {
     process.stderr.write(`cannot write SVG ${outputPath}: ${(error as NodeJS.ErrnoException).message}\n`);
     return EXIT.writeFailed;
   }
   process.stdout.write(`${outputPath}\n`);
   return EXIT.ok;
+}
+
+/** `<scene> [--font <file>]`. */
+
+interface SceneArguments {
+  scenePath: string;
+  fontPath?: string;
+}
+
+function parseSceneArguments(argv: readonly string[]): SceneArguments | null {
+  let scenePath: string | undefined;
+  let fontPath: string | undefined;
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index] ?? '';
+    if (argument === '--font') {
+      const value = argv[index + 1];
+      if (value === undefined || value === '' || value.startsWith('--') || fontPath !== undefined) {
+        return null;
+      }
+      fontPath = value;
+      index += 1;
+      continue;
+    }
+    if (argument.startsWith('--') || argument === '' || scenePath !== undefined) {
+      return null;
+    }
+    scenePath = argument;
+  }
+  if (scenePath === undefined) {
+    return null;
+  }
+  return { scenePath, ...(fontPath === undefined ? {} : { fontPath }) };
+}
+
+/**
+ * The Layout for `--font`, or for the bundled Kalam when no file is given. A
+ * font that cannot be read is exit 5, like a missing theme: the Scene cannot be
+ * measured without it.
+ */
+async function loadLayout(
+  fontPath: string | undefined,
+): Promise<{ ok: true; value: Layout } | { ok: false; exitCode: number }> {
+  const font =
+    fontPath === undefined
+      ? checkFont(BUNDLED_FONT, BUNDLED_FONT_NAME)
+      : await fontFromFile(fontPath, fontPath);
+  if (!font.ok) {
+    for (const problem of font.problems) {
+      process.stderr.write(`${problem}\n`);
+    }
+    return { ok: false, exitCode: EXIT.missingThemeOrFont };
+  }
+  return { ok: true, value: layoutFor(font.value) };
 }
 
 async function runPng(argv: readonly string[]): Promise<number> {
@@ -117,12 +186,12 @@ async function runPng(argv: readonly string[]): Promise<number> {
   }
 
   const { scenePath, ...options } = parsed;
-  const rendered = await renderPng(renderScene(scene.value), options);
+  const rendered = await renderPng(scene.value, options);
   if (!rendered.ok) {
     for (const problem of rendered.problems) {
       process.stderr.write(`${problem}\n`);
     }
-    return EXIT.missingTheme;
+    return EXIT.missingThemeOrFont;
   }
   for (const note of rendered.notes) {
     process.stderr.write(`${note}\n`);

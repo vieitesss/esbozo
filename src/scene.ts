@@ -28,8 +28,9 @@
  *       "fill": { "kind": "hachure", "grey": 2 },   // kind: none | solid | hachure | cross-hatch
  *       "tone": "ink",                              // ink | muted
  *       "corners": "sharp",                         // sharp | round: rectangles and diamonds
- *       "fontSize": "M",                            // S | M | L | XL, Labels later (#4)
- *       "textAlign": "left"                         // left | center | right, Labels later (#4)
+ *       "fontSize": "M",                            // S | M | L | XL
+ *       "textAlign": "left"                         // left | center | right
+ *       "label": "Orders and invoices"              // optional: wraps inside the box
  *     },
  *     {
  *       "id": "b",
@@ -38,7 +39,8 @@
  *         { "x": 40, "y": 40 },
  *         { "x": 200, "y": 140, "snap": "a" }        // Snap target: an Element id
  *       ],
- *       "heads": { "start": "none", "end": "arrow" } // none | arrow | dot | bar
+ *       "heads": { "start": "none", "end": "arrow" }, // none | arrow | dot | bar
+ *       "label": "then"                            // optional: sits on the shaft
  *     },
  *     {
  *       "id": "c",
@@ -57,11 +59,17 @@
  * Snap target must exist and must be a rectangle, ellipse or diamond; its end
  * is resolved by the Renderer, because that needs the whole Scene.
  *
- * Roughness, stroke, fill, tone and corners draw; Text draws with tone, font
- * size and text alignment, and Labels take those over from #4. Fill and corners
- * apply to closed outlines: an arrow or line is a stroke, so it has no fill and
- * no corners. `corners` rounds the vertices of a rectangle or a diamond; an
- * ellipse has no corners, so it ignores the field.
+ * Roughness, stroke, fill, tone and corners draw. Text and Labels draw with
+ * tone, font size and text alignment. Fill and corners apply to closed
+ * outlines: an arrow or line is a stroke, so it has no fill and no corners.
+ * `corners` rounds the vertices of a rectangle or a diamond; an ellipse has no
+ * corners, so it ignores the field.
+ *
+ * A Label is words that belong to an Element and wrap inside it: a rectangle,
+ * ellipse, diamond, arrow or line carries one optional Label, and a Text is
+ * only words, so it has `content` and no Label. Where a Label sits and whether
+ * it fits is Layout's question: the Scene keeps the words, and the drawing and
+ * `ez check` measure them with the same font.
  *
  * Geometry is rounded to whole pixels in one place, `canonicalScene`: parsing,
  * serialising, hashing and drawing all go through it, so a Scene mutated in
@@ -152,9 +160,9 @@ export interface ElementStyle {
   tone: Tone;
   /** Rounds a rectangle's or a diamond's vertices; an ellipse has none to round. */
   corners: Corners;
-  /** For Text now, for Labels from #4. */
+  /** Font size of a Text or a Label. */
   fontSize: FontSize;
-  /** For Text now, for Labels from #4. */
+  /** Alignment of a Text's or a Label's lines. */
   textAlign: TextAlign;
 }
 
@@ -163,7 +171,13 @@ interface ElementBase extends ElementStyle {
   seed: number;
 }
 
-export interface RectangleElement extends ElementBase {
+/** An Element that can carry words inside it: everything but a Text. */
+interface LabelledBase extends ElementBase {
+  /** Words that belong to this Element. Wrapping and fit are Layout's job. */
+  label?: string;
+}
+
+export interface RectangleElement extends LabelledBase {
   type: 'rectangle';
   x: number;
   y: number;
@@ -171,7 +185,7 @@ export interface RectangleElement extends ElementBase {
   height: number;
 }
 
-export interface EllipseElement extends ElementBase {
+export interface EllipseElement extends LabelledBase {
   type: 'ellipse';
   x: number;
   y: number;
@@ -179,7 +193,7 @@ export interface EllipseElement extends ElementBase {
   height: number;
 }
 
-export interface DiamondElement extends ElementBase {
+export interface DiamondElement extends LabelledBase {
   type: 'diamond';
   x: number;
   y: number;
@@ -189,7 +203,7 @@ export interface DiamondElement extends ElementBase {
 
 export type OutlinedElement = RectangleElement | EllipseElement | DiamondElement;
 
-interface ArrowOrLineBase extends ElementBase {
+interface ArrowOrLineBase extends LabelledBase {
   points: [Point, Point];
   heads: Heads;
 }
@@ -270,8 +284,24 @@ const ELEMENT_STYLE_KEYS = [
   'fontSize',
   'textAlign',
 ] as const;
-const OUTLINED_ELEMENT_KEYS = ['id', 'type', 'x', 'y', 'width', 'height', ...ELEMENT_STYLE_KEYS] as const;
-const ARROW_OR_LINE_ELEMENT_KEYS = ['id', 'type', 'points', 'heads', ...ELEMENT_STYLE_KEYS] as const;
+const OUTLINED_ELEMENT_KEYS = [
+  'id',
+  'type',
+  'x',
+  'y',
+  'width',
+  'height',
+  'label',
+  ...ELEMENT_STYLE_KEYS,
+] as const;
+const ARROW_OR_LINE_ELEMENT_KEYS = [
+  'id',
+  'type',
+  'points',
+  'heads',
+  'label',
+  ...ELEMENT_STYLE_KEYS,
+] as const;
 const TEXT_ELEMENT_KEYS = ['id', 'type', 'x', 'y', 'content', ...ELEMENT_STYLE_KEYS] as const;
 const ALL_ELEMENT_KEYS = [
   ...new Set([...OUTLINED_ELEMENT_KEYS, ...ARROW_OR_LINE_ELEMENT_KEYS, ...TEXT_ELEMENT_KEYS]),
@@ -419,6 +449,7 @@ function serialiseElement(element: Element): object {
         ...(point.snap === undefined ? {} : { snap: point.snap }),
       })),
       heads: { start: element.heads.start, end: element.heads.end },
+      ...(element.label === undefined ? {} : { label: element.label }),
       seed: element.seed,
       ...serialiseStyle(element),
     };
@@ -441,6 +472,7 @@ function serialiseElement(element: Element): object {
     y: element.y,
     width: element.width,
     height: element.height,
+    ...(element.label === undefined ? {} : { label: element.label }),
     seed: element.seed,
     ...serialiseStyle(element),
   };
@@ -600,13 +632,30 @@ function parseElement(
   } else if (type === 'arrow' || type === 'line') {
     const points = parsePoints(raw.points, report);
     const heads = parseHeads(raw.heads, type, report);
+    const label = parseLabel(raw.label, report);
     if (points !== null) {
-      element = { id, type, points, heads, seed, ...style };
+      element = {
+        id,
+        type,
+        points,
+        heads,
+        seed,
+        ...style,
+        ...(label === undefined ? {} : { label }),
+      };
     }
   } else if (type !== null) {
     const geometry = parseOutlinedGeometry(raw, report);
+    const label = parseLabel(raw.label, report);
     if (geometry !== null) {
-      element = { id, type, ...geometry, seed, ...style };
+      element = {
+        id,
+        type,
+        ...geometry,
+        seed,
+        ...style,
+        ...(label === undefined ? {} : { label }),
+      };
     }
   }
 
@@ -661,6 +710,29 @@ function parseTextContent(raw: unknown, report: (message: string) => void): stri
   if (hasXmlInvalidChars(raw)) {
     report('content must not contain characters XML cannot represent');
     return null;
+  }
+  return raw;
+}
+
+/**
+ * A Label is words on an Element: an absent Label is `undefined`, and a Label
+ * that is not words is a problem. Newlines are line breaks the author asked
+ * for; everything else wraps to fit.
+ */
+function parseLabel(
+  raw: unknown,
+  report: (message: string) => void,
+): string | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (typeof raw !== 'string' || raw.trim() === '') {
+    report(`label must be a non-empty string, got ${describe(raw)}`);
+    return undefined;
+  }
+  if (hasXmlInvalidChars(raw)) {
+    report('label must not contain characters XML cannot represent');
+    return undefined;
   }
   return raw;
 }
