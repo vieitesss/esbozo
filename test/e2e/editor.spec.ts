@@ -211,3 +211,17 @@ test('browsing another folder never moves where the open Scene saves', async ({ 
   expect(browsed.elements.find((element) => element.id === 'a')?.x).toBe(40);
   expect((await savedFiles(page, 'B'))['same.svg']).toBeUndefined();
 });
+
+test('a box that only overlaps an Element does not select it', async ({ page }) => {
+  await openEditor(page, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+  // The box crosses `a` and clips `b`, enclosing neither.
+  const from = await screenPoint(page, { x: 10, y: 10 });
+  const to = await screenPoint(page, { x: 250, y: 100 });
+  await drag(page, from, to);
+  expect(await page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe('');
+
+  // Nothing is selected, so a nudge writes nothing.
+  await page.keyboard.press('Shift+ArrowRight');
+  expect((await savedFiles(page))['scene.json']).toBe(SCENE_SOURCE);
+});

@@ -61,15 +61,15 @@ export function elementAt(elements: readonly Element[], point: Point): Element |
   return null;
 }
 
-/** Every Element the box touches, which is what a box-select selects. */
+/** Every Element the box fully encloses: a box sweeps up only what is inside it. */
 export function elementsInBox(elements: readonly Element[], box: Box): Element[] {
   return elements.filter((element) => {
     const other = boxOfElement(element);
     return (
-      other.x < box.x + box.width &&
-      other.x + other.width > box.x &&
-      other.y < box.y + box.height &&
-      other.y + other.height > box.y
+      other.x >= box.x &&
+      other.y >= box.y &&
+      other.x + other.width <= box.x + box.width &&
+      other.y + other.height <= box.y + box.height
     );
   });
 }
