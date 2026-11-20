@@ -453,9 +453,11 @@ function snappedEnd(
 }
 
 /**
- * Free-standing Text: its content, one line per `\n`, at its font size and
- * alignment. `x` is the aligned edge, `y` the top of the first line. Font size
- * and alignment are the only style fields Text uses.
+ * Free-standing Text: its content, one line per `\n`, at its font size,
+ * alignment and tone. `x` is the aligned edge, `y` the top of the first line.
+ * Text draws with tone, font size and text alignment; roughness, stroke, fill
+ * and corners belong to outlines, and the remaining font fields are for Labels
+ * from #4.
  */
 function renderText(element: TextElement): string {
   const size = FONT_SIZE_PX[element.fontSize];
