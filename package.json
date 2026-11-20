@@ -1,0 +1,29 @@
+{
+  "name": "esbozo",
+  "version": "0.0.0",
+  "description": "A small canvas for hand-drawn diagrams, drawn by people and written by agents.",
+  "type": "module",
+  "bin": {
+    "esbozo": "dist/cli.js",
+    "ez": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.22.3"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "pnpm build && node --test test/*.test.ts"
+  },
+  "dependencies": {
+    "roughjs": "^4.6.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.7.2"
+  }
+}
