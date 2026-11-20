@@ -15,6 +15,7 @@
 import { describe, test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import {
+  BROKEN_SCENE,
   CROSSED,
   CROSSED_SCENE,
   MIXED,
@@ -43,6 +44,7 @@ const SCENE_SOURCE = JSON.stringify(SCENE, null, 2);
 const MIXED_SOURCE = JSON.stringify(MIXED_SCENE, null, 2);
 const CROSSED_SOURCE = JSON.stringify(CROSSED_SCENE, null, 2);
 const SNAPPED_SOURCE = JSON.stringify(SNAPPED_SCENE, null, 2);
+const BROKEN_SOURCE = JSON.stringify(BROKEN_SCENE, null, 2);
 
 /** The middle of `b`, the one solid grey box in the fixture. */
 const GREY_BOX: Rect = { x: 700, y: 390, width: 40, height: 40 };
@@ -68,16 +70,12 @@ test('opening a Scene file paints it with the Renderer', async ({ app, browser, 
 
 test('a Scene that will not parse is reported and left alone on disk', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
-  const broken = JSON.stringify({
-    version: 1,
-    elements: [{ id: 'box-a', type: 'rectangle', x: 10, y: 10, width: 0, height: 40 }],
-  });
-  await openEditor(ui, { A: { 'broken.json': broken } }, 'broken.json');
+  await openEditor(ui, { A: { 'broken.json': BROKEN_SOURCE } }, 'broken.json');
 
   await expect(ui.screen.getByRole('status')).toContainText('width must be at least 1 pixel');
   await expect(ui.screen.getByRole('status')).toContainText('box-a');
   const files = await savedFiles(ui);
-  expect(files['broken.json']).toBe(broken);
+  expect(files['broken.json']).toBe(BROKEN_SOURCE);
   expect(files['broken.svg']).toBeUndefined();
 });
 
@@ -430,18 +428,27 @@ test('the status says saved only for the bytes that are on disk', async ({ app, 
 
 test('the page serves the hand font itself and nothing from a font CDN', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
-  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
 
-  const remote = await ui.browser.evaluate(() => {
-    const origin = location.origin;
-    return performance
-      .getEntriesByType('resource')
-      .map((entry) => entry.name)
-      .filter((name) => !name.startsWith(origin));
+  // Watched from before the navigation, so a font request still in flight when
+  // the page says it loaded cannot slip past.
+  const requested: string[] = [];
+  await ui.browser.route('**', async (route) => {
+    requested.push(route.request.url);
+    await route.continue();
   });
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
   await ui.browser.evaluate(() => document.fonts.ready.then(() => true));
+
+  // The browser drew the hand font, from this page's own origin.
   expect(await ui.browser.evaluate(() => document.fonts.check('18px Kalam'))).toBe(true);
-  expect(remote).toEqual([]);
+  const fonts = requested.filter((url) => new URL(url).pathname === '/fonts/Kalam-Regular.ttf');
+  await expect.poll(() => fonts.length).toBeGreaterThan(0);
+
+  // Every request went to the page's own origin: no font CDN, no other host.
+  const page = await ui.browser.evaluate(() => location.origin);
+  const origins = [...new Set(requested.map((url) => new URL(url).origin))];
+  expect(origins).toEqual([page]);
+  await ui.browser.unrouteAll();
 });
 
 test('the page follows the system theme after load and its own switch', async ({ app, browser, screen }) => {
