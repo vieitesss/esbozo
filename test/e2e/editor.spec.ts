@@ -225,3 +225,17 @@ test('a box that only overlaps an Element does not select it', async ({ page }) 
   await page.keyboard.press('Shift+ArrowRight');
   expect((await savedFiles(page))['scene.json']).toBe(SCENE_SOURCE);
 });
+
+test('the page serves the hand font itself and nothing from a font CDN', async ({ page }) => {
+  const remote: string[] = [];
+  page.on('request', (request) => {
+    if (!request.url().startsWith('http://127.0.0.1:4319/')) {
+      remote.push(request.url());
+    }
+  });
+  await openEditor(page, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+  await page.evaluate(() => document.fonts.ready);
+  expect(await page.evaluate(() => document.fonts.check('18px Kalam'))).toBe(true);
+  expect(remote).toEqual([]);
+});

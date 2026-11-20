@@ -4,7 +4,7 @@
  * Both share the Scene and the Renderer, and neither needs a node builtin, so
  * the browser bundle is the same source as the CLI's.
  */
-import { chmod, copyFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdir } from 'node:fs/promises';
 import { build } from 'esbuild';
 
 const cliOutfile = 'dist/cli.js';
@@ -33,5 +33,8 @@ await build({
   logLevel: 'info',
 });
 
+await mkdir('dist/fonts', { recursive: true });
 await copyFile('src/editor/editor.css', 'dist/editor.css');
 await copyFile('src/editor/page.html', 'dist/editor.html');
+await copyFile('fonts/Kalam-Regular.ttf', 'dist/fonts/Kalam-Regular.ttf');
+await copyFile('fonts/OFL.txt', 'dist/fonts/OFL.txt');
