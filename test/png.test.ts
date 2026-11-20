@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { inflateSync } from 'node:zlib';
+import opentype from 'opentype.js';
 import { test } from 'node:test';
 
 const run = promisify(execFile);
@@ -343,7 +344,7 @@ test('a grey fill mixes rgb() and named inks into the paper', async () => {
 
   // Grey 3 is 38% ink into paper. With red ink on white paper the middle of the
   // fill is rgb(255, 158, 158) whichever way the ink was written.
-  for (const ink of ['rgb(255, 0, 0)', 'red']) {
+  for (const ink of ['rgb(255, 0, 0)', 'rgb(255 0 0)', 'red']) {
     const { png } = await pngOne(
       ['png', 'scene.json', '--theme', 'light', '--ink', ink, '--paper', '#ffffff'],
       folder,
@@ -642,6 +643,25 @@ test('the light theme never reads the dark font', async () => {
   assert.equal(light.png.width, PAGE.width);
   assert.equal(dark.code, 5);
   assert.match(dark.stderr, /cannot read font nowhere\.ttf/);
+});
+
+test('a font with no glyphs exits 5', async () => {
+  const folder = await sceneFolder();
+  const empty = new opentype.Font({
+    familyName: 'Empty',
+    styleName: 'Regular',
+    unitsPerEm: 1000,
+    ascender: 800,
+    descender: -200,
+    glyphs: [],
+  });
+  await writeFile(join(folder, 'empty.ttf'), Buffer.from(empty.toArrayBuffer()));
+
+  const run = await ez(['png', 'scene.json', '--theme', 'light', '--font', 'empty.ttf'], folder);
+
+  assert.equal(run.code, 5);
+  assert.match(run.stderr, /^empty\.ttf has no glyphs$/m);
+  assert.equal(existsSync(join(folder, 'scene.light.png')), false);
 });
 
 test('a font file with only a signature, or a webfont, exits 5', async () => {
