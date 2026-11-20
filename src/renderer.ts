@@ -205,7 +205,7 @@ function renderOutlined(element: OutlinedElement): string {
       ...commonOptions,
       stroke: 'none',
       fill: colour,
-      fillStyle: element.fill.kind === 'solid' ? 'solid' : element.fill.kind,
+      fillStyle: element.fill.kind,
       fillWeight: Math.max(1, width / 2),
     };
     for (const path of outlinedPaths(generator, element, options)) {
@@ -279,17 +279,16 @@ function roundedRectPath(element: OutlinedElement): string {
   const width = element.width;
   const height = element.height;
   const r = Math.min(CORNER_RADIUS, width / 2, height / 2);
-  const at = (value: number) => formatNumber(value);
   return [
-    `M ${at(x + r)} ${at(y)}`,
-    `L ${at(x + width - r)} ${at(y)}`,
-    `A ${at(r)} ${at(r)} 0 0 1 ${at(x + width)} ${at(y + r)}`,
-    `L ${at(x + width)} ${at(y + height - r)}`,
-    `A ${at(r)} ${at(r)} 0 0 1 ${at(x + width - r)} ${at(y + height)}`,
-    `L ${at(x + r)} ${at(y + height)}`,
-    `A ${at(r)} ${at(r)} 0 0 1 ${at(x)} ${at(y + height - r)}`,
-    `L ${at(x)} ${at(y + r)}`,
-    `A ${at(r)} ${at(r)} 0 0 1 ${at(x + r)} ${at(y)}`,
+    `M ${formatNumber(x + r)} ${formatNumber(y)}`,
+    `L ${formatNumber(x + width - r)} ${formatNumber(y)}`,
+    `A ${formatNumber(r)} ${formatNumber(r)} 0 0 1 ${formatNumber(x + width)} ${formatNumber(y + r)}`,
+    `L ${formatNumber(x + width)} ${formatNumber(y + height - r)}`,
+    `A ${formatNumber(r)} ${formatNumber(r)} 0 0 1 ${formatNumber(x + width - r)} ${formatNumber(y + height)}`,
+    `L ${formatNumber(x + r)} ${formatNumber(y + height)}`,
+    `A ${formatNumber(r)} ${formatNumber(r)} 0 0 1 ${formatNumber(x)} ${formatNumber(y + height - r)}`,
+    `L ${formatNumber(x)} ${formatNumber(y + r)}`,
+    `A ${formatNumber(r)} ${formatNumber(r)} 0 0 1 ${formatNumber(x + r)} ${formatNumber(y)}`,
     'Z',
   ].join(' ');
 }
