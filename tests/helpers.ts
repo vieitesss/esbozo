@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { expect } from 'e2e';
-import type { Agent, App, Screen } from 'e2e';
+import type { App, Screen } from 'e2e';
 import type { Browser } from '@e2e-dev/web';
 
 const run = promisify(execFile);
@@ -26,11 +26,7 @@ export interface Ui {
   readonly screen: Screen;
 }
 
-/** The same page, plus the model the visible-outcome tests judge it with. */
-export interface AgentUi extends Ui {
-  readonly agent: Agent;
-}
-
+/** A point on the page, or in the Scene's own coordinates. */
 export interface Point {
   x: number;
   y: number;
@@ -165,6 +161,12 @@ export const SNAPPED_SCENE = {
 
 /** The view `SNAPPED_SCENE` lands in, worked out the same way as `VIEW`. */
 export const SNAPPED: View = { zoom: 1, panX: 410, panY: 320 };
+
+/** A Scene the validator rejects: `box-a` has no width. */
+export const BROKEN_SCENE = {
+  version: 1,
+  elements: [{ id: 'box-a', type: 'rectangle', x: 10, y: 10, width: 0, height: 40 }],
+};
 
 /** A Scene worth looking at, for the light and dark screenshots. */
 export const POSTER_SCENE = {
