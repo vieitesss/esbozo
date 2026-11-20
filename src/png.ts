@@ -18,7 +18,8 @@
  *     dark values always win over base ones.
  *   - `--ink`, `--paper`, `--muted` and `--font-hand` are the only properties
  *     read. Other selectors — `.dark-card`, `.dark`, `body` — are ignored, so
- *     a component's colours never become the page's palette.
+ *     a component's colours never become the page's palette. So is every other
+ *     grouping at-rule: only `@media (prefers-color-scheme: dark)` is entered.
  *   - Values may use recursive `var()` with fallbacks and
  *     `color-mix(in srgb, A p%, B)`, whose operands may be hex, `rgb()`/
  *     `rgba()` or a CSS named colour. Anything else is reported, not guessed.

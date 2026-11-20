@@ -13,6 +13,10 @@
  *     base ones, and a later declaration wins over an earlier one.
  *   - Any other selector (`.dark-card`, `.dark`, `body`, `.card`) is ignored: a
  *     component's colours are not the page's palette.
+ *   - Any other grouping at-rule — `@media print`,
+ *     `@media (prefers-color-scheme: light)`, `@supports`, `@layer`,
+ *     `@container` — is ignored for both themes. A group this subset does not
+ *     model never reaches a theme.
  *   - A `@font-face` rule keeps the scope it is written in: one inside dark
  *     scope is dark's font alone, and the light theme never reads it.
  *   - Values may use `var()` — recursive, with `var(--x, fallback)` — and
@@ -569,9 +573,10 @@ function topLevelBlocks(css: string): { prelude: string; body: string }[] {
 
 /**
  * Calls `visit` for every rule that carries declarations, telling it whether
- * the rule sits in dark scope. At-rules that group rules (media, supports) are
- * walked, not visited, and a block that holds rules carries its own dark scope
- * down to them.
+ * the rule sits in dark scope. Only `@media (prefers-color-scheme: dark)` is a
+ * group this subset enters; `@media print`, `@supports`, `@layer`, `@container`
+ * and the rest are skipped for both themes rather than guessed at. A block that
+ * holds rules carries its own dark scope down to them.
  */
 function eachRule(
   css: string,
@@ -580,12 +585,20 @@ function eachRule(
 ): void {
   for (const block of topLevelBlocks(css)) {
     const prelude = block.prelude.trim();
-    const dark = inDarkBlock || DARK_MEDIA.test(prelude);
-    if (block.body.includes('{')) {
-      eachRule(block.body, visit, dark || namesDarkRoot(prelude));
+    if (prelude.startsWith('@')) {
+      if (DARK_MEDIA.test(prelude)) {
+        eachRule(block.body, visit, true);
+      } else if (!block.body.includes('{')) {
+        // `@font-face` carries declarations of its own, so it is visited as is.
+        visit(prelude, block.body, inDarkBlock);
+      }
       continue;
     }
-    visit(prelude, block.body, dark);
+    if (block.body.includes('{')) {
+      eachRule(block.body, visit, inDarkBlock || namesDarkRoot(prelude));
+      continue;
+    }
+    visit(prelude, block.body, inDarkBlock);
   }
 }
 

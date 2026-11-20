@@ -445,6 +445,30 @@ test('the dark theme comes from the root scopes, not from any dark selector', as
   assert.deepEqual(dark.png.pixel(0, 0), [0x12, 0x34, 0x56, 255]);
 });
 
+test('only the dark media query feeds a theme; other groups are ignored', async () => {
+  const folder = await sceneFolder();
+  await writeFile(
+    join(folder, 'site.css'),
+    [
+      ':root { --ink: #003366; --paper: #fafafa; --muted: #777777; }',
+      '@media print { :root { --ink: #ff0000; --paper: #ff0000; --muted: #ff0000; } }',
+      '@media (prefers-color-scheme: light) { :root { --paper: #ff0000; } }',
+      '@supports (color: #ff0000) { :root { --ink: #ff0000; } }',
+      '@layer base { :root { --muted: #ff0000; } }',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
+  for (const theme of ['light', 'dark'] as const) {
+    const { png } = await pngOne(['png', 'scene.json', '--theme', theme, '--css', 'site.css'], folder);
+
+    // Dark inherits the base values, so both themes keep the base paper.
+    assert.deepEqual(png.pixel(0, 0), [0xfa, 0xfa, 0xfa, 255], theme);
+    assert.equal(hasPixel(png, isRed), false, `${theme} reads no rule from an ignored group`);
+  }
+});
+
 test('a later declaration wins over an earlier one', async () => {
   const folder = await sceneFolder();
   await writeFile(

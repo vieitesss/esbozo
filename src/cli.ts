@@ -57,8 +57,8 @@ const CSS_SUBSET = [
   'css: `:root` and `html` declarations are the light theme; dark is those values',
   'overridden by `@media (prefers-color-scheme: dark)` blocks and by `:root.dark`,',
   '`:root[data-theme="dark"]`, `html.dark` and `html[data-theme="dark"]`. Other',
-  'selectors are ignored. Values may use `var()` and `color-mix(in srgb, A p%, B)`',
-  'with hex, rgb()/rgba() or CSS colour names.',
+  'selectors and every other grouping at-rule are ignored. Values may use `var()`',
+  'and `color-mix(in srgb, A p%, B)` with hex, rgb()/rgba() or CSS colour names.',
 ].join('\n');
 
 const USAGE = `${RENDER_USAGE}\n${PNG_USAGE}\n${CSS_SUBSET}\n`;
