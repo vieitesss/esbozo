@@ -311,6 +311,9 @@ function renderArrowOrLine(element: ArrowOrLineElement, byId: Map<string, Elemen
     roughness: element.roughness,
     strokeWidth: width,
     stroke: colour,
+    // A Snapped end must touch the outline it belongs to at every roughness, so
+    // the drawn ends stay where the geometry put them.
+    preserveVertices: true,
   };
   for (const path of generator.toPaths(generator.line(start.x, start.y, end.x, end.y, lineOptions))) {
     paths.push(

@@ -165,6 +165,49 @@ test('a diamond is drawn to its four corners', async () => {
   }
 });
 
+test('a rough line still reaches the contact point of the outline it Snaps to', async () => {
+  // Roughness 2 draws the sketchiest line Rough.js has, and its seed is the one
+  // that made both strokes stop short of the contact point.
+  const contact = { x: 100, y: 50 };
+  const svg = await renderOne({
+    version: 1,
+    defaults: { roughness: 2 },
+    elements: [
+      {
+        id: 'box',
+        type: 'rectangle',
+        x: 100,
+        y: 0,
+        width: 100,
+        height: 100,
+        roughness: 0,
+        fill: { kind: 'none' },
+      },
+      {
+        id: 'line',
+        type: 'line',
+        points: [
+          { x: 0, y: 50 },
+          { x: 0, y: 50, snap: 'box' },
+        ],
+        heads: { start: 'none', end: 'none' },
+        seed: 1258386250,
+        stroke: { width: 'thin', style: 'solid' },
+      },
+    ],
+  });
+
+  const strokes = pathTags(svg)
+    .map((tag) => pointsOf(tag.d))
+    .filter((drawn) => drawn.some((point) => near(point.x, 0, 10) && near(point.y, 50, 10)));
+  assert.ok(strokes.length > 0, 'the line leaves its free end');
+  for (const stroke of strokes) {
+    const end = stroke.reduce((furthest, point) => (point.x > furthest.x ? point : furthest));
+    const gap = Math.hypot(end.x - contact.x, end.y - contact.y);
+    assert.ok(gap <= 0.5, `a stroke ends ${gap.toFixed(2)}px from the contact point`);
+  }
+});
+
 const OUTLINES = {
   rectangle: { id: 'target', type: 'rectangle', x: 100, y: 100, width: 160, height: 100 },
   ellipse: { id: 'target', type: 'ellipse', x: 100, y: 100, width: 160, height: 100 },
