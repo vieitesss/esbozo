@@ -16,7 +16,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
-import type { Scene } from '../src/scene.ts';
+import type { RectangleElement, Scene } from '../src/scene.ts';
 
 const BOX = {
   version: 1,
@@ -30,7 +30,7 @@ const { hashScene, parseScene, renderScene, serialiseScene } = await loadSceneMo
 test('a Scene mutated in memory saves, hashes and draws as its whole pixels', () => {
   const whole = parsed(BOX);
   const dragged = parsed(BOX);
-  const box = dragged.elements[0]!;
+  const box = rectangleOf(dragged);
   box.x = 40.2;
   box.y = 39.9;
   box.width = 120.4;
@@ -52,13 +52,73 @@ test('a Scene mutated in memory saves, hashes and draws as its whole pixels', ()
 
 test('saving and drawing leave the Scene the caller holds alone', () => {
   const scene = parsed(BOX);
-  scene.elements[0]!.x = 40.2;
+  const box = rectangleOf(scene);
+  box.x = 40.2;
 
   serialiseScene(scene);
   renderScene(scene);
 
-  assert.equal(scene.elements[0]!.x, 40.2, 'the editor still owns the value it assigned');
+  assert.equal(box.x, 40.2, 'the editor still owns the value it assigned');
 });
+
+test('an arrow dragged in memory saves and draws as its whole-pixel points', () => {
+  const scene = parsed(CONNECTOR);
+  const arrow = scene.elements[1];
+  assert.equal(arrow?.type, 'arrow');
+  if (arrow?.type !== 'arrow') {
+    throw new Error('expected an arrow');
+  }
+  arrow.points = [
+    { x: 200.4, y: 39.9 },
+    { x: 100.3, y: 100.2, snap: 'box' },
+  ];
+
+  const whole = parsed({
+    ...CONNECTOR,
+    elements: [
+      CONNECTOR.elements[0],
+      {
+        ...CONNECTOR.elements[1],
+        points: [
+          { x: 200, y: 40 },
+          { x: 100, y: 100, snap: 'box' },
+        ],
+      },
+    ],
+  });
+
+  const saved = serialiseScene(scene);
+  assert.equal(saved, serialiseScene(whole), 'the points are saved as whole pixels');
+  assert.doesNotMatch(saved, /200\.4|39\.9|100\.3|100\.2/);
+  assert.equal(hashScene(scene), hashScene(whole), 'the hash follows the saved points');
+  assert.equal(renderScene(scene), renderScene(whole), 'and so does the drawing');
+  assert.equal(parseScene(saved).ok, true, 'the saved Scene still parses');
+});
+
+const CONNECTOR = {
+  version: 1,
+  title: 'One arrow',
+  elements: [
+    { id: 'box', type: 'rectangle', x: 40, y: 40, width: 60, height: 60 },
+    {
+      id: 'arrow',
+      type: 'arrow',
+      points: [
+        { x: 200, y: 40 },
+        { x: 100, y: 100, snap: 'box' },
+      ],
+    },
+  ],
+};
+
+/** The one rectangle this seam drives, narrowed so the editor can mutate its geometry. */
+function rectangleOf(scene: Scene): RectangleElement {
+  const element = scene.elements[0]!;
+  if (element.type !== 'rectangle') {
+    throw new Error(`expected a rectangle, got ${element.type}`);
+  }
+  return element;
+}
 
 function parsed(scene: unknown): Scene {
   const result = parseScene(JSON.stringify(scene));

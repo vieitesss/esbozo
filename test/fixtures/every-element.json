@@ -1,0 +1,268 @@
+{
+  "version": 1,
+  "title": "Every Element type and style",
+  "defaults": { "roughness": 1 },
+  "elements": [
+    {
+      "id": "box",
+      "type": "rectangle",
+      "x": 40,
+      "y": 40,
+      "width": 180,
+      "height": 110,
+      "roughness": 0,
+      "stroke": { "width": "bold", "style": "solid" },
+      "fill": { "kind": "solid", "grey": 2 },
+      "tone": "ink",
+      "corners": "sharp"
+    },
+    {
+      "id": "oval",
+      "type": "ellipse",
+      "x": 260,
+      "y": 40,
+      "width": 180,
+      "height": 110,
+      "roughness": 1,
+      "stroke": { "width": "extra", "style": "dashed" },
+      "fill": { "kind": "hachure", "grey": 3 },
+      "tone": "ink"
+    },
+    {
+      "id": "gem",
+      "type": "diamond",
+      "x": 480,
+      "y": 40,
+      "width": 180,
+      "height": 110,
+      "roughness": 2,
+      "stroke": { "width": "thin", "style": "dotted" },
+      "fill": { "kind": "cross-hatch", "grey": 4 },
+      "tone": "muted"
+    },
+    {
+      "id": "card",
+      "type": "rectangle",
+      "x": 700,
+      "y": 40,
+      "width": 180,
+      "height": 110,
+      "roughness": 1,
+      "stroke": { "width": "bold", "style": "solid" },
+      "fill": { "kind": "none" },
+      "tone": "ink",
+      "corners": "round"
+    },
+    {
+      "id": "box-to-oval",
+      "type": "arrow",
+      "points": [
+        { "x": 220, "y": 95, "snap": "box" },
+        { "x": 260, "y": 95, "snap": "oval" }
+      ],
+      "heads": { "start": "none", "end": "arrow" },
+      "roughness": 1,
+      "stroke": { "width": "bold", "style": "solid" }
+    },
+    {
+      "id": "oval-to-gem",
+      "type": "arrow",
+      "points": [
+        { "x": 440, "y": 95, "snap": "oval" },
+        { "x": 480, "y": 95, "snap": "gem" }
+      ],
+      "heads": { "start": "dot", "end": "arrow" },
+      "roughness": 1,
+      "stroke": { "width": "thin", "style": "dashed" }
+    },
+    {
+      "id": "gem-to-card",
+      "type": "line",
+      "points": [
+        { "x": 660, "y": 95, "snap": "gem" },
+        { "x": 700, "y": 95, "snap": "card" }
+      ],
+      "heads": { "start": "bar", "end": "bar" },
+      "roughness": 0,
+      "stroke": { "width": "bold", "style": "dotted" },
+      "tone": "muted"
+    },
+    {
+      "id": "grey-0",
+      "type": "rectangle",
+      "x": 40,
+      "y": 220,
+      "width": 60,
+      "height": 60,
+      "stroke": { "width": "thin", "style": "solid" },
+      "fill": { "kind": "solid", "grey": 0 }
+    },
+    {
+      "id": "grey-1",
+      "type": "rectangle",
+      "x": 110,
+      "y": 220,
+      "width": 60,
+      "height": 60,
+      "stroke": { "width": "thin", "style": "solid" },
+      "fill": { "kind": "solid", "grey": 1 }
+    },
+    {
+      "id": "grey-2",
+      "type": "rectangle",
+      "x": 180,
+      "y": 220,
+      "width": 60,
+      "height": 60,
+      "stroke": { "width": "thin", "style": "solid" },
+      "fill": { "kind": "solid", "grey": 2 }
+    },
+    {
+      "id": "grey-3",
+      "type": "rectangle",
+      "x": 250,
+      "y": 220,
+      "width": 60,
+      "height": 60,
+      "stroke": { "width": "thin", "style": "solid" },
+      "fill": { "kind": "solid", "grey": 3 }
+    },
+    {
+      "id": "grey-4",
+      "type": "rectangle",
+      "x": 320,
+      "y": 220,
+      "width": 60,
+      "height": 60,
+      "stroke": { "width": "thin", "style": "solid" },
+      "fill": { "kind": "solid", "grey": 4 }
+    },
+    {
+      "id": "grey-5",
+      "type": "rectangle",
+      "x": 390,
+      "y": 220,
+      "width": 60,
+      "height": 60,
+      "stroke": { "width": "thin", "style": "solid" },
+      "fill": { "kind": "solid", "grey": 5 }
+    },
+    {
+      "id": "grey-6",
+      "type": "rectangle",
+      "x": 460,
+      "y": 220,
+      "width": 60,
+      "height": 60,
+      "stroke": { "width": "thin", "style": "solid" },
+      "fill": { "kind": "solid", "grey": 6 }
+    },
+    {
+      "id": "hatched",
+      "type": "rectangle",
+      "x": 40,
+      "y": 320,
+      "width": 140,
+      "height": 70,
+      "roughness": 2,
+      "stroke": { "width": "extra", "style": "dashed" },
+      "fill": { "kind": "hachure", "grey": 1 }
+    },
+    {
+      "id": "crossed",
+      "type": "rectangle",
+      "x": 200,
+      "y": 320,
+      "width": 140,
+      "height": 70,
+      "roughness": 2,
+      "stroke": { "width": "bold", "style": "dotted" },
+      "fill": { "kind": "cross-hatch", "grey": 5 }
+    },
+    {
+      "id": "hollow",
+      "type": "rectangle",
+      "x": 360,
+      "y": 320,
+      "width": 140,
+      "height": 70,
+      "roughness": 0,
+      "stroke": { "width": "thin", "style": "dashed" },
+      "fill": { "kind": "none" },
+      "tone": "muted"
+    },
+    {
+      "id": "small-text",
+      "type": "text",
+      "x": 540,
+      "y": 330,
+      "content": "S left",
+      "fontSize": "S",
+      "textAlign": "left",
+      "tone": "ink"
+    },
+    {
+      "id": "medium-text",
+      "type": "text",
+      "x": 660,
+      "y": 330,
+      "content": "M center",
+      "fontSize": "M",
+      "textAlign": "center",
+      "tone": "ink"
+    },
+    {
+      "id": "large-text",
+      "type": "text",
+      "x": 880,
+      "y": 330,
+      "content": "L right",
+      "fontSize": "L",
+      "textAlign": "right",
+      "tone": "ink"
+    },
+    {
+      "id": "extra-large-text",
+      "type": "text",
+      "x": 40,
+      "y": 440,
+      "content": "XL left\nsecond line",
+      "fontSize": "XL",
+      "textAlign": "left",
+      "tone": "ink"
+    },
+    {
+      "id": "quiet-text",
+      "type": "text",
+      "x": 560,
+      "y": 450,
+      "content": "Muted centre",
+      "fontSize": "M",
+      "textAlign": "center",
+      "tone": "muted"
+    },
+    {
+      "id": "free-arrow",
+      "type": "arrow",
+      "points": [
+        { "x": 40, "y": 560 },
+        { "x": 400, "y": 610 }
+      ],
+      "heads": { "start": "arrow", "end": "arrow" },
+      "roughness": 1,
+      "stroke": { "width": "bold", "style": "solid" }
+    },
+    {
+      "id": "free-line",
+      "type": "line",
+      "points": [
+        { "x": 480, "y": 570 },
+        { "x": 880, "y": 610 }
+      ],
+      "heads": { "start": "dot", "end": "bar" },
+      "roughness": 0,
+      "stroke": { "width": "extra", "style": "solid" },
+      "tone": "muted"
+    }
+  ]
+}
