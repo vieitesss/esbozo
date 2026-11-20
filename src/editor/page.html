@@ -22,6 +22,9 @@
       if (chosen === null) show(event.matches ? 'dark' : 'light');
     });
     document.addEventListener('DOMContentLoaded', () => {
+      // The button exists only now, so the theme the page started with is what
+      // labels it: a page that opened dark offers Light, not Dark.
+      show(document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
       document.querySelector('.theme').addEventListener('click', () => {
         chosen = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
         show(chosen);

@@ -426,3 +426,17 @@ test('the page follows the system theme after load and its own switch', async ({
   await page.waitForTimeout(100);
   expect((await shot(page)).meanLuminance(CORNER)).toBeGreaterThan(0.85);
 });
+
+test.describe('a page that starts in system dark', () => {
+  test.use({ colorScheme: 'dark' });
+
+  test('paints dark and offers the light switch', async ({ page }) => {
+    await openEditor(page, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+    // Dark paper on the first frame, and the switch names the theme it gives.
+    expect((await shot(page)).meanLuminance(CORNER)).toBeLessThan(0.4);
+    await page.getByRole('button', { name: 'Light', exact: true }).click();
+    await page.waitForTimeout(100);
+    expect((await shot(page)).meanLuminance(CORNER)).toBeGreaterThan(0.85);
+  });
+});
