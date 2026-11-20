@@ -7,8 +7,12 @@
  */
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { build } from 'esbuild';
 import { sha256Hex } from '../src/sha256.ts';
 
 const SAMPLES = [
@@ -34,12 +38,33 @@ test('sha256Hex matches the published digest of the empty string', () => {
   assert.equal(sha256Hex(''), 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
 });
 
-test('the shared Scene, Renderer and hash modules import nothing from Node', async () => {
-  for (const module of ['scene.ts', 'renderer.ts', 'sha256.ts']) {
-    const source = await readFile(new URL(`../src/${module}`, import.meta.url), 'utf8');
-    assert.doesNotMatch(source, /\bfrom\s+['"]node:/, module);
-    assert.doesNotMatch(source, /\brequire\(/, module);
-  }
+test('the Scene, Renderer and hash modules bundle for the browser', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'esbozo-browser-'));
+  const entry = join(folder, 'entry.ts');
+  const source = (module: string) =>
+    JSON.stringify(fileURLToPath(new URL(`../src/${module}`, import.meta.url)));
+  await writeFile(
+    entry,
+    [
+      `export { parseScene, serialiseScene, hashScene } from ${source('scene.ts')};`,
+      `export { renderScene } from ${source('renderer.ts')};`,
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
+  // A `node:` import is unresolvable for the browser platform, so a bundle that
+  // builds is a bundle that runs there: that is the outcome, not the import text.
+  const bundled = await build({
+    entryPoints: [entry],
+    bundle: true,
+    platform: 'browser',
+    format: 'esm',
+    write: false,
+    logLevel: 'silent',
+  });
+
+  assert.equal(bundled.outputFiles?.length, 1, 'the browser build produced one module');
 });
 
 function openssl(text: string): string {

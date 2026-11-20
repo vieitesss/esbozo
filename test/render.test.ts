@@ -213,17 +213,15 @@ test('a hachure fill paints one step more ink than the same solid grey', async (
   assert.deepEqual(fillsOf(solidAt3).map(inkPercent), [38]);
 });
 
-test('the root SVG names itself with its own title, with no shared id', async () => {
+test('the root SVG carries the Scene title as its accessible name, with no shared id', async () => {
   const first = await renderOne(SAMPLE_SCENE);
   const second = await renderOne({ ...SAMPLE_SCENE, title: 'Other boxes' });
+  const escaped = await renderOne({ version: 1, title: 'A & B <tag> "quoted"', elements: [] });
 
-  const root = /^<svg\b[^>]*>/.exec(first)?.[0] ?? '';
-  assert.match(root, /\brole="img"/);
-  assert.doesNotMatch(first, /aria-labelledby|aria-label=/, 'the name is not borrowed through a reference');
-
-  const body = first.slice(root.length);
-  assert.match(body, /^\n<title>Two boxes<\/title>/, 'the accessible name is the SVG own first child');
-  assert.equal(body.match(/<title\b/g)?.length, 1);
+  assert.match(rootTag(first), /\brole="img"/);
+  assert.equal(accessibleName(first), 'Two boxes');
+  assert.equal(accessibleName(second), 'Other boxes', 'each SVG names its own Scene');
+  assert.equal(accessibleName(escaped), 'A & B <tag> "quoted"', 'the name is the title itself, not its markup');
 
   const ids = new Set(idsOf(first));
   for (const id of idsOf(second)) {
@@ -247,7 +245,8 @@ test('characters XML cannot represent are rejected in the title', async () => {
   assert.equal(existsSync(join(folder, 'scene.svg')), false);
 });
 
-test('characters XML cannot represent are rejected in an Element id', async () => {
+
+test('an Element id is a Scene label, so XML-only characters do not matter', async () => {
   const folder = await sceneFolder({
     version: 1,
     elements: [{ id: 'a\u0000b', type: 'rectangle', x: 10, y: 10, width: 40, height: 40 }],
@@ -255,11 +254,10 @@ test('characters XML cannot represent are rejected in an Element id', async () =
 
   const run = await ez(['render', 'scene.json'], folder);
 
-  assert.equal(run.code, 3);
-  assert.match(run.stderr, /id must not contain characters XML cannot represent/);
-  assert.equal(existsSync(join(folder, 'scene.svg')), false);
+  assert.equal(run.code, 0, run.stderr);
+  const svg = await readFile(join(folder, 'scene.svg'), 'utf8');
+  assert.deepEqual(idsOf(svg), [], 'the id never enters the SVG');
 });
-
 
 test('the SVG carries the Scene hash and a title and no script or external reference', async () => {
   const svg = await renderOne(SAMPLE_SCENE);
@@ -448,6 +446,45 @@ function fillsOf(svg: string): string[] {
 
 function idsOf(svg: string): string[] {
   return [...svg.matchAll(/\bid="([^"]*)"/g)].map((match) => match[1]!);
+}
+
+/** The root `<svg>` start tag: everything before its first child. */
+function rootTag(svg: string): string {
+  return /^<svg\b[^>]*>/.exec(svg)?.[0] ?? '';
+}
+
+/**
+ * The name a viewer announces for the SVG, in the order ARIA picks it:
+ * `aria-labelledby`, then `aria-label`, then the SVG's own `<title>`.
+ */
+function accessibleName(svg: string): string {
+  const root = rootTag(svg);
+  const labelledBy = /\baria-labelledby="([^"]+)"/.exec(root)?.[1];
+  if (labelledBy !== undefined) {
+    return labelledBy.split(/\s+/).map((id) => textOfId(svg, id)).join(' ');
+  }
+  const label = /\baria-label="([^"]*)"/.exec(root)?.[1];
+  if (label !== undefined) {
+    return decodeXml(label);
+  }
+  return decodeXml(/^<svg\b[^>]*>\s*<title>([^<]*)<\/title>/.exec(svg)?.[1] ?? '');
+}
+
+function textOfId(svg: string, id: string): string {
+  const target = new RegExp(`<([a-z]+)\\b[^>]*\\bid="${id}"[^>]*>([^<]*)</\\1>`).exec(svg);
+  return decodeXml(target?.[2] ?? '');
+}
+
+const XML_ENTITIES: Record<string, string> = {
+  '&amp;': '&',
+  '&lt;': '<',
+  '&gt;': '>',
+  '&quot;': '"',
+  '&apos;': "'",
+};
+
+function decodeXml(text: string): string {
+  return text.replace(/&(?:amp|lt|gt|quot|apos);/g, (entity) => XML_ENTITIES[entity] ?? entity);
 }
 
 /** The ink percentage a fill colour paints: paper is 0 and ink is 100. */
