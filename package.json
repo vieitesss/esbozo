@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@resvg/resvg-wasm": "^2.6.2",
+    "opentype.js": "^2.0.0",
     "roughjs": "^4.6.6"
   },
   "devDependencies": {
