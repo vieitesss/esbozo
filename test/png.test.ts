@@ -37,7 +37,7 @@ const SAMPLE_SCENE = {
       height: 100,
       tone: 'muted',
       fill: { kind: 'solid', grey: 4 },
-      stroke: { width: 2, style: 'dashed' },
+      stroke: { width: 'bold', style: 'dashed' },
     },
   ],
 };
@@ -390,7 +390,7 @@ test('the dark theme inherits the base colours and overrides only what it declar
     version: 1,
     elements: [
       { id: 'ink', type: 'rectangle', x: 20, y: 20, width: 120, height: 80 },
-      { id: 'muted', type: 'rectangle', x: 200, y: 20, width: 120, height: 80, tone: 'muted', stroke: { width: 8 } },
+      { id: 'muted', type: 'rectangle', x: 200, y: 20, width: 120, height: 80, tone: 'muted', stroke: { width: 'extra' } },
     ],
   });
   await writeFile(
