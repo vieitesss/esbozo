@@ -140,7 +140,7 @@ export function pageBounds(scene: Scene): Box {
   };
 }
 
-/** The box an Element covers: what the editor hit-tests, selects and moves. */
+/** The box an Element covers: its selection outline, and what a box sweeps up. */
 export function elementBounds(element: Element, byId: ReadonlyMap<string, Element>): Box {
   switch (element.type) {
     case 'arrow':

@@ -92,10 +92,9 @@ function distanceToSegment(point: Point, from: Point, to: Point): number {
   const across = to.x - from.x;
   const down = to.y - from.y;
   const lengthSquared = across * across + down * down;
+  const travelled = (point.x - from.x) * across + (point.y - from.y) * down;
   const along =
-    lengthSquared === 0
-      ? 0
-      : Math.min(1, Math.max(0, ((point.x - from.x) * across + (point.y - from.y) * down) / lengthSquared));
+    lengthSquared === 0 ? 0 : Math.min(1, Math.max(0, travelled / lengthSquared));
   const nearest = { x: from.x + across * along, y: from.y + down * along };
   return Math.hypot(point.x - nearest.x, point.y - nearest.y);
 }
