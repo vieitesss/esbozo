@@ -240,6 +240,18 @@ test('--css measures with the stylesheet font, and --font wins over it', async (
   assert.equal(overridden.code, 0, '--font beats the stylesheet');
 });
 
+test('a font whose glyphs are tall overflows a box Kalam fits', async () => {
+  const folder = await sceneFolder(oneBox({ width: 200, height: 50, label: 'Hamburgefonstiv' }));
+  await writeFont(folder, 'tall.ttf', { ascender: 1800, descender: -200, glyphHeight: 1800 });
+
+  const kalam = await ez(['check', 'scene.json'], folder);
+  const tall = await ez(['check', 'scene.json', '--font', 'tall.ttf'], folder);
+
+  assert.equal(kalam.code, 0, kalam.stderr);
+  assert.equal(tall.code, 6, 'the tall font needs taller lines than the box has');
+  assert.match(tall.stderr, /^a: label does not fit: 1 line needs 36px, the text box is 30px tall/m);
+});
+
 test('a stylesheet that cannot be read exits 5', async () => {
   const folder = await sceneFolder(FITS);
 

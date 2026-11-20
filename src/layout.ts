@@ -354,8 +354,9 @@ function labelOverflow(element: Element, metrics: Metrics): Overflow | null {
   }
   const parts: string[] = [];
   if (tooTall) {
+    const count = words.lines.length;
     parts.push(
-      `${words.lines.length} line${words.lines.length === 1 ? '' : 's'} need ${round(words.height)}px,` +
+      `${count} line${count === 1 ? ' needs' : 's need'} ${round(words.height)}px,` +
         ` the text box is ${round(area.height)}px tall`,
     );
   }
