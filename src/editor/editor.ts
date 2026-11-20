@@ -13,6 +13,7 @@ import { emptyScene, isOutlined, parseScene, serialiseScene } from '../scene.js'
 import type { Element as SceneElement, Scene } from '../scene.js';
 import { sceneStem } from '../paths.js';
 import { pickFolder } from './files.js';
+import { servedFolder } from './server-folder.js';
 import type { SceneFolder } from './files.js';
 import {
   HANDLES,
@@ -75,6 +76,7 @@ const SHELL = `
   <button type="button" data-act="grid" aria-pressed="true">Grid</button>
   <span class="zoom">100%</span>
   <span class="where"></span>
+  <span class="mode"></span>
   <span class="saved" role="status" data-state="idle"></span>
   <span class="hint">Space pan · wheel zoom · ⌘ +/− · G Grid</span>
 </footer>
@@ -98,6 +100,8 @@ export class EsbozoEditorElement extends HTMLElement {
   /** The folder the Scenes note lists. Browsing it never moves the save target. */
   #browsed: SceneFolder | null = null;
   #target: SaveTarget | null = null;
+  /** True when the page is served by `ez serve`, so its folder needs no picker. */
+  #served = false;
   #drag: Drag | null = null;
   #spaceDown = false;
   #saveQueue: Promise<void> = Promise.resolve();
@@ -117,6 +121,7 @@ export class EsbozoEditorElement extends HTMLElement {
   #newScene!: HTMLFormElement;
   #zoomLabel!: HTMLElement;
   #whereLabel!: HTMLElement;
+  #modeLabel!: HTMLElement;
   #savedLabel!: HTMLElement;
 
   constructor(layout: Layout) {
@@ -142,6 +147,7 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#newScene = this.querySelector('.new')!;
     this.#zoomLabel = this.querySelector('.zoom')!;
     this.#whereLabel = this.querySelector('.where')!;
+    this.#modeLabel = this.querySelector('.mode')!;
     this.#savedLabel = this.querySelector('.saved')!;
 
     this.#canvas.addEventListener('pointerdown', this.#onPointerDown);
@@ -160,12 +166,46 @@ export class EsbozoEditorElement extends HTMLElement {
     requestAnimationFrame(() => this.#drawRailArt());
     this.#view = fittedView(this.#scene, this.#viewportSize(), this.#layout);
     this.#paint();
+    void this.#joinServer();
   }
 
   disconnectedCallback(): void {
     document.removeEventListener('keydown', this.#onKeyDown);
     document.removeEventListener('keyup', this.#onKeyUp);
     window.removeEventListener('resize', this.#onResize);
+  }
+
+  /**
+   * Join the folder `ez serve` is serving, when the page is served at all: it
+   * lists the Scenes and opens the first, so a served editor needs no folder
+   * picker. A static page gets `null` and keeps its Open folder button.
+   */
+  async #joinServer(): Promise<void> {
+    let folder: SceneFolder | null;
+    try {
+      folder = await servedFolder();
+    } catch (error) {
+      this.#setSaved('failed', (error as Error).message);
+      return;
+    }
+    if (folder === null) {
+      return;
+    }
+    this.#served = true;
+    this.#browsed = folder;
+    this.querySelector('[data-act="open"]')!.textContent = 'Scenes';
+    this.#modeLabel.textContent = folder.readOnly ? 'read-only' : '';
+    this.#newScene.hidden = folder.readOnly;
+    try {
+      const [first] = await folder.listScenes();
+      if (first === undefined) {
+        await this.#showNote();
+        return;
+      }
+      await this.#openScene(first);
+    } catch (error) {
+      this.#setSaved('failed', (error as Error).message);
+    }
   }
 
   /** Ask for a folder and list the Scenes in it, without moving the save target. */
@@ -216,7 +256,8 @@ export class EsbozoEditorElement extends HTMLElement {
       return;
     }
     this.#load(parsed.scene, { folder, name });
-    this.#setSaved('saved');
+    // A read-only folder saved nothing: the status bar says only that.
+    this.#setSaved(folder.readOnly ? 'idle' : 'saved');
   }
 
   /**
@@ -226,7 +267,8 @@ export class EsbozoEditorElement extends HTMLElement {
    */
   async #save(): Promise<void> {
     const target = this.#target;
-    if (target === null) {
+    // A read-only folder says so in the status bar; there is nothing to write.
+    if (target === null || target.folder.readOnly) {
       return;
     }
     const sceneSource = serialiseScene(this.#scene);
@@ -643,7 +685,8 @@ export class EsbozoEditorElement extends HTMLElement {
     const action = ((event.target as Element | null)?.closest('[data-act]') as HTMLElement | null)
       ?.dataset['act'];
     if (action === 'open') {
-      void this.#openFolder();
+      // A served page has its folder already, so the button lists its Scenes.
+      void (this.#served ? this.#showNote() : this.#openFolder());
     } else if (action === 'grid') {
       this.#toggleGrid();
     }

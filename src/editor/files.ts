@@ -1,11 +1,14 @@
 /**
- * The editor's only door to the disk: a folder the user picks, and the Scene
+ * The editor's only door to the disk: a folder of Scene files, and the Scene
  * files inside it.
  *
  * Autosave means every change writes the Scene and its SVG, so the editor needs
  * the folder and not just one file: the File System Access API can write a
  * sibling only through a directory handle. Picking the folder once keeps every
  * later write prompt-free, which is what "always autosave" needs.
+ *
+ * A served folder (`server-folder.ts`) implements the same three calls over
+ * http, so the editor has one storage seam whichever way it was opened.
  *
  * A Scene file that is not there reads as `null`, so a new Scene opens empty.
  */
@@ -32,6 +35,8 @@ interface DirectoryPickerWindow {
 
 export interface SceneFolder {
   readonly name: string;
+  /** True when this folder refuses writes, as `ez serve --read-only` does. */
+  readonly readOnly: boolean;
   /** Scene file names in the folder, sorted. */
   listScenes(): Promise<string[]>;
   /** The Scene source, or null when the file does not exist yet. */
@@ -60,6 +65,7 @@ export async function pickFolder(): Promise<SceneFolder | null> {
 function folderFromHandle(handle: DirectoryHandleLike): SceneFolder {
   return {
     name: handle.name,
+    readOnly: false,
 
     async listScenes(): Promise<string[]> {
       const names: string[] = [];
