@@ -15,6 +15,8 @@ import {
   MIXED,
   MIXED_SCENE,
   SCENE,
+  SNAPPED,
+  SNAPPED_SCENE,
   allowWrites,
   at,
   browseFolder,
@@ -35,6 +37,7 @@ import type { Rect } from './pixels.js';
 const SCENE_SOURCE = JSON.stringify(SCENE, null, 2);
 const MIXED_SOURCE = JSON.stringify(MIXED_SCENE, null, 2);
 const CROSSED_SOURCE = JSON.stringify(CROSSED_SCENE, null, 2);
+const SNAPPED_SOURCE = JSON.stringify(SNAPPED_SCENE, null, 2);
 
 /** The middle of `b`, the one solid grey box in the fixture. */
 const GREY_BOX: Rect = { x: 700, y: 390, width: 40, height: 40 };
@@ -301,6 +304,18 @@ test('every Element type moves, and only a box-like one gets resize handles', as
   ]);
   expect(moved.get('oval')?.x).toBe(90);
   expect(moved.get('word')?.x).toBe(270);
+});
+
+test('dragging an arrow Snapped at both ends writes nothing', async ({ page }) => {
+  await openEditor(page, { A: { 'snapped.json': SNAPPED_SOURCE } }, 'snapped.json');
+
+  // Both ends follow their targets, so the drawn shaft stays put: moving it
+  // has nothing to show, and the Scene on disk stays byte for byte the same.
+  await dragBy(page, { x: 230, y: 80 }, 0, 40, SNAPPED);
+
+  const files = await savedFiles(page);
+  expect(files['snapped.json']).toBe(SNAPPED_SOURCE);
+  await expect(page.getByRole('status')).toHaveText('saved');
 });
 
 test('browsing another folder never moves where the open Scene saves', async ({ page }) => {

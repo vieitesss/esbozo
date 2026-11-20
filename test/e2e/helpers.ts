@@ -127,6 +127,32 @@ export const CROSSED_SCENE = {
 /** The view `CROSSED_SCENE` lands in, worked out the same way as `VIEW`. */
 export const CROSSED: View = { zoom: 1, panX: 460, panY: 280 };
 
+/**
+ * An arrow Snapped at both ends, so its drawn shaft follows its targets whoever
+ * moves: its own stored ends cannot change where it appears.
+ */
+export const SNAPPED_SCENE = {
+  version: 1,
+  title: 'Snapped',
+  defaults: { roughness: 1 },
+  elements: [
+    { id: 'from', type: 'rectangle', x: 40, y: 40, width: 120, height: 80 },
+    { id: 'to', type: 'rectangle', x: 300, y: 40, width: 120, height: 80 },
+    {
+      id: 'link',
+      type: 'arrow',
+      points: [
+        { x: 160, y: 80, snap: 'from' },
+        { x: 300, y: 80, snap: 'to' },
+      ],
+      heads: { start: 'none', end: 'arrow' },
+    },
+  ],
+};
+
+/** The view `SNAPPED_SCENE` lands in, worked out the same way as `VIEW`. */
+export const SNAPPED: View = { zoom: 1, panX: 410, panY: 320 };
+
 /** A Scene worth looking at, for the light and dark screenshots. */
 export const POSTER_SCENE = {
   version: 1,
