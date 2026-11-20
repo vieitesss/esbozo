@@ -232,6 +232,76 @@ test('both ends of an arrow can Snap, each to its own target', async () => {
   assert.ok(near(end.x, 360) && near(end.y, 80), 'the end sits on the ellipse edge');
 });
 
+test('two Snapped ends aim at each other even after one box moves past the other', async () => {
+  // The boxes are now the other way round from when the arrow was drawn: the
+  // left box sits at x=500 and the right one at x=300. The arrow's own points
+  // still say 100 -> 300, as an editor leaves them after a drag.
+  const left = { id: 'left', type: 'rectangle', x: 500, y: 0, width: 100, height: 100 };
+  const right = { id: 'right', type: 'rectangle', x: 300, y: 0, width: 100, height: 100 };
+  const svg = await renderOne({
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [
+      { ...left, fill: { kind: 'none' } },
+      { ...right, fill: { kind: 'none' } },
+      {
+        id: 'arrow',
+        type: 'arrow',
+        points: [
+          { x: 100, y: 50, snap: 'left' },
+          { x: 300, y: 50, snap: 'right' },
+        ],
+        heads: { start: 'arrow', end: 'arrow' },
+      },
+    ],
+  });
+
+  const points = allPoints(svg);
+  for (const [name, box] of [['left', left], ['right', right]] as const) {
+    const inside = points.filter((point) => strictlyInside(box, point));
+    assert.deepEqual(inside, [], `nothing is drawn inside the ${name} box`);
+  }
+  // The shaft spans the gap between the facing edges: x 500 to x 400, at the
+  // height of both centres (y 50), and nowhere else.
+  const shaft = pathTags(svg)
+    .map((tag) => pointsOf(tag.d))
+    .find(
+      (drawn) =>
+        drawn.length >= 2 &&
+        drawn.every((point) => near(point.y, 50, 1) && point.x >= 399 && point.x <= 501),
+    );
+  assert.ok(shaft, 'a shaft runs along y=50 between the facing edges');
+  assert.ok(near(shaft[0]!.x, 500, 0.5), `the shaft starts on the left box at ${shaft[0]!.x}`);
+  assert.ok(
+    near(shaft[shaft.length - 1]!.x, 400, 0.5),
+    `the shaft ends on the right box at ${shaft[shaft.length - 1]!.x}`,
+  );
+
+  // Each head has its apex on the facing edge where the shaft meets it, and its
+  // base back over the gap, so it points into its box rather than away.
+  for (const contact of [
+    { x: 500, y: 50 },
+    { x: 400, y: 50 },
+  ]) {
+    const head = pathTags(svg)
+      .filter((tag) => tag.fill !== 'none')
+      .map((tag) => pointsOf(tag.d))
+      .find((triangle) =>
+        triangle.some((point) => near(point.x, contact.x) && near(point.y, contact.y)),
+      );
+    assert.ok(head, `a head apex sits on the contact at ${contact.x},${contact.y}`);
+    for (const point of head) {
+      if (near(point.x, contact.x) && near(point.y, contact.y)) {
+        continue;
+      }
+      assert.ok(
+        point.x > 400 && point.x < 500,
+        `the head base at ${point.x},${point.y} reaches back over the gap`,
+      );
+    }
+  }
+});
+
 test('arrow heads point along the arrow, into each end', async () => {
   const start = { x: 40, y: 40 };
   const end = { x: 240, y: 140 };
@@ -505,6 +575,22 @@ function pathTags(svg: string): { d: string; fill: string }[] {
     d: attribute(tag, 'd') ?? '',
     fill: attribute(tag, 'fill') ?? '',
   }));
+}
+
+/** Every path number pair on the page, whatever path it belongs to. */
+function allPoints(svg: string): Point[] {
+  return pathTags(svg).flatMap((tag) => pointsOf(tag.d));
+}
+
+/** A point with room to spare inside a box: a drawn boundary does not count. */
+function strictlyInside(box: { x: number; y: number; width: number; height: number }, point: Point): boolean {
+  const margin = 0.5;
+  return (
+    point.x > box.x + margin &&
+    point.x < box.x + box.width - margin &&
+    point.y > box.y + margin &&
+    point.y < box.y + box.height - margin
+  );
 }
 
 /** The two-point shaft that starts at `from`: with roughness 0 its last pair is the end. */

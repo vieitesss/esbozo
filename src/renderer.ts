@@ -38,6 +38,7 @@ import {
   CORNER_RADIUS,
   arrowHeadTriangle,
   barThrough,
+  centreOf,
   pointOnOutline,
   unit,
 } from './geometry.js';
@@ -382,25 +383,51 @@ function headPaths(
 
 /**
  * Both ends of an arrow or line, with each Snapped end moved onto its target's
- * outline along the line from the other end's point towards the target centre.
+ * outline. An end aims at the other end: at the other target's centre when that
+ * end is Snapped too, so both ends aim along the line between the two targets
+ * as they are now, or from where the free end sits.
  */
 function arrowOrLinePoints(
   element: ArrowOrLineElement,
   byId: Map<string, Element>,
 ): [Point, Point] {
   const [start, end] = element.points;
-  const resolve = (point: Point, other: Point): Point => {
-    if (point.snap === undefined) {
-      return { x: point.x, y: point.y };
-    }
-    const target = byId.get(point.snap);
-    if (target === undefined || !isOutlined(target)) {
-      // parseScene already rejected this Scene; draw the end where it was asked.
-      return { x: point.x, y: point.y };
-    }
-    return pointOnOutline(target, other);
-  };
-  return [resolve(start, end), resolve(end, start)];
+  const startTarget = snapTarget(element, start, byId);
+  const endTarget = snapTarget(element, end, byId);
+  return [
+    snappedEnd(start, startTarget, endTarget, end),
+    snappedEnd(end, endTarget, startTarget, start),
+  ];
+}
+
+/** The Element a Snapped end is drawn on, or undefined for a free end. */
+function snapTarget(
+  element: ArrowOrLineElement,
+  point: Point,
+  byId: Map<string, Element>,
+): OutlinedElement | undefined {
+  if (point.snap === undefined) {
+    return undefined;
+  }
+  const target = byId.get(point.snap);
+  if (target === undefined || !isOutlined(target)) {
+    // parseScene already rejected this Scene; draw the end where it was asked.
+    return undefined;
+  }
+  return target;
+}
+
+/** One end, moved onto its target's outline, aiming at the other end. */
+function snappedEnd(
+  point: Point,
+  target: OutlinedElement | undefined,
+  otherTarget: OutlinedElement | undefined,
+  freeEnd: Point,
+): Point {
+  if (target === undefined) {
+    return { x: point.x, y: point.y };
+  }
+  return pointOnOutline(target, otherTarget === undefined ? freeEnd : centreOf(otherTarget));
 }
 
 /**
