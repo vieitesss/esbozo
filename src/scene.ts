@@ -178,8 +178,8 @@ export function parseScene(source: string): ParseResult {
   }
 
   const problems: Problem[] = [];
-  rejectUnknownKeys(raw, SCENE_KEYS, (key) =>
-    problems.push(sceneProblem(`unknown key "${key}"`)),
+  rejectUnknownKeys(raw, SCENE_KEYS, (unknownKey) =>
+    problems.push(sceneProblem(`unknown key "${unknownKey}"`)),
   );
   if (raw.version !== SCENE_VERSION) {
     problems.push(
@@ -254,7 +254,9 @@ function parseDefaults(raw: unknown, problems: Problem[]): SceneStyle {
   const report = (message: string) => problems.push(sceneProblem(message));
   const defaults = isRecord(raw) ? raw : null;
   if (defaults !== null) {
-    rejectUnknownKeys(defaults, DEFAULTS_KEYS, (key) => report(`defaults: unknown key "${key}"`));
+    rejectUnknownKeys(defaults, DEFAULTS_KEYS, (unknownKey) =>
+      report(`defaults: unknown key "${unknownKey}"`),
+    );
   } else if (raw !== undefined) {
     report('defaults must be a JSON object');
   }
@@ -317,7 +319,7 @@ function parseElement(
   const before = problems.length;
   const report = (message: string) => problems.push({ elementId: id, message });
 
-  rejectUnknownKeys(raw, ELEMENT_KEYS, report);
+  rejectUnknownKeys(raw, ELEMENT_KEYS, (unknownKey) => report(`unknown key "${unknownKey}"`));
 
   if (raw.type !== 'rectangle') {
     report(`type must be one of ${ELEMENT_TYPES.join(', ')}, got ${describe(raw.type)}`);
@@ -403,7 +405,7 @@ function parseStroke(
     }
     return { ...fallback };
   }
-  rejectUnknownKeys(raw, STROKE_KEYS, report);
+  rejectUnknownKeys(raw, STROKE_KEYS, (unknownKey) => report(`unknown key "${unknownKey}"`));
   const width =
     raw.width === undefined ? fallback.width : parseNumber(raw.width, 'stroke.width', report);
   if (width !== null && width <= 0) {
@@ -430,7 +432,7 @@ function parseFill(
     }
     return { ...fallback };
   }
-  rejectUnknownKeys(raw, FILL_KEYS, report);
+  rejectUnknownKeys(raw, FILL_KEYS, (unknownKey) => report(`unknown key "${unknownKey}"`));
   const kind = raw.kind === undefined ? fallback.kind : raw.kind;
   if (!isOneOf(FILL_KINDS, kind)) {
     report(`fill.kind must be one of ${FILL_KINDS.join(', ')}, got ${describe(kind)}`);
@@ -545,11 +547,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function rejectUnknownKeys(
   record: Record<string, unknown>,
   allowed: readonly string[],
-  report: (message: string) => void,
+  onUnknownKey: (unknownKey: string) => void,
 ): void {
   for (const key of Object.keys(record)) {
     if (!allowed.includes(key)) {
-      report(`unknown key "${key}"`);
+      onUnknownKey(key);
     }
   }
 }

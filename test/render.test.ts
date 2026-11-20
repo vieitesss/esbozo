@@ -314,6 +314,26 @@ test('an invalid Scene reports every Element it cannot parse', async () => {
   assert.match(run.stderr, /^typo-b: unknown key "roughnes"/m);
 });
 
+test('unknown keys are reported once with their Scene, defaults or Element context', async () => {
+  const folder = await sceneFolder({
+    ...SAMPLE_SCENE,
+    titel: 'Two boxes',
+    defaults: { roughnes: 2 },
+    elements: [{ ...SAMPLE_SCENE.elements[0], stroke: { widht: 2 }, fill: { gey: 0 } }],
+  });
+
+  const run = await ez(['render', 'scene.json'], folder);
+
+  assert.equal(run.code, 3);
+  assert.deepEqual(run.stderr.trimEnd().split('\n'), [
+    'unknown key "titel"',
+    'defaults: unknown key "roughnes"',
+    'a: unknown key "widht"',
+    'a: unknown key "gey"',
+  ]);
+  assert.equal(existsSync(join(folder, 'scene.svg')), false);
+});
+
 test('an empty Scene still renders a titled SVG page', async () => {
   const svg = await renderOne({ version: 1, title: 'Blank', elements: [] });
 
