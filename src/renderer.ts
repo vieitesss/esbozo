@@ -11,11 +11,12 @@
  * grey step is a fixed `color-mix` of ink into paper, an opaque colour, so an
  * overlap never darkens and a host backdrop other than paper never shows
  * through. A hachure or cross-hatch fill takes one step more ink than a solid
- * fill of the same grey, and its hatch gap leaves a lattice rather than a
- * wash at every roughness, so the two line fills stay a texture. The Scene hash is written into
- * `data-scene-hash` so an SVG can always be traced back to the Scene it came
- * from, and the root `<svg role="img">` carries its accessible name as its own
- * first-child `<title>`, with no document-wide id to collide with.
+ * fill of the same grey, and its hatch gap leaves a lattice rather than a wash
+ * at every roughness, so the two line fills stay a texture. The Scene hash is
+ * written into `data-scene-hash` so an SVG can always be traced back to the
+ * Scene it came from, and the root `<svg role="img">` carries its accessible
+ * name as its own first-child `<title>`, with no document-wide id to collide
+ * with.
  *
  * A Snapped arrow or line end is resolved against its target's outline here
  * (`geometry.ts` does the maths), and its head sits on that end pointing along

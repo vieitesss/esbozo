@@ -232,7 +232,9 @@ test('a round diamond rounds its vertices in the drawing and in Snap', async () 
   }
   for (const corner of corners) {
     assert.equal(
-      allDrawnPoints(sharp).some((point) => near(point.x, corner.x, 0.5) && near(point.y, corner.y, 0.5)),
+      allDrawnPoints(sharp).some(
+        (point) => near(point.x, corner.x, 0.5) && near(point.y, corner.y, 0.5),
+      ),
       true,
       `a sharp diamond draws its corner at ${corner.x},${corner.y}`,
     );
@@ -727,7 +729,7 @@ function allDrawnPoints(svg: string): Point[] {
 }
 
 /** A point with room to spare inside a box: a drawn boundary does not count. */
-function strictlyInside(box: { x: number; y: number; width: number; height: number }, point: Point): boolean {
+function strictlyInside(box: Box, point: Point): boolean {
   const margin = 0.5;
   return (
     point.x > box.x + margin &&
@@ -786,7 +788,9 @@ function escapeXml(text: string): string {
 function shaftFrom(svg: string, from: Point): Point[] {
   const shaft = pathTags(svg)
     .map((tag) => drawnPoints(tag.d))
-    .find((points) => points.length > 0 && near(points[0]!.x, from.x) && near(points[0]!.y, from.y));
+    .find(
+      (points) => points.length > 0 && near(points[0]!.x, from.x) && near(points[0]!.y, from.y),
+    );
   assert.ok(shaft, `a path starts at ${from.x},${from.y}`);
   return shaft;
 }

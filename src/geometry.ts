@@ -143,15 +143,16 @@ export function pointOnOutline(outline: Outline, from: Point): Point {
     return { x: centre.x + dx * scale, y: centre.y + dy * scale };
   }
   const corners = fillets(outline);
-  const direction = { x: dx / Math.hypot(dx, dy), y: dy / Math.hypot(dx, dy) };
+  const length = Math.hypot(dx, dy);
+  const direction = { x: dx / length, y: dy / length };
   const reach = boundaryReach(centre, direction, corners);
   return { x: centre.x + direction.x * reach, y: centre.y + direction.y * reach };
 }
 
 /**
- * The distance, as a multiple of the direction `towards`, at which a ray from
- * `centre` crosses the boundary of a rounded outline: the nearest crossing of
- * any straight run between two fillets and any fillet arc.
+ * How far from `centre` along the unit `direction` a ray crosses the boundary
+ * of a rounded outline: the nearest crossing of any straight run between two
+ * fillets and any fillet arc.
  */
 function boundaryReach(centre: Point, direction: Point, corners: Fillet[]): number {
   let nearest = Number.POSITIVE_INFINITY;
@@ -212,10 +213,9 @@ function rayToFillet(origin: Point, direction: Point, fillet: Fillet): number | 
 
 /** Whether a point on a fillet's circle lies on the arc between its two tangent points. */
 function withinArc(fillet: Fillet, point: Point): boolean {
-  const sweep = arcAngle(fillet, fillet.after) - arcAngle(fillet, fillet.before);
-  const reached = arcAngle(fillet, point) - arcAngle(fillet, fillet.before);
-  return Math.sign(halfTurn(reached)) === Math.sign(halfTurn(sweep)) &&
-    Math.abs(halfTurn(reached)) <= Math.abs(halfTurn(sweep)) + 1e-9;
+  const sweep = halfTurn(arcAngle(fillet, fillet.after) - arcAngle(fillet, fillet.before));
+  const reached = halfTurn(arcAngle(fillet, point) - arcAngle(fillet, fillet.before));
+  return reached * sweep >= 0 && Math.abs(reached) <= Math.abs(sweep) + 1e-9;
 }
 
 function arcAngle(fillet: Fillet, point: Point): number {
