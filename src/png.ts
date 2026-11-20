@@ -264,7 +264,11 @@ async function prepareFont(
   }
 
   if (stylesheet !== null) {
-    const face = fontFaces(stylesheet.css).find((candidate) => familyMatches(candidate.family, fontFamily));
+    // A `@font-face` inside dark scope belongs to the dark theme alone, so the
+    // light theme never reads it. A later rule wins, as in CSS.
+    const face = fontFaces(stylesheet.css)
+      .filter((candidate) => options.theme === 'dark' || !candidate.dark)
+      .findLast((candidate) => familyMatches(candidate.family, fontFamily));
     if (face !== undefined) {
       if (REMOTE_URL.test(face.url)) {
         notes.push(`stylesheet font ${face.url} is remote, so the bundled ${BUNDLED_FONT_NAME} is used`);

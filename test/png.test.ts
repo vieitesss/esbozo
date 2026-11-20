@@ -621,6 +621,42 @@ test('the stylesheet font is read instead of falling back to Kalam', async () =>
   assert.match(run.stderr, /^broken\.ttf \(from site\.css\) is not a TrueType or OpenType font$/m);
 });
 
+test('a @font-face declared in dark scope is never read by the light theme', async () => {
+  const folder = await sceneFolder();
+  await writeFile(
+    join(folder, 'media.css'),
+    [
+      ':root { --ink: #003366; --paper: #fafafa; --muted: #777777; --font-hand: Hand; }',
+      '@media (prefers-color-scheme: dark) {',
+      '  @font-face { font-family: Hand; src: url(dark-hand.ttf) format("truetype"); }',
+      '}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  await writeFile(
+    join(folder, 'scope.css'),
+    [
+      ':root { --ink: #003366; --paper: #fafafa; --muted: #777777; --font-hand: Hand; }',
+      ':root.dark {',
+      '  @font-face { font-family: Hand; src: url(dark-hand.ttf) format("truetype"); }',
+      '}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
+  for (const css of ['media.css', 'scope.css']) {
+    const light = await pngOne(['png', 'scene.json', '--theme', 'light', '--css', css], folder);
+    assert.equal(light.png.width, PAGE.width, css);
+
+    // The dark theme reads the face, so its missing file is a problem there.
+    const dark = await ez(['png', 'scene.json', '--theme', 'dark', '--css', css], folder);
+    assert.equal(dark.code, 5, css);
+    assert.match(dark.stderr, /^cannot read font dark-hand\.ttf \(from /m);
+  }
+});
+
 test('a remote @font-face is ignored with a note, and Kalam is used', async () => {
   const folder = await sceneFolder();
   await writeFile(

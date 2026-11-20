@@ -13,6 +13,8 @@
  *     base ones, and a later declaration wins over an earlier one.
  *   - Any other selector (`.dark-card`, `.dark`, `body`, `.card`) is ignored: a
  *     component's colours are not the page's palette.
+ *   - A `@font-face` rule keeps the scope it is written in: one inside dark
+ *     scope is dark's font alone, and the light theme never reads it.
  *   - Values may use `var()` — recursive, with `var(--x, fallback)` — and
  *     `color-mix(in srgb, A p%, B)`, whose operands may themselves be `var()`s.
  *     Parentheses are matched, so nesting works to any depth.
@@ -41,10 +43,14 @@ export interface Rgba {
 /** A `var()`/`color-mix()` result, or the smallest expression that would not resolve. */
 export type Resolution = { ok: true; value: string } | { ok: false; unresolved: string };
 
-/** A `@font-face` rule: the family it declares and the first source it lists. */
+/**
+ * A `@font-face` rule: the family it declares, the first source it lists, and
+ * whether the rule only applies to the dark theme.
+ */
 export interface FontFace {
   family: string;
   url: string;
+  dark: boolean;
 }
 
 const LIGHT_ROOT = /^(?::root|html)$/i;
@@ -76,10 +82,10 @@ export function themeVariables(css: string, theme: Theme): Variables {
   return theme === 'dark' ? { ...base, ...dark } : base;
 }
 
-/** Every `@font-face` rule in a stylesheet, in source order. */
+/** Every `@font-face` rule in a stylesheet, in source order, with its theme scope. */
 export function fontFaces(css: string): FontFace[] {
   const faces: FontFace[] = [];
-  eachRule(stripComments(css), (prelude, body) => {
+  eachRule(stripComments(css), (prelude, body, inDarkBlock) => {
     if (!/^@font-face$/i.test(prelude)) {
       return;
     }
@@ -91,7 +97,7 @@ export function fontFaces(css: string): FontFace[] {
     if (family === undefined || found === undefined) {
       return;
     }
-    faces.push({ family: unquote(family), url: found.trim() });
+    faces.push({ family: unquote(family), url: found.trim(), dark: inDarkBlock });
   });
   return faces;
 }
@@ -563,8 +569,9 @@ function topLevelBlocks(css: string): { prelude: string; body: string }[] {
 
 /**
  * Calls `visit` for every rule that carries declarations, telling it whether
- * the rule sits inside a dark-mode block. At-rules that group rules (media,
- * supports) are walked, not visited.
+ * the rule sits in dark scope. At-rules that group rules (media, supports) are
+ * walked, not visited, and a block that holds rules carries its own dark scope
+ * down to them.
  */
 function eachRule(
   css: string,
@@ -575,11 +582,16 @@ function eachRule(
     const prelude = block.prelude.trim();
     const dark = inDarkBlock || DARK_MEDIA.test(prelude);
     if (block.body.includes('{')) {
-      eachRule(block.body, visit, dark);
+      eachRule(block.body, visit, dark || namesDarkRoot(prelude));
       continue;
     }
     visit(prelude, block.body, dark);
   }
+}
+
+/** Whether a rule's prelude lists a dark root scope, such as `:root.dark`. */
+function namesDarkRoot(prelude: string): boolean {
+  return prelude.split(',').some((selector) => DARK_ROOT.test(selector.trim()));
 }
 
 /** Every declaration in a block, in source order. */
