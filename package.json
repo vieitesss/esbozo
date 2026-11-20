@@ -10,7 +10,8 @@
   },
   "files": [
     "dist",
-    "fonts"
+    "fonts",
+    "skills"
   ],
   "engines": {
     "node": ">=22.22.3"
