@@ -152,13 +152,12 @@ export function readColour(text: string): Rgba | null {
   return NAMED_COLOURS.get(trimmed.toLowerCase()) ?? null;
 }
 
-/** `rgb()`/`rgba()` text for a colour, the form the SVG is resolved to. */
+/**
+ * `rgb()` text for a colour. Only a palette colour is ever written this way,
+ * and a palette colour is opaque.
+ */
 export function colourText(colour: Rgba): string {
-  const { r, g, b, a } = colour;
-  if (a >= 255) {
-    return `rgb(${r}, ${g}, ${b})`;
-  }
-  return `rgba(${r}, ${g}, ${b}, ${Math.round((a / 255) * 1000) / 1000})`;
+  return `rgb(${colour.r}, ${colour.g}, ${colour.b})`;
 }
 
 /** The longest nesting `resolveText` follows before calling a value unresolved. */
@@ -292,10 +291,9 @@ function resolveMix(
 }
 
 /**
- * `in srgb, <colour> [p%], <colour> [p%]` into `rgb()`/`rgba()`, or null when
- * the arguments are not a shape this subset understands. One missing
- * percentage is the other's complement, two missing ones are 50/50, and
- * percentages that do not add up to 100 are normalised, as CSS does.
+ * `in srgb, <colour> p%, <colour>` into `rgb()`. The one weight is the whole
+ * grammar: a second weight, or none, is reported as unresolved rather than
+ * guessed at. The result is opaque, because every palette colour is.
  */
 function mixColours(arguments_: string): string | null {
   const parts = splitTopLevel(arguments_, ',').map((part) => part.trim());
@@ -327,7 +325,7 @@ function mixColours(arguments_: string): string | null {
     r: channel(first.colour.r, second.colour.r),
     g: channel(first.colour.g, second.colour.g),
     b: channel(first.colour.b, second.colour.b),
-    a: channel(first.colour.a, second.colour.a),
+    a: 255,
   });
 }
 

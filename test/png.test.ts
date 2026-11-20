@@ -487,6 +487,31 @@ test('only the dark media query feeds a theme; other groups are ignored', async 
   }
 });
 
+test('a translucent palette colour exits 5 instead of being mixed', async () => {
+  const folder = await sceneFolder();
+
+  for (const ink of ['rgba(255, 0, 0, 0.5)', '#ff000080', 'transparent']) {
+    await writeFile(
+      join(folder, 'site.css'),
+      `:root { --ink: ${ink}; --paper: #ffffff; --muted: #777777; }`,
+      'utf8',
+    );
+    const run = await ez(['png', 'scene.json', '--theme', 'light', '--css', 'site.css'], folder);
+    assert.equal(run.code, 5, ink);
+    assert.match(run.stderr, /^colours must be opaque: stylesheet colour --ink is /m, ink);
+    assert.equal(existsSync(join(folder, 'scene.light.png')), false, ink);
+  }
+
+  // Alpha 1 is opaque, so rgba() stays a colour the palette accepts.
+  await writeFile(
+    join(folder, 'opaque.css'),
+    ':root { --ink: rgba(255, 0, 0, 1); --paper: #ffffff; --muted: #777777; }',
+    'utf8',
+  );
+  const { png } = await pngOne(['png', 'scene.json', '--theme', 'light', '--css', 'opaque.css'], folder);
+  assert.ok(hasPixel(png, isRed), 'an opaque rgba() ink reaches the drawing');
+});
+
 test('a later declaration wins over an earlier one', async () => {
   const folder = await sceneFolder();
   await writeFile(

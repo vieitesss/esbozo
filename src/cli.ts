@@ -59,6 +59,7 @@ const CSS_SUBSET = [
   '`:root[data-theme="dark"]`, `html.dark` and `html[data-theme="dark"]`. Other',
   'selectors and every other grouping at-rule are ignored. Values may use `var()`',
   'and `color-mix(in srgb, A p%, B)` with hex, rgb()/rgba() or CSS colour names.',
+  'Palette colours must be opaque.',
 ].join('\n');
 
 const USAGE = `${RENDER_USAGE}\n${PNG_USAGE}\n${CSS_SUBSET}\n`;

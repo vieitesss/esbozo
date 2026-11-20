@@ -23,6 +23,8 @@
  *   - Values may use recursive `var()` with fallbacks and
  *     `color-mix(in srgb, A p%, B)`, whose operands may be hex, `rgb()`/
  *     `rgba()` or a CSS named colour. Anything else is reported, not guessed.
+ *   - Palette colours are opaque: a colour with alpha below 1 is a problem, so
+ *     nothing is mixed unpremultiplied. A wash is an ink mixed into the paper.
  *   - `--font-hand` follows the same cascade per theme: light never reads the
  *     dark font.
  *   - A palette is complete when every colour of the chosen theme has a value;
@@ -244,6 +246,11 @@ function paletteColour(
   const colour = readColour(resolved.value);
   if (colour === null) {
     return { ok: false, problem: `${where} is not a colour: ${resolved.value.trim()}` };
+  }
+  // A palette is opaque: resvg would mix a translucent value unpremultiplied,
+  // so a wash is mixed into the paper here instead, in opaque channels.
+  if (colour.a < 255) {
+    return { ok: false, problem: `colours must be opaque: ${where} is ${resolved.value.trim()}` };
   }
   return { ok: true, value: colourText(colour) };
 }
