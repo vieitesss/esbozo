@@ -46,58 +46,52 @@
  */
 import { sha256, sha256Hex } from './sha256.js';
 
-export const SCENE_VERSION = 1;
+const SCENE_VERSION = 1;
 
-export const STROKE_STYLES = ['solid', 'dashed', 'dotted'] as const;
-export type StrokeStyle = (typeof STROKE_STYLES)[number];
+const STROKE_STYLES = ['solid', 'dashed', 'dotted'] as const;
+type StrokeStyle = (typeof STROKE_STYLES)[number];
 
 /** `none` draws no fill. `hachure` is hand-drawn lines (Rough.js), `solid` is a flat wash. */
-export const FILL_KINDS = ['none', 'hachure', 'solid'] as const;
-export type FillKind = (typeof FILL_KINDS)[number];
+const FILL_KINDS = ['none', 'hachure', 'solid'] as const;
+type FillKind = (typeof FILL_KINDS)[number];
 
 /** Colours are never spelled out: they come from the host's CSS variables. */
-export const TONES = ['ink', 'muted'] as const;
-export type Tone = (typeof TONES)[number];
+const TONES = ['ink', 'muted'] as const;
+type Tone = (typeof TONES)[number];
 
-export const CORNERS = ['sharp'] as const;
-export type Corners = (typeof CORNERS)[number];
+const CORNERS = ['sharp'] as const;
+type Corners = (typeof CORNERS)[number];
 
-export const ELEMENT_TYPES = ['rectangle'] as const;
-export type ElementType = (typeof ELEMENT_TYPES)[number];
+const ELEMENT_TYPES = ['rectangle'] as const;
 
 /** The seven-grey ladder runs from paper (0) to ink (6). */
-export const GREY_MIN = 0;
-export const GREY_MAX = 6;
+const GREY_MIN = 0;
+const GREY_MAX = 6;
 
-export interface Stroke {
+interface Stroke {
   width: number;
   style: StrokeStyle;
 }
 
-export interface Fill {
+interface Fill {
   kind: FillKind;
   /** Grey step on the seven-grey ladder: 0 is paper, 6 is ink. */
   grey: number;
 }
 
-export interface RectangleElement {
+interface RectangleElement extends SceneStyle {
   id: string;
   type: 'rectangle';
   x: number;
   y: number;
   width: number;
   height: number;
-  roughness: number;
   seed: number;
-  stroke: Stroke;
-  fill: Fill;
-  tone: Tone;
-  corners: Corners;
 }
 
 export type Element = RectangleElement;
 
-export interface SceneStyle {
+interface SceneStyle {
   roughness: number;
   stroke: Stroke;
   fill: Fill;
@@ -105,26 +99,24 @@ export interface SceneStyle {
   corners: Corners;
 }
 
-export type SceneDefaults = SceneStyle;
-
 export interface Scene {
   version: typeof SCENE_VERSION;
   title: string;
-  defaults: SceneDefaults;
+  defaults: SceneStyle;
   elements: Element[];
 }
 
-export interface Problem {
+interface Problem {
   /** The Element the problem belongs to, or null when it belongs to the Scene. */
   elementId: string | null;
   message: string;
 }
 
-export type ParseResult =
+type ParseResult =
   | { ok: true; scene: Scene }
   | { ok: false; problems: Problem[] };
 
-export const DEFAULT_STYLE: SceneDefaults = {
+const DEFAULT_STYLE: SceneStyle = {
   roughness: 1,
   stroke: { width: 2, style: 'solid' },
   fill: { kind: 'hachure', grey: 2 },
@@ -132,7 +124,7 @@ export const DEFAULT_STYLE: SceneDefaults = {
   corners: 'sharp',
 };
 
-export const DEFAULT_TITLE = 'Scene';
+const DEFAULT_TITLE = 'Scene';
 
 const ROUGHNESS_RANGE = [0, 5];
 const MAX_SEED = 2 ** 31 - 1;
@@ -157,7 +149,7 @@ const STROKE_KEYS = ['width', 'style'] as const;
 const FILL_KEYS = ['kind', 'grey'] as const;
 
 /** Whole-pixel coordinates keep Scene diffs clean and the SVG small. */
-export function wholePixels(value: number): number {
+function wholePixels(value: number): number {
   const rounded = Math.round(value);
   // No negative zero: it serialises as `0` but is a different number in memory.
   return rounded === 0 ? 0 : rounded;
@@ -168,7 +160,7 @@ export function wholePixels(value: number): number {
  * always draws the same way, and it is never 0 (Rough.js reads 0 as "pick one
  * at random").
  */
-export function seedForId(id: string): number {
+function seedForId(id: string): number {
   const digest = sha256(new TextEncoder().encode(id));
   const first = ((digest[0]! << 24) | (digest[1]! << 16) | (digest[2]! << 8) | digest[3]!) >>> 0;
   return (first % (MAX_SEED - 1)) + 1;
@@ -179,10 +171,10 @@ export function parseScene(source: string): ParseResult {
   try {
     raw = JSON.parse(source);
   } catch (error) {
-    return fail([sceneProblem(`not valid JSON: ${(error as Error).message}`)]);
+    return { ok: false, problems: [sceneProblem(`not valid JSON: ${(error as Error).message}`)] };
   }
   if (!isRecord(raw)) {
-    return fail([sceneProblem('must be a JSON object')]);
+    return { ok: false, problems: [sceneProblem('must be a JSON object')] };
   }
 
   const problems: Problem[] = [];
@@ -200,7 +192,7 @@ export function parseScene(source: string): ParseResult {
   const elements = parseElements(raw.elements, defaults, problems);
 
   if (problems.length > 0 || title === null || elements === null) {
-    return fail(problems);
+    return { ok: false, problems };
   }
   return {
     ok: true,
@@ -236,13 +228,7 @@ export function hashScene(scene: Scene): string {
   return sha256Hex(serialiseScene(scene));
 }
 
-function serialiseStyle(style: SceneStyle): {
-  roughness: number;
-  stroke: Stroke;
-  fill: Fill;
-  tone: Tone;
-  corners: Corners;
-} {
+function serialiseStyle(style: SceneStyle): SceneStyle {
   return {
     roughness: style.roughness,
     stroke: { width: style.stroke.width, style: style.stroke.style },
@@ -264,7 +250,7 @@ function parseTitle(raw: unknown, problems: Problem[]): string | null {
   return raw;
 }
 
-function parseDefaults(raw: unknown, problems: Problem[]): SceneDefaults {
+function parseDefaults(raw: unknown, problems: Problem[]): SceneStyle {
   if (raw === undefined) {
     return DEFAULT_STYLE;
   }
@@ -285,7 +271,7 @@ function parseDefaults(raw: unknown, problems: Problem[]): SceneDefaults {
 
 function parseElements(
   raw: unknown,
-  defaults: SceneDefaults,
+  defaults: SceneStyle,
   problems: Problem[],
 ): Element[] | null {
   if (!Array.isArray(raw)) {
@@ -333,7 +319,7 @@ function parseElements(
 function parseElement(
   id: string,
   raw: Record<string, unknown>,
-  defaults: SceneDefaults,
+  defaults: SceneStyle,
   problems: Problem[],
 ): Element | null {
   const before = problems.length;
@@ -342,7 +328,7 @@ function parseElement(
   rejectUnknownKeys(raw, ELEMENT_KEYS, report);
 
   if (raw.type !== 'rectangle') {
-    report(`type must be one of ${list(ELEMENT_TYPES)}, got ${describe(raw.type)}`);
+    report(`type must be one of ${ELEMENT_TYPES.join(', ')}, got ${describe(raw.type)}`);
   }
 
   const geometry = {
@@ -423,7 +409,7 @@ function parseStroke(
   }
   const style = raw.style === undefined ? fallback.style : raw.style;
   if (!isOneOf(STROKE_STYLES, style)) {
-    report(`stroke.style must be one of ${list(STROKE_STYLES)}, got ${describe(style)}`);
+    report(`stroke.style must be one of ${STROKE_STYLES.join(', ')}, got ${describe(style)}`);
   }
   return {
     width: width !== null && width > 0 ? width : fallback.width,
@@ -448,7 +434,7 @@ function parseFill(
   rejectUnknownKeys(raw, FILL_KEYS, report);
   const kind = raw.kind === undefined ? fallback.kind : raw.kind;
   if (!isOneOf(FILL_KINDS, kind)) {
-    report(`fill.kind must be one of ${list(FILL_KINDS)}, got ${describe(kind)}`);
+    report(`fill.kind must be one of ${FILL_KINDS.join(', ')}, got ${describe(kind)}`);
   }
   const grey =
     raw.grey === undefined
@@ -472,7 +458,7 @@ function parseTone(
   if (!isOneOf(TONES, raw)) {
     problems.push({
       elementId,
-      message: `tone must be one of ${list(TONES)}, got ${describe(raw)}`,
+      message: `tone must be one of ${TONES.join(', ')}, got ${describe(raw)}`,
     });
     return fallback;
   }
@@ -491,7 +477,7 @@ function parseCorners(
   if (!isOneOf(CORNERS, raw)) {
     problems.push({
       elementId,
-      message: `corners must be one of ${list(CORNERS)}, got ${describe(raw)}`,
+      message: `corners must be one of ${CORNERS.join(', ')}, got ${describe(raw)}`,
     });
     return fallback;
   }
@@ -581,18 +567,10 @@ function isOneOf<T extends string>(allowed: readonly T[], value: unknown): value
   return typeof value === 'string' && (allowed as readonly string[]).includes(value);
 }
 
-function list(allowed: readonly string[]): string {
-  return allowed.join(', ');
-}
-
 function describe(value: unknown): string {
   return value === undefined ? 'nothing' : JSON.stringify(value);
 }
 
 function sceneProblem(message: string): Problem {
   return { elementId: null, message };
-}
-
-function fail(problems: Problem[]): ParseResult {
-  return { ok: false, problems };
 }
