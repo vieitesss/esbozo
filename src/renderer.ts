@@ -72,13 +72,13 @@ function pageBounds(scene: Scene): Page {
     right = Math.max(right, element.x + element.width);
     bottom = Math.max(bottom, element.y + element.height);
   }
-  const x = Math.floor(left - PADDING);
-  const y = Math.floor(top - PADDING);
+  const x = left - PADDING;
+  const y = top - PADDING;
   return {
     x,
     y,
-    width: Math.ceil(right + PADDING) - x,
-    height: Math.ceil(bottom + PADDING) - y,
+    width: right + PADDING - x,
+    height: bottom + PADDING - y,
   };
 }
 
@@ -88,11 +88,12 @@ function pageBounds(scene: Scene): Page {
  */
 function renderElement(element: Element): string {
   const generator = new RoughGenerator();
+  // Scene geometry is already whole pixels: parse rounds once, so nothing here rounds again.
   const geometry: [number, number, number, number] = [
-    Math.round(element.x),
-    Math.round(element.y),
-    Math.round(element.width),
-    Math.round(element.height),
+    element.x,
+    element.y,
+    element.width,
+    element.height,
   ];
   const strokeColour = element.tone === 'muted' ? MUTED : INK;
   const paths: string[] = [];

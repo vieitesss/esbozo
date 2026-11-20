@@ -18,7 +18,28 @@ import { test } from 'node:test';
 const run = promisify(execFile);
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 
-const SAMPLE_SCENE = {
+interface SceneElement {
+  id: string;
+  type: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  seed?: number;
+  roughness?: number;
+  tone?: string;
+  stroke?: { width: number; style: string };
+  fill?: { kind: string; grey: number };
+}
+
+interface Scene {
+  version: number;
+  title?: string;
+  defaults?: { roughness?: number };
+  elements: SceneElement[];
+}
+
+const SAMPLE_SCENE: Scene = {
   version: 1,
   title: 'Two boxes',
   defaults: { roughness: 1 },
@@ -105,6 +126,30 @@ test('different Scenes give different Scene hashes', async () => {
   assert.match(first, /data-scene-hash="sha256:[0-9a-f]{64}"/);
   assert.match(second, /data-scene-hash="sha256:[0-9a-f]{64}"/);
   assert.notEqual(hashOf(first), hashOf(second));
+});
+
+test('the Scene hash covers the seed the SVG is drawn with', async () => {
+  const first = await renderOne(withSeed(SAMPLE_SCENE, 1));
+  const second = await renderOne(withSeed(SAMPLE_SCENE, 2));
+
+  assert.equal(withSeed(SAMPLE_SCENE, 1).elements[0]?.seed, 1);
+  assert.notEqual(first, second, 'a different seed draws a different SVG');
+  assert.notEqual(hashOf(first), hashOf(second), 'and the hash follows it');
+});
+
+test('a fractional coordinate rounds to a whole pixel once, for hash and drawing', async () => {
+  const at40 = await renderOne(boxAt(40, 40));
+  const at40point2 = await renderOne(boxAt(40.2, 40));
+  const at39point9 = await renderOne(boxAt(39.9, 40));
+  const at41 = await renderOne(boxAt(41, 40));
+
+  assert.equal(at40point2, at40, 'x: 40.2 draws exactly what x: 40 draws');
+  assert.equal(at39point9, at40, 'x: 39.9 draws exactly what x: 40 draws');
+  assert.equal(hashOf(at40point2), hashOf(at40));
+
+  assert.match(at40, /viewBox="24 24 152 112"/);
+  assert.notEqual(at41, at40, 'a whole pixel of difference moves the drawing');
+  assert.notEqual(hashOf(at41), hashOf(at40), 'and changes the hash');
 });
 
 test('the SVG takes every colour and the font from CSS variables', async () => {
@@ -209,6 +254,37 @@ async function renderOne(scene: unknown): Promise<string> {
   const run = await ez(['render', 'scene.json'], folder);
   assert.equal(run.code, 0, run.stderr);
   return readFile(join(folder, 'scene.svg'), 'utf8');
+}
+
+interface BoxOptions {
+  seed?: number;
+}
+
+/** A single rectangle Scene: geometry and seed are what most hash tests vary. */
+function boxAt(x: number, y: number, options: BoxOptions = {}): Scene {
+  return {
+    version: 1,
+    title: 'One box',
+    defaults: { roughness: 1 },
+    elements: [
+      {
+        id: 'a',
+        type: 'rectangle',
+        x,
+        y,
+        width: 120,
+        height: 80,
+        ...(options.seed === undefined ? {} : { seed: options.seed }),
+      },
+    ],
+  };
+}
+
+function withSeed(scene: Scene, seed: number): Scene {
+  return {
+    ...scene,
+    elements: scene.elements.map((element) => ({ ...element, seed })),
+  };
 }
 
 function hashOf(svg: string): string {

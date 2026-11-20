@@ -38,8 +38,11 @@
  * Parse returns either a Scene or the problems with the Element that caused
  * them. Every parsed Scene is fully resolved: each Element carries its own
  * roughness, seed and style, so later stages never re-read the defaults.
+ *
+ * Geometry is rounded to whole pixels once, here, so the Scene in memory, its
+ * serialisation, its hash and the SVG drawn from it all agree.
  */
-import { createHash } from 'node:crypto';
+import { sha256, sha256Hex } from './sha256.js';
 
 export const SCENE_VERSION = 1;
 
@@ -153,7 +156,9 @@ const FILL_KEYS = ['kind', 'grey'] as const;
 
 /** Whole-pixel coordinates keep Scene diffs clean and the SVG small. */
 export function wholePixels(value: number): number {
-  return Math.round(value);
+  const rounded = Math.round(value);
+  // No negative zero: it serialises as `0` but is a different number in memory.
+  return rounded === 0 ? 0 : rounded;
 }
 
 /**
@@ -162,8 +167,9 @@ export function wholePixels(value: number): number {
  * at random").
  */
 export function seedForId(id: string): number {
-  const digest = createHash('sha256').update(id).digest();
-  return (digest.readUInt32BE(0) % (MAX_SEED - 1)) + 1;
+  const digest = sha256(new TextEncoder().encode(id));
+  const first = ((digest[0]! << 24) | (digest[1]! << 16) | (digest[2]! << 8) | digest[3]!) >>> 0;
+  return (first % (MAX_SEED - 1)) + 1;
 }
 
 export function parseScene(source: string): ParseResult {
@@ -212,10 +218,11 @@ export function serialiseScene(scene: Scene): string {
     elements: scene.elements.map((element) => ({
       id: element.id,
       type: element.type,
-      x: wholePixels(element.x),
-      y: wholePixels(element.y),
-      width: wholePixels(element.width),
-      height: wholePixels(element.height),
+      x: element.x,
+      y: element.y,
+      width: element.width,
+      height: element.height,
+      seed: element.seed,
       ...serialiseStyle(element),
     })),
   };
@@ -224,7 +231,7 @@ export function serialiseScene(scene: Scene): string {
 
 /** The Scene hash written into the SVG: sha256 of the serialised Scene. */
 export function hashScene(scene: Scene): string {
-  return createHash('sha256').update(serialiseScene(scene), 'utf8').digest('hex');
+  return sha256Hex(serialiseScene(scene));
 }
 
 function serialiseStyle(style: SceneStyle): {
@@ -326,10 +333,10 @@ function parseElement(
   }
 
   const geometry = {
-    x: parseNumber(raw.x, 'x', report),
-    y: parseNumber(raw.y, 'y', report),
-    width: parseNumber(raw.width, 'width', report),
-    height: parseNumber(raw.height, 'height', report),
+    x: parseWholePixels(raw.x, 'x', report),
+    y: parseWholePixels(raw.y, 'y', report),
+    width: parseWholePixels(raw.width, 'width', report),
+    height: parseWholePixels(raw.height, 'height', report),
   };
   for (const side of ['width', 'height'] as const) {
     if (raw[side] !== undefined && geometry[side] !== null) {
@@ -488,6 +495,16 @@ function parseNumber(
     return null;
   }
   return raw;
+}
+
+/** Geometry is rounded to whole pixels here, once: nothing downstream rounds again. */
+function parseWholePixels(
+  raw: unknown,
+  field: string,
+  report: (message: string) => void,
+): number | null {
+  const value = parseNumber(raw, field, report);
+  return value === null ? null : wholePixels(value);
 }
 
 function parseIntInRange(
