@@ -24,8 +24,6 @@ const KALAM = fileURLToPath(new URL('../fonts/Kalam-Regular.ttf', import.meta.ur
 
 /** Font size of `fontSize: "M"`, which these Scenes use unless they say otherwise. */
 const M = 18;
-/** Layout's line height: 1.25 of the font size. */
-const LINE_HEIGHT = 1.25;
 /** Layout's room between the words and the outline, before the stroke width. */
 const PADDING = 8;
 
@@ -33,6 +31,23 @@ const kalamBytes = await readFile(KALAM);
 const kalam = opentype.parse(
   kalamBytes.buffer.slice(kalamBytes.byteOffset, kalamBytes.byteOffset + kalamBytes.byteLength) as ArrayBuffer,
 );
+
+/**
+ * The vertical metrics Layout takes from the font itself: the line height is
+ * the file's ascender, descender and line gap, and a line's ink is centred on
+ * that same box. Computed here from the font's own numbers.
+ */
+function vertical(size: number): { lineHeight: number; inkCentre: number } {
+  const os2 = kalam.tables.os2 ?? {};
+  const upm = kalam.unitsPerEm;
+  const ascender = os2.sTypoAscender ?? kalam.ascender;
+  const descender = os2.sTypoDescender ?? kalam.descender;
+  const lineGap = os2.sTypoLineGap ?? 0;
+  return {
+    lineHeight: (size * (ascender - descender + lineGap)) / upm,
+    inkCentre: (size * (ascender + descender)) / (2 * upm),
+  };
+}
 
 interface Drawn {
   text: string;
@@ -137,12 +152,13 @@ test('a Label wraps inside its Element, measured with the real font', async () =
     assert.equal(line.size, M);
     assert.equal(line.anchor, 'start');
   }
+  const metrics = vertical(M);
   for (let index = 1; index < drawn.length; index += 1) {
     const gap = drawn[index]!.baseline - drawn[index - 1]!.baseline;
-    assert.equal(gap, M * LINE_HEIGHT, 'one measured line height between baselines');
+    assert.ok(Math.abs(gap - metrics.lineHeight) < 0.01, 'one measured line height between baselines');
   }
-  const block = drawn.length * M * LINE_HEIGHT;
-  const first = 50 + (area.height - block) / 2 + (M * LINE_HEIGHT) / 2 + M * 0.33;
+  const block = drawn.length * metrics.lineHeight;
+  const first = 50 + (area.height - block) / 2 + metrics.lineHeight / 2 + metrics.inkCentre;
   assert.ok(Math.abs(drawn[0]!.baseline - first) < 0.01, 'the block is centred in the box on its ink');
 });
 
@@ -175,7 +191,7 @@ test('a diamond wraps inside the room its outline leaves', async () => {
 
   assert.deepEqual(drawn.map((line) => line.text), wrapped(label, areaWidth));
   assert.ok(drawn.length > 1, 'the diamond narrows the lines');
-  assert.ok(drawn.length * M * LINE_HEIGHT <= areaHeight, 'and the lines fit its height');
+  assert.ok(drawn.length * vertical(M).lineHeight <= areaHeight, 'and the lines fit its height');
   for (const line of drawn) {
     assert.ok(advance(line.text) <= areaWidth, `"${line.text}" fits the diamond's middle`);
     assert.equal(line.anchor, 'start', 'the Element alignment still sets the lines');
@@ -321,7 +337,7 @@ test('a Label that does not fit is still drawn, and runs past its box', async ()
 
   assert.ok(drawn.length > 0, 'the words are drawn where the author put them');
   assert.ok(
-    drawn.length * M * LINE_HEIGHT > area.height,
+    drawn.length * vertical(M).lineHeight > area.height,
     'and they take more room than the box has, which is what `ez check` reports',
   );
 });

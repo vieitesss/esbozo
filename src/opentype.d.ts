@@ -9,6 +9,20 @@ declare module 'opentype.js' {
     glyphs: { length: number };
     /** One of the `name` table entries, in English, or undefined when it is absent. */
     getEnglishName(name: string): string | undefined;
+    /** Font units per em, the scale every other unit is in. */
+    unitsPerEm: number;
+    /** The ascender from the file's hhea table, in font units. */
+    ascender: number;
+    /** The descender from the file's hhea table, in font units, negative below the baseline. */
+    descender: number;
+    /** The tables this project reads: OS/2's typographic metrics, when a font has them. */
+    tables: {
+      os2?: {
+        sTypoAscender?: number;
+        sTypoDescender?: number;
+        sTypoLineGap?: number;
+      };
+    };
     /** The advance width of a line, in the font's units when no size is given. */
     getAdvanceWidth(text: string, fontSize?: number, options?: { kerning?: boolean }): number;
     /** The file's bytes, for tests that need a font which is valid but unusual. */

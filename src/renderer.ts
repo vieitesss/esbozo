@@ -139,7 +139,7 @@ function elementBounds(element: Element, byId: Map<string, Element>, layout: Lay
         width: Math.abs(end.x - start.x),
         height: Math.abs(end.y - start.y),
       };
-      return joined(shaft, layout.label(element, midpointOf(start, end)));
+      return joined(shaft, layout.label(element, { start, end }));
     }
     case 'text':
       return layout.text(element);
@@ -352,7 +352,7 @@ function renderArrowOrLine(
 
   return (
     `<g stroke-linecap="round" stroke-linejoin="round">${paths.join('')}</g>` +
-    renderBlock(layout.label(element, midpointOf(start, end)), colour)
+    renderBlock(layout.label(element, { start, end }), colour)
   );
 }
 

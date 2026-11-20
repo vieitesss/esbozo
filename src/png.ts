@@ -32,33 +32,30 @@
  *     themes. Nothing is filled in from the built-ins once a stylesheet is
  *     given.
  *
- * Fonts, in order of precedence: `--font`, then a local `@font-face` in the
- * stylesheet whose family matches the effective `--font-hand`, then the bundled
- * Kalam. The stylesheet's `--font-hand` only matters — and only has to resolve —
- * when the font comes from there: `--font` never needs it. A remote `@font-face`
- * is ignored with a note, because only files on this machine can be read. The
- * font is read once (`./font.ts`), and the same bytes are used for two things:
- * Layout measures the Scene's words with them, so the drawing that is
- * rasterised has the line breaks this font makes, and resvg draws the glyphs
- * with them, so the PNG shows the font it was measured for.
+ * Fonts: `./font.ts` chooses them, and the precedence is the same for every
+ * command that measures — `--font`, then a local `@font-face` for the
+ * stylesheet's `--font-hand`, then the bundled Kalam — so `ez check` and
+ * `ez png` measure the same bytes for the same inputs. The font is read once,
+ * and the same bytes are used for two things: Layout measures the Scene's words
+ * with them, so the drawing that is rasterised has the line breaks this font
+ * makes, and resvg draws the glyphs with them, so the PNG shows the font it was
+ * measured for.
  *
  * The built-in light and dark palettes are sb's Excalidraw converter defaults,
  * the prior art.
  */
 import { readFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
 import { initWasm, Resvg } from '@resvg/resvg-wasm';
 import resvgWasm from '@resvg/resvg-wasm/index_bg.wasm';
 import {
   colourText,
-  fontFaces,
   readColour,
   resolveVariables,
   themeVariables,
 } from './css.js';
 import type { Rgba, Theme, Variables } from './css.js';
-import { BUNDLED_FONT, BUNDLED_FONT_NAME, checkFont, fontFromFile, layoutFor } from './font.js';
-import type { FontFile, FontResult } from './font.js';
+import { chooseFont, layoutFor, readStylesheet, stylesheetFamily } from './font.js';
+import type { FontFile, Stylesheet } from './font.js';
 import { renderScene } from './renderer.js';
 import type { Scene } from './scene.js';
 
@@ -93,12 +90,6 @@ const DEFAULT_COLOURS: Readonly<Record<Theme, Readonly<Record<ColourVariable, Rg
   },
 };
 
-/** Kalam, bundled so `ez png` needs no font file to work. */
-const BUNDLED_FONT_BYTES: Uint8Array = BUNDLED_FONT;
-
-/** Only files on this machine can be read; a URL is not one. */
-const REMOTE_URL = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
-
 /** What the `png` command asks for, after the CLI has read the arguments. */
 export interface PngOptions {
   theme: Theme;
@@ -130,11 +121,16 @@ export async function renderPng(scene: Scene, options: PngOptions): Promise<PngR
     return palette;
   }
 
-  const notes: string[] = [];
-  const font = await prepareFont(options, stylesheet.value, palette.value.fontFamily, notes);
+  const font = await chooseFont(
+    options.fontPath,
+    stylesheet.value,
+    palette.value.fontFamily,
+    options.theme,
+  );
   if (!font.ok) {
     return font;
   }
+  const notes = font.notes;
 
   const family = palette.value.fontFamily ?? font.value.family;
   // The words are measured with the font the glyphs are drawn with, so the PNG
@@ -150,24 +146,6 @@ export async function renderPng(scene: Scene, options: PngOptions): Promise<PngR
     return { ok: true, png, notes };
   } catch (error) {
     return { ok: false, problems: [`cannot rasterise the Scene: ${messageOf(error)}`] };
-  }
-}
-
-interface Stylesheet {
-  css: string;
-  path: string;
-}
-
-async function readStylesheet(
-  path: string | undefined,
-): Promise<{ ok: true; value: Stylesheet | null } | { ok: false; problems: string[] }> {
-  if (path === undefined) {
-    return { ok: true, value: null };
-  }
-  try {
-    return { ok: true, value: { css: await readFile(path, 'utf8'), path } };
-  } catch (error) {
-    return { ok: false, problems: [`cannot read stylesheet ${path}: ${messageOf(error)}`] };
   }
 }
 
@@ -220,18 +198,16 @@ function preparePalette(
 
   // `--font` wins over the stylesheet, so the stylesheet's `--font-hand` is
   // only read — and only has to resolve — when the font comes from the CSS.
-  let fontFamily: string | null = null;
-  const declaredFamily = options.fontPath === undefined ? variables[FONT_VARIABLE] : undefined;
-  if (declaredFamily !== undefined) {
-    const resolved = resolveVariables(declaredFamily, variables);
-    if (!resolved.ok) {
-      return {
-        ok: false,
-        problems: [`stylesheet font ${FONT_VARIABLE} is unresolved: ${resolved.unresolved}`],
-      };
-    }
-    fontFamily = resolved.value.trim() === '' ? null : resolved.value.trim();
+  // The family itself is one resolver shared with `ez check`, so both commands
+  // read the same stylesheet the same way.
+  const family = stylesheetFamily(
+    options.fontPath === undefined ? stylesheet : null,
+    options.theme,
+  );
+  if (!family.ok) {
+    return family;
   }
+  const fontFamily = family.value;
 
   return { ok: true, value: { palette: palette as Palette, fontFamily } };
 }
@@ -257,44 +233,6 @@ function paletteColour(
     return { ok: false, problem: `colours must be opaque: ${where} is ${resolved.value.trim()}` };
   }
   return { ok: true, value: colourText(colour) };
-}
-
-async function prepareFont(
-  options: PngOptions,
-  stylesheet: Stylesheet | null,
-  fontFamily: string | null,
-  notes: string[],
-): Promise<FontResult> {
-  if (options.fontPath !== undefined) {
-    return fontFromFile(options.fontPath, options.fontPath);
-  }
-
-  if (stylesheet !== null) {
-    // A `@font-face` inside dark scope belongs to the dark theme alone, so the
-    // light theme never reads it. A later rule wins, as in CSS.
-    const face = fontFaces(stylesheet.css)
-      .filter((candidate) => options.theme === 'dark' || !candidate.dark)
-      .findLast((candidate) => familyMatches(candidate.family, fontFamily));
-    if (face !== undefined) {
-      if (REMOTE_URL.test(face.url)) {
-        notes.push(`stylesheet font ${face.url} is remote, so the bundled ${BUNDLED_FONT_NAME} is used`);
-      } else {
-        const path = resolve(dirname(stylesheet.path), face.url);
-        return fontFromFile(path, `${face.url} (from ${stylesheet.path})`);
-      }
-    }
-  }
-
-  return checkFont(BUNDLED_FONT_BYTES, BUNDLED_FONT_NAME);
-}
-
-/** Whether `family` names the `@font-face` family, allowing a font stack. */
-function familyMatches(faceFamily: string, fontFamily: string | null): boolean {
-  if (fontFamily === null) {
-    return false;
-  }
-  const plain = (name: string): string => name.trim().replace(/^["']|["']$/g, '').toLowerCase();
-  return fontFamily.split(',').map(plain).includes(plain(faceFamily));
 }
 
 /**

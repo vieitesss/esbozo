@@ -43,7 +43,7 @@ import { renderScene } from './renderer.js';
 import { THEMES, renderPng } from './png.js';
 import type { PngOptions, Theme } from './png.js';
 import type { Scene } from './scene.js';
-import { BUNDLED_FONT, BUNDLED_FONT_NAME, checkFont, fontFromFile, layoutFor } from './font.js';
+import { chooseFont, layoutFor, readStylesheet, stylesheetFamily } from './font.js';
 import type { Layout } from './layout.js';
 
 const EXIT = {
@@ -114,7 +114,7 @@ async function runRender(argv: readonly string[]): Promise<number> {
   if (!scene.ok) {
     return scene.exitCode;
   }
-  const layout = await loadLayout(parsed.fontPath);
+  const layout = await loadLayout(parsed.fontPath, undefined);
   if (!layout.ok) {
     return layout.exitCode;
   }
@@ -146,7 +146,7 @@ async function runCheck(argv: readonly string[]): Promise<number> {
   if (!scene.ok) {
     return scene.exitCode;
   }
-  const layout = await loadLayout(parsed.fontPath);
+  const layout = await loadLayout(parsed.fontPath, undefined);
   if (!layout.ok) {
     return layout.exitCode;
   }
@@ -200,18 +200,32 @@ function parseSceneArguments(argv: readonly string[]): SceneArguments | null {
  */
 async function loadLayout(
   fontPath: string | undefined,
+  cssPath: string | undefined,
 ): Promise<{ ok: true; value: Layout } | { ok: false; exitCode: number }> {
-  const font =
-    fontPath === undefined
-      ? checkFont(BUNDLED_FONT, BUNDLED_FONT_NAME)
-      : await fontFromFile(fontPath, fontPath);
+  const stylesheet = await readStylesheet(cssPath);
+  if (!stylesheet.ok) {
+    return failed(stylesheet.problems);
+  }
+  const family = stylesheetFamily(stylesheet.value, 'light');
+  if (!family.ok) {
+    return failed(family.problems);
+  }
+  const font = await chooseFont(fontPath, stylesheet.value, family.value, 'light');
   if (!font.ok) {
-    for (const problem of font.problems) {
-      process.stderr.write(`${problem}\n`);
-    }
-    return { ok: false, exitCode: EXIT.missingThemeOrFont };
+    return failed(font.problems);
+  }
+  for (const note of font.notes) {
+    process.stderr.write(`${note}\n`);
   }
   return { ok: true, value: layoutFor(font.value) };
+}
+
+/** Reports why a font could not be chosen, and the exit code that says so. */
+function failed(problems: readonly string[]): { ok: false; exitCode: number } {
+  for (const problem of problems) {
+    process.stderr.write(`${problem}\n`);
+  }
+  return { ok: false, exitCode: EXIT.missingThemeOrFont };
 }
 
 async function runPng(argv: readonly string[]): Promise<number> {
