@@ -2,9 +2,10 @@
  * Seam 1: `ez png` on Scene files in temporary folders.
  *
  * Everything here is external behaviour: the files written, stdout, stderr and
- * exit codes. Nothing imports src/. PNGs are read straight from the bytes:
- * the IHDR chunk gives the page size, and IDAT is inflated and unfiltered with
- * node:zlib so a single pixel can be sampled.
+ * exit codes. Nothing imports src/. PNGs are read straight from the bytes: the
+ * IHDR chunk gives the page size on its own, and IDAT is inflated and
+ * unfiltered with node:zlib so a single pixel can be sampled without the test
+ * requiring any particular encoding from resvg.
  */
 import { execFile } from 'node:child_process';
 import assert from 'node:assert/strict';
@@ -61,9 +62,9 @@ async function tempFolder(): Promise<string> {
   return realpath(await mkdtemp(join(tmpdir(), 'esbozo-png-')));
 }
 
-async function sceneFolder(scene: unknown = SAMPLE_SCENE, name = 'scene.json'): Promise<string> {
+async function sceneFolder(scene: unknown = SAMPLE_SCENE): Promise<string> {
   const folder = await tempFolder();
-  await writeFile(join(folder, name), JSON.stringify(scene, null, 2), 'utf8');
+  await writeFile(join(folder, 'scene.json'), JSON.stringify(scene, null, 2), 'utf8');
   return folder;
 }
 
@@ -81,65 +82,98 @@ async function ez(args: string[], cwd: string): Promise<Run> {
   }
 }
 
-interface Png {
+interface Size {
   width: number;
   height: number;
-  bitDepth: number;
-  colourType: number;
+}
+
+interface Chunk {
+  type: string;
+  data: Buffer;
+}
+
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+/** Walks a PNG's chunks; the signature is checked once, here. */
+function* chunks(bytes: Buffer): Generator<Chunk> {
+  assert.deepEqual([...bytes.subarray(0, 8)], PNG_SIGNATURE, 'not a PNG');
+  let offset = 8;
+  while (offset + 8 <= bytes.length) {
+    const length = bytes.readUInt32BE(offset);
+    const type = bytes.toString('latin1', offset + 4, offset + 8);
+    yield { type, data: bytes.subarray(offset + 8, offset + 8 + length) };
+    if (type === 'IEND') {
+      return;
+    }
+    offset += 12 + length;
+  }
+}
+
+/** The page size from IHDR alone, with no assumption about how it is encoded. */
+function readSize(bytes: Buffer): Size {
+  for (const chunk of chunks(bytes)) {
+    if (chunk.type === 'IHDR') {
+      return { width: chunk.data.readUInt32BE(0), height: chunk.data.readUInt32BE(4) };
+    }
+  }
+  throw new Error('PNG without an IHDR chunk');
+}
+
+interface Png extends Size {
   /** The pixel at (x, y) as [red, green, blue, alpha]. */
   pixel(x: number, y: number): [number, number, number, number];
 }
 
+/** Channels per pixel, by PNG colour type. */
+const CHANNELS: Readonly<Record<number, number>> = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 };
+
 /**
- * Reads a PNG with no dependency: IHDR for the header, IDAT for the pixels.
- * resvg writes 8-bit RGBA, so one scanline is `width * 4` bytes behind one
- * filter byte; the five PNG filters are undone here.
+ * Reads the pixels of any PNG resvg is likely to write: grey, RGB, indexed,
+ * grey+alpha and RGBA, at 8 or 16 bits per sample. 16-bit samples are read as
+ * their high byte, which is all a colour comparison needs. Transparency chunks
+ * for grey and RGB images are not applied; resvg writes alpha channels instead.
  */
 function readPng(bytes: Buffer): Png {
-  assert.deepEqual(
-    [...bytes.subarray(0, 8)],
-    [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
-    'not a PNG',
-  );
-
-  let offset = 8;
-  let width = 0;
-  let height = 0;
-  let bitDepth = 0;
-  let colourType = 0;
-  const idat: Buffer[] = [];
-  while (offset < bytes.length) {
-    const length = bytes.readUInt32BE(offset);
-    const type = bytes.toString('latin1', offset + 4, offset + 8);
-    const data = bytes.subarray(offset + 8, offset + 8 + length);
-    if (type === 'IHDR') {
-      width = data.readUInt32BE(0);
-      height = data.readUInt32BE(4);
-      bitDepth = data[8] ?? 0;
-      colourType = data[9] ?? 0;
-    } else if (type === 'IDAT') {
-      idat.push(data);
-    } else if (type === 'IEND') {
-      break;
+  const size = readSize(bytes);
+  let bitDepth = 8;
+  let colourType = 6;
+  let palette: Buffer | null = null;
+  let transparency: Buffer | null = null;
+  const data: Buffer[] = [];
+  for (const chunk of chunks(bytes)) {
+    if (chunk.type === 'IHDR') {
+      bitDepth = chunk.data[8] ?? 8;
+      colourType = chunk.data[9] ?? 6;
+    } else if (chunk.type === 'PLTE') {
+      palette = chunk.data;
+    } else if (chunk.type === 'tRNS') {
+      transparency = chunk.data;
+    } else if (chunk.type === 'IDAT') {
+      data.push(chunk.data);
     }
-    offset += 12 + length;
   }
-  assert.equal(bitDepth, 8, 'expected an 8-bit PNG');
-  assert.ok(colourType === 6 || colourType === 2, `unexpected PNG colour type ${colourType}`);
 
-  const bytesPerPixel = colourType === 6 ? 4 : 3;
-  const stride = width * bytesPerPixel;
-  const raw = inflateSync(Buffer.concat(idat));
-  const pixels = Buffer.alloc(height * stride);
-  for (let y = 0; y < height; y += 1) {
+  const channels = CHANNELS[colourType];
+  if (channels === undefined) {
+    throw new Error(`unsupported PNG colour type ${colourType}`);
+  }
+  if (bitDepth !== 8 && bitDepth !== 16) {
+    throw new Error(`unsupported PNG bit depth ${bitDepth}`);
+  }
+  const sampleBytes = bitDepth / 8;
+  const pixelBytes = channels * sampleBytes;
+  const stride = size.width * pixelBytes;
+  const raw = inflateSync(Buffer.concat(data));
+  const pixels = Buffer.alloc(size.height * stride);
+  for (let y = 0; y < size.height; y += 1) {
     const filter = raw[y * (stride + 1)];
     const line = raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1));
     const row = pixels.subarray(y * stride, (y + 1) * stride);
     const above = y > 0 ? pixels.subarray((y - 1) * stride, y * stride) : null;
     for (let i = 0; i < stride; i += 1) {
-      const left = i >= bytesPerPixel ? (row[i - bytesPerPixel] ?? 0) : 0;
+      const left = i >= pixelBytes ? (row[i - pixelBytes] ?? 0) : 0;
       const up = above?.[i] ?? 0;
-      const upLeft = above !== null && i >= bytesPerPixel ? (above[i - bytesPerPixel] ?? 0) : 0;
+      const upLeft = above !== null && i >= pixelBytes ? (above[i - pixelBytes] ?? 0) : 0;
       const value = line[i] ?? 0;
       switch (filter) {
         case 0:
@@ -164,18 +198,32 @@ function readPng(bytes: Buffer): Png {
   }
 
   return {
-    width,
-    height,
-    bitDepth,
-    colourType,
+    ...size,
     pixel(x: number, y: number): [number, number, number, number] {
-      const at = y * stride + x * bytesPerPixel;
-      return [
-        pixels[at] ?? 0,
-        pixels[at + 1] ?? 0,
-        pixels[at + 2] ?? 0,
-        bytesPerPixel === 4 ? (pixels[at + 3] ?? 0) : 255,
-      ];
+      const at = y * stride + x * pixelBytes;
+      const sample = (index: number): number =>
+        sampleBytes === 2 ? (pixels[at + index * 2] ?? 0) : (pixels[at + index] ?? 0);
+      switch (colourType) {
+        case 0: {
+          const grey = sample(0);
+          return [grey, grey, grey, 255];
+        }
+        case 4: {
+          const grey = sample(0);
+          return [grey, grey, grey, sample(1)];
+        }
+        case 2:
+          return [sample(0), sample(1), sample(2), 255];
+        case 6:
+          return [sample(0), sample(1), sample(2), sample(3)];
+        case 3: {
+          const index = pixels[at] ?? 0;
+          const entry = (channel: number): number => palette?.[index * 3 + channel] ?? 0;
+          return [entry(0), entry(1), entry(2), transparency?.[index] ?? 255];
+        }
+        default:
+          throw new Error(`unsupported PNG colour type ${colourType}`);
+      }
     },
   };
 }
@@ -198,17 +246,16 @@ async function pngOne(args: string[], folder: string): Promise<{ run: Run; png: 
   return { run, path, png: readPng(await readFile(path)) };
 }
 
-/** Pixels matching a predicate, as a list of [x, y, rgba]. */
-function findPixels(png: Png, wanted: (rgba: [number, number, number, number]) => boolean): [number, number][] {
-  const found: [number, number][] = [];
+/** Whether any pixel matches, stopping at the first one. */
+function hasPixel(png: Png, wanted: (rgba: [number, number, number, number]) => boolean): boolean {
   for (let y = 0; y < png.height; y += 1) {
     for (let x = 0; x < png.width; x += 1) {
       if (wanted(png.pixel(x, y))) {
-        found.push([x, y]);
+        return true;
       }
     }
   }
-  return found;
+  return false;
 }
 
 const isRed = ([r, g, b]: [number, number, number, number]): boolean => r > 200 && g < 100 && b < 100;
@@ -235,6 +282,17 @@ test('png --theme dark writes its own PNG beside the Scene', async () => {
   assert.equal(png.height, PAGE.height);
 });
 
+test('the page size is in the IHDR chunk of the PNG', async () => {
+  const folder = await sceneFolder();
+
+  const result = await ez(['png', 'scene.json', '--theme', 'light'], folder);
+  assert.equal(result.code, 0, result.stderr);
+
+  const size = readSize(await readFile(join(folder, 'scene.light.png')));
+
+  assert.deepEqual(size, { width: PAGE.width, height: PAGE.height });
+});
+
 test('the paper colour is painted under the drawing, light or dark', async () => {
   const folder = await sceneFolder();
 
@@ -254,8 +312,8 @@ test('explicit --ink, --paper and --muted colours reach the PNG', async () => {
   );
 
   assert.deepEqual(png.pixel(0, 0), [255, 255, 255, 255]);
-  assert.ok(findPixels(png, isRed).length > 0, 'the ink outline is red');
-  assert.ok(findPixels(png, isGreen).length > 0, 'the muted outline is green');
+  assert.ok(hasPixel(png, isRed), 'the ink outline is red');
+  assert.ok(hasPixel(png, isGreen), 'the muted outline is green');
 });
 
 test('a grey fill resolves to ink mixed into paper, with no CSS left to read', async () => {
@@ -295,8 +353,8 @@ test('--css supplies the colours of each theme', async () => {
 
   assert.deepEqual(light.png.pixel(0, 0), [0xfa, 0xfa, 0xfa, 255]);
   assert.deepEqual(dark.png.pixel(0, 0), [0x10, 0x10, 0x10, 255]);
-  assert.ok(findPixels(light.png, ([r, g, b]) => r < 60 && g < 90 && b > 90).length > 0, 'light ink is the site ink');
-  assert.ok(findPixels(dark.png, ([r, g, b]) => r > 200 && g > 200 && b > 200).length > 0, 'dark ink is the site ink');
+  assert.ok(hasPixel(light.png, ([r, g, b]) => r < 60 && g < 90 && b > 90), 'light ink is the site ink');
+  assert.ok(hasPixel(dark.png, ([r, g, b]) => r > 200 && g > 200 && b > 200), 'dark ink is the site ink');
 });
 
 test('an explicit colour wins over the stylesheet', async () => {
@@ -389,7 +447,7 @@ test('a missing font file exits 5, and so does a file that is not a font', async
   assert.equal(existsSync(join(folder, 'scene.light.png')), false);
 });
 
-test('a font file given with --font is used in place of Kalam', async () => {
+test('a readable font file given with --font is accepted', async () => {
   const folder = await sceneFolder();
   const kalam = fileURLToPath(new URL('../fonts/Kalam-Regular.ttf', import.meta.url));
 
