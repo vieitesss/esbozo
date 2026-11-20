@@ -23,6 +23,8 @@
  * the arrow, into the target.
  * A dashed or dotted shaft fits its dash pattern to the length it draws, so a
  * stroke that ends on an outline ends on a dash rather than on bare paper.
+ * Two Snapped ends whose targets overlap draw to the second target's centre
+ * instead of turning the head around and out of it.
  */
 import { RoughGenerator } from 'roughjs/bin/generator.js';
 import type { Options, PathInfo } from 'roughjs/bin/core.js';
@@ -413,10 +415,27 @@ function arrowOrLinePoints(
   const [start, end] = element.points;
   const startTarget = snapTarget(element, start, byId);
   const endTarget = snapTarget(element, end, byId);
-  return [
-    snappedEnd(start, startTarget, endTarget, end),
-    snappedEnd(end, endTarget, startTarget, start),
-  ];
+  const from = snappedEnd(start, startTarget, endTarget, end);
+  const to = snappedEnd(end, endTarget, startTarget, start);
+  if (
+    startTarget !== undefined &&
+    endTarget !== undefined &&
+    runsAgainst(from, to, centreOf(startTarget), centreOf(endTarget))
+  ) {
+    // The two targets overlap along the line between their centres, so their
+    // outline points sit the wrong way round and the head would point out of
+    // the second target. Draw from the first target's exit point to the second
+    // target's centre instead, so the head still points into it.
+    return [from, centreOf(endTarget)];
+  }
+  return [from, to];
+}
+
+/** Whether the drawn shaft runs against the line from the first centre to the second. */
+function runsAgainst(from: Point, to: Point, fromCentre: Point, toCentre: Point): boolean {
+  const along = { x: to.x - from.x, y: to.y - from.y };
+  const between = { x: toCentre.x - fromCentre.x, y: toCentre.y - fromCentre.y };
+  return along.x * between.x + along.y * between.y < 0;
 }
 
 /**

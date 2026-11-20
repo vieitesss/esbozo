@@ -444,6 +444,61 @@ test('two Snapped ends aim at each other even after one box moves past the other
   }
 });
 
+test('a head points into its target even when the two targets overlap', async () => {
+  // Two 100px boxes at x=0 and x=90: the first box's exit point (x=100) sits to
+  // the right of the second box's exit point (x=90), so the two outline points
+  // alone would draw the shaft and its head out of the second box.
+  const svg = await renderOne({
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [
+      {
+        id: 'first',
+        type: 'rectangle',
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+        fill: { kind: 'none' },
+      },
+      {
+        id: 'second',
+        type: 'rectangle',
+        x: 90,
+        y: 0,
+        width: 100,
+        height: 100,
+        fill: { kind: 'none' },
+      },
+      {
+        id: 'arrow',
+        type: 'arrow',
+        points: [
+          { x: 100, y: 50, snap: 'first' },
+          { x: 90, y: 50, snap: 'second' },
+        ],
+        heads: { start: 'none', end: 'arrow' },
+      },
+    ],
+  });
+
+  // The shaft runs from the first box's exit point to the second box's centre
+  // (140,50), so the head still points along +x, into the second box.
+  const heads = pathTags(svg)
+    .filter((tag) => tag.fill !== 'none')
+    .map((tag) => drawnPoints(tag.d));
+  const head = heads.find((points) =>
+    points.some((point) => near(point.x, 140) && near(point.y, 50)),
+  );
+  assert.ok(head, 'the head apex sits on the second box centre');
+  for (const point of head) {
+    if (near(point.x, 140) && near(point.y, 50)) {
+      continue;
+    }
+    assert.ok(point.x < 140, `the head base at ${point.x} reaches back behind the apex`);
+  }
+});
+
 test('arrow heads point along the arrow, into each end', async () => {
   const start = { x: 40, y: 40 };
   const end = { x: 240, y: 140 };
