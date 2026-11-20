@@ -146,6 +146,122 @@ test('a diamond is drawn to its four corners', async () => {
   }
 });
 
+test('a Snapped end follows a round rectangle around its corner arc', async () => {
+  // 160x100 box at (100,100): the corner fillet of radius 12 is centred at
+  // (248,112), and the ray from the box centre through the top-right corner
+  // leaves that arc at (255.59,102.75), 5.2px in from the sharp corner.
+  const svg = await renderOne({
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [
+      {
+        id: 'card',
+        type: 'rectangle',
+        x: 100,
+        y: 100,
+        width: 160,
+        height: 100,
+        corners: 'round',
+        fill: { kind: 'none' },
+      },
+      {
+        id: 'arrow',
+        type: 'arrow',
+        points: [
+          { x: 420, y: 0 },
+          { x: 420, y: 0, snap: 'card' },
+        ],
+        heads: { start: 'none', end: 'none' },
+      },
+    ],
+  });
+
+  const shaft = shaftFrom(svg, { x: 420, y: 0 });
+  const end = shaft[shaft.length - 1]!;
+  assert.ok(near(end.x, 255.59, 0.2), `the end is on the corner arc at x=${end.x}`);
+  assert.ok(near(end.y, 102.75, 0.2), `the end is on the corner arc at y=${end.y}`);
+});
+
+test('a round diamond rounds its vertices in the drawing and in Snap', async () => {
+  // 200x100 diamond at (100,100): top (200,100), right (300,150), bottom
+  // (200,200), left (100,150). A 12px fillet at the sharp right vertex sits
+  // 26.83px inside it, so its nearest point to that vertex is x=285.17.
+  const diamond = { id: 'gem', type: 'diamond', x: 100, y: 100, width: 200, height: 100 };
+  const svg = await renderOne({
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [
+      { ...diamond, corners: 'round', fill: { kind: 'none' } },
+      {
+        id: 'arrow',
+        type: 'arrow',
+        points: [
+          { x: 400, y: 150 },
+          { x: 400, y: 150, snap: 'gem' },
+        ],
+        heads: { start: 'none', end: 'none' },
+      },
+    ],
+  });
+
+  const shaft = shaftFrom(svg, { x: 400, y: 150 });
+  const end = shaft[shaft.length - 1]!;
+  assert.ok(near(end.x, 285.17, 0.2), `a Snapped end reaches the rounded vertex at x=${end.x}`);
+  assert.ok(near(end.y, 150, 0.2), `on the bisector of the exported diamond at y=${end.y}`);
+
+  // The drawing rounds the same vertices: no ink sits on a corner, and all of
+  // it stays on or inside the sharp diamond.
+  const rounded = await renderOne({
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [{ ...diamond, corners: 'round', fill: { kind: 'none' } }],
+  });
+  const sharp = await renderOne({
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [{ ...diamond, corners: 'sharp', fill: { kind: 'none' } }],
+  });
+  const corners: Point[] = [
+    { x: 200, y: 100 },
+    { x: 300, y: 150 },
+    { x: 200, y: 200 },
+    { x: 100, y: 150 },
+  ];
+  for (const point of allDrawnPoints(rounded)) {
+    assert.ok(onOrInsideDiamond(diamond, point), `rounded ink at ${point.x},${point.y} is inside`);
+  }
+  for (const corner of corners) {
+    assert.equal(
+      allDrawnPoints(sharp).some((point) => near(point.x, corner.x, 0.5) && near(point.y, corner.y, 0.5)),
+      true,
+      `a sharp diamond draws its corner at ${corner.x},${corner.y}`,
+    );
+    assert.deepEqual(
+      allDrawnPoints(rounded).filter(
+        (point) => near(point.x, corner.x, 0.5) && near(point.y, corner.y, 0.5),
+      ),
+      [],
+      `no rounded ink sits on the corner at ${corner.x},${corner.y}`,
+    );
+  }
+});
+
+test('corners on an ellipse change nothing: an ellipse has no corners', async () => {
+  const ellipse = { id: 'oval', type: 'ellipse', x: 40, y: 40, width: 120, height: 80 };
+  const round = await renderOne({
+    version: 1,
+    defaults: { roughness: 1 },
+    elements: [{ ...ellipse, corners: 'round' }],
+  });
+  const sharp = await renderOne({
+    version: 1,
+    defaults: { roughness: 1 },
+    elements: [{ ...ellipse, corners: 'sharp' }],
+  });
+
+  assert.equal(round.replace(/sha256:[0-9a-f]{64}/, ''), sharp.replace(/sha256:[0-9a-f]{64}/, ''));
+});
+
 test('a rough line still reaches the contact point of the outline it Snaps to', async () => {
   // Roughness 2 draws the sketchiest line Rough.js has, and its seed is the one
   // that made both strokes stop short of the contact point.
@@ -702,6 +818,18 @@ function drawnPoints(d: string): Point[] {
 
 function near(actual: number, expected: number, tolerance = 0.05): boolean {
   return Math.abs(actual - expected) <= tolerance;
+}
+
+/** On or inside the sharp diamond: the Manhattan normalised radius never passes 1. */
+function onOrInsideDiamond(
+  box: { x: number; y: number; width: number; height: number },
+  point: Point,
+): boolean {
+  const a = box.width / 2;
+  const b = box.height / 2;
+  const dx = Math.abs(point.x - (box.x + a)) / a;
+  const dy = Math.abs(point.y - (box.y + b)) / b;
+  return dx + dy <= 1.001;
 }
 
 /** A point on the named outline, not on its bounding box. */

@@ -29,74 +29,204 @@ export interface Outline {
 }
 
 /** The corner radius of an Element with round corners, in pixels. */
-export const CORNER_RADIUS = 12;
+const CORNER_RADIUS = 12;
 
 export function centreOf(outline: Outline): Point {
   return { x: outline.x + outline.width / 2, y: outline.y + outline.height / 2 };
 }
 
 /**
+ * One rounded vertex: the two points where the outline leaves the straight
+ * edges, the arc's centre, and its radius. A sharp corner has radius 0 and both
+ * points on the vertex itself.
+ */
+export interface Fillet {
+  vertex: Point;
+  before: Point;
+  after: Point;
+  centre: Point;
+  radius: number;
+}
+
+/**
+ * The radius a rounded Element actually draws with: one shared rule for the
+ * Renderer's paths and for Snap, so the two cannot drift. A rectangle is
+ * limited by its half-width and half-height; a diamond also by its edges, so
+ * neighbouring fillets never meet. An ellipse has no corners to round.
+ */
+export function cornerRadius(outline: Outline): number {
+  if (outline.corners === 'sharp' || outline.type === 'ellipse') {
+    return 0;
+  }
+  const a = outline.width / 2;
+  const b = outline.height / 2;
+  const fit = Math.min(CORNER_RADIUS, a, b);
+  if (outline.type === 'rectangle') {
+    return fit;
+  }
+  const edge = Math.hypot(a, b);
+  return Math.min(fit, (a * edge) / (2 * b), (b * edge) / (2 * a));
+}
+
+/** The four corners of an outline, in boundary order. */
+function cornersOf(outline: Outline): Point[] {
+  const { x, y, width, height } = outline;
+  if (outline.type === 'rectangle') {
+    return [
+      { x, y },
+      { x: x + width, y },
+      { x: x + width, y: y + height },
+      { x, y: y + height },
+    ];
+  }
+  const centre = centreOf(outline);
+  return [
+    { x: centre.x, y },
+    { x: x + width, y: centre.y },
+    { x: centre.x, y: y + height },
+    { x, y: centre.y },
+  ];
+}
+
+/**
+ * Every vertex rounded by `cornerRadius`, in boundary order. A fillet of radius
+ * r sits on the interior bisector where the two edges are r away from it, and
+ * meets each edge where the arc is tangent to it, so a rectangle and a diamond
+ * round the same way and at the same radius.
+ */
+export function fillets(outline: Outline): Fillet[] {
+  const radius = cornerRadius(outline);
+  const corners = cornersOf(outline);
+  return corners.map((vertex, index) => {
+    const previous = corners[(index + corners.length - 1) % corners.length]!;
+    const next = corners[(index + 1) % corners.length]!;
+    if (radius === 0) {
+      return { vertex, before: vertex, after: vertex, centre: vertex, radius };
+    }
+    const inward = unit(vertex, previous);
+    const onward = unit(vertex, next);
+    const bisector = { x: inward.x + onward.x, y: inward.y + onward.y };
+    const across = { x: inward.x - onward.x, y: inward.y - onward.y };
+    const spread = Math.hypot(bisector.x, bisector.y);
+    const opening = Math.hypot(across.x, across.y);
+    const tangent = (radius * spread) / opening;
+    const inset = (2 * radius) / (spread * opening);
+    return {
+      vertex,
+      before: { x: vertex.x + inward.x * tangent, y: vertex.y + inward.y * tangent },
+      after: { x: vertex.x + onward.x * tangent, y: vertex.y + onward.y * tangent },
+      centre: { x: vertex.x + bisector.x * inset, y: vertex.y + bisector.y * inset },
+      radius,
+    };
+  });
+}
+
+/**
  * Where the ray from the outline's centre towards `from` leaves the outline.
  * `from` is the other end of the arrow, so the returned point is where the
- * line between the two ends meets the target's real edge.
+ * line between the two ends meets the target's real edge: an edge, or the arc
+ * that rounds a corner.
  */
 export function pointOnOutline(outline: Outline, from: Point): Point {
   const centre = centreOf(outline);
   const dx = from.x - centre.x;
   const dy = from.y - centre.y;
-  const a = outline.width / 2;
-  const b = outline.height / 2;
   if (dx === 0 && dy === 0) {
-    // Degenerate: the other end sits on the centre. Any outline point will do.
-    return { x: centre.x, y: centre.y - b };
+    // Degenerate: the other end sits on the centre, so aim up and let the
+    // outline decide where that lands.
+    return pointOnOutline(outline, { x: centre.x, y: centre.y - outline.height });
   }
   if (outline.type === 'ellipse') {
+    const a = outline.width / 2;
+    const b = outline.height / 2;
     const scale = 1 / Math.hypot(dx / a, dy / b);
     return { x: centre.x + dx * scale, y: centre.y + dy * scale };
   }
-  if (outline.type === 'diamond') {
-    const scale = 1 / (Math.abs(dx) / a + Math.abs(dy) / b);
-    return { x: centre.x + dx * scale, y: centre.y + dy * scale };
-  }
-  return rectanglePoint(outline, centre, dx, dy, a, b);
+  const corners = fillets(outline);
+  const direction = { x: dx / Math.hypot(dx, dy), y: dy / Math.hypot(dx, dy) };
+  const reach = boundaryReach(centre, direction, corners);
+  return { x: centre.x + direction.x * reach, y: centre.y + direction.y * reach };
 }
 
-function rectanglePoint(
-  outline: Outline,
-  centre: Point,
-  dx: number,
-  dy: number,
-  a: number,
-  b: number,
-): Point {
-  const scale = Math.min(
-    dx === 0 ? Infinity : a / Math.abs(dx),
-    dy === 0 ? Infinity : b / Math.abs(dy),
-  );
-  const straight = { x: centre.x + dx * scale, y: centre.y + dy * scale };
-  const radius = Math.min(CORNER_RADIUS, a, b);
-  if (outline.corners === 'sharp' || radius === 0) {
-    return straight;
+/**
+ * The distance, as a multiple of the direction `towards`, at which a ray from
+ * `centre` crosses the boundary of a rounded outline: the nearest crossing of
+ * any straight run between two fillets and any fillet arc.
+ */
+function boundaryReach(centre: Point, direction: Point, corners: Fillet[]): number {
+  let nearest = Number.POSITIVE_INFINITY;
+  for (const [index, corner] of corners.entries()) {
+    const next = corners[(index + 1) % corners.length]!;
+    const alongEdge = rayToSegment(centre, direction, corner.after, next.before);
+    if (alongEdge !== null && alongEdge < nearest) {
+      nearest = alongEdge;
+    }
+    const alongArc = rayToFillet(centre, direction, corner);
+    if (alongArc !== null && alongArc < nearest) {
+      nearest = alongArc;
+    }
   }
-  const insideCorner =
-    Math.abs(straight.x - centre.x) > a - radius && Math.abs(straight.y - centre.y) > b - radius;
-  if (!insideCorner) {
-    return straight;
+  return nearest;
+}
+
+/** How far along `direction` a ray from `origin` meets the segment `from`-`to`. */
+function rayToSegment(origin: Point, direction: Point, from: Point, to: Point): number | null {
+  const edge = { x: to.x - from.x, y: to.y - from.y };
+  const denominator = direction.x * edge.y - direction.y * edge.x;
+  if (denominator === 0) {
+    return null;
   }
-  // The ray leaves through the rounded corner arc, not the straight edge: solve
-  // the ray against the circle that rounds that corner.
-  const corner = {
-    x: centre.x + Math.sign(dx) * (a - radius),
-    y: centre.y + Math.sign(dy) * (b - radius),
-  };
-  const ux = centre.x - corner.x;
-  const uy = centre.y - corner.y;
-  const qa = dx * dx + dy * dy;
-  const qb = 2 * (ux * dx + uy * dy);
-  const qc = ux * ux + uy * uy - radius * radius;
-  const root = Math.sqrt(Math.max(qb * qb - 4 * qa * qc, 0));
-  const t = Math.max((-qb + root) / (2 * qa), (-qb - root) / (2 * qa));
-  return { x: centre.x + dx * t, y: centre.y + dy * t };
+  const offset = { x: from.x - origin.x, y: from.y - origin.y };
+  const along = (offset.x * edge.y - offset.y * edge.x) / denominator;
+  const across = (offset.x * direction.y - offset.y * direction.x) / denominator;
+  if (along <= 0 || across < -1e-9 || across > 1 + 1e-9) {
+    return null;
+  }
+  return along;
+}
+
+/** How far along `direction` a ray from `origin` meets a fillet's arc, if it meets it at all. */
+function rayToFillet(origin: Point, direction: Point, fillet: Fillet): number | null {
+  if (fillet.radius === 0) {
+    return null;
+  }
+  const offset = { x: origin.x - fillet.centre.x, y: origin.y - fillet.centre.y };
+  const along = offset.x * direction.x + offset.y * direction.y;
+  const discriminant =
+    along * along - (offset.x * offset.x + offset.y * offset.y - fillet.radius * fillet.radius);
+  if (discriminant < 0) {
+    return null;
+  }
+  const root = Math.sqrt(discriminant);
+  for (const reach of [-along + root, -along - root]) {
+    if (reach <= 0) {
+      continue;
+    }
+    const point = { x: origin.x + direction.x * reach, y: origin.y + direction.y * reach };
+    if (withinArc(fillet, point)) {
+      return reach;
+    }
+  }
+  return null;
+}
+
+/** Whether a point on a fillet's circle lies on the arc between its two tangent points. */
+function withinArc(fillet: Fillet, point: Point): boolean {
+  const sweep = arcAngle(fillet, fillet.after) - arcAngle(fillet, fillet.before);
+  const reached = arcAngle(fillet, point) - arcAngle(fillet, fillet.before);
+  return Math.sign(halfTurn(reached)) === Math.sign(halfTurn(sweep)) &&
+    Math.abs(halfTurn(reached)) <= Math.abs(halfTurn(sweep)) + 1e-9;
+}
+
+function arcAngle(fillet: Fillet, point: Point): number {
+  return Math.atan2(point.y - fillet.centre.y, point.x - fillet.centre.x);
+}
+
+/** An angle folded into (-pi, pi]. */
+function halfTurn(angle: number): number {
+  const turn = 2 * Math.PI;
+  const folded = angle - turn * Math.floor((angle + Math.PI) / turn);
+  return folded === -Math.PI ? Math.PI : folded;
 }
 
 /** Unit vector from `from` to `to`; a zero-length line points right, so it still draws the same every run. */

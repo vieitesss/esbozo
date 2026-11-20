@@ -27,7 +27,7 @@
  *       "stroke": { "width": "bold", "style": "solid" },
  *       "fill": { "kind": "hachure", "grey": 2 },   // kind: none | solid | hachure | cross-hatch
  *       "tone": "ink",                              // ink | muted
- *       "corners": "sharp",                         // sharp | round, rectangles only
+ *       "corners": "sharp",                         // sharp | round: rectangles and diamonds
  *       "fontSize": "M",                            // S | M | L | XL, Labels later (#4)
  *       "textAlign": "left"                         // left | center | right, Labels later (#4)
  *     },
@@ -60,7 +60,8 @@
  * Roughness, stroke, fill, tone and corners draw; Text draws with tone, font
  * size and text alignment, and Labels take those over from #4. Fill and corners
  * apply to closed outlines: an arrow or line is a stroke, so it has no fill and
- * no corners.
+ * no corners. `corners` rounds the vertices of a rectangle or a diamond; an
+ * ellipse has no corners, so it ignores the field.
  *
  * Geometry is rounded to whole pixels in one place, `canonicalScene`: parsing,
  * serialising, hashing and drawing all go through it, so a Scene mutated in
@@ -149,6 +150,7 @@ export interface ElementStyle {
   stroke: Stroke;
   fill: Fill;
   tone: Tone;
+  /** Rounds a rectangle's or a diamond's vertices; an ellipse has none to round. */
   corners: Corners;
   /** For Text now, for Labels from #4. */
   fontSize: FontSize;

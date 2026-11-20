@@ -35,10 +35,10 @@ import type {
   TextElement,
 } from './scene.js';
 import {
-  CORNER_RADIUS,
   arrowHeadTriangle,
   barThrough,
   centreOf,
+  fillets,
   pointOnOutline,
   unit,
 } from './geometry.js';
@@ -242,7 +242,7 @@ function outlinedPaths(
   switch (element.type) {
     case 'rectangle':
       return element.corners === 'round'
-        ? generator.toPaths(generator.path(roundedRectPath(element), options))
+        ? generator.toPaths(generator.path(roundedPath(element), options))
         : generator.toPaths(
             generator.rectangle(element.x, element.y, element.width, element.height, options),
           );
@@ -258,40 +258,45 @@ function outlinedPaths(
       );
     case 'diamond': {
       const centre = { x: element.x + element.width / 2, y: element.y + element.height / 2 };
-      return generator.toPaths(
-        generator.polygon(
-          [
-            [centre.x, element.y],
-            [element.x + element.width, centre.y],
-            [centre.x, element.y + element.height],
-            [element.x, centre.y],
-          ],
-          options,
-        ),
-      );
+      return element.corners === 'round'
+        ? generator.toPaths(generator.path(roundedPath(element), options))
+        : generator.toPaths(
+            generator.polygon(
+              [
+                [centre.x, element.y],
+                [element.x + element.width, centre.y],
+                [centre.x, element.y + element.height],
+                [element.x, centre.y],
+              ],
+              options,
+            ),
+          );
     }
   }
 }
 
-/** A rounded rectangle as SVG path data, so Rough.js can draw and fill it like any other outline. */
-function roundedRectPath(element: OutlinedElement): string {
-  const x = element.x;
-  const y = element.y;
-  const width = element.width;
-  const height = element.height;
-  const r = Math.min(CORNER_RADIUS, width / 2, height / 2);
-  return [
-    `M ${formatNumber(x + r)} ${formatNumber(y)}`,
-    `L ${formatNumber(x + width - r)} ${formatNumber(y)}`,
-    `A ${formatNumber(r)} ${formatNumber(r)} 0 0 1 ${formatNumber(x + width)} ${formatNumber(y + r)}`,
-    `L ${formatNumber(x + width)} ${formatNumber(y + height - r)}`,
-    `A ${formatNumber(r)} ${formatNumber(r)} 0 0 1 ${formatNumber(x + width - r)} ${formatNumber(y + height)}`,
-    `L ${formatNumber(x + r)} ${formatNumber(y + height)}`,
-    `A ${formatNumber(r)} ${formatNumber(r)} 0 0 1 ${formatNumber(x)} ${formatNumber(y + height - r)}`,
-    `L ${formatNumber(x)} ${formatNumber(y + r)}`,
-    `A ${formatNumber(r)} ${formatNumber(r)} 0 0 1 ${formatNumber(x + r)} ${formatNumber(y)}`,
-    'Z',
-  ].join(' ');
+/**
+ * A round-cornered outline as SVG path data, so Rough.js can draw and fill it
+ * like any other: a straight run between neighbouring fillets, then the arc
+ * that rounds each vertex. `geometry.ts` owns the fillets, so the drawing and
+ * Snap round the same corners at the same radius.
+ */
+function roundedPath(element: OutlinedElement): string {
+  const corners = fillets(element);
+  const first = corners[0]!;
+  const commands = [`M ${formatPoint(first.after)}`];
+  for (const corner of [...corners.slice(1), first]) {
+    commands.push(`L ${formatPoint(corner.before)}`);
+    commands.push(
+      `A ${formatNumber(corner.radius)} ${formatNumber(corner.radius)} 0 0 1 ${formatPoint(corner.after)}`,
+    );
+  }
+  commands.push('Z');
+  return commands.join(' ');
+}
+
+function formatPoint(point: Point): string {
+  return `${formatNumber(point.x)} ${formatNumber(point.y)}`;
 }
 
 /**
