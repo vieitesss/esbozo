@@ -8,6 +8,7 @@
  *   ez png <scene> --theme light|dark [--css <stylesheet>]
  *                  [--ink <colour>] [--paper <colour>] [--muted <colour>]
  *                  [--font <file>]
+ *   ez serve <dir> [--host 127.0.0.1] [--port N] [--read-only]
  *
  * `render` writes `<name>.svg` beside the Scene and prints that path.
  * `check` reports what is wrong with a Scene and prints nothing when it is
@@ -27,23 +28,29 @@
  * themes otherwise; `--ink`, `--paper` and `--muted` win over both. The
  * stylesheet subset is documented in `src/css.ts` and printed by `ez --help`.
  *
+ * `serve` puts the editor on a folder of Scenes over http: the page and its
+ * assets come from the folder the built CLI lives in, and the save API in
+ * `src/serve.ts` reads and writes the Scenes. It binds to 127.0.0.1 unless
+ * `--host` says otherwise, and `--read-only` refuses every write.
+ *
  * Exit codes — the one place they are defined, `EXIT`:
- *   0  the Scene is clean, was rendered, or the PNG was written
+ *   0  the Scene is clean, was rendered, the PNG was written, or the server stopped
  *   2  wrong arguments (unknown command, missing or extra arguments, bad flag)
  *   3  the Scene could not be read or parsed
- *   4  the output could not be written
+ *   4  the output could not be written, or the server could not start
  *   5  missing theme values, or a missing or unreadable font
  *   6  a Label that does not fit its Element (see `ez check`)
  *
  * Problems are plain text, one per line, on stderr, and name the Element they
  * belong to: `a: width must be at least 1 pixel, got 0`.
  */
-import { readFile, writeFile } from 'node:fs/promises';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
 import { sceneStem, svgFileName } from './paths.js';
 import { parseScene } from './scene.js';
 import { renderScene } from './renderer.js';
 import { THEMES, renderPng } from './png.js';
+import { serve } from './serve.js';
 import type { PngOptions, Theme } from './png.js';
 import type { Scene } from './scene.js';
 import { chooseFont, layoutFor, readStylesheet } from './font.js';
@@ -63,6 +70,9 @@ const CHECK_USAGE = 'usage: ez check <scene> [--font <file>] [--css <stylesheet>
 const PNG_USAGE =
   'usage: ez png <scene> --theme light|dark [--css <stylesheet>]' +
   ' [--ink <colour>] [--paper <colour>] [--muted <colour>] [--font <file>]';
+const SERVE_USAGE = 'usage: ez serve <dir> [--host 127.0.0.1] [--port N] [--read-only]';
+/** The port `ez serve` takes when nothing says otherwise. */
+const DEFAULT_PORT = 4320;
 
 /** Every exit code `ez` returns, so a caller can tell the failures apart. */
 const EXIT_CODES = [
@@ -70,7 +80,7 @@ const EXIT_CODES = [
   '  0  the Scene is clean, was rendered, or the PNG was written',
   '  2  wrong arguments (unknown command, missing or extra arguments, bad flag)',
   '  3  the Scene could not be read or parsed',
-  '  4  the output could not be written',
+  '  4  the output could not be written, or the server could not start',
   '  5  missing theme values, or a missing or unreadable font',
   '  6  a Label that does not fit its Element (see `ez check`)',
 ].join('\n');
@@ -85,7 +95,7 @@ const CSS_SUBSET = [
   'Palette colours must be opaque.',
 ].join('\n');
 
-const USAGE = `${RENDER_USAGE}\n${CHECK_USAGE}\n${PNG_USAGE}\n${CSS_SUBSET}\n${EXIT_CODES}\n`;
+const USAGE = `${RENDER_USAGE}\n${CHECK_USAGE}\n${PNG_USAGE}\n${SERVE_USAGE}\n${CSS_SUBSET}\n${EXIT_CODES}\n`;
 
 export async function main(argv: readonly string[]): Promise<number> {
   const [command, ...rest] = argv;
@@ -97,6 +107,9 @@ export async function main(argv: readonly string[]): Promise<number> {
   }
   if (command === 'png') {
     return runPng(rest);
+  }
+  if (command === 'serve') {
+    return runServe(rest);
   }
   if (command === '--help' || command === 'help') {
     process.stdout.write(USAGE);
@@ -282,6 +295,91 @@ async function runPng(argv: readonly string[]): Promise<number> {
   }
   process.stdout.write(`${outputPath}\n`);
   return EXIT.ok;
+}
+
+/**
+ * Serve the editor on a folder of Scenes until the process is asked to stop.
+ * A folder that cannot be listed, page files that are not built and a port
+ * already taken are startup problems, so they take the write-failure code.
+ */
+async function runServe(argv: readonly string[]): Promise<number> {
+  const parsed = parseServeArguments(argv);
+  if (parsed === null) {
+    process.stderr.write(`${SERVE_USAGE}\n`);
+    return EXIT.usage;
+  }
+
+  try {
+    await readdir(parsed.folder);
+  } catch (error) {
+    process.stderr.write(`cannot read folder ${parsed.folder}: ${(error as NodeJS.ErrnoException).message}\n`);
+    return EXIT.writeFailed;
+  }
+
+  let running: Awaited<ReturnType<typeof serve>>;
+  try {
+    running = await serve(parsed);
+  } catch (error) {
+    process.stderr.write(`${(error as Error).message}\n`);
+    return EXIT.writeFailed;
+  }
+
+  const mode = running.readOnly ? ' (read-only)' : '';
+  process.stdout.write(`serving ${running.folder} on ${running.url}/${mode}\n`);
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    process.once(signal, () => void running.close());
+  }
+  await running.closed;
+  return EXIT.ok;
+}
+
+interface ServeArguments {
+  readonly folder: string;
+  readonly host: string;
+  readonly port: number;
+  readonly readOnly: boolean;
+}
+
+/** One folder, and space-separated flags: `--port 4320`, never `--port=4320`. */
+function parseServeArguments(argv: readonly string[]): ServeArguments | null {
+  let folder: string | undefined;
+  let host = '127.0.0.1';
+  let port = DEFAULT_PORT;
+  let readOnly = false;
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index] ?? '';
+    if (argument === '--read-only') {
+      readOnly = true;
+      continue;
+    }
+    if (argument === '--host' || argument === '--port') {
+      const value = argv[index + 1];
+      if (value === undefined || value === '' || value.startsWith('--')) {
+        return null;
+      }
+      if (argument === '--host') {
+        host = value;
+      } else {
+        const parsed = /^\d+$/.test(value) ? Number(value) : Number.NaN;
+        if (!Number.isInteger(parsed) || parsed > 65535) {
+          return null;
+        }
+        port = parsed;
+      }
+      index += 1;
+      continue;
+    }
+    if (argument === '' || argument.startsWith('--') || folder !== undefined) {
+      return null;
+    }
+    folder = resolve(argument);
+  }
+
+  if (folder === undefined || host === '') {
+    return null;
+  }
+  return { folder, host, port, readOnly };
 }
 
 /** Every `png` flag and the option it sets: one table for both jobs. */
