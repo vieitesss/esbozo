@@ -28,8 +28,14 @@ interface SceneElement {
   seed?: number;
   roughness?: number;
   tone?: string;
-  stroke?: { width: number; style: string };
+  stroke?: { width: string; style: string };
   fill?: { kind: string; grey: number };
+  corners?: string;
+  fontSize?: string;
+  textAlign?: string;
+  content?: string;
+  points?: { x: number; y: number; snap?: string }[];
+  heads?: { start: string; end: string };
 }
 
 interface Scene {
@@ -54,7 +60,7 @@ const SAMPLE_SCENE: Scene = {
       height: 100,
       tone: 'muted',
       fill: { kind: 'solid', grey: 4 },
-      stroke: { width: 2, style: 'dashed' },
+      stroke: { width: 'bold', style: 'dashed' },
     },
   ],
 };
@@ -300,7 +306,7 @@ test('an invalid Scene reports every Element it cannot parse', async () => {
   const folder = await sceneFolder({
     version: 1,
     elements: [
-      { id: 'ellipse-a', type: 'ellipse', x: 10, y: 10, width: 40, height: 40 },
+      { id: 'star-a', type: 'star', x: 10, y: 10, width: 40, height: 40 },
       { id: 'typo-b', type: 'rectangle', x: 10, y: 10, width: 40, height: 40, roughnes: 2 },
     ],
   });
@@ -308,7 +314,10 @@ test('an invalid Scene reports every Element it cannot parse', async () => {
   const run = await ez(['render', 'scene.json'], folder);
 
   assert.equal(run.code, 3);
-  assert.match(run.stderr, /^ellipse-a: type must be one of rectangle/m);
+  assert.match(
+    run.stderr,
+    /^star-a: type must be one of rectangle, ellipse, diamond, arrow, line, text, got "star"/m,
+  );
   assert.match(run.stderr, /^typo-b: unknown key "roughnes"/m);
 });
 

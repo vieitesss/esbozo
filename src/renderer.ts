@@ -10,21 +10,50 @@
  * `var(--paper)`, `var(--muted)` and `var(--font-hand)`, which hosts set. Each
  * grey step is a fixed `color-mix` of ink into paper, an opaque colour, so an
  * overlap never darkens and a host backdrop other than paper never shows
- * through. A hachure fill takes one step more ink than a solid fill so the two
- * read as the same weight. The Scene hash is written into `data-scene-hash` so
- * an SVG can always be traced back to the Scene it came from, and the root
- * `<svg role="img">` carries its accessible name as its own first-child
- * `<title>`, with no document-wide id to collide with.
+ * through. A hachure or cross-hatch fill takes one step more ink than a solid
+ * fill so the two read as the same weight. The Scene hash is written into
+ * `data-scene-hash` so an SVG can always be traced back to the Scene it came
+ * from, and the root `<svg role="img">` carries its accessible name as its own
+ * first-child `<title>`, with no document-wide id to collide with.
+ *
+ * A Snapped arrow or line end is resolved against its target's outline here
+ * (`geometry.ts` does the maths), and its head sits on that end pointing along
+ * the arrow, into the target.
  */
 import { RoughGenerator } from 'roughjs/bin/generator.js';
-import type { Options } from 'roughjs/bin/core.js';
+import type { Options, PathInfo } from 'roughjs/bin/core.js';
 import { canonicalScene, hashScene } from './scene.js';
-import type { Element, Scene } from './scene.js';
+import type {
+  ConnectorElement,
+  Element,
+  FontSize,
+  Head,
+  Point,
+  Scene,
+  ShapeElement,
+  StrokeWidth,
+  TextElement,
+} from './scene.js';
+import {
+  CORNER_RADIUS,
+  arrowHeadTriangle,
+  barThrough,
+  pointOnOutline,
+  unit,
+} from './geometry.js';
+import type { Outline } from './geometry.js';
 
 const INK = 'var(--ink)';
 const MUTED = 'var(--muted)';
 const PAPER = 'var(--paper)';
 const FONT = 'var(--font-hand)';
+
+/** Stroke width per named width, in pixels. */
+const STROKE_WIDTH_PX: Record<StrokeWidth, number> = { thin: 1, bold: 2, extra: 4 };
+/** Arrow head length per stroke width, in pixels. */
+const HEAD_LENGTH_PX: Record<StrokeWidth, number> = { thin: 9, bold: 13, extra: 18 };
+/** Font size per named size, in pixels. */
+const FONT_SIZE_PX: Record<FontSize, number> = { S: 14, M: 18, L: 24, XL: 32 };
 
 /** Padding around the Scene's Elements, in whole pixels. */
 const PADDING = 16;
@@ -33,17 +62,22 @@ const EMPTY_PAGE = { width: 320, height: 240 };
 
 /**
  * The seven-grey ladder, as the percentage of ink mixed into paper for each
- * step: 0 is bare paper, 6 is solid ink. #3 owns the final ladder; this one
- * only has to be readable and monotonic.
+ * step: 0 is bare paper, 6 is solid ink.
  */
 const GREY_INK_PERCENT = [0, 12, 24, 38, 55, 72, 100] as const;
 const GREY_LAST = GREY_INK_PERCENT.length - 1;
 
+/** Line height of Text, as a multiple of its font size, until #4 measures the font. */
+const TEXT_LINE_HEIGHT = 1.25;
+/** Rough advance width of one character, as a fraction of the font size, until #4 measures the font. */
+const TEXT_CHAR_WIDTH = 0.55;
+
 export function renderScene(scene: Scene): string {
   const canonical = canonicalScene(scene);
   const hash = hashScene(canonical);
-  const page = pageBounds(canonical);
-  const body = canonical.elements.map(renderElement).join('');
+  const byId = new Map(canonical.elements.map((element) => [element.id, element]));
+  const page = pageBounds(canonical, byId);
+  const body = canonical.elements.map((element) => renderElement(element, byId)).join('');
 
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${page.width}" height="${page.height}"` +
@@ -63,7 +97,7 @@ interface Page {
   height: number;
 }
 
-function pageBounds(scene: Scene): Page {
+function pageBounds(scene: Scene, byId: Map<string, Element>): Page {
   if (scene.elements.length === 0) {
     return { x: 0, y: 0, ...EMPTY_PAGE };
   }
@@ -72,58 +106,110 @@ function pageBounds(scene: Scene): Page {
   let right = Number.NEGATIVE_INFINITY;
   let bottom = Number.NEGATIVE_INFINITY;
   for (const element of scene.elements) {
-    left = Math.min(left, element.x);
-    top = Math.min(top, element.y);
-    right = Math.max(right, element.x + element.width);
-    bottom = Math.max(bottom, element.y + element.height);
+    const bounds = elementBounds(element, byId);
+    left = Math.min(left, bounds.x);
+    top = Math.min(top, bounds.y);
+    right = Math.max(right, bounds.x + bounds.width);
+    bottom = Math.max(bottom, bounds.y + bounds.height);
   }
-  const x = left - PADDING;
-  const y = top - PADDING;
+  const x = Math.floor(left - PADDING);
+  const y = Math.floor(top - PADDING);
   return {
     x,
     y,
-    width: right + PADDING - x,
-    height: bottom + PADDING - y,
+    width: Math.ceil(right + PADDING) - x,
+    height: Math.ceil(bottom + PADDING) - y,
   };
 }
 
+interface Box {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+function elementBounds(element: Element, byId: Map<string, Element>): Box {
+  switch (element.type) {
+    case 'arrow':
+    case 'line': {
+      const [start, end] = connectorPoints(element, byId);
+      return {
+        x: Math.min(start.x, end.x),
+        y: Math.min(start.y, end.y),
+        width: Math.abs(end.x - start.x),
+        height: Math.abs(end.y - start.y),
+      };
+    }
+    case 'text':
+      return textBounds(element);
+    default:
+      return { x: element.x, y: element.y, width: element.width, height: element.height };
+  }
+}
+
 /**
- * One Element: its fill first, then its outline, so the ink of the outline
+ * Provisional Text extent, so a Text fits its page and its alignment has an
+ * edge to align to. #4 Layout replaces it with measurement of the real font;
+ * until then it is a rough advance width, not measurement.
+ */
+function textBounds(element: TextElement): Box {
+  const size = FONT_SIZE_PX[element.fontSize];
+  const lines = element.content.split('\n');
+  const width = Math.max(...lines.map((line) => [...line].length)) * size * TEXT_CHAR_WIDTH;
+  const height = lines.length * size * TEXT_LINE_HEIGHT;
+  const x =
+    element.textAlign === 'left'
+      ? element.x
+      : element.textAlign === 'center'
+        ? element.x - width / 2
+        : element.x - width;
+  return { x, y: element.y, width, height };
+}
+
+function renderElement(element: Element, byId: Map<string, Element>): string {
+  switch (element.type) {
+    case 'arrow':
+    case 'line':
+      return renderConnector(element, byId);
+    case 'text':
+      return renderText(element);
+    default:
+      return renderShape(element);
+  }
+}
+
+/**
+ * One shape: its fill first, then its outline, so the ink of the outline
  * always sits on top of the fill it belongs to.
  */
-function renderElement(element: Element): string {
+function renderShape(element: ShapeElement): string {
   const generator = new RoughGenerator();
-  // `canonicalScene` already rounded the geometry: nothing here rounds it again.
-  const geometry: [number, number, number, number] = [
-    element.x,
-    element.y,
-    element.width,
-    element.height,
-  ];
+  const width = STROKE_WIDTH_PX[element.stroke.width];
   const strokeColour = element.tone === 'muted' ? MUTED : INK;
   const commonOptions: Options = {
     seed: element.seed,
     roughness: element.roughness,
-    strokeWidth: element.stroke.width,
+    strokeWidth: width,
   };
   const paths: string[] = [];
 
   if (element.fill.kind !== 'none') {
-    // A hachure fill is drawn as lines, so it needs one step more ink than a
-    // solid wash to read as the same grey.
-    const grey =
-      element.fill.kind === 'hachure'
-        ? Math.min(element.fill.grey + 1, GREY_LAST)
-        : element.fill.grey;
+    // A hachure or cross-hatch fill is drawn as lines, so it needs one step
+    // more ink than a solid wash to read as the same grey.
+    const lineFilled = element.fill.kind !== 'solid';
+    const grey = lineFilled
+      ? Math.min(element.fill.grey + 1, GREY_LAST)
+      : element.fill.grey;
     const colour = greyColour(grey);
     const options: Options = {
       ...commonOptions,
       stroke: 'none',
       fill: colour,
-      fillStyle: element.fill.kind === 'solid' ? 'solid' : 'hachure',
-      fillWeight: Math.max(1, element.stroke.width / 2),
+      fillStyle: element.fill.kind === 'solid' ? 'solid' : element.fill.kind,
+      fillWeight: Math.max(1, width / 2),
     };
-    for (const path of generator.toPaths(generator.rectangle(...geometry, options))) {
+    for (const path of shapePaths(generator, element, options)) {
       if (path.fill !== 'none') {
         paths.push(`<path d="${pathData(path.d)}" fill="${colour}"/>`);
       } else {
@@ -136,8 +222,8 @@ function renderElement(element: Element): string {
   }
 
   const outlineOptions: Options = { ...commonOptions, stroke: strokeColour };
-  const dash = strokeDash(element.stroke.width, element.stroke.style);
-  for (const path of generator.toPaths(generator.rectangle(...geometry, outlineOptions))) {
+  const dash = strokeDash(width, element.stroke.style);
+  for (const path of shapePaths(generator, element, outlineOptions)) {
     paths.push(
       `<path d="${pathData(path.d)}" fill="none" stroke="${path.stroke}"` +
         ` stroke-width="${formatNumber(path.strokeWidth)}"${dash}/>`,
@@ -145,6 +231,213 @@ function renderElement(element: Element): string {
   }
 
   return `<g stroke-linecap="round" stroke-linejoin="round">${paths.join('')}</g>`;
+}
+
+/** The outline of a shape, drawn by Rough.js, with whatever options the pass needs. */
+function shapePaths(
+  generator: RoughGenerator,
+  element: ShapeElement,
+  options: Options,
+): PathInfo[] {
+  switch (element.type) {
+    case 'rectangle':
+      return element.corners === 'round'
+        ? generator.toPaths(generator.path(roundedRectPath(element), options))
+        : generator.toPaths(
+            generator.rectangle(element.x, element.y, element.width, element.height, options),
+          );
+    case 'ellipse':
+      return generator.toPaths(
+        generator.ellipse(
+          element.x + element.width / 2,
+          element.y + element.height / 2,
+          element.width,
+          element.height,
+          options,
+        ),
+      );
+    case 'diamond': {
+      const centre = { x: element.x + element.width / 2, y: element.y + element.height / 2 };
+      return generator.toPaths(
+        generator.polygon(
+          [
+            [centre.x, element.y],
+            [element.x + element.width, centre.y],
+            [centre.x, element.y + element.height],
+            [element.x, centre.y],
+          ],
+          options,
+        ),
+      );
+    }
+  }
+}
+
+/** A rounded rectangle as SVG path data, so Rough.js can draw and fill it like any other shape. */
+function roundedRectPath(element: ShapeElement): string {
+  const x = element.x;
+  const y = element.y;
+  const width = element.width;
+  const height = element.height;
+  const r = Math.min(CORNER_RADIUS, width / 2, height / 2);
+  const at = (value: number) => formatNumber(value);
+  return [
+    `M ${at(x + r)} ${at(y)}`,
+    `L ${at(x + width - r)} ${at(y)}`,
+    `A ${at(r)} ${at(r)} 0 0 1 ${at(x + width)} ${at(y + r)}`,
+    `L ${at(x + width)} ${at(y + height - r)}`,
+    `A ${at(r)} ${at(r)} 0 0 1 ${at(x + width - r)} ${at(y + height)}`,
+    `L ${at(x + r)} ${at(y + height)}`,
+    `A ${at(r)} ${at(r)} 0 0 1 ${at(x)} ${at(y + height - r)}`,
+    `L ${at(x)} ${at(y + r)}`,
+    `A ${at(r)} ${at(r)} 0 0 1 ${at(x + r)} ${at(y)}`,
+    'Z',
+  ].join(' ');
+}
+
+/**
+ * One arrow or line: its shaft, then its heads on top. A Snapped end sits on
+ * its target's outline, resolved from the other end's point.
+ */
+function renderConnector(element: ConnectorElement, byId: Map<string, Element>): string {
+  const generator = new RoughGenerator();
+  const [start, end] = connectorPoints(element, byId);
+  const width = STROKE_WIDTH_PX[element.stroke.width];
+  const colour = element.tone === 'muted' ? MUTED : INK;
+  const dash = strokeDash(width, element.stroke.style);
+  const paths: string[] = [];
+
+  const lineOptions: Options = {
+    seed: element.seed,
+    roughness: element.roughness,
+    strokeWidth: width,
+    stroke: colour,
+  };
+  for (const path of generator.toPaths(generator.line(start.x, start.y, end.x, end.y, lineOptions))) {
+    paths.push(
+      `<path d="${pathData(path.d)}" fill="none" stroke="${path.stroke}"` +
+        ` stroke-width="${formatNumber(path.strokeWidth)}"${dash}/>`,
+    );
+  }
+
+  const headLength = HEAD_LENGTH_PX[element.stroke.width];
+  const direction = { start: unit(end, start), end: unit(start, end) };
+  for (const [kind, apex, along] of [
+    [element.heads.start, start, direction.start],
+    [element.heads.end, end, direction.end],
+  ] as const) {
+    paths.push(...headPaths(generator, element, kind, apex, along, headLength, colour));
+  }
+
+  return `<g stroke-linecap="round" stroke-linejoin="round">${paths.join('')}</g>`;
+}
+
+/** One arrow head, pointing along the arrow with its apex on the end. */
+function headPaths(
+  generator: RoughGenerator,
+  element: ConnectorElement,
+  kind: Head,
+  apex: Point,
+  direction: Point,
+  length: number,
+  colour: string,
+): string[] {
+  if (kind === 'none') {
+    return [];
+  }
+  const headOptions: Options = {
+    seed: element.seed,
+    roughness: element.roughness,
+    strokeWidth: STROKE_WIDTH_PX[element.stroke.width],
+    stroke: colour,
+  };
+  if (kind === 'arrow') {
+    const triangle = arrowHeadTriangle(apex, direction, length);
+    return generator
+      .toPaths(
+        generator.polygon(
+          triangle.map((point) => [point.x, point.y]),
+          { ...headOptions, stroke: 'none', fill: colour, fillStyle: 'solid' },
+        ),
+      )
+      .map((path) => `<path d="${pathData(path.d)}" fill="${colour}"/>`);
+  }
+  if (kind === 'dot') {
+    return generator
+      .toPaths(
+        generator.circle(apex.x, apex.y, length * 0.75, {
+          ...headOptions,
+          stroke: 'none',
+          fill: colour,
+          fillStyle: 'solid',
+        }),
+      )
+      .map((path) => `<path d="${pathData(path.d)}" fill="${colour}"/>`);
+  }
+  const [from, to] = barThrough(apex, direction, length * 0.6);
+  return generator.toPaths(generator.line(from.x, from.y, to.x, to.y, headOptions)).map(
+    (path) =>
+      `<path d="${pathData(path.d)}" fill="none" stroke="${path.stroke}"` +
+      ` stroke-width="${formatNumber(path.strokeWidth)}"/>`,
+  );
+}
+
+/**
+ * Both ends of an arrow or line, with each Snapped end moved onto its target's
+ * outline along the line from the other end's point towards the target centre.
+ */
+function connectorPoints(element: ConnectorElement, byId: Map<string, Element>): [Point, Point] {
+  const [start, end] = element.points;
+  const resolve = (point: Point, other: Point): Point => {
+    if (point.snap === undefined) {
+      return { x: point.x, y: point.y };
+    }
+    const target = byId.get(point.snap);
+    if (target === undefined || !isShape(target)) {
+      // parseScene already rejected this Scene; draw the end where it was asked.
+      return { x: point.x, y: point.y };
+    }
+    return pointOnOutline(outlineOf(target), other);
+  };
+  return [resolve(start, end), resolve(end, start)];
+}
+
+function outlineOf(element: ShapeElement): Outline {
+  return {
+    type: element.type,
+    x: element.x,
+    y: element.y,
+    width: element.width,
+    height: element.height,
+    corners: element.corners,
+  };
+}
+
+function isShape(element: Element): element is ShapeElement {
+  return element.type === 'rectangle' || element.type === 'ellipse' || element.type === 'diamond';
+}
+
+/**
+ * Free-standing Text: its content, one line per `\n`, at its font size and
+ * alignment. `x` is the aligned edge, `y` the top of the first line. Font size
+ * and alignment are the only style fields Text uses.
+ */
+function renderText(element: TextElement): string {
+  const size = FONT_SIZE_PX[element.fontSize];
+  const anchor =
+    element.textAlign === 'left' ? 'start' : element.textAlign === 'center' ? 'middle' : 'end';
+  const colour = element.tone === 'muted' ? MUTED : INK;
+  const lines = element.content.split('\n');
+  const spans = lines
+    .map((line, index) => {
+      const dy = index === 0 ? 0 : size * TEXT_LINE_HEIGHT;
+      return `<tspan x="${formatNumber(element.x)}" dy="${formatNumber(dy)}">${escapeXml(line)}</tspan>`;
+    })
+    .join('');
+  return (
+    `<text x="${formatNumber(element.x)}" y="${formatNumber(element.y + size)}"` +
+    ` font-size="${formatNumber(size)}" text-anchor="${anchor}" fill="${colour}">${spans}</text>`
+  );
 }
 
 /**
