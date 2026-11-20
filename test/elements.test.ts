@@ -727,6 +727,27 @@ test('a Snap target must be an Element with an outline', async () => {
   assert.equal(result.svg, '');
 });
 
+test('both ends Snapped to one Element exits 3 and names the arrow', async () => {
+  const result = await render({
+    version: 1,
+    elements: [
+      { id: 'box', type: 'rectangle', x: 10, y: 10, width: 80, height: 80 },
+      {
+        id: 'arrow',
+        type: 'arrow',
+        points: [
+          { x: 100, y: 10, snap: 'box' },
+          { x: 100, y: 90, snap: 'box' },
+        ],
+      },
+    ],
+  });
+
+  assert.equal(result.code, 3, result.stderr);
+  assert.match(result.stderr, /^arrow: both ends Snap to box$/m);
+  assert.equal(result.svg, '');
+});
+
 test('an arrow needs exactly two end points', async () => {
   for (const points of [
     [{ x: 10, y: 10 }],

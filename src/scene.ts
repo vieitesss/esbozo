@@ -516,6 +516,16 @@ function validateSnapTargets(elements: Element[], problems: Problem[]): void {
     if (element.type !== 'arrow' && element.type !== 'line') {
       continue;
     }
+    const [start, end] = element.points;
+    if (start.snap !== undefined && start.snap === end.snap) {
+      // Both ends on one outline have no line between two targets to aim
+      // along, so the arrow or line cannot say which way it points.
+      problems.push({
+        elementId: element.id,
+        message: `both ends Snap to ${start.snap}`,
+      });
+      continue;
+    }
     for (const point of element.points) {
       if (point.snap === undefined) {
         continue;
