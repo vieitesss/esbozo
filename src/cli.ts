@@ -4,16 +4,19 @@
  * Surface:
  *
  *   ez render <scene> [--font <file>]
+ *   ez check <scene> [--font <file>]
  *   ez png <scene> --theme light|dark [--css <stylesheet>]
  *                  [--ink <colour>] [--paper <colour>] [--muted <colour>]
  *                  [--font <file>]
  *
  * `render` writes `<name>.svg` beside the Scene and prints that path.
+ * `check` reports what is wrong with a Scene and prints nothing when it is
+ * clean, so a script can rely on the exit code alone.
  * `png` writes `<name>.<theme>.png` beside the Scene and prints that path, so
  * `sketch.json` gives `sketch.light.png` and `sketch.dark.png`.
  *
- * Words are measured: `render` measures with `--font`, or with the bundled
- * Kalam when it is absent. `png` measures with the font it draws with —
+ * Words are measured: `render` and `check` measure with `--font`, or with the
+ * bundled Kalam when it is absent. `png` measures with the font it draws with —
  * `--font`, then the stylesheet's `@font-face`, then Kalam — so the line breaks
  * in the PNG are the ones that font makes.
  *
@@ -27,6 +30,7 @@
  *   3  the Scene could not be read or parsed
  *   4  the output could not be written
  *   5  missing theme values, or a missing or unreadable font
+ *   6  a Label that does not fit its Element (see `ez check`)
  *
  * Problems are plain text, one per line, on stderr, and name the Element they
  * belong to: `a: width must be at least 1 pixel, got 0`.
@@ -48,9 +52,11 @@ const EXIT = {
   invalidScene: 3,
   writeFailed: 4,
   missingThemeOrFont: 5,
+  labelOverflow: 6,
 } as const;
 
 const RENDER_USAGE = 'usage: ez render <scene> [--font <file>]';
+const CHECK_USAGE = 'usage: ez check <scene> [--font <file>]';
 const PNG_USAGE =
   'usage: ez png <scene> --theme light|dark [--css <stylesheet>]' +
   ' [--ink <colour>] [--paper <colour>] [--muted <colour>] [--font <file>]';
@@ -63,6 +69,7 @@ const EXIT_CODES = [
   '  3  the Scene could not be read or parsed',
   '  4  the output could not be written',
   '  5  missing theme values, or a missing or unreadable font',
+  '  6  a Label that does not fit its Element (see `ez check`)',
 ].join('\n');
 
 /** The stylesheet subset `png` reads, the same one documented in `src/css.ts`. */
@@ -75,12 +82,15 @@ const CSS_SUBSET = [
   'Palette colours must be opaque.',
 ].join('\n');
 
-const USAGE = `${RENDER_USAGE}\n${PNG_USAGE}\n${CSS_SUBSET}\n${EXIT_CODES}\n`;
+const USAGE = `${RENDER_USAGE}\n${CHECK_USAGE}\n${PNG_USAGE}\n${CSS_SUBSET}\n${EXIT_CODES}\n`;
 
 export async function main(argv: readonly string[]): Promise<number> {
   const [command, ...rest] = argv;
   if (command === 'render') {
     return runRender(rest);
+  }
+  if (command === 'check') {
+    return runCheck(rest);
   }
   if (command === 'png') {
     return runPng(rest);
@@ -120,8 +130,39 @@ async function runRender(argv: readonly string[]): Promise<number> {
   return EXIT.ok;
 }
 
-/** `<scene> [--font <file>]`. */
+/**
+ * What an author has to fix before drawing the Scene, measured with the font
+ * the SVG will be drawn for: `ez check` reports it and exits 6. A Scene that
+ * does not parse gets exit 3 first, because there is nothing to measure.
+ */
+async function runCheck(argv: readonly string[]): Promise<number> {
+  const parsed = parseSceneArguments(argv);
+  if (parsed === null) {
+    process.stderr.write(`${CHECK_USAGE}\n`);
+    return EXIT.usage;
+  }
 
+  const scene = await loadScene(parsed.scenePath);
+  if (!scene.ok) {
+    return scene.exitCode;
+  }
+  const layout = await loadLayout(parsed.fontPath);
+  if (!layout.ok) {
+    return layout.exitCode;
+  }
+
+  let overflowed = false;
+  for (const element of scene.value.elements) {
+    const overflow = layout.value.overflow(element);
+    if (overflow !== null) {
+      process.stderr.write(`${overflow.elementId}: ${overflow.message}\n`);
+      overflowed = true;
+    }
+  }
+  return overflowed ? EXIT.labelOverflow : EXIT.ok;
+}
+
+/** `<scene> [--font <file>]`, the arguments `render` and `check` share. */
 interface SceneArguments {
   scenePath: string;
   fontPath?: string;
