@@ -57,7 +57,7 @@ export async function pickFolder(): Promise<SceneFolder | null> {
   }
 }
 
-export function folderFromHandle(handle: DirectoryHandleLike): SceneFolder {
+function folderFromHandle(handle: DirectoryHandleLike): SceneFolder {
   return {
     name: handle.name,
 

@@ -84,11 +84,6 @@ export function boxBetween(from: Point, to: Point): Box {
   };
 }
 
-/** Move a box by a delta, without rounding: moving never snaps to the Grid. */
-export function movedBox(box: Box, dx: number, dy: number): Box {
-  return { ...box, x: box.x + dx, y: box.y + dy };
-}
-
 /**
  * The box after dragging one handle by a delta. The opposite edge stays put,
  * and the box never turns inside out or below MIN_SIZE.
@@ -148,10 +143,6 @@ export function toScene(view: View, screenX: number, screenY: number): Point {
     x: (screenX - view.panX) / view.zoom,
     y: (screenY - view.panY) / view.zoom,
   };
-}
-
-export function toScreen(view: View, point: Point): Point {
-  return { x: point.x * view.zoom + view.panX, y: point.y * view.zoom + view.panY };
 }
 
 /** Zoom keeping the Scene point under the pointer where it is. */
