@@ -65,44 +65,77 @@ export const POSTER_SCENE = {
   ],
 };
 
-/** Open the built page, seed the stubbed folder and open a Scene from the note. */
-export async function openEditor(
-  page: Page,
-  files: Record<string, string>,
-  sceneName: string,
-): Promise<void> {
+/** Stub folders: a folder name mapped to its `name → text` files. */
+export interface Folders {
+  [folder: string]: Record<string, string>;
+}
+
+/** The folder every test that does not name one seeds and reads. */
+export const FOLDER = 'A';
+
+interface Stub {
+  __esbozoFolders: Folders;
+  __esbozoPicks: string[];
+}
+
+/** Open the built page with the stubbed folders ready to be picked. */
+async function openPage(page: Page, folders: Folders, picks: string[]): Promise<void> {
   await page.addInitScript({ path: fileURLToPath(new URL('./fake-file-system.js', import.meta.url)) });
   await page.goto('/editor.html');
-  await page.evaluate((seed) => {
-    (window as unknown as { __esbozoFiles: Record<string, string> }).__esbozoFiles = seed;
-  }, files);
+  await page.evaluate((stub: Stub) => {
+    const window_ = window as unknown as Stub;
+    window_.__esbozoFolders = stub.__esbozoFolders;
+    window_.__esbozoPicks = stub.__esbozoPicks;
+  }, { __esbozoFolders: folders, __esbozoPicks: picks });
+}
+
+/** The folder the next Open folder click asks for; the last one repeats. */
+export async function browseFolder(page: Page, folder: string): Promise<void> {
+  await page.evaluate((name) => {
+    (window as unknown as Stub).__esbozoPicks = [name];
+  }, folder);
+  await page.getByRole('button', { name: /Open folder/ }).click();
+}
+
+/** Open the built page, pick a folder and open a Scene from the note. */
+export async function openEditor(
+  page: Page,
+  folders: Folders,
+  sceneName: string,
+  picks: string[] = Object.keys(folders),
+): Promise<void> {
+  await openPage(page, folders, picks);
   await page.getByRole('button', { name: /Open folder/ }).click();
   await page.getByRole('button', { name: sceneName, exact: true }).click();
 }
 
 /** Open a Scene name that is not in the folder yet: a new, empty Scene. */
-export async function openNewScene(page: Page, files: Record<string, string>, name: string): Promise<void> {
-  await page.addInitScript({ path: fileURLToPath(new URL('./fake-file-system.js', import.meta.url)) });
-  await page.goto('/editor.html');
-  await page.evaluate((seed) => {
-    (window as unknown as { __esbozoFiles: Record<string, string> }).__esbozoFiles = seed;
-  }, files);
+export async function openNewScene(
+  page: Page,
+  folders: Folders,
+  name: string,
+  picks: string[] = Object.keys(folders),
+): Promise<void> {
+  await openPage(page, folders, picks);
   await page.getByRole('button', { name: /Open folder/ }).click();
   await page.getByLabel('New Scene name').fill(name);
   await page.getByRole('button', { name: 'New', exact: true }).click();
 }
 
-/** The files the editor has written, as text. */
-export async function savedFiles(page: Page): Promise<Record<string, string>> {
-  return page.evaluate(() =>
-    ({ ...(window as unknown as { __esbozoFiles: Record<string, string> }).__esbozoFiles }),
+/** The files a stubbed folder holds, as text. */
+export async function savedFiles(page: Page, folder = FOLDER): Promise<Record<string, string>> {
+  return page.evaluate(
+    (name) => ({
+      ...((window as unknown as { __esbozoFolders: Folders }).__esbozoFolders[name] ?? {}),
+    }),
+    folder,
   );
 }
 
 /** The saved Scene, parsed, once the editor says it saved. */
-export async function savedScene(page: Page, name = 'scene.json'): Promise<SavedScene> {
+export async function savedScene(page: Page, name = 'scene.json', folder = FOLDER): Promise<SavedScene> {
   await expect(page.locator('.saved')).toHaveText('saved');
-  const files = await savedFiles(page);
+  const files = await savedFiles(page, folder);
   const source = files[name];
   if (source === undefined) {
     throw new Error(`${name} was not saved, only ${Object.keys(files).join(', ')}`);
@@ -165,9 +198,9 @@ export async function cliRender(scene: unknown): Promise<string> {
 }
 
 /** The editor saved both files, and the SVG is the CLI's own output. */
-export async function expectSvgMatchesCli(page: Page, name = 'scene.json'): Promise<void> {
+export async function expectSvgMatchesCli(page: Page, name = 'scene.json', folder = FOLDER): Promise<void> {
   await expect(page.locator('.saved')).toHaveText('saved');
-  const files = await savedFiles(page);
+  const files = await savedFiles(page, folder);
   const svgName = name.replace(/\.json$/i, '.svg');
   const saved = files[svgName];
   expect(saved, `${svgName} was saved`).toBeTruthy();

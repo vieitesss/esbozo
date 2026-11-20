@@ -15,7 +15,8 @@ const shots = process.env['ESBOZO_SHOTS'];
 test.skip(shots === undefined || shots === '', 'set ESBOZO_SHOTS to write the screenshots');
 
 test('the editor in light and dark', async ({ page }) => {
-  await openEditor(page, { 'scene.json': JSON.stringify(POSTER_SCENE, null, 2) }, 'scene.json');
+  const folders = { A: { 'scene.json': JSON.stringify(POSTER_SCENE, null, 2) } };
+  await openEditor(page, folders, 'scene.json');
   await page.evaluate(() => document.fonts.ready);
   // A selection, so the handles and the dashed box are in the picture.
   await clickScene(page, { x: 170, y: 215 });

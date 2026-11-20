@@ -12,6 +12,7 @@ import {
   clickScene,
   drag,
   expectSvgMatchesCli,
+  browseFolder,
   openEditor,
   openNewScene,
   savedFiles,
@@ -23,7 +24,7 @@ import {
 const SCENE_SOURCE = JSON.stringify(SCENE, null, 2);
 
 test('opening a Scene file paints it with the Renderer', async ({ page }) => {
-  await openEditor(page, { 'scene.json': SCENE_SOURCE }, 'scene.json');
+  await openEditor(page, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
 
   const painted = page.locator('.painted svg');
   await expect(painted).toHaveCount(1);
@@ -41,7 +42,7 @@ test('a Scene that will not parse is reported and left alone on disk', async ({ 
     version: 1,
     elements: [{ id: 'box-a', type: 'rectangle', x: 10, y: 10, width: 0, height: 40 }],
   });
-  await openEditor(page, { 'broken.json': broken }, 'broken.json');
+  await openEditor(page, { A: { 'broken.json': broken } }, 'broken.json');
 
   await expect(page.locator('.saved')).toContainText('width must be at least 1 pixel');
   await expect(page.locator('.saved')).toContainText('box-a');
@@ -51,7 +52,7 @@ test('a Scene that will not parse is reported and left alone on disk', async ({ 
 });
 
 test('a Scene that is not there opens empty and is saved as Scene and SVG', async ({ page }) => {
-  await openNewScene(page, {}, 'fresh.json');
+  await openNewScene(page, { A: {} }, 'fresh.json');
 
   await expect(page.locator('.saved')).toHaveText('saved');
   const files = await savedFiles(page);
@@ -70,7 +71,7 @@ test('dragging an Element moves it smoothly and autosaves Scene plus SVG', async
     prompts.push(dialog.message());
     await dialog.dismiss();
   });
-  await openEditor(page, { 'scene.json': SCENE_SOURCE }, 'scene.json');
+  await openEditor(page, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
 
   const from = await screenPoint(page, { x: 100, y: 80 });
   // 37 and 23 are not on the 22px Grid, so a saved 77/63 proves no snapping.
@@ -84,7 +85,7 @@ test('dragging an Element moves it smoothly and autosaves Scene plus SVG', async
 });
 
 test('click selects one Element, shift-click adds another, and both move', async ({ page }) => {
-  await openEditor(page, { 'scene.json': SCENE_SOURCE }, 'scene.json');
+  await openEditor(page, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
 
   await clickScene(page, { x: 100, y: 80 });
   await expect(page.locator('.handle')).toHaveCount(8);
@@ -106,7 +107,7 @@ test('click selects one Element, shift-click adds another, and both move', async
 });
 
 test('dragging on empty canvas box-selects and selects no page text', async ({ page }) => {
-  await openEditor(page, { 'scene.json': SCENE_SOURCE }, 'scene.json');
+  await openEditor(page, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
 
   const from = await screenPoint(page, { x: 10, y: 10 });
   const to = await screenPoint(page, { x: 320, y: 180 });
@@ -126,7 +127,7 @@ test('dragging on empty canvas box-selects and selects no page text', async ({ p
 });
 
 test('a resize handle changes the saved geometry', async ({ page }) => {
-  await openEditor(page, { 'scene.json': SCENE_SOURCE }, 'scene.json');
+  await openEditor(page, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
   await clickScene(page, { x: 100, y: 80 });
 
   const handle = page.locator('.handle-se');
@@ -148,7 +149,7 @@ test('a resize handle changes the saved geometry', async ({ page }) => {
 });
 
 test('Space pans and the wheel zooms without touching the Scene', async ({ page }) => {
-  await openEditor(page, { 'scene.json': SCENE_SOURCE }, 'scene.json');
+  await openEditor(page, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
   const before = await viewOf(page);
   const savedBefore = (await savedFiles(page))['scene.json'];
 
@@ -175,11 +176,38 @@ test('Space pans and the wheel zooms without touching the Scene', async ({ page 
 });
 
 test('G shows and hides the dot Grid', async ({ page }) => {
-  await openEditor(page, { 'scene.json': SCENE_SOURCE }, 'scene.json');
+  await openEditor(page, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
 
   await expect(page.locator('.grid-rect')).toBeVisible();
   await page.keyboard.press('g');
   await expect(page.locator('.grid-rect')).toBeHidden();
   await page.keyboard.press('g');
   await expect(page.locator('.grid-rect')).toBeVisible();
+});
+
+test('browsing another folder never moves where the open Scene saves', async ({ page }) => {
+  const other = JSON.stringify({ ...SCENE, title: 'B copy' }, null, 2);
+  // Two folders that both hold a `same.json`: only the opened one may change.
+  await openEditor(
+    page,
+    { A: { 'same.json': SCENE_SOURCE }, B: { 'same.json': other } },
+    'same.json',
+    ['A', 'B'],
+  );
+
+  await browseFolder(page, 'B');
+  await expect(page.getByRole('button', { name: 'same.json', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  await clickScene(page, { x: 100, y: 80 });
+  await page.keyboard.press('Shift+ArrowRight');
+
+  const opened = await savedScene(page, 'same.json', 'A');
+  expect(opened.elements.find((element) => element.id === 'a')?.x).toBe(50);
+  await expectSvgMatchesCli(page, 'same.json', 'A');
+
+  const browsed = await savedScene(page, 'same.json', 'B');
+  expect(browsed.title).toBe('B copy');
+  expect(browsed.elements.find((element) => element.id === 'a')?.x).toBe(40);
+  expect((await savedFiles(page, 'B'))['same.svg']).toBeUndefined();
 });

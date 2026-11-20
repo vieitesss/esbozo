@@ -3,15 +3,9 @@
  *
  * It holds the Scene, paints it with the Renderer and edits it with the pointer
  * and the keyboard. Every change saves the Scene and its SVG back to the folder
- * it was opened from: there is no unsaved state and no prompt.
- *
- * Public surface, and the only surface tests use:
- *   openFolder()        ask for a folder (the browser's picker) and list Scenes
- *   openScene(name)     open a Scene by name from that folder
- *   save()              write the Scene and its SVG now (autosave calls this)
- *
- * Everything else — selection, dragging, panning, zoom — goes through the
- * pointer and the keys, so it is exercised through the same path a person uses.
+ * it was opened from: there is no unsaved state and no prompt. Browsing another
+ * folder only changes what the Scenes note lists: the open Scene keeps its own
+ * `{ folder, name }` destination.
  */
 import { renderScene } from '../renderer.js';
 import { emptyScene, parseScene, serialiseScene } from '../scene.js';
@@ -43,6 +37,12 @@ const HANDLE_SIZE = 8;
 const NUDGE = 1;
 const NUDGE_WITH_SHIFT = 10;
 const ZOOM_STEP = 1.2;
+
+/** Where the open Scene saves: the folder and the name it was opened from. */
+interface SaveTarget {
+  readonly folder: SceneFolder;
+  readonly name: string;
+}
 
 type Drag =
   | { kind: 'pan'; fromScreen: Point; start: View }
@@ -90,8 +90,9 @@ export class EsbozoEditorElement extends HTMLElement {
   #selected: string[] = [];
   #view: View = { zoom: 1, panX: 0, panY: 0 };
   #grid = true;
-  #folder: SceneFolder | null = null;
-  #sceneName: string | null = null;
+  /** The folder the Scenes note lists. Browsing it never moves the save target. */
+  #browsed: SceneFolder | null = null;
+  #target: SaveTarget | null = null;
   #drag: Drag | null = null;
   #spaceDown = false;
   #saveQueue: Promise<void> = Promise.resolve();
@@ -119,7 +120,6 @@ export class EsbozoEditorElement extends HTMLElement {
       return;
     }
     this.innerHTML = SHELL;
-    this.classList.add('ready');
     this.#canvas = this.querySelector('.canvas')!;
     this.#viewport = this.querySelector('.viewport')!;
     this.#painted = this.querySelector('.painted')!;
@@ -162,15 +162,14 @@ export class EsbozoEditorElement extends HTMLElement {
     window.removeEventListener('resize', this.#onResize);
   }
 
-  /** Ask for a folder and list the Scenes in it. */
-  async openFolder(): Promise<void> {
+  /** Ask for a folder and list the Scenes in it, without moving the save target. */
+  async #openFolder(): Promise<void> {
     try {
       const folder = await pickFolder();
       if (folder === null) {
         return;
       }
-      this.#folder = folder;
-      this.#whereLabel.textContent = folder.name;
+      this.#browsed = folder;
       await this.#showNote();
     } catch (error) {
       this.#setSaved('failed', (error as Error).message);
@@ -181,8 +180,8 @@ export class EsbozoEditorElement extends HTMLElement {
    * Open a Scene by name. A file that is not there opens as an empty Scene, and
    * both files are written straight away so the folder and the page agree.
    */
-  async openScene(name: string): Promise<void> {
-    const folder = this.#folder;
+  async #openScene(name: string): Promise<void> {
+    const folder = this.#browsed;
     if (folder === null) {
       this.#setSaved('failed', 'open a folder first');
       return;
@@ -195,8 +194,8 @@ export class EsbozoEditorElement extends HTMLElement {
       return;
     }
     if (source === null) {
-      this.#load(emptyScene(stemOf(name)), name);
-      await this.save();
+      this.#load(emptyScene(stemOf(name)), { folder, name });
+      await this.#save();
       return;
     }
     const parsed = parseScene(source);
@@ -207,15 +206,14 @@ export class EsbozoEditorElement extends HTMLElement {
       this.#setSaved('failed', `${name}: ${message}`);
       return;
     }
-    this.#load(parsed.scene, name);
+    this.#load(parsed.scene, { folder, name });
     this.#setSaved('saved');
   }
 
-  /** Write the Scene and the SVG beside it. Autosave and tests share this path. */
-  async save(): Promise<void> {
-    const folder = this.#folder;
-    const name = this.#sceneName;
-    if (folder === null || name === null) {
+  /** Write the Scene and the SVG beside it, in the folder the Scene came from. */
+  async #save(): Promise<void> {
+    const target = this.#target;
+    if (target === null) {
       return;
     }
     const sceneSource = serialiseScene(this.#scene);
@@ -223,7 +221,7 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#setSaved('saving');
     this.#saveQueue = this.#saveQueue.then(async () => {
       try {
-        await folder.write(name, sceneSource, svgSource);
+        await target.folder.write(target.name, sceneSource, svgSource);
         this.#setSaved('saved');
       } catch (error) {
         this.#setSaved('failed', (error as Error).message);
@@ -246,13 +244,13 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#paint();
   }
 
-  #load(scene: Scene, name: string): void {
+  #load(scene: Scene, target: SaveTarget): void {
     this.#scene = scene;
-    this.#sceneName = name;
+    this.#target = target;
     this.#selected = [];
     this.#paintedFor = null;
     this.#view = fittedView(scene, this.#viewportSize());
-    this.#whereLabel.textContent = this.#folder === null ? name : `${this.#folder.name} / ${name}`;
+    this.#whereLabel.textContent = `${target.folder.name} / ${target.name}`;
     this.#note.hidden = true;
     this.#paint();
   }
@@ -521,7 +519,7 @@ export class EsbozoEditorElement extends HTMLElement {
     if (drag.kind === 'move' || drag.kind === 'resize') {
       this.#paint();
       if (serialiseScene(this.#scene) !== drag.before) {
-        void this.save();
+        void this.#save();
       }
       return;
     }
@@ -616,7 +614,7 @@ export class EsbozoEditorElement extends HTMLElement {
       element.y += dy;
     }
     this.#paint();
-    void this.save();
+    void this.#save();
   }
 
   #zoomBy(factor: number): void {
@@ -631,7 +629,7 @@ export class EsbozoEditorElement extends HTMLElement {
     const action = ((event.target as Element | null)?.closest('[data-act]') as HTMLElement | null)
       ?.dataset['act'];
     if (action === 'open') {
-      void this.openFolder();
+      void this.#openFolder();
     } else if (action === 'grid') {
       this.#toggleGrid();
     } else if (action === 'theme') {
@@ -653,19 +651,19 @@ export class EsbozoEditorElement extends HTMLElement {
     event.preventDefault();
     const input = this.#newScene.querySelector('input')!;
     const name = normaliseSceneName(input.value);
-    void this.openScene(name);
+    void this.#openScene(name);
   };
 
   #onFileClick = (event: Event): void => {
     const button = (event.target as Element | null)?.closest('[data-file]') as HTMLElement | null;
     const name = button?.dataset['file'];
     if (name !== undefined) {
-      void this.openScene(name);
+      void this.#openScene(name);
     }
   };
 
   async #showNote(): Promise<void> {
-    const folder = this.#folder;
+    const folder = this.#browsed;
     if (folder === null) {
       return;
     }
