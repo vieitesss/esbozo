@@ -19,6 +19,7 @@
     "test": "pnpm build && node --test test/*.test.ts"
   },
   "dependencies": {
+    "@resvg/resvg-wasm": "^2.6.2",
     "roughjs": "^4.6.6"
   },
   "devDependencies": {
