@@ -554,6 +554,23 @@ test('a readable font file given with --font is accepted', async () => {
   assert.equal(png.width, PAGE.width);
 });
 
+test('an explicit --font needs no resolvable --font-hand', async () => {
+  const folder = await sceneFolder();
+  const kalam = fileURLToPath(new URL('../fonts/Kalam-Regular.ttf', import.meta.url));
+  await writeFile(
+    join(folder, 'site.css'),
+    ':root { --ink: #003366; --paper: #fafafa; --muted: #777777; --font-hand: var(--nowhere); }',
+    'utf8',
+  );
+
+  const { png } = await pngOne(
+    ['png', 'scene.json', '--theme', 'light', '--css', 'site.css', '--font', kalam],
+    folder,
+  );
+
+  assert.equal(png.width, PAGE.width);
+});
+
 test('a local @font-face matching --font-hand is the stylesheet font', async () => {
   const folder = await sceneFolder();
   await copyFile(fileURLToPath(new URL('../fonts/Kalam-Regular.ttf', import.meta.url)), join(folder, 'hand.ttf'));

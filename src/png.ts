@@ -31,12 +31,13 @@
  *
  * Fonts, in order of precedence: `--font`, then a local `@font-face` in the
  * stylesheet whose family matches the effective `--font-hand`, then the bundled
- * Kalam. A remote `@font-face` is ignored with a note, because only files on
- * this machine can be read. Every candidate is parsed with `opentype.js` once,
- * and its bytes and family travel together: a file that does not parse, or has
- * no glyphs, is a problem rather than a font resvg would silently draw nothing
- * with. WOFF and WOFF2 are named and rejected, because resvg draws no glyphs
- * from them.
+ * Kalam. The stylesheet's `--font-hand` only matters — and only has to resolve —
+ * when the font comes from there: `--font` never needs it. A remote `@font-face`
+ * is ignored with a note, because only files on this machine can be read. Every
+ * candidate is parsed with `opentype.js` once, and its bytes and family travel
+ * together: a file that does not parse, or has no glyphs, is a problem rather
+ * than a font resvg would silently draw nothing with. WOFF and WOFF2 are named
+ * and rejected, because resvg draws no glyphs from them.
  *
  * The built-in light and dark palettes are sb's Excalidraw converter defaults,
  * the prior art.
@@ -210,8 +211,10 @@ function preparePalette(
     return { ok: false, problems: [`stylesheet is missing: ${missing.join(', ')}`] };
   }
 
-  const declaredFamily = variables[FONT_VARIABLE];
+  // `--font` wins over the stylesheet, so the stylesheet's `--font-hand` is
+  // only read — and only has to resolve — when the font comes from the CSS.
   let fontFamily: string | null = null;
+  const declaredFamily = options.fontPath === undefined ? variables[FONT_VARIABLE] : undefined;
   if (declaredFamily !== undefined) {
     const resolved = resolveVariables(declaredFamily, variables);
     if (!resolved.ok) {
