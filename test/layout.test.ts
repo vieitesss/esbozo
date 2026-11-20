@@ -74,6 +74,30 @@ function vertical(bytes: Uint8Array, size: number): { lineHeight: number; inkCen
   };
 }
 
+/** The advance Kalam gives one line, so a test wraps words its own way. */
+function kalamAdvance(text: string, size: number): number {
+  return kalam.getAdvanceWidth(text, size, { kerning: true });
+}
+
+/** The greedy wrap the drawing has to make: a line takes words while they fit. */
+function wrapped(text: string, width: number, size: number): string[] {
+  const lines: string[] = [];
+  for (const paragraph of text.split('\n')) {
+    const words = paragraph.split(/[ \t]+/).filter((word) => word !== '');
+    let line = words[0] ?? '';
+    for (const word of words.slice(1)) {
+      if (kalamAdvance(`${line} ${word}`, size) <= width) {
+        line = `${line} ${word}`;
+      } else {
+        lines.push(line);
+        line = word;
+      }
+    }
+    lines.push(line);
+  }
+  return lines;
+}
+
 /** The four sides of `box` as segments, so a test can walk them. */
 function sides(box: Box): [Point, Point][] {
   const corners = [
@@ -239,6 +263,57 @@ test('a shaft Label needs the shaft that is drawn', () => {
     () => LAYOUT.label(arrow({ x: 0, y: 0 }, { x: 100, y: 0 })),
     /a shaft Label needs the shaft that is drawn/,
   );
+});
+
+test('a Label wraps inside the room its outline leaves', () => {
+  // Layout's own rules: a rectangle uses its whole box, an ellipse the largest
+  // square inside it, a diamond half of each side, and every side keeps
+  // `8px + stroke width` clear.
+  const cases = [
+    { type: 'rectangle', fraction: 1, width: 160, height: 120 },
+    { type: 'rectangle', fraction: 1, width: 100, height: 120 },
+    { type: 'ellipse', fraction: Math.SQRT1_2, width: 240, height: 160 },
+    { type: 'diamond', fraction: 0.5, width: 240, height: 160 },
+  ] as const;
+  for (const { type, fraction, width, height } of cases) {
+    const box = element(oneElement({ type, width, height, label: 'orders and invoices for the autumn release' }));
+    const block = LAYOUT.label(box)!;
+    const area = {
+      width: width * fraction - 2 * (8 + 2),
+      height: height * fraction - 2 * (8 + 2),
+    };
+
+    assert.deepEqual(
+      block.lines.map((line) => line.text),
+      wrapped('orders and invoices for the autumn release', area.width, 18),
+      `the ${type} breaks the words where they stop fitting`,
+    );
+    for (const line of block.lines) {
+      assert.ok(
+        kalamAdvance(line.text, 18) <= area.width,
+        `"${line.text}" fits inside the ${type}`,
+      );
+    }
+    assert.ok(block.width <= area.width + 0.01, `the ${type}'s words fit its width`);
+  }
+  const narrow = LAYOUT.label(
+    element(oneElement({ width: 100, label: 'orders and invoices for the autumn release' })),
+  )!;
+  const wide = LAYOUT.label(
+    element(oneElement({ width: 320, label: 'orders and invoices for the autumn release' })),
+  )!;
+  assert.ok(narrow.lines.length > wide.lines.length, `${narrow.lines.length} lines narrow, ${wide.lines.length} wide`);
+});
+
+test('a Label that does not fit is placed anyway, past its box', () => {
+  const box = element(oneElement({ width: 100, height: 40, label: 'this box is far too small for these words' }));
+  const block = LAYOUT.label(box)!;
+  const overflow = LAYOUT.overflow(box);
+
+  assert.ok(block.lines.length > 0, 'the words are placed where the author put them');
+  assert.ok(overflow !== null, 'and check is what says they do not fit');
+  assert.ok(overflow.message.startsWith('label does not fit: '));
+  assert.ok(block.width > 80 || block.height > 20, 'the words run past the box');
 });
 
 test('growing a rectangle ends with a Label that fits', () => {

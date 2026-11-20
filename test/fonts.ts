@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import opentype from 'opentype.js';
 import type { Glyph } from 'opentype.js';
 
-export interface FontShape {
+export interface FontDesign {
   /** Advance width of every glyph, in font units. */
   advance?: number;
   /** Ascender, in font units above the baseline. */
@@ -26,9 +26,9 @@ export interface FontShape {
 const ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,';
 
 /** Bytes of a valid font whose glyphs all measure and draw the same. */
-export function fontBytes(shape: FontShape = {}): Uint8Array {
-  const advance = shape.advance ?? 1000;
-  const height = shape.glyphHeight ?? 800;
+export function fontBytes(design: FontDesign = {}): Uint8Array {
+  const advance = design.advance ?? 1000;
+  const height = design.glyphHeight ?? 800;
   const glyph = (name: string, code: number): Glyph => {
     const path = new opentype.Path();
     path.moveTo(0, 0);
@@ -38,11 +38,11 @@ export function fontBytes(shape: FontShape = {}): Uint8Array {
     return new opentype.Glyph({ name, unicode: code, advanceWidth: advance, path });
   };
   const font = new opentype.Font({
-    familyName: shape.family ?? 'Wide',
+    familyName: design.family ?? 'Wide',
     styleName: 'Regular',
     unitsPerEm: 1000,
-    ascender: shape.ascender ?? 800,
-    descender: shape.descender ?? -200,
+    ascender: design.ascender ?? 800,
+    descender: design.descender ?? -200,
     glyphs: [
       glyph('.notdef', 0),
       ...ALPHABET.split('').map((character) =>
@@ -57,8 +57,8 @@ export function fontBytes(shape: FontShape = {}): Uint8Array {
 export async function writeFont(
   folder: string,
   name: string,
-  shape: FontShape = {},
+  design: FontDesign = {},
 ): Promise<string> {
-  await writeFile(join(folder, name), Buffer.from(fontBytes(shape)));
+  await writeFile(join(folder, name), Buffer.from(fontBytes(design)));
   return name;
 }

@@ -822,7 +822,7 @@ interface Box {
   height: number;
 }
 
-/** The box an Element asks for in the Scene: a shape's own, an arrow's two ends. */
+/** The box an Element asks for in the Scene: a container's own, an arrow's two ends. */
 function boxOf(element: Record<string, unknown>): Box {
   if (element.type === 'arrow' || element.type === 'line') {
     const [start, end] = element.points as Point[];

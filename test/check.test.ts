@@ -75,8 +75,8 @@ test('a Label too tall and too wide is one problem, not two', async () => {
   assert.match(lines[0]!, /^a: label does not fit: .* lines need .*px tall, and the longest line needs/);
 });
 
-test('a shape with less room in the middle overflows where a rectangle would not', async () => {
-  const label = 'the very middle of a shape';
+test('a diamond has less room in its middle than a rectangle, so it overflows first', async () => {
+  const label = 'the very middle of a diamond';
   const rectangle = await sceneFolder(oneBox({ label }));
   const diamond = await sceneFolder({
     version: 1,
