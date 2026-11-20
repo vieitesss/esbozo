@@ -1,28 +1,22 @@
 /**
  * The tool rail: the hand-drawn strip on the left with the tools on it.
  *
- * Only Select does anything yet; the rest are shown, disabled, so the rail is
- * complete and #7 only has to turn the tools on. The outline is drawn by
- * Rough.js, twice, so the strip reads as two pencil passes.
+ * One static list, in rail order. Select is the only tool that does anything
+ * today; the rest are drawn, disabled and inert, so the rail is complete and #7
+ * only has to turn them on. The outline is drawn by Rough.js, twice, so the
+ * strip reads as two pencil passes.
  */
 import { RoughGenerator } from 'roughjs/bin/generator.js';
 
-export interface Tool {
-  key: string;
-  name: string;
-  /** Enabled tools; the rest are shown but inert until #7 and #9. */
-  ready: boolean;
-}
-
-export const TOOLS: readonly Tool[] = [
-  { key: 'V', name: 'Select', ready: true },
-  { key: 'R', name: 'Rectangle', ready: false },
-  { key: 'E', name: 'Ellipse', ready: false },
-  { key: 'D', name: 'Diamond', ready: false },
-  { key: 'A', name: 'Arrow', ready: false },
-  { key: 'S', name: 'Line', ready: false },
-  { key: 'T', name: 'Text', ready: false },
-];
+const TOOLS = [
+  { name: 'Select', icon: 'select' },
+  { name: 'Rectangle', icon: 'rect' },
+  { name: 'Ellipse', icon: 'ellipse' },
+  { name: 'Diamond', icon: 'diamond' },
+  { name: 'Arrow', icon: 'arrow' },
+  { name: 'Line', icon: 'line' },
+  { name: 'Text', icon: 'text' },
+] as const;
 
 const ICONS: Record<string, string> = {
   select: '<path d="M5 3l6 17 2.6-7L21 10z" fill="currentColor" stroke="currentColor" stroke-width="1.1"/>',
@@ -34,26 +28,15 @@ const ICONS: Record<string, string> = {
   text: '<path d="M5 6V4h14v2M12 4v16M9 20h6"/>',
 };
 
-const ICON_FOR_TOOL: Record<string, string> = {
-  V: 'select',
-  R: 'rect',
-  E: 'ellipse',
-  D: 'diamond',
-  A: 'arrow',
-  S: 'line',
-  T: 'text',
-};
-
 /** The rail's buttons, each icon drawn twice so it looks pencilled over. */
 export function railMarkup(): string {
-  return TOOLS.map((tool) => {
-    const icon = ICONS[ICON_FOR_TOOL[tool.key]!] ?? '';
-    const title = tool.ready ? `${tool.name} — ${tool.key}` : `${tool.name} — coming soon`;
+  return TOOLS.map((tool, index) => {
+    const icon = ICONS[tool.icon] ?? '';
+    const active = index === 0 ? ' aria-pressed="true"' : ' disabled';
     return (
-      `<button type="button" data-tool="${tool.key}" aria-label="${tool.name}" title="${title}"` +
-      ` aria-pressed="${tool.key === 'V'}"${tool.ready ? '' : ' disabled'}>` +
+      `<button type="button" aria-label="${tool.name}"${active}>` +
       `<svg viewBox="0 0 24 24" aria-hidden="true">${icon}<g class="ghost">${icon}</g></svg>` +
-      `<span class="k">${tool.key}</span></button>`
+      `</button>`
     );
   }).join('');
 }

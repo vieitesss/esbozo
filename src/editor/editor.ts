@@ -142,7 +142,6 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#canvas.addEventListener('wheel', this.#onWheel, { passive: false });
     this.#canvas.addEventListener('contextmenu', (event) => event.preventDefault());
     this.querySelector('.status')!.addEventListener('click', this.#onStatusClick);
-    this.#rail.addEventListener('click', this.#onRailClick);
     this.#newScene.addEventListener('submit', this.#onNewScene);
     this.#files.addEventListener('click', this.#onFileClick);
     document.addEventListener('keydown', this.#onKeyDown);
@@ -620,16 +619,6 @@ export class EsbozoEditorElement extends HTMLElement {
       void this.#openFolder();
     } else if (action === 'grid') {
       this.#toggleGrid();
-    }
-  };
-
-  #onRailClick = (event: Event): void => {
-    const button = (event.target as Element | null)?.closest('[data-tool]') as HTMLElement | null;
-    if (button === null || button.hasAttribute('disabled')) {
-      return;
-    }
-    for (const other of this.#rail.querySelectorAll('[data-tool]')) {
-      other.setAttribute('aria-pressed', String(other === button));
     }
   };
 

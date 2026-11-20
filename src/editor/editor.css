@@ -88,11 +88,6 @@ esbozo-editor::before {
 
 .canvas.hand, .canvas.panning { cursor: grab; }
 .canvas.panning { cursor: grabbing; }
-/* the pencil cursor, for the drawing tools #7 brings */
-.canvas.pen {
-  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='26' viewBox='0 0 26 26'%3E%3Cg transform='rotate(42 13 13)'%3E%3Cpath d='M11 5h4v13h-4z' fill='%23e8b23c' stroke='%231b1a17' stroke-width='1.2'/%3E%3Cpath d='M11 18h4l-2 4.5z' fill='%23f6f0e2' stroke='%231b1a17' stroke-width='1.2'/%3E%3C/g%3E%3C/svg%3E") 4 22, crosshair;
-}
-
 .grid-rect { fill: url(#esbozo-dots); pointer-events: none; }
 .dot { fill: var(--ink); opacity: 0.22; }
 
@@ -182,18 +177,6 @@ esbozo-editor::before {
 
 .rail button svg .ghost { opacity: 0.3; transform: translate(0.8px, 0.7px); }
 .rail button[aria-pressed="true"] svg .ghost { opacity: 0.45; }
-
-.rail button .k {
-  position: absolute;
-  right: 0;
-  bottom: -2px;
-  font-family: var(--font-ui);
-  font-size: 7px;
-  opacity: 0;
-  transition: opacity 0.12s;
-}
-
-.rail button:hover .k { opacity: 0.5; }
 
 /* the page's own light/dark switch, in the hand, across from the status */
 .theme {
