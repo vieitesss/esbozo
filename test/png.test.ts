@@ -4,8 +4,8 @@
  * Everything here is external behaviour: the files written, stdout, stderr and
  * exit codes. Nothing imports src/. PNGs are read straight from the bytes: the
  * IHDR chunk gives the page size on its own, and IDAT is inflated and
- * unfiltered with node:zlib so a single pixel can be sampled without the test
- * requiring any particular encoding from resvg.
+ * unfiltered with node:zlib so a single pixel can be sampled from the 8-bit
+ * encodings resvg writes without the test requiring one particular colour type.
  */
 import { execFile } from 'node:child_process';
 import assert from 'node:assert/strict';
@@ -125,44 +125,35 @@ interface Png extends Size {
   pixel(x: number, y: number): [number, number, number, number];
 }
 
-/** Channels per pixel, by PNG colour type. */
-const CHANNELS: Readonly<Record<number, number>> = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 };
+/** Channels per pixel, by PNG colour type: the four resvg writes. */
+const CHANNELS: Readonly<Record<number, number>> = { 0: 1, 2: 3, 4: 2, 6: 4 };
 
 /**
- * Reads the pixels of any PNG resvg is likely to write: grey, RGB, indexed,
- * grey+alpha and RGBA, at 8 or 16 bits per sample. 16-bit samples are read as
- * their high byte, which is all a colour comparison needs. Transparency chunks
- * for grey and RGB images are not applied; resvg writes alpha channels instead.
+ * Reads an 8-bit grey, RGB, grey+alpha or RGBA PNG — the colour types resvg
+ * writes. A bit depth or colour type outside that is an error naming what was
+ * found, not a guess at samples this test does not read.
  */
 function readPng(bytes: Buffer): Png {
   const size = readSize(bytes);
   let bitDepth = 8;
   let colourType = 6;
-  let palette: Buffer | null = null;
-  let transparency: Buffer | null = null;
   const data: Buffer[] = [];
   for (const chunk of chunks(bytes)) {
     if (chunk.type === 'IHDR') {
       bitDepth = chunk.data[8] ?? 8;
       colourType = chunk.data[9] ?? 6;
-    } else if (chunk.type === 'PLTE') {
-      palette = chunk.data;
-    } else if (chunk.type === 'tRNS') {
-      transparency = chunk.data;
     } else if (chunk.type === 'IDAT') {
       data.push(chunk.data);
     }
   }
 
-  const channels = CHANNELS[colourType];
-  if (channels === undefined) {
-    throw new Error(`unsupported PNG colour type ${colourType}`);
+  const pixelBytes = CHANNELS[colourType];
+  if (pixelBytes === undefined) {
+    throw new Error(`the PNG is colour type ${colourType}; this test reads 0, 2, 4 or 6`);
   }
-  if (bitDepth !== 8 && bitDepth !== 16) {
-    throw new Error(`unsupported PNG bit depth ${bitDepth}`);
+  if (bitDepth !== 8) {
+    throw new Error(`the PNG is ${bitDepth} bits per sample; this test reads 8`);
   }
-  const sampleBytes = bitDepth / 8;
-  const pixelBytes = channels * sampleBytes;
   const stride = size.width * pixelBytes;
   const raw = inflateSync(Buffer.concat(data));
   const pixels = Buffer.alloc(size.height * stride);
@@ -202,8 +193,7 @@ function readPng(bytes: Buffer): Png {
     ...size,
     pixel(x: number, y: number): [number, number, number, number] {
       const at = y * stride + x * pixelBytes;
-      const sample = (index: number): number =>
-        sampleBytes === 2 ? (pixels[at + index * 2] ?? 0) : (pixels[at + index] ?? 0);
+      const sample = (index: number): number => pixels[at + index] ?? 0;
       switch (colourType) {
         case 0: {
           const grey = sample(0);
@@ -217,11 +207,6 @@ function readPng(bytes: Buffer): Png {
           return [sample(0), sample(1), sample(2), 255];
         case 6:
           return [sample(0), sample(1), sample(2), sample(3)];
-        case 3: {
-          const index = pixels[at] ?? 0;
-          const entry = (channel: number): number => palette?.[index * 3 + channel] ?? 0;
-          return [entry(0), entry(1), entry(2), transparency?.[index] ?? 255];
-        }
         default:
           throw new Error(`unsupported PNG colour type ${colourType}`);
       }
@@ -265,33 +250,21 @@ const isGreen = ([r, g, b]: [number, number, number, number]): boolean => g > 20
 test('png --theme light writes a PNG beside the Scene and prints its path', async () => {
   const folder = await sceneFolder();
 
-  const { run, png, path } = await pngOne(['png', 'scene.json', '--theme', 'light'], folder);
+  const run = await ez(['png', 'scene.json', '--theme', 'light'], folder);
 
-  assert.equal(path, join(folder, 'scene.light.png'));
+  assert.equal(run.code, 0, run.stderr);
   assert.equal(run.stderr, '');
-  assert.equal(png.width, PAGE.width);
-  assert.equal(png.height, PAGE.height);
+  assert.equal(run.stdout.trim(), join(folder, 'scene.light.png'));
+  assert.deepEqual(readSize(await readFile(run.stdout.trim())), PAGE);
 });
 
 test('png --theme dark writes its own PNG beside the Scene', async () => {
   const folder = await sceneFolder();
 
-  const { png } = await pngOne(['png', 'scene.json', '--theme', 'dark'], folder);
+  const run = await ez(['png', 'scene.json', '--theme', 'dark'], folder);
 
-  assert.equal(existsSync(join(folder, 'scene.dark.png')), true);
-  assert.equal(png.width, PAGE.width);
-  assert.equal(png.height, PAGE.height);
-});
-
-test('the page size is in the IHDR chunk of the PNG', async () => {
-  const folder = await sceneFolder();
-
-  const result = await ez(['png', 'scene.json', '--theme', 'light'], folder);
-  assert.equal(result.code, 0, result.stderr);
-
-  const size = readSize(await readFile(join(folder, 'scene.light.png')));
-
-  assert.deepEqual(size, { width: PAGE.width, height: PAGE.height });
+  assert.equal(run.code, 0, run.stderr);
+  assert.deepEqual(readSize(await readFile(join(folder, 'scene.dark.png'))), PAGE);
 });
 
 test('the paper colour is painted under the drawing, light or dark', async () => {
