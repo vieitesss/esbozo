@@ -11,6 +11,7 @@ await build({
   format: 'esm',
   target: 'node22',
   banner: { js: '#!/usr/bin/env node' },
+  loader: { '.wasm': 'binary', '.ttf': 'binary' },
   logLevel: 'info',
 });
 
