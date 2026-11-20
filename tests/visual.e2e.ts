@@ -3,18 +3,26 @@
  *
  * `tests/editor.e2e.ts` proves the same outcomes exactly, from the Scene the
  * editor saves and from its pixels. These tests prove what a person would look
- * at and answer in words: the dots of the Grid, light and dark, the resize
- * handles around a selection, and a panned canvas. Nothing here reads the DOM
- * or the editor's state.
+ * at and answer in words: a Scene that will not parse being reported, the dots
+ * of the Grid, light and dark, the resize handles around a selection, and a
+ * panned canvas. Nothing here reads the DOM or the editor's state, beyond the
+ * buttons a person clicks.
  *
- * They need the model: `agent.assert` judges the live screen on every run, so
- * this file is not part of `pnpm e2e`, which passes with no key set. Run it
- * with `pnpm e2e:agent`. The one `agent.act` step is replayed from
- * `.e2e/cache/`, which is committed, so only its judgement costs a call.
+ * These tests need the model on every run: only an `agent.act` step can replay
+ * from `.e2e/cache/`, while `agent.assert` and `agent.waitFor` judge the live
+ * screen each time, by design. So this file is not part of `pnpm e2e`, which
+ * passes with no key set and makes no model calls; run it with
+ * `pnpm e2e:agent`. The one `agent.act` step here is replayed from the
+ * committed cache, so only its judgements cost calls.
+ *
+ * A judgement about what the screen presents asks for `vision: 'only'`, the
+ * screenshot without the tree, so the model cannot answer from markup it cannot
+ * see. A judgement about words on the screen keeps the tree.
  */
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import {
+  BROKEN_SCENE,
   MIXED,
   MIXED_SCENE,
   SCENE,
@@ -26,6 +34,17 @@ import {
 
 const SCENE_SOURCE = JSON.stringify(SCENE, null, 2);
 const MIXED_SOURCE = JSON.stringify(MIXED_SCENE, null, 2);
+const BROKEN_SOURCE = JSON.stringify(BROKEN_SCENE, null, 2);
+
+test('a Scene that will not parse is reported, naming the box-a width problem', async ({ agent, app, browser, screen }) => {
+  const ui = { agent, app, browser, screen };
+  await openEditor(ui, { A: { 'broken.json': BROKEN_SOURCE } }, 'broken.json');
+
+  await ui.agent.assert(
+    'a message on the page says that box-a is wrong: its width must be at least 1 pixel',
+    { vision: true },
+  );
+});
 
 test('the dot Grid is there, a person turns it off, and the canvas goes plain', async ({ agent, app, browser, screen }) => {
   const ui = { agent, app, browser, screen };
@@ -33,12 +52,12 @@ test('the dot Grid is there, a person turns it off, and the canvas goes plain', 
   const before = (await savedFiles(ui))['scene.json'];
 
   await ui.agent.assert('the empty paper beside the drawings is covered in a regular pattern of small dots', {
-    vision: true,
+    vision: 'only',
   });
 
   await ui.agent.act('turn the Grid off with the Grid button in the status bar');
 
-  await ui.agent.assert('the empty paper beside the drawings is plain, with no dots on it', { vision: true });
+  await ui.agent.assert('the empty paper beside the drawings is plain, with no dots on it', { vision: 'only' });
 
   // A view change, so the Scene on disk is untouched, byte for byte.
   expect((await savedFiles(ui))['scene.json']).toBe(before);
@@ -48,18 +67,20 @@ test('the page follows the system into dark and its own switch back to light', a
   const ui = { agent, app, browser, screen };
   await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
 
-  await ui.agent.assert('the page is painted light: the paper is near white and the ink is dark', { vision: true });
+  await ui.agent.assert('the page is painted light: the paper is near white and the ink is dark', {
+    vision: 'only',
+  });
 
   // The system turns dark after the page loaded: the page follows.
   await ui.browser.emulateMedia({ colorScheme: 'dark' });
   await ui.agent.waitFor('the page is painted dark: the paper is near black and the ink is light', {
-    vision: true,
+    vision: 'only',
   });
 
   // The page's own switch brings it back.
   await ui.screen.getByRole('button', 'Light').click();
   await ui.agent.waitFor('the page is painted light: the paper is near white and the ink is dark', {
-    vision: true,
+    vision: 'only',
   });
 });
 
@@ -68,29 +89,32 @@ test('a page that starts in system dark paints dark and offers the light switch'
   await ui.browser.emulateMedia({ colorScheme: 'dark' });
   await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
 
-  await ui.agent.assert('the page is painted dark: the paper is near black and the ink is light', { vision: true });
+  await ui.agent.assert('the page is painted dark: the paper is near black and the ink is light', {
+    vision: 'only',
+  });
+  // Words on the screen, so the tree is the right evidence here.
   await ui.agent.assert('a button offers to switch to the light theme', { vision: false });
 
   await ui.screen.getByRole('button', 'Light').click();
   await ui.agent.waitFor('the page is painted light: the paper is near white and the ink is dark', {
-    vision: true,
+    vision: 'only',
   });
 });
 
-test('a selected box shows resize handles and a selected line of text does not', async ({ agent, app, browser, screen }) => {
+test('a selected box shows resize handles and a selected line of text shows only its outline', async ({ agent, app, browser, screen }) => {
   const ui = { agent, app, browser, screen };
   await openEditor(ui, { A: { 'scene.json': MIXED_SOURCE } }, 'scene.json');
 
   await clickScene(ui, { x: 120, y: 110 }, [], MIXED);
   await ui.agent.assert(
     'the ellipse is selected: a dashed box hugs it and small square handles sit on the corners and edge middles of that box',
-    { vision: true },
+    { vision: 'only' },
   );
 
   await clickScene(ui, { x: 277, y: 110 }, [], MIXED);
   await ui.agent.assert(
-    'the word "hi" is selected, with no square resize handles on it',
-    { vision: true },
+    'the word "hi" is selected: a dashed box hugs it and there are no small square resize handles on it',
+    { vision: 'only' },
   );
 });
 
@@ -101,7 +125,7 @@ test('holding Space and dragging pans the view', async ({ agent, app, browser, s
 
   await ui.agent.assert(
     'two hand-drawn rectangles sit side by side around the middle of the canvas, the right-hand one filled with a solid grey tone',
-    { vision: true },
+    { vision: 'only' },
   );
 
   await ui.browser.keyboard.down('Space');
@@ -109,8 +133,8 @@ test('holding Space and dragging pans the view', async ({ agent, app, browser, s
   await ui.browser.keyboard.up('Space');
 
   await ui.agent.assert(
-    'both rectangles now sit right of the middle of the window and below its horizontal middle, and the tool rail on the left has not moved',
-    { vision: true },
+    'the two rectangles now sit below the window’s horizontal middle, and the left edge of the left-hand one is right of the window’s vertical middle',
+    { vision: 'only' },
   );
 
   // Panning is a view change, so the Scene on disk is untouched.
