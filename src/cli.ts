@@ -34,15 +34,8 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
 import { parseScene } from './scene.js';
 import { renderScene } from './renderer.js';
-import {
-  BUNDLED_FONT,
-  DEFAULT_PALETTES,
-  THEMES,
-  paletteFromStylesheet,
-  rasterise,
-  readFont,
-} from './png.js';
-import type { Palette, Theme } from './png.js';
+import { THEMES, renderPng } from './png.js';
+import type { PngOptions, Theme } from './png.js';
 import type { Scene } from './scene.js';
 
 const EXIT = {
@@ -105,65 +98,37 @@ async function runPng(argv: readonly string[]): Promise<number> {
     return scene.exitCode;
   }
 
-  const overrides: Partial<Palette> = {};
+  const options: PngOptions = { theme: parsed.theme };
   if (parsed.ink !== undefined) {
-    overrides.ink = parsed.ink;
+    options.ink = parsed.ink;
   }
   if (parsed.paper !== undefined) {
-    overrides.paper = parsed.paper;
+    options.paper = parsed.paper;
   }
   if (parsed.muted !== undefined) {
-    overrides.muted = parsed.muted;
+    options.muted = parsed.muted;
   }
-
-  let palette: Palette;
-  let fontFamily: string | null = null;
-  if (parsed.css === undefined) {
-    palette = { ...DEFAULT_PALETTES[parsed.theme], ...overrides };
-  } else {
-    let stylesheet: string;
-    try {
-      stylesheet = await readFile(parsed.css, 'utf8');
-    } catch (error) {
-      process.stderr.write(`cannot read stylesheet ${parsed.css}: ${(error as NodeJS.ErrnoException).message}\n`);
-      return EXIT.missingTheme;
-    }
-    const themed = paletteFromStylesheet(stylesheet, parsed.theme, overrides);
-    if (!themed.ok) {
-      process.stderr.write(`stylesheet is missing: ${themed.missing.join(', ')}\n`);
-      return EXIT.missingTheme;
-    }
-    palette = themed.palette;
-    fontFamily = themed.fontFamily;
+  if (parsed.css !== undefined) {
+    options.cssPath = parsed.css;
   }
-
-  let font = BUNDLED_FONT;
   if (parsed.font !== undefined) {
-    let bytes: Uint8Array;
-    try {
-      bytes = await readFile(parsed.font);
-    } catch (error) {
-      process.stderr.write(`cannot read font ${parsed.font}: ${(error as NodeJS.ErrnoException).message}\n`);
-      return EXIT.missingTheme;
+    options.fontPath = parsed.font;
+  }
+
+  const rendered = await renderPng(renderScene(scene.value), options);
+  if (!rendered.ok) {
+    for (const problem of rendered.problems) {
+      process.stderr.write(`${problem}\n`);
     }
-    const check = readFont(bytes);
-    if (!check.ok) {
-      process.stderr.write(`${parsed.font} ${check.problem}\n`);
-      return EXIT.missingTheme;
-    }
-    font = bytes;
+    return EXIT.missingTheme;
+  }
+  for (const note of rendered.notes) {
+    process.stderr.write(`${note}\n`);
   }
 
   const outputPath = pngPathFor(parsed.scenePath, parsed.theme);
-  let png: Uint8Array;
   try {
-    png = await rasterise(renderScene(scene.value), { palette, font, fontFamily });
-  } catch (error) {
-    process.stderr.write(`cannot rasterise ${parsed.scenePath}: ${(error as Error).message}\n`);
-    return EXIT.missingTheme;
-  }
-  try {
-    await writeFile(outputPath, png);
+    await writeFile(outputPath, rendered.png);
   } catch (error) {
     process.stderr.write(`cannot write PNG ${outputPath}: ${(error as NodeJS.ErrnoException).message}\n`);
     return EXIT.writeFailed;

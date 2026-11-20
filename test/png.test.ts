@@ -333,6 +333,42 @@ test('a grey fill resolves to ink mixed into paper, with no CSS left to read', a
   assert.deepEqual(png.pixel(300, 80), [0x1a, 0x1a, 0x1a, 255]);
 });
 
+test('a grey fill mixes rgb() and named inks into the paper', async () => {
+  const folder = await sceneFolder({
+    version: 1,
+    elements: [
+      { id: 'grey', type: 'rectangle', x: 20, y: 20, width: 160, height: 120, fill: { kind: 'solid', grey: 3 } },
+    ],
+  });
+
+  // Grey 3 is 38% ink into paper. With red ink on white paper the middle of the
+  // fill is rgb(255, 158, 158) whichever way the ink was written.
+  for (const ink of ['rgb(255, 0, 0)', 'red']) {
+    const { png } = await pngOne(
+      ['png', 'scene.json', '--theme', 'light', '--ink', ink, '--paper', '#ffffff'],
+      folder,
+    );
+    assert.deepEqual(png.pixel(100, 80), [255, 158, 158, 255], `ink ${ink}`);
+  }
+});
+
+test('a colour the subset cannot resolve exits 5 and names it', async () => {
+  const folder = await sceneFolder();
+  const cases = [
+    ['alias.css', ':root { --ink: var(--accent); --paper: #fafafa; --muted: #777777; }', /^stylesheet colour --ink is unresolved: var\(--accent\)$/m],
+    ['cycle.css', ':root { --ink: var(--paper); --paper: var(--ink); --muted: #777777; }', /^stylesheet colour --ink is unresolved: var\(--paper\)$/m],
+    ['oklch.css', ':root { --ink: hsl(10 20% 30%); --paper: #fafafa; --muted: #777777; }', /^stylesheet colour --ink is not a colour: hsl\(10 20% 30%\)$/m],
+  ] as const;
+
+  for (const [css, source, expected] of cases) {
+    await writeFile(join(folder, css), source, 'utf8');
+    const run = await ez(['png', 'scene.json', '--theme', 'light', '--css', css], folder);
+    assert.equal(run.code, 5, css);
+    assert.match(run.stderr, expected);
+    assert.equal(existsSync(join(folder, 'scene.light.png')), false);
+  }
+});
+
 test('--css supplies the colours of each theme', async () => {
   const folder = await sceneFolder();
   await writeFile(
