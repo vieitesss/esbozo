@@ -12,6 +12,7 @@
   },
   "include": [
     "test",
+    "tests",
     "src/assets.d.ts",
     "src/opentype.d.ts"
   ]

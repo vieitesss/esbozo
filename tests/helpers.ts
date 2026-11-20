@@ -4,7 +4,7 @@
  * Everything goes through the page a person uses: the same buttons, the same
  * pointer and the same keys, plus the stubbed folder handle from
  * `fake-file-system.js`. Assertions are made on the files the editor saves, and
- * on the SVG it paints, never on the editor's own state.
+ * on the pixels it paints, never on the editor's own state.
  */
 import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
@@ -12,11 +12,24 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { expect } from '@playwright/test';
-import type { Page } from '@playwright/test';
+import { expect } from 'e2e';
+import type { Agent, App, Screen } from 'e2e';
+import type { Browser } from '@e2e-dev/web';
 
 const run = promisify(execFile);
-const CLI = fileURLToPath(new URL('../../dist/cli.js', import.meta.url));
+const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
+
+/** The fixtures every helper drives: the page, its pointer, and its files. */
+export interface Ui {
+  readonly app: App;
+  readonly browser: Browser;
+  readonly screen: Screen;
+}
+
+/** The same page, plus the model the visible-outcome tests judge it with. */
+export interface AgentUi extends Ui {
+  readonly agent: Agent;
+}
 
 export interface Point {
   x: number;
@@ -184,81 +197,89 @@ interface Stub {
 }
 
 /** Hold every write to `name` open, so a test can see the disk stay busy. */
-export async function holdWrites(page: Page, name: string): Promise<void> {
-  await page.evaluate((fileName) => {
+export async function holdWrites(ui: Ui, name: string): Promise<void> {
+  await ui.browser.evaluate((fileName) => {
     const window_ = window as unknown as Stub;
     window_.__esbozoGates = [];
     window_.__esbozoGate = (written) =>
       written === fileName
         ? new Promise<void>((resolve) => window_.__esbozoGates!.push(resolve))
         : Promise.resolve();
+    return true;
   }, name);
 }
 
 /** Let the write that is waiting on the gate land. */
-export async function releaseWrite(page: Page): Promise<void> {
-  await page.waitForFunction(
-    () => ((window as unknown as Stub).__esbozoGates?.length ?? 0) > 0,
-  );
-  await page.evaluate(() => {
+export async function releaseWrite(ui: Ui): Promise<void> {
+  await expect
+    .poll(() => ui.browser.evaluate(() => (window as unknown as Stub).__esbozoGates?.length ?? 0))
+    .toBeGreaterThan(0);
+  await ui.browser.evaluate(() => {
     (window as unknown as Stub).__esbozoGates!.shift()!();
+    return true;
   });
 }
 
 /** Stop holding writes: everything the editor writes lands at once. */
-export async function allowWrites(page: Page): Promise<void> {
-  await page.evaluate(() => {
+export async function allowWrites(ui: Ui): Promise<void> {
+  await ui.browser.evaluate(() => {
     (window as unknown as Stub).__esbozoGate = null;
+    return true;
   });
 }
 
 /** Open the built page with the stubbed folders ready to be picked. */
-async function openPage(page: Page, folders: Folders, picks: string[]): Promise<void> {
-  await page.addInitScript({ path: fileURLToPath(new URL('./fake-file-system.js', import.meta.url)) });
-  await page.goto('/editor.html');
-  await page.evaluate((stub: Stub) => {
-    const window_ = window as unknown as Stub;
-    window_.__esbozoFolders = stub.__esbozoFolders;
-    window_.__esbozoPicks = stub.__esbozoPicks;
-  }, { __esbozoFolders: folders, __esbozoPicks: picks });
+async function openPage(ui: Ui, folders: Folders, picks: string[]): Promise<void> {
+  await ui.browser.addInitScript({ path: 'tests/fake-file-system.js' });
+  await ui.app.open('/editor.html');
+  await ui.browser.evaluate(
+    (stub: Stub) => {
+      const window_ = window as unknown as Stub;
+      window_.__esbozoFolders = stub.__esbozoFolders;
+      window_.__esbozoPicks = stub.__esbozoPicks;
+      return true;
+    },
+    { __esbozoFolders: folders, __esbozoPicks: picks },
+  );
 }
 
 /** The folder the next Open folder click asks for; the last one repeats. */
-export async function browseFolder(page: Page, folder: string): Promise<void> {
-  await page.evaluate((name) => {
+export async function browseFolder(ui: Ui, folder: string): Promise<void> {
+  await ui.browser.evaluate((name) => {
     (window as unknown as Stub).__esbozoPicks = [name];
+    return true;
   }, folder);
-  await page.getByRole('button', { name: /Open folder/ }).click();
+  await ui.screen.getByRole('button', /Open folder/).click();
 }
 
 /** Open the built page, pick a folder and open a Scene from the note. */
 export async function openEditor(
-  page: Page,
+  ui: Ui,
   folders: Folders,
   sceneName: string,
   picks: string[] = Object.keys(folders),
 ): Promise<void> {
-  await openPage(page, folders, picks);
-  await page.getByRole('button', { name: /Open folder/ }).click();
-  await page.getByRole('button', { name: sceneName, exact: true }).click();
+  await openPage(ui, folders, picks);
+  await ui.screen.getByRole('button', /Open folder/).click();
+  await ui.screen.getByRole('button', sceneName).click();
 }
 
 /** Open a Scene name that is not in the folder yet: a new, empty Scene. */
 export async function openNewScene(
-  page: Page,
+  ui: Ui,
   folders: Folders,
   name: string,
   picks: string[] = Object.keys(folders),
 ): Promise<void> {
-  await openPage(page, folders, picks);
-  await page.getByRole('button', { name: /Open folder/ }).click();
-  await page.getByLabel('New Scene name').fill(name);
-  await page.getByRole('button', { name: 'New', exact: true }).click();
+  await openPage(ui, folders, picks);
+  await ui.screen.getByRole('button', /Open folder/).click();
+  await ui.screen.getByLabel('New Scene name').fill(name);
+  await ui.screen.getByRole('button', 'New').click();
 }
 
 /** The files a stubbed folder holds, as text. */
-export async function savedFiles(page: Page, folder = FOLDER): Promise<Record<string, string>> {
-  return page.evaluate(
+export async function savedFiles(ui: Ui, folder = FOLDER): Promise<Record<string, string>> {
+  return ui.browser.evaluate(
     (name) => ({
       ...((window as unknown as { __esbozoFolders: Folders }).__esbozoFolders[name] ?? {}),
     }),
@@ -267,9 +288,9 @@ export async function savedFiles(page: Page, folder = FOLDER): Promise<Record<st
 }
 
 /** The saved Scene, parsed, once the editor says it saved. */
-export async function savedScene(page: Page, name = 'scene.json', folder = FOLDER): Promise<SavedScene> {
-  await expect(page.getByRole('status')).toHaveText('saved');
-  const files = await savedFiles(page, folder);
+export async function savedScene(ui: Ui, name = 'scene.json', folder = FOLDER): Promise<SavedScene> {
+  await expect(ui.screen.getByRole('status')).toHaveText('saved');
+  const files = await savedFiles(ui, folder);
   const source = files[name];
   if (source === undefined) {
     throw new Error(`${name} was not saved, only ${Object.keys(files).join(', ')}`);
@@ -294,42 +315,49 @@ export interface SavedScene {
   elements: SavedElement[];
 }
 
+/** How many pointer moves a drag takes between the press and the release. */
+const DRAG_MOVES = 5;
+
 /** A press, a few moves and a release, which is what a drag looks like. */
-export async function drag(page: Page, from: Point, to: Point): Promise<void> {
-  await page.mouse.move(from.x, from.y);
-  await page.mouse.down();
-  await page.mouse.move(from.x + (to.x - from.x) / 2, from.y + (to.y - from.y) / 2);
-  await page.mouse.move(to.x, to.y, { steps: 4 });
-  await page.mouse.up();
+export async function drag(ui: Ui, from: Point, to: Point): Promise<void> {
+  await ui.browser.mouse.move(from.x, from.y);
+  await ui.browser.mouse.down();
+  for (let step = 1; step <= DRAG_MOVES; step += 1) {
+    const share = step / DRAG_MOVES;
+    await ui.browser.mouse.move(from.x + (to.x - from.x) * share, from.y + (to.y - from.y) * share);
+  }
+  await ui.browser.mouse.up();
 }
 
 /** Click a Scene point. */
 export async function clickScene(
-  page: Page,
+  ui: Ui,
   point: Point,
   modifiers: Array<'Shift'> = [],
   view: View = VIEW,
 ): Promise<void> {
   const screen = at(point, view);
   for (const modifier of modifiers) {
-    await page.keyboard.down(modifier);
+    await ui.browser.keyboard.down(modifier);
   }
-  await page.mouse.click(screen.x, screen.y);
+  await ui.browser.mouse.move(screen.x, screen.y);
+  await ui.browser.mouse.down();
+  await ui.browser.mouse.up();
   for (const modifier of modifiers) {
-    await page.keyboard.up(modifier);
+    await ui.browser.keyboard.up(modifier);
   }
 }
 
 /** Drag from a Scene point by a page-pixel offset. */
 export async function dragBy(
-  page: Page,
+  ui: Ui,
   from: Point,
   dx: number,
   dy: number,
   view: View = VIEW,
 ): Promise<void> {
   const screen = at(from, view);
-  await drag(page, screen, { x: screen.x + dx, y: screen.y + dy });
+  await drag(ui, screen, { x: screen.x + dx, y: screen.y + dy });
 }
 
 /**
@@ -345,12 +373,22 @@ export async function cliRender(scene: unknown): Promise<string> {
 }
 
 /** The editor saved both files, and the SVG is the CLI's own output. */
-export async function expectSvgMatchesCli(page: Page, name = 'scene.json', folder = FOLDER): Promise<void> {
-  await expect(page.getByRole('status')).toHaveText('saved');
-  const files = await savedFiles(page, folder);
+export async function expectSvgMatchesCli(ui: Ui, name = 'scene.json', folder = FOLDER): Promise<void> {
+  await expect(ui.screen.getByRole('status')).toHaveText('saved');
+  const files = await savedFiles(ui, folder);
   const svgName = name.replace(/\.json$/i, '.svg');
   const saved = files[svgName];
   expect(saved, `${svgName} was saved`).toBeTruthy();
   const scene = JSON.parse(files[name] ?? '{}');
   expect(saved).toBe(await cliRender(scene));
+}
+
+/** Wait for the next two paints, so a screenshot reads the frame a change made. */
+export async function settle(ui: Ui): Promise<void> {
+  await ui.browser.evaluate(
+    () =>
+      new Promise<boolean>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)));
+      }),
+  );
 }

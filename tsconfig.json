@@ -11,7 +11,7 @@
   "include": [
     "src",
     "scripts",
-    "playwright.config.ts"
+    "e2e.config.ts"
   ],
   "exclude": [
     "src/editor"

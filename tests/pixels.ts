@@ -1,13 +1,18 @@
 /**
  * What the page shows, read from its pixels instead of its markup.
  *
- * A Screenshot is a PNG; this decodes the 8-bit, non-interlaced kind Chromium
- * writes, so a test can ask how dark a region is, how much ink is on it, or
- * where its dark pixels sit. Nothing here knows an element's class, its nesting
- * or its state: moving a wrapper or renaming a group cannot break these tests.
+ * A screenshot is a PNG; this decodes the 8-bit, non-interlaced kind Chromium
+ * writes, so a test can ask how dark a region is or how much ink is on it.
+ * Nothing here knows an element's class, its nesting or its state: moving a
+ * wrapper or renaming a group cannot break these tests.
+ *
+ * Keep these checks for what is exact and stable, such as a solid fill against
+ * bare paper. A judgement a person would make by looking, such as "the Grid is
+ * showing", belongs in `agent.assert`.
  */
+import { readFile } from 'node:fs/promises';
 import { inflateSync } from 'node:zlib';
-import type { Page } from '@playwright/test';
+import type { Ui } from './helpers.ts';
 
 /** A rectangle in page CSS pixels. */
 export interface Rect {
@@ -17,6 +22,7 @@ export interface Rect {
   height: number;
 }
 
+/** Where the dark pixels of a region sit, on average, in page CSS pixels. */
 export interface Centre {
   x: number;
   y: number;
@@ -34,10 +40,9 @@ export interface Shot {
 }
 
 /** Screenshot the page as it is now. */
-export async function shot(page: Page): Promise<Shot> {
-  const png = await page.screenshot();
-  const image = decodePng(png);
-  const scale = image.width / (await page.evaluate(() => window.innerWidth));
+export async function shot(ui: Ui): Promise<Shot> {
+  const image = decodePng(await readFile(await ui.app.screenshot('pixels')));
+  const scale = image.width / (await ui.browser.evaluate(() => window.innerWidth));
   const channels = image.channels;
 
   /** Every pixel of a region, in page CSS pixels. */
