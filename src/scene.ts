@@ -251,22 +251,14 @@ function parseTitle(raw: unknown, problems: Problem[]): string | null {
 }
 
 function parseDefaults(raw: unknown, problems: Problem[]): SceneStyle {
-  if (raw === undefined) {
-    return DEFAULT_STYLE;
+  const report = (message: string) => problems.push(sceneProblem(message));
+  const defaults = isRecord(raw) ? raw : null;
+  if (defaults !== null) {
+    rejectUnknownKeys(defaults, DEFAULTS_KEYS, (key) => report(`defaults: unknown key "${key}"`));
+  } else if (raw !== undefined) {
+    report('defaults must be a JSON object');
   }
-  if (!isRecord(raw)) {
-    problems.push(sceneProblem('defaults must be a JSON object'));
-    return DEFAULT_STYLE;
-  }
-  rejectUnknownKeys(raw, DEFAULTS_KEYS, (key) =>
-    problems.push(sceneProblem(`defaults: unknown key "${key}"`)),
-  );
-  const roughness = parseRoughness(raw.roughness, DEFAULT_STYLE.roughness, problems);
-  const stroke = parseStroke(raw.stroke, DEFAULT_STYLE.stroke, problems);
-  const fill = parseFill(raw.fill, DEFAULT_STYLE.fill, problems);
-  const tone = parseTone(raw.tone, DEFAULT_STYLE.tone, problems);
-  const corners = parseCorners(raw.corners, DEFAULT_STYLE.corners, problems);
-  return { roughness, stroke, fill, tone, corners };
+  return parseStyle(defaults ?? {}, DEFAULT_STYLE, report);
 }
 
 function parseElements(
@@ -348,6 +340,7 @@ function parseElement(
   const seed =
     raw.seed === undefined ? seedForId(id) : parseIntInRange(raw.seed, 'seed', 1, MAX_SEED, report);
 
+  const { roughness, stroke, fill, tone, corners } = parseStyle(raw, defaults, report);
   const element = {
     id,
     type: 'rectangle' as const,
@@ -355,27 +348,39 @@ function parseElement(
     y: geometry.y ?? 0,
     width: geometry.width ?? 0,
     height: geometry.height ?? 0,
-    roughness: parseRoughness(raw.roughness, defaults.roughness, problems, id),
+    roughness,
     seed: seed ?? seedForId(id),
-    stroke: parseStroke(raw.stroke, defaults.stroke, problems, id),
-    fill: parseFill(raw.fill, defaults.fill, problems, id),
-    tone: parseTone(raw.tone, defaults.tone, problems, id),
-    corners: parseCorners(raw.corners, defaults.corners, problems, id),
+    stroke,
+    fill,
+    tone,
+    corners,
   };
 
   return problems.length === before ? element : null;
 }
 
+function parseStyle(
+  raw: Record<string, unknown>,
+  fallback: SceneStyle,
+  report: (message: string) => void,
+): SceneStyle {
+  return {
+    roughness: parseRoughness(raw.roughness, fallback.roughness, report),
+    stroke: parseStroke(raw.stroke, fallback.stroke, report),
+    fill: parseFill(raw.fill, fallback.fill, report),
+    tone: parseTone(raw.tone, fallback.tone, report),
+    corners: parseCorners(raw.corners, fallback.corners, report),
+  };
+}
+
 function parseRoughness(
   raw: unknown,
   fallback: number,
-  problems: Problem[],
-  elementId: string | null = null,
+  report: (message: string) => void,
 ): number {
   if (raw === undefined) {
     return fallback;
   }
-  const report = (message: string) => problems.push({ elementId, message });
   const value = parseNumber(raw, 'roughness', report);
   if (value === null) {
     return fallback;
@@ -390,16 +395,13 @@ function parseRoughness(
 function parseStroke(
   raw: unknown,
   fallback: Stroke,
-  problems: Problem[],
-  elementId: string | null = null,
+  report: (message: string) => void,
 ): Stroke {
-  if (raw === undefined) {
-    return fallback;
-  }
-  const report = (message: string) => problems.push({ elementId, message });
   if (!isRecord(raw)) {
-    report('stroke must be a JSON object');
-    return fallback;
+    if (raw !== undefined) {
+      report('stroke must be a JSON object');
+    }
+    return { ...fallback };
   }
   rejectUnknownKeys(raw, STROKE_KEYS, report);
   const width =
@@ -420,16 +422,13 @@ function parseStroke(
 function parseFill(
   raw: unknown,
   fallback: Fill,
-  problems: Problem[],
-  elementId: string | null = null,
+  report: (message: string) => void,
 ): Fill {
-  if (raw === undefined) {
-    return fallback;
-  }
-  const report = (message: string) => problems.push({ elementId, message });
   if (!isRecord(raw)) {
-    report('fill must be a JSON object');
-    return fallback;
+    if (raw !== undefined) {
+      report('fill must be a JSON object');
+    }
+    return { ...fallback };
   }
   rejectUnknownKeys(raw, FILL_KEYS, report);
   const kind = raw.kind === undefined ? fallback.kind : raw.kind;
@@ -449,17 +448,13 @@ function parseFill(
 function parseTone(
   raw: unknown,
   fallback: Tone,
-  problems: Problem[],
-  elementId: string | null = null,
+  report: (message: string) => void,
 ): Tone {
   if (raw === undefined) {
     return fallback;
   }
   if (!isOneOf(TONES, raw)) {
-    problems.push({
-      elementId,
-      message: `tone must be one of ${TONES.join(', ')}, got ${describe(raw)}`,
-    });
+    report(`tone must be one of ${TONES.join(', ')}, got ${describe(raw)}`);
     return fallback;
   }
   return raw;
@@ -468,17 +463,13 @@ function parseTone(
 function parseCorners(
   raw: unknown,
   fallback: Corners,
-  problems: Problem[],
-  elementId: string | null = null,
+  report: (message: string) => void,
 ): Corners {
   if (raw === undefined) {
     return fallback;
   }
   if (!isOneOf(CORNERS, raw)) {
-    problems.push({
-      elementId,
-      message: `corners must be one of ${CORNERS.join(', ')}, got ${describe(raw)}`,
-    });
+    report(`corners must be one of ${CORNERS.join(', ')}, got ${describe(raw)}`);
     return fallback;
   }
   return raw;
