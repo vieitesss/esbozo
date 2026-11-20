@@ -5,18 +5,12 @@
  * exit codes. Nothing imports src/, so the modules behind the CLI stay free to
  * change.
  */
-import { execFile } from 'node:child_process';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
 import { test } from 'node:test';
-
-const run = promisify(execFile);
-const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
+import { ez, sceneFolder, tempFolder } from './cli.ts';
 
 interface SceneElement {
   id: string;
@@ -30,12 +24,6 @@ interface SceneElement {
   tone?: string;
   stroke?: { width: string; style: string };
   fill?: { kind: string; grey: number };
-  corners?: string;
-  fontSize?: string;
-  textAlign?: string;
-  content?: string;
-  points?: { x: number; y: number; snap?: string }[];
-  heads?: { start: string; end: string };
 }
 
 interface Scene {
@@ -64,36 +52,6 @@ const SAMPLE_SCENE: Scene = {
     },
   ],
 };
-
-interface Run {
-  code: number;
-  stdout: string;
-  stderr: string;
-}
-
-async function tempFolder(): Promise<string> {
-  return realpath(await mkdtemp(join(tmpdir(), 'esbozo-')));
-}
-
-async function sceneFolder(scene: unknown, name = 'scene.json'): Promise<string> {
-  const folder = await tempFolder();
-  await writeFile(join(folder, name), JSON.stringify(scene, null, 2), 'utf8');
-  return folder;
-}
-
-async function ez(args: string[], cwd: string): Promise<Run> {
-  try {
-    const { stdout, stderr } = await run(process.execPath, [CLI, ...args], { cwd });
-    return { code: 0, stdout, stderr };
-  } catch (error) {
-    const failed = error as { code?: unknown; stdout?: string; stderr?: string };
-    return {
-      code: typeof failed.code === 'number' ? failed.code : -1,
-      stdout: failed.stdout ?? '',
-      stderr: failed.stderr ?? '',
-    };
-  }
-}
 
 test('render writes the SVG beside the Scene and prints its path', async () => {
   const folder = await sceneFolder(SAMPLE_SCENE);

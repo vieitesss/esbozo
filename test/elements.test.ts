@@ -10,52 +10,19 @@
  * ink-into-paper mixes, never a literal colour.
  */
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
 import { test } from 'node:test';
+import { ez, sceneFolder, tempFolder } from './cli.ts';
+import type { Run } from './cli.ts';
 
-const run = promisify(execFile);
-const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 const KITCHEN_SINK = fileURLToPath(new URL('./fixtures/every-element.json', import.meta.url));
 
 interface Point {
   x: number;
   y: number;
-}
-
-interface Run {
-  code: number;
-  stdout: string;
-  stderr: string;
-}
-
-async function tempFolder(): Promise<string> {
-  return realpath(await mkdtemp(join(tmpdir(), 'esbozo-elements-')));
-}
-
-async function sceneFolder(scene: unknown, name = 'scene.json'): Promise<string> {
-  const folder = await tempFolder();
-  await writeFile(join(folder, name), JSON.stringify(scene, null, 2), 'utf8');
-  return folder;
-}
-
-async function ez(args: string[], cwd: string): Promise<Run> {
-  try {
-    const { stdout, stderr } = await run(process.execPath, [CLI, ...args], { cwd });
-    return { code: 0, stdout, stderr };
-  } catch (error) {
-    const failed = error as { code?: unknown; stdout?: string; stderr?: string };
-    return {
-      code: typeof failed.code === 'number' ? failed.code : -1,
-      stdout: failed.stdout ?? '',
-      stderr: failed.stderr ?? '',
-    };
-  }
 }
 
 async function render(scene: unknown): Promise<Run & { svg: string }> {
@@ -89,8 +56,22 @@ test('a Scene with every Element type and style value renders', async () => {
 
   assert.match(svg, /data-scene-hash="sha256:[0-9a-f]{64}"/);
   assert.match(svg, /<title>Every Element type and style<\/title>/);
-  assert.ok(pathTags(svg).length > 20, 'every Element left its ink on the page');
-  assert.equal(tags(svg, 'text').length, 5, 'every Text is drawn as text');
+
+  // Every Element shows up as what it draws: words for a Text, ink for
+  // everything else.
+  const ink = allDrawnPoints(svg);
+  for (const element of fixture.elements as Record<string, unknown>[]) {
+    if (element.type === 'text') {
+      const words = escapeXml(String(element.content).split('\n')[0]!);
+      assert.ok(svg.includes(words), `${String(element.id)} draws its words`);
+      continue;
+    }
+    const box = boxOf(element);
+    assert.ok(
+      ink.some((point) => withinBox(box, point, 4)),
+      `${String(element.id)} leaves ink on the page`,
+    );
+  }
 });
 
 test('the kitchen-sink SVG is byte-identical across runs', async () => {
@@ -128,7 +109,7 @@ test('an ellipse is drawn through its own extremes, not its bounding box', async
     elements: [{ ...ellipse, fill: { kind: 'none' } }],
   });
 
-  const points = pointsOf(pathTags(svg).map((tag) => tag.d).join(' '));
+  const points = allDrawnPoints(svg);
   const left = Math.min(...points.map((point) => point.x));
   const right = Math.max(...points.map((point) => point.x));
   const top = Math.min(...points.map((point) => point.y));
@@ -156,7 +137,7 @@ test('a diamond is drawn to its four corners', async () => {
     { x: 200, y: 200 },
     { x: 100, y: 150 },
   ];
-  const points = pointsOf(pathTags(svg).map((tag) => tag.d).join(' '));
+  const points = allDrawnPoints(svg);
   for (const corner of corners) {
     assert.ok(
       points.some((point) => near(point.x, corner.x) && near(point.y, corner.y)),
@@ -198,7 +179,7 @@ test('a rough line still reaches the contact point of the outline it Snaps to', 
   });
 
   const strokes = pathTags(svg)
-    .map((tag) => pointsOf(tag.d))
+    .map((tag) => drawnPoints(tag.d))
     .filter((drawn) => drawn.some((point) => near(point.x, 0, 10) && near(point.y, 50, 10)));
   assert.ok(strokes.length > 0, 'the line leaves its free end');
   for (const stroke of strokes) {
@@ -231,7 +212,8 @@ for (const [kind, target] of Object.entries(OUTLINES)) {
       ],
     });
 
-    const end = lastPoint(shaftFrom(svg, from));
+    const shaft = shaftFrom(svg, from);
+    const end = shaft[shaft.length - 1]!;
     const centre = {
       x: target.x + target.width / 2,
       y: target.y + target.height / 2,
@@ -267,9 +249,8 @@ test('both ends of an arrow can Snap, each to its own target', async () => {
   });
 
   const shaft = shaftFrom(svg, { x: 140, y: 80 });
-  const points = pointsOf(shaft);
-  const start = points[0]!;
-  const end = points[points.length - 1]!;
+  const start = shaft[0]!;
+  const end = shaft[shaft.length - 1]!;
 
   assert.ok(near(start.x, 140) && near(start.y, 80), 'the start sits on the rectangle edge');
   assert.ok(near(end.x, 360) && near(end.y, 80), 'the end sits on the ellipse edge');
@@ -299,7 +280,7 @@ test('two Snapped ends aim at each other even after one box moves past the other
     ],
   });
 
-  const points = allPoints(svg);
+  const points = allDrawnPoints(svg);
   for (const [name, box] of [['left', left], ['right', right]] as const) {
     const inside = points.filter((point) => strictlyInside(box, point));
     assert.deepEqual(inside, [], `nothing is drawn inside the ${name} box`);
@@ -307,7 +288,7 @@ test('two Snapped ends aim at each other even after one box moves past the other
   // The shaft spans the gap between the facing edges: x 500 to x 400, at the
   // height of both centres (y 50), and nowhere else.
   const shaft = pathTags(svg)
-    .map((tag) => pointsOf(tag.d))
+    .map((tag) => drawnPoints(tag.d))
     .find(
       (drawn) =>
         drawn.length >= 2 &&
@@ -328,7 +309,7 @@ test('two Snapped ends aim at each other even after one box moves past the other
   ]) {
     const head = pathTags(svg)
       .filter((tag) => tag.fill !== 'none')
-      .map((tag) => pointsOf(tag.d))
+      .map((tag) => drawnPoints(tag.d))
       .find((triangle) =>
         triangle.some((point) => near(point.x, contact.x) && near(point.y, contact.y)),
       );
@@ -362,30 +343,28 @@ test('arrow heads point along the arrow, into each end', async () => {
     ],
   });
 
-  const triangles = pathTags(svg)
+  const heads = pathTags(svg)
     .filter((tag) => tag.fill !== 'none')
-    .map((tag) => pointsOf(tag.d));
-  assert.equal(triangles.length, 2, 'one head at each end');
+    .map((tag) => drawnPoints(tag.d));
 
   for (const [apexAt, other] of [
     [start, end],
     [end, start],
   ] as const) {
-    const triangle = triangles.find((points) =>
+    const head = heads.find((points) =>
       points.some((point) => near(point.x, apexAt.x) && near(point.y, apexAt.y)),
     );
-    assert.ok(triangle, `a head apex sits on ${apexAt.x},${apexAt.y}`);
-    const apex = triangle.find(
-      (point) => near(point.x, apexAt.x) && near(point.y, apexAt.y),
-    )!;
+    assert.ok(head, `a head sits on ${apexAt.x},${apexAt.y}`);
+    const apex = head.find((point) => near(point.x, apexAt.x) && near(point.y, apexAt.y))!;
     const along = unit(other, apexAt);
-    for (const base of triangle) {
+    for (const base of head) {
       if (base === apex) {
         continue;
       }
       const offset = { x: base.x - apex.x, y: base.y - apex.y };
       const behind = offset.x * along.x + offset.y * along.y;
-      assert.ok(behind < -HEAD_LENGTH / 2, `the base ${behind}px behind the apex, not in front`);
+      assert.ok(behind < -1, `the head base ${behind.toFixed(2)}px behind the apex, not in front`);
+      assert.ok(behind > -40, `and still a head, ${behind.toFixed(2)}px deep`);
     }
   }
 });
@@ -426,19 +405,20 @@ test('free-standing Text renders its content, font size and alignment', async ()
     ],
   });
 
-  const text = tags(svg, 'text');
-  assert.equal(text.length, 4);
-  assert.deepEqual(
-    text.map((tag) => attribute(tag, 'font-size')),
-    ['14', '18', '24', '32'],
-  );
-  assert.deepEqual(
-    text.map((tag) => attribute(tag, 'text-anchor')),
-    ['start', 'middle', 'end', 'start'],
-  );
-  assert.equal(attribute(text[3]!, 'fill'), 'var(--muted)');
-  assert.match(svg, /Extra &amp; &lt;large&gt;/);
-  assert.equal(tags(svg, 'tspan').length, 5, 'the last Text carries its second line');
+  const drawn = [
+    { words: 'Small left', size: '14', anchor: 'start', fill: 'var(--ink)' },
+    { words: 'Medium center', size: '18', anchor: 'middle', fill: 'var(--ink)' },
+    { words: 'Large right', size: '24', anchor: 'end', fill: 'var(--ink)' },
+    { words: 'Extra &amp; &lt;large&gt;', size: '32', anchor: 'start', fill: 'var(--muted)' },
+  ];
+  for (const { words, size, anchor, fill } of drawn) {
+    const drawn = textElements(svg).find((candidate) => candidate.includes(words));
+    assert.ok(drawn, `${words} is drawn`);
+    assert.equal(attribute(drawn, 'font-size'), size, `${words} font size`);
+    assert.equal(attribute(drawn, 'text-anchor'), anchor, `${words} alignment`);
+    assert.equal(attribute(drawn, 'fill'), fill, `${words} tone`);
+  }
+  assert.match(svg, /second line/, 'the multi-line Text keeps its second line');
 });
 
 test('a bad value for any style field exits 3 and names the Element', async () => {
@@ -613,6 +593,11 @@ function attribute(tag: string, name: string): string | undefined {
   return new RegExp(`\\b${name}="([^"]*)"`).exec(tag)?.[1];
 }
 
+/** Each `<text>` Element with its content, so a test can ask what one Text drew. */
+function textElements(svg: string): string[] {
+  return [...svg.matchAll(/<text\b[^>]*>[\s\S]*?<\/text>/g)].map((match) => match[0]);
+}
+
 function pathTags(svg: string): { d: string; fill: string }[] {
   return tags(svg, 'path').map((tag) => ({
     d: attribute(tag, 'd') ?? '',
@@ -620,9 +605,9 @@ function pathTags(svg: string): { d: string; fill: string }[] {
   }));
 }
 
-/** Every path number pair on the page, whatever path it belongs to. */
-function allPoints(svg: string): Point[] {
-  return pathTags(svg).flatMap((tag) => pointsOf(tag.d));
+/** Every drawn point on the page, whatever path it belongs to. */
+function allDrawnPoints(svg: string): Point[] {
+  return pathTags(svg).flatMap((tag) => drawnPoints(tag.d));
 }
 
 /** A point with room to spare inside a box: a drawn boundary does not count. */
@@ -636,30 +621,81 @@ function strictlyInside(box: { x: number; y: number; width: number; height: numb
   );
 }
 
-/** The two-point shaft that starts at `from`: with roughness 0 its last pair is the end. */
-function shaftFrom(svg: string, from: Point): string {
-  const prefix = `M${format(from.x)} ${format(from.y)}`;
-  const shaft = pathTags(svg).find((tag) => tag.d.startsWith(prefix));
-  assert.ok(shaft, `a path starts at ${from.x},${from.y}`);
-  return shaft.d;
+interface Box {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
-function lastPoint(d: string): Point {
-  const points = pointsOf(d);
-  assert.ok(points.length > 0, `path data carries a point: ${d}`);
-  return points[points.length - 1]!;
+/** The box an Element asks for in the Scene: a shape's own, an arrow's two ends. */
+function boxOf(element: Record<string, unknown>): Box {
+  if (element.type === 'arrow' || element.type === 'line') {
+    const [start, end] = element.points as Point[];
+    return {
+      x: Math.min(start!.x, end!.x),
+      y: Math.min(start!.y, end!.y),
+      width: Math.abs(end!.x - start!.x),
+      height: Math.abs(end!.y - start!.y),
+    };
+  }
+  return {
+    x: Number(element.x),
+    y: Number(element.y),
+    width: Number(element.width),
+    height: Number(element.height),
+  };
+}
+
+/** A point inside a box, with the tolerance a rough stroke needs. */
+function withinBox(box: Box, point: Point, tolerance: number): boolean {
+  return (
+    point.x >= box.x - tolerance &&
+    point.x <= box.x + box.width + tolerance &&
+    point.y >= box.y - tolerance &&
+    point.y <= box.y + box.height + tolerance
+  );
+}
+
+/** A Scene string in the SVG, escaped the way the Renderer escapes it. */
+function escapeXml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/** The points of the shaft that starts at `from`: with roughness 0 that start is exact. */
+function shaftFrom(svg: string, from: Point): Point[] {
+  const shaft = pathTags(svg)
+    .map((tag) => drawnPoints(tag.d))
+    .find((points) => points.length > 0 && near(points[0]!.x, from.x) && near(points[0]!.y, from.y));
+  assert.ok(shaft, `a path starts at ${from.x},${from.y}`);
+  return shaft;
 }
 
 /**
- * The coordinate pairs of path data. It reads only Move, Line and Curve
- * commands, which is all a roughness-0 arrow or Element outline emits; the one
- * place a test reads path numbers, because the ticket asks for coordinates.
+ * The points a path actually passes through, in order: the end of each Move,
+ * Line, Curve and Arc, which is where the ink is. Control points and arc radii
+ * are skipped, and the numbers are read on their own, so the whitespace between
+ * commands and the order of the path data do not matter.
  */
-function pointsOf(d: string): Point[] {
-  const numbers = (d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
+function drawnPoints(d: string): Point[] {
   const points: Point[] = [];
-  for (let index = 0; index + 1 < numbers.length; index += 2) {
-    points.push({ x: numbers[index]!, y: numbers[index + 1]! });
+  for (const [, command = '', args = ''] of d.matchAll(/([A-Za-z])([^A-Za-z]*)/g)) {
+    const numbers = (args.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
+    if (command === 'A') {
+      // Arc: rx ry rotation large-arc sweep x y
+      points.push({ x: numbers[5]!, y: numbers[6]! });
+      continue;
+    }
+    if (command !== 'M' && command !== 'L' && command !== 'C') {
+      continue;
+    }
+    // Move and Line take one point; a Cubic ends on its last pair.
+    const last = numbers.length - 2;
+    points.push({ x: numbers[last]!, y: numbers[last + 1]! });
   }
   return points;
 }
@@ -710,15 +746,6 @@ function unit(from: Point, to: Point): Point {
   const dy = to.y - from.y;
   const length = Math.hypot(dx, dy);
   return { x: dx / length, y: dy / length };
-}
-
-/** Arrow head length of a bold stroke, the one the direction test draws. */
-const HEAD_LENGTH = 13;
-
-/** Same formatting as the Renderer, so a path prefix matches. */
-function format(value: number): string {
-  const rounded = Math.round(value * 100) / 100;
-  return String(rounded === 0 ? 0 : rounded);
 }
 
 const SCENE_VARIABLE = /^var\(--(?:ink|muted|paper)\)$/;
