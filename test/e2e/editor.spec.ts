@@ -318,6 +318,17 @@ test('dragging an arrow Snapped at both ends writes nothing', async ({ page }) =
   await expect(page.getByRole('status')).toHaveText('saved');
 });
 
+test('nudging an arrow Snapped at both ends writes nothing', async ({ page }) => {
+  await openEditor(page, { A: { 'snapped.json': SNAPPED_SOURCE } }, 'snapped.json');
+
+  await clickScene(page, { x: 230, y: 80 }, [], SNAPPED);
+  await page.keyboard.press('Shift+ArrowRight');
+
+  const files = await savedFiles(page);
+  expect(files['snapped.json']).toBe(SNAPPED_SOURCE);
+  await expect(page.getByRole('status')).toHaveText('saved');
+});
+
 test('browsing another folder never moves where the open Scene saves', async ({ page }) => {
   const other = JSON.stringify({ ...SCENE, title: 'B copy' }, null, 2);
   // Two folders that both hold a `same.json`: only the opened one may change.

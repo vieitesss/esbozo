@@ -600,11 +600,15 @@ export class EsbozoEditorElement extends HTMLElement {
     if (selected.size === 0) {
       return;
     }
+    const before = serialiseScene(this.#scene);
     this.#scene.elements = this.#scene.elements.map((element) =>
       selected.has(element.id) ? moved(element, dx, dy) : element,
     );
     this.#paint();
-    void this.#save();
+    // A nudge that cannot move what is selected saves nothing.
+    if (serialiseScene(this.#scene) !== before) {
+      void this.#save();
+    }
   }
 
   #zoomBy(factor: number): void {
