@@ -99,11 +99,12 @@ const HEADS = ['none', 'arrow', 'dot', 'bar'] as const;
 export type Head = (typeof HEADS)[number];
 
 /**
- * Roughness is a number, with three named looks: 0 architect, 1 artist and
- * 2 cartoonist. The number keeps the Scene short and lets the editor step
+ * Roughness is a whole number, with three named looks: 0 architect, 1 artist
+ * and 2 cartoonist. The number keeps the Scene short and lets the editor step
  * through the looks; the names live in the docs and the Style menu.
  */
-const ROUGHNESS_RANGE = [0, 2] as const;
+const ROUGHNESS_MIN = 0;
+const ROUGHNESS_MAX = 2;
 
 const ELEMENT_TYPES = ['rectangle', 'ellipse', 'diamond', 'arrow', 'line', 'text'] as const;
 
@@ -714,15 +715,7 @@ function parseRoughness(
   if (raw === undefined) {
     return fallback;
   }
-  const value = parseNumber(raw, 'roughness', report);
-  if (value === null) {
-    return fallback;
-  }
-  if (value < ROUGHNESS_RANGE[0] || value > ROUGHNESS_RANGE[1]) {
-    report(`roughness must be between ${ROUGHNESS_RANGE[0]} and ${ROUGHNESS_RANGE[1]}`);
-    return fallback;
-  }
-  return value;
+  return parseIntInRange(raw, 'roughness', ROUGHNESS_MIN, ROUGHNESS_MAX, report) ?? fallback;
 }
 
 function parseStroke(

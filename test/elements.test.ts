@@ -333,7 +333,12 @@ test('a bad value for any style field exits 3 and names the Element', async () =
     {
       label: 'roughness',
       scene: oneBox({ roughness: 3 }),
-      message: /^a: roughness must be between 0 and 2$/m,
+      message: /^a: roughness must be between 0 and 2, got 3$/m,
+    },
+    {
+      label: 'fractional roughness',
+      scene: oneBox({ roughness: 1.5 }),
+      message: /^a: roughness must be an integer, got 1\.5$/m,
     },
     {
       label: 'stroke width',
@@ -401,6 +406,14 @@ test('a bad value for any style field exits 3 and names the Element', async () =
     assert.match(result.stderr, message, label);
     assert.equal(result.svg, '', `${label} writes no SVG`);
   }
+});
+
+test('a fractional roughness in the Scene defaults is a parse problem too', async () => {
+  const result = await render({ version: 1, defaults: { roughness: 1.5 }, elements: [] });
+
+  assert.equal(result.code, 3);
+  assert.match(result.stderr, /^roughness must be an integer, got 1\.5$/m);
+  assert.equal(result.svg, '');
 });
 
 test('a Snap target that does not exist exits 3 and names the arrow', async () => {
