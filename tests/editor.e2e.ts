@@ -437,12 +437,16 @@ test('the page serves the hand font itself and nothing from a font CDN', async (
     await route.continue();
   });
   await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+  // The page fetched the hand font from its own folder. The filter runs inside
+  // the poll, on the live list, so a fetch still in flight is waited for.
+  await expect
+    .poll(() => requested.filter((url) => new URL(url).pathname === '/fonts/Kalam-Regular.ttf').length)
+    .toBeGreaterThan(0);
   await ui.browser.evaluate(() => document.fonts.ready.then(() => true));
 
-  // The browser drew the hand font, from this page's own origin.
+  // The browser drew the hand font.
   expect(await ui.browser.evaluate(() => document.fonts.check('18px Kalam'))).toBe(true);
-  const fonts = requested.filter((url) => new URL(url).pathname === '/fonts/Kalam-Regular.ttf');
-  await expect.poll(() => fonts.length).toBeGreaterThan(0);
 
   // Every request went to the page's own origin: no font CDN, no other host.
   const page = await ui.browser.evaluate(() => location.origin);
