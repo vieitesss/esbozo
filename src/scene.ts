@@ -314,13 +314,6 @@ function parseElements(
       });
       continue;
     }
-    if (hasXmlInvalidChars(id)) {
-      problems.push({
-        elementId: id,
-        message: 'id must not contain characters XML cannot represent',
-      });
-      continue;
-    }
     if (seen.has(id)) {
       problems.push({ elementId: id, message: 'duplicate id' });
       continue;
@@ -544,7 +537,8 @@ function parseIntInRange(
 /**
  * XML 1.0 allows tab, newline, carriage return, U+0020..U+D7FF, U+E000..U+FFFD
  * and U+10000 upward. Everything else, lone surrogates included, would make
- * the SVG unparseable.
+ * the SVG unparseable. Only the title enters the SVG, so only the title is
+ * checked: an Element id stays a Scene label.
  */
 function hasXmlInvalidChars(text: string): boolean {
   for (const character of text) {
