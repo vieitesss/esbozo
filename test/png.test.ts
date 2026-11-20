@@ -9,7 +9,7 @@
  */
 import { execFile } from 'node:child_process';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -551,6 +551,113 @@ test('a readable font file given with --font is accepted', async () => {
   const { png } = await pngOne(['png', 'scene.json', '--theme', 'light', '--font', kalam], folder);
 
   assert.equal(png.width, PAGE.width);
+});
+
+test('a local @font-face matching --font-hand is the stylesheet font', async () => {
+  const folder = await sceneFolder();
+  await copyFile(fileURLToPath(new URL('../fonts/Kalam-Regular.ttf', import.meta.url)), join(folder, 'hand.ttf'));
+
+  await writeFile(
+    join(folder, 'hand.css'),
+    [
+      ':root { --ink: #003366; --paper: #fafafa; --muted: #777777; --font-hand: Hand, cursive; }',
+      '@font-face { font-family: Hand; src: url(hand.ttf) format("truetype"); }',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  const used = await pngOne(['png', 'scene.json', '--theme', 'light', '--css', 'hand.css'], folder);
+  assert.equal(used.run.stderr, '');
+  assert.equal(used.png.width, PAGE.width);
+
+  await writeFile(
+    join(folder, 'missing.css'),
+    [
+      ':root { --ink: #003366; --paper: #fafafa; --muted: #777777; --font-hand: Hand; }',
+      '@font-face { font-family: Hand; src: url(nowhere.ttf) format("truetype"); }',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  const missing = await ez(['png', 'scene.json', '--theme', 'light', '--css', 'missing.css'], folder);
+  assert.equal(missing.code, 5);
+  assert.match(missing.stderr, /^cannot read font nowhere\.ttf \(from missing\.css\): /m);
+});
+
+test('the stylesheet font is read instead of falling back to Kalam', async () => {
+  const folder = await sceneFolder();
+  await writeFile(join(folder, 'broken.ttf'), Buffer.from([0x00, 0x01, 0x00, 0x00]));
+  await writeFile(
+    join(folder, 'site.css'),
+    [
+      ':root { --ink: #003366; --paper: #fafafa; --muted: #777777; --font-hand: Hand; }',
+      '@font-face { font-family: Hand; src: url(broken.ttf) format("truetype"); }',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const run = await ez(['png', 'scene.json', '--theme', 'light', '--css', 'site.css'], folder);
+
+  assert.equal(run.code, 5);
+  assert.match(run.stderr, /^broken\.ttf \(from site\.css\) is not a TrueType or OpenType font$/m);
+});
+
+test('a remote @font-face is ignored with a note, and Kalam is used', async () => {
+  const folder = await sceneFolder();
+  await writeFile(
+    join(folder, 'site.css'),
+    [
+      ':root { --ink: #003366; --paper: #fafafa; --muted: #777777; --font-hand: Hand; }',
+      '@font-face { font-family: Hand; src: url(https://example.com/hand.woff2) format("woff2"); }',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const { run } = await pngOne(['png', 'scene.json', '--theme', 'light', '--css', 'site.css'], folder);
+
+  assert.match(run.stderr, /stylesheet font https:\/\/example\.com\/hand\.woff2 is remote/);
+  assert.match(run.stderr, /Kalam/);
+});
+
+test('the light theme never reads the dark font', async () => {
+  const folder = await sceneFolder();
+  await writeFile(
+    join(folder, 'site.css'),
+    [
+      ':root { --ink: #003366; --paper: #fafafa; --muted: #777777; }',
+      '@media (prefers-color-scheme: dark) {',
+      '  :root { --font-hand: Hand; }',
+      '}',
+      '@font-face { font-family: Hand; src: url(nowhere.ttf) format("truetype"); }',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const light = await pngOne(['png', 'scene.json', '--theme', 'light', '--css', 'site.css'], folder);
+  const dark = await ez(['png', 'scene.json', '--theme', 'dark', '--css', 'site.css'], folder);
+
+  assert.equal(light.png.width, PAGE.width);
+  assert.equal(dark.code, 5);
+  assert.match(dark.stderr, /cannot read font nowhere\.ttf/);
+});
+
+test('a font file with only a signature, or a webfont, exits 5', async () => {
+  const folder = await sceneFolder();
+  await writeFile(join(folder, 'four-bytes.ttf'), Buffer.from([0x00, 0x01, 0x00, 0x00]));
+  await writeFile(join(folder, 'compressed.woff2'), Buffer.concat([Buffer.from('wOF2'), Buffer.alloc(28)]));
+
+  const four = await ez(['png', 'scene.json', '--theme', 'light', '--font', 'four-bytes.ttf'], folder);
+  assert.equal(four.code, 5);
+  assert.match(four.stderr, /^four-bytes\.ttf is not a TrueType or OpenType font$/m);
+
+  const webfont = await ez(['png', 'scene.json', '--theme', 'light', '--font', 'compressed.woff2'], folder);
+  assert.equal(webfont.code, 5);
+  assert.match(webfont.stderr, /^compressed\.woff2 is a compressed webfont \(wOF2\)/m);
+
+  assert.equal(existsSync(join(folder, 'scene.light.png')), false);
 });
 
 test('png on an invalid Scene exits 3 and names the Element', async () => {
