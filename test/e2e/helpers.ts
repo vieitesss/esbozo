@@ -23,6 +23,7 @@ export interface Point {
   y: number;
 }
 
+/** Pan and zoom, as the fixed fixtures below are laid out on the page. */
 export interface View {
   zoom: number;
   panX: number;
@@ -49,6 +50,44 @@ export const SCENE = {
     },
   ],
 };
+
+/**
+ * Every Element type the Scene allows, laid out so the fixture below maps to
+ * fixed page points: move, resize and box-select are aimed through `MIXED`.
+ */
+export const MIXED_SCENE = {
+  version: 1,
+  title: 'Mixed',
+  defaults: { roughness: 1 },
+  elements: [
+    { id: 'oval', type: 'ellipse', x: 60, y: 60, width: 120, height: 100, fill: { kind: 'solid', grey: 4 } },
+    { id: 'word', type: 'text', x: 260, y: 90, content: 'hi', fontSize: 'XL' },
+    {
+      id: 'shaft',
+      type: 'arrow',
+      points: [
+        { x: 60, y: 230 },
+        { x: 340, y: 330 },
+      ],
+      heads: { start: 'none', end: 'arrow' },
+    },
+  ],
+};
+
+/**
+ * The view `SCENE` lands in: the page fitted with an 80px margin into the
+ * 1280×800 viewport, which is 1:1 for these Elements. A test aims at Scene
+ * points through it and never reads the editor's transform.
+ */
+export const VIEW: View = { zoom: 1, panX: 470, panY: 300 };
+
+/** The view `MIXED_SCENE` lands in, worked out the same way. */
+export const MIXED: View = { zoom: 1, panX: 440, panY: 205 };
+
+/** A Scene point, as the pointer has to reach it on the page. */
+export function at(point: Point, view: View = VIEW): Point {
+  return { x: point.x * view.zoom + view.panX, y: point.y * view.zoom + view.panY };
+}
 
 /** A Scene worth looking at, for the light and dark screenshots. */
 export const POSTER_SCENE = {
@@ -143,25 +182,21 @@ export async function savedScene(page: Page, name = 'scene.json', folder = FOLDE
   return JSON.parse(source) as SavedScene;
 }
 
+export interface SavedElement {
+  id: string;
+  type: string;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  content?: string;
+  points?: Array<{ x: number; y: number }>;
+}
+
 export interface SavedScene {
   version: number;
   title: string;
-  elements: Array<{ id: string; x: number; y: number; width: number; height: number }>;
-}
-
-export async function viewOf(page: Page): Promise<View> {
-  const transform = (await page.locator('.viewport').getAttribute('transform')) ?? '';
-  const match = /translate\((-?[\d.]+) (-?[\d.]+)\) scale\((-?[\d.]+)\)/.exec(transform);
-  if (match === null) {
-    throw new Error(`unexpected viewport transform ${JSON.stringify(transform)}`);
-  }
-  return { panX: Number(match[1]), panY: Number(match[2]), zoom: Number(match[3]) };
-}
-
-/** Scene coordinates to the point on the page the pointer has to reach. */
-export async function screenPoint(page: Page, point: Point): Promise<Point> {
-  const view = await viewOf(page);
-  return { x: point.x * view.zoom + view.panX, y: point.y * view.zoom + view.panY };
+  elements: SavedElement[];
 }
 
 /** A press, a few moves and a release, which is what a drag looks like. */
@@ -174,8 +209,13 @@ export async function drag(page: Page, from: Point, to: Point): Promise<void> {
 }
 
 /** Click a Scene point. */
-export async function clickScene(page: Page, point: Point, modifiers: Array<'Shift'> = []): Promise<void> {
-  const screen = await screenPoint(page, point);
+export async function clickScene(
+  page: Page,
+  point: Point,
+  modifiers: Array<'Shift'> = [],
+  view: View = VIEW,
+): Promise<void> {
+  const screen = at(point, view);
   for (const modifier of modifiers) {
     await page.keyboard.down(modifier);
   }
@@ -183,6 +223,18 @@ export async function clickScene(page: Page, point: Point, modifiers: Array<'Shi
   for (const modifier of modifiers) {
     await page.keyboard.up(modifier);
   }
+}
+
+/** Drag from a Scene point by a page-pixel offset. */
+export async function dragBy(
+  page: Page,
+  from: Point,
+  dx: number,
+  dy: number,
+  view: View = VIEW,
+): Promise<void> {
+  const screen = at(from, view);
+  await drag(page, screen, { x: screen.x + dx, y: screen.y + dy });
 }
 
 /**
