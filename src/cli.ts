@@ -8,6 +8,10 @@
  *   0  the Scene rendered
  *   2  wrong arguments (unknown command, missing or extra arguments)
  *   3  the Scene could not be read or parsed
+ *   4  the SVG could not be written
+ *
+ * The codes live in one place, `EXIT`, so a caller can tell a bad Scene from a
+ * failed write.
  *
  * Problems are plain text, one per line, on stderr, and name the Element they
  * belong to: `a: width must be at least 1 pixel, got 0`.
@@ -17,9 +21,12 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { parseScene } from './scene.js';
 import { renderScene } from './renderer.js';
 
-const EXIT_OK = 0;
-const EXIT_USAGE = 2;
-const EXIT_INVALID_SCENE = 3;
+const EXIT = {
+  ok: 0,
+  usage: 2,
+  invalidScene: 3,
+  writeFailed: 4,
+} as const;
 
 const USAGE = 'usage: ez render <scene>';
 
@@ -27,7 +34,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   const [command, scenePath, ...extra] = argv;
   if (command !== 'render' || scenePath === undefined || scenePath === '' || extra.length > 0) {
     process.stderr.write(`${USAGE}\n`);
-    return EXIT_USAGE;
+    return EXIT.usage;
   }
 
   let source: string;
@@ -35,7 +42,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     source = await readFile(scenePath, 'utf8');
   } catch (error) {
     process.stderr.write(`cannot read Scene ${scenePath}: ${(error as NodeJS.ErrnoException).message}\n`);
-    return EXIT_INVALID_SCENE;
+    return EXIT.invalidScene;
   }
 
   const parsed = parseScene(source);
@@ -44,7 +51,7 @@ export async function main(argv: readonly string[]): Promise<number> {
       const where = problem.elementId === null ? '' : `${problem.elementId}: `;
       process.stderr.write(`${where}${problem.message}\n`);
     }
-    return EXIT_INVALID_SCENE;
+    return EXIT.invalidScene;
   }
 
   const outputPath = svgPathFor(scenePath);
@@ -52,15 +59,15 @@ export async function main(argv: readonly string[]): Promise<number> {
     await writeFile(outputPath, renderScene(parsed.scene), 'utf8');
   } catch (error) {
     process.stderr.write(`cannot write SVG ${outputPath}: ${(error as NodeJS.ErrnoException).message}\n`);
-    return EXIT_INVALID_SCENE;
+    return EXIT.writeFailed;
   }
   process.stdout.write(`${outputPath}\n`);
-  return EXIT_OK;
+  return EXIT.ok;
 }
 
-/** `<name>.svg` beside the Scene: `sketch.json` and `sketch.esbozo.json` both give `sketch.svg`. */
+/** `<name>.svg` beside the Scene: only the `.json` suffix is replaced, so `a.esbozo.json` gives `a.esbozo.svg`. */
 export function svgPathFor(scenePath: string): string {
-  const fileName = basename(scenePath).replace(/\.json$/i, '').replace(/\.esbozo$/i, '');
+  const fileName = basename(scenePath).replace(/\.json$/i, '');
   return resolve(dirname(scenePath), `${fileName}.svg`);
 }
 

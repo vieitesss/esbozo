@@ -7,7 +7,7 @@
  */
 import { execFile } from 'node:child_process';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -338,6 +338,27 @@ test('a missing Scene exits 3', async () => {
 
   assert.equal(run.code, 3);
   assert.match(run.stderr, /cannot read Scene nowhere\.json/);
+});
+
+test('the SVG keeps everything of the Scene name but the .json suffix', async () => {
+  const folder = await sceneFolder(SAMPLE_SCENE, 'a.esbozo.json');
+
+  const run = await ez(['render', 'a.esbozo.json'], folder);
+
+  assert.equal(run.code, 0, run.stderr);
+  assert.equal(run.stdout.trim(), join(folder, 'a.esbozo.svg'));
+  assert.equal(existsSync(join(folder, 'a.esbozo.svg')), true);
+  assert.equal(existsSync(join(folder, 'a.svg')), false, 'no shortened alias to overwrite');
+});
+
+test('a failed write exits 4, which no other failure uses', async () => {
+  const folder = await sceneFolder(SAMPLE_SCENE);
+  await mkdir(join(folder, 'scene.svg'));
+
+  const run = await ez(['render', 'scene.json'], folder);
+
+  assert.equal(run.code, 4, run.stderr);
+  assert.match(run.stderr, /cannot write SVG .*scene\.svg/);
 });
 
 async function renderOne(scene: unknown): Promise<string> {
