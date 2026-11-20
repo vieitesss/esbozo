@@ -46,7 +46,7 @@ import type {
   StrokeWidth,
 } from './scene.js';
 import { STROKE_WIDTH_PX } from './layout.js';
-import type { Block, Box, Layout } from './layout.js';
+import type { Block, Box, Layout, Shaft } from './layout.js';
 import {
   arrowHeadTriangle,
   barThrough,
@@ -80,10 +80,9 @@ export function renderScene(scene: Scene, layout: Layout): string {
   const canonical = canonicalScene(scene);
   const hash = hashScene(canonical);
   const byId = new Map(canonical.elements.map((element) => [element.id, element]));
-  const page = pageBounds(canonical, byId, layout);
-  const body = canonical.elements
-    .map((element) => renderElement(element, byId, layout))
-    .join('');
+  const drawn = canonical.elements.map((element) => drawElement(element, byId, layout));
+  const page = pageBounds(drawn);
+  const body = drawn.map((element) => element.svg).join('');
 
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${page.width}" height="${page.height}"` +
@@ -103,16 +102,15 @@ interface Page {
   height: number;
 }
 
-function pageBounds(scene: Scene, byId: Map<string, Element>, layout: Layout): Page {
-  if (scene.elements.length === 0) {
+function pageBounds(drawn: readonly Drawn[]): Page {
+  if (drawn.length === 0) {
     return { x: 0, y: 0, ...EMPTY_PAGE };
   }
   let left = Number.POSITIVE_INFINITY;
   let top = Number.POSITIVE_INFINITY;
   let right = Number.NEGATIVE_INFINITY;
   let bottom = Number.NEGATIVE_INFINITY;
-  for (const element of scene.elements) {
-    const bounds = elementBounds(element, byId, layout);
+  for (const { bounds } of drawn) {
     left = Math.min(left, bounds.x);
     top = Math.min(top, bounds.y);
     right = Math.max(right, bounds.x + bounds.width);
@@ -128,26 +126,51 @@ function pageBounds(scene: Scene, byId: Map<string, Element>, layout: Layout): P
   };
 }
 
-function elementBounds(element: Element, byId: Map<string, Element>, layout: Layout): Box {
+/** One Element drawn: the box it takes on the page and the SVG that draws it. */
+interface Drawn {
+  bounds: Box;
+  svg: string;
+}
+
+/**
+ * One Element, measured once: Layout places its words and the Snap geometry
+ * resolves its shaft, and both the page bounds and the drawing come from those
+ * same results. Nothing is derived twice, so where the page ends and where the
+ * ink goes cannot drift apart.
+ */
+function drawElement(element: Element, byId: Map<string, Element>, layout: Layout): Drawn {
   switch (element.type) {
     case 'arrow':
     case 'line': {
       const [start, end] = arrowOrLinePoints(element, byId);
-      const shaft = {
-        x: Math.min(start.x, end.x),
-        y: Math.min(start.y, end.y),
-        width: Math.abs(end.x - start.x),
-        height: Math.abs(end.y - start.y),
-      };
-      return joined(shaft, layout.label(element, { start, end }));
-    }
-    case 'text':
-      return layout.text(element);
-    default:
-      return joined(
-        { x: element.x, y: element.y, width: element.width, height: element.height },
-        layout.label(element),
+      const shaft = { start, end };
+      const words = layout.label(element, shaft);
+      const bounds = joined(
+        {
+          x: Math.min(start.x, end.x),
+          y: Math.min(start.y, end.y),
+          width: Math.abs(end.x - start.x),
+          height: Math.abs(end.y - start.y),
+        },
+        words,
       );
+      return { bounds, svg: arrowOrLineSvg(element, shaft, words) };
+    }
+    case 'text': {
+      const words = layout.text(element);
+      return {
+        bounds: words,
+        svg: renderBlock(words, element.tone === 'muted' ? MUTED : INK),
+      };
+    }
+    default: {
+      const words = layout.label(element);
+      const bounds = joined(
+        { x: element.x, y: element.y, width: element.width, height: element.height },
+        words,
+      );
+      return { bounds, svg: outlinedSvg(element, words) };
+    }
   }
 }
 
@@ -163,27 +186,11 @@ function joined(box: Box, words: Block | null): Box {
   return { x: left, y: top, width: right - left, height: bottom - top };
 }
 
-function midpointOf(from: Point, to: Point): Point {
-  return { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
-}
-
-function renderElement(element: Element, byId: Map<string, Element>, layout: Layout): string {
-  switch (element.type) {
-    case 'arrow':
-    case 'line':
-      return renderArrowOrLine(element, byId, layout);
-    case 'text':
-      return renderBlock(layout.text(element), element.tone === 'muted' ? MUTED : INK);
-    default:
-      return renderOutlined(element, layout);
-  }
-}
-
 /**
  * One outlined Element: its fill first, then its outline, so the ink of the
  * outline always sits on top of the fill it belongs to.
  */
-function renderOutlined(element: OutlinedElement, layout: Layout): string {
+function outlinedSvg(element: OutlinedElement, words: Block | null): string {
   const generator = new RoughGenerator();
   const width = STROKE_WIDTH_PX[element.stroke.width];
   const strokeColour = element.tone === 'muted' ? MUTED : INK;
@@ -235,7 +242,7 @@ function renderOutlined(element: OutlinedElement, layout: Layout): string {
 
   return (
     `<g stroke-linecap="round" stroke-linejoin="round">${paths.join('')}</g>` +
-    renderBlock(layout.label(element), strokeColour)
+    renderBlock(words, strokeColour)
   );
 }
 
@@ -309,13 +316,9 @@ function formatPoint(point: Point): string {
  * One arrow or line: its shaft, then its heads on top. A Snapped end sits on
  * its target's outline, resolved from the other end's point.
  */
-function renderArrowOrLine(
-  element: ArrowOrLineElement,
-  byId: Map<string, Element>,
-  layout: Layout,
-): string {
+function arrowOrLineSvg(element: ArrowOrLineElement, shaft: Shaft, words: Block | null): string {
   const generator = new RoughGenerator();
-  const [start, end] = arrowOrLinePoints(element, byId);
+  const { start, end } = shaft;
   const width = STROKE_WIDTH_PX[element.stroke.width];
   const colour = element.tone === 'muted' ? MUTED : INK;
   const dash = fittedDash(
@@ -352,7 +355,7 @@ function renderArrowOrLine(
 
   return (
     `<g stroke-linecap="round" stroke-linejoin="round">${paths.join('')}</g>` +
-    renderBlock(layout.label(element, { start, end }), colour)
+    renderBlock(words, colour)
   );
 }
 
