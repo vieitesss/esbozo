@@ -1,11 +1,11 @@
 /**
  * Geometry: the two pieces of maths the Renderer needs and the Scene does not.
  *
- * A shape's outline is where a Snapped arrow or line end lands. The end is
+ * An Element's outline is where a Snapped arrow or line end lands. The end is
  * placed where the line from the other end, through the target's centre,
  * crosses that outline: an arrow that points at a box points at its middle and
  * stops on its edge. Rectangles (round corners included), ellipses and
- * diamonds are the shapes with an outline; everything else cannot be a Snap
+ * diamonds are the Elements with an outline; everything else cannot be a Snap
  * target.
  *
  * The arrow head maths is here too: a head is a triangle whose apex is the
@@ -17,18 +17,18 @@ export interface Point {
   y: number;
 }
 
-/** The outline of a shape, as a Snap target. */
+/** The outline of an Element, as a Snap target. */
 export interface Outline {
   type: 'rectangle' | 'ellipse' | 'diamond';
   x: number;
   y: number;
   width: number;
   height: number;
-  /** A rectangle's corner radius applies only when `corners` is round. */
+  /** A rectangle's and a diamond's corner rounding; an ellipse has no corners. */
   corners: 'sharp' | 'round';
 }
 
-/** The corner radius of a round-cornered rectangle, in pixels. */
+/** The corner radius of an Element with round corners, in pixels. */
 export const CORNER_RADIUS = 12;
 
 export function centreOf(outline: Outline): Point {

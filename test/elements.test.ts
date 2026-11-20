@@ -424,7 +424,7 @@ test('a Snap target that does not exist exits 3 and names the arrow', async () =
   assert.equal(result.svg, '');
 });
 
-test('a Snap target must be a shape with an outline', async () => {
+test('a Snap target must be an Element with an outline', async () => {
   const result = await render({
     version: 1,
     elements: [
@@ -510,7 +510,7 @@ function lastPoint(d: string): Point {
 
 /**
  * The coordinate pairs of path data. It reads only Move, Line and Curve
- * commands, which is all a roughness-0 arrow or shape outline emits; the one
+ * commands, which is all a roughness-0 arrow or Element outline emits; the one
  * place a test reads path numbers, because the ticket asks for coordinates.
  */
 function pointsOf(d: string): Point[] {
@@ -526,7 +526,7 @@ function near(actual: number, expected: number, tolerance = 0.05): boolean {
   return Math.abs(actual - expected) <= tolerance;
 }
 
-/** A point on the named shape's real outline, not its bounding box. */
+/** A point on the named outline, not on its bounding box. */
 function onOutline(
   kind: string,
   box: { x: number; y: number; width: number; height: number },

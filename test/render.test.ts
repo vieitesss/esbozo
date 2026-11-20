@@ -3,7 +3,7 @@
  *
  * Everything here is external behaviour: the files written, stdout, stderr and
  * exit codes. Nothing imports src/, so the modules behind the CLI stay free to
- * change shape.
+ * change.
  */
 import { execFile } from 'node:child_process';
 import assert from 'node:assert/strict';

@@ -54,14 +54,13 @@
  * Parse returns either a Scene or the problems with the Element that caused
  * them. Every parsed Scene is fully resolved: each Element carries its own
  * roughness, seed and style, so later stages never re-read the defaults. A
- * Snap target must exist and must be a shape with an outline (rectangle,
- * ellipse or diamond); its end is resolved by the Renderer, because that needs
- * the whole Scene.
+ * Snap target must exist and must be a rectangle, ellipse or diamond; its end
+ * is resolved by the Renderer, because that needs the whole Scene.
  *
- * Roughness, stroke, fill and corners draw shapes and connectors; Text uses
- * tone, font size and text alignment (Labels take them over from #4). Fill and
- * corners apply to closed shapes: a connector is a line, so it only has a
- * stroke.
+ * Roughness, stroke, fill, tone and corners draw; Text draws with tone, font
+ * size and text alignment, and Labels take those over from #4. Fill and corners
+ * apply to closed outlines: an arrow or line is a stroke, so it has no fill and
+ * no corners.
  *
  * Geometry is rounded to whole pixels in one place, `canonicalScene`: parsing,
  * serialising, hashing and drawing all go through it, so a Scene mutated in
@@ -107,7 +106,14 @@ export type Head = (typeof HEADS)[number];
 const ROUGHNESS_RANGE = [0, 2] as const;
 
 const ELEMENT_TYPES = ['rectangle', 'ellipse', 'diamond', 'arrow', 'line', 'text'] as const;
-type ShapeType = 'rectangle' | 'ellipse' | 'diamond';
+
+/** The Element types with an outline a Snap can land on. */
+const OUTLINED_TYPES = ['rectangle', 'ellipse', 'diamond'] as const;
+
+/** Whether an Element has an outline: only those can be Snap targets. */
+export function isOutlined(element: Element): element is OutlinedElement {
+  return (OUTLINED_TYPES as readonly string[]).includes(element.type);
+}
 
 /** The seven-grey ladder runs from paper (0) to ink (6). */
 const GREY_MIN = 0;
@@ -178,22 +184,22 @@ export interface DiamondElement extends ElementBase {
   height: number;
 }
 
-export type ShapeElement = RectangleElement | EllipseElement | DiamondElement;
+export type OutlinedElement = RectangleElement | EllipseElement | DiamondElement;
 
-interface ConnectorElementBase extends ElementBase {
+interface ArrowOrLineBase extends ElementBase {
   points: [Point, Point];
   heads: Heads;
 }
 
-export interface ArrowElement extends ConnectorElementBase {
+export interface ArrowElement extends ArrowOrLineBase {
   type: 'arrow';
 }
 
-export interface LineElement extends ConnectorElementBase {
+export interface LineElement extends ArrowOrLineBase {
   type: 'line';
 }
 
-export type ConnectorElement = ArrowElement | LineElement;
+export type ArrowOrLineElement = ArrowElement | LineElement;
 
 export interface TextElement extends ElementBase {
   type: 'text';
@@ -202,7 +208,7 @@ export interface TextElement extends ElementBase {
   content: string;
 }
 
-export type Element = ShapeElement | ConnectorElement | TextElement;
+export type Element = OutlinedElement | ArrowOrLineElement | TextElement;
 
 /** Scene-wide style; every field of it has a default. */
 export type SceneStyle = ElementStyle;
@@ -258,11 +264,11 @@ const ELEMENT_STYLE_KEYS = [
   'fontSize',
   'textAlign',
 ] as const;
-const SHAPE_ELEMENT_KEYS = ['id', 'type', 'x', 'y', 'width', 'height', ...ELEMENT_STYLE_KEYS] as const;
-const CONNECTOR_ELEMENT_KEYS = ['id', 'type', 'points', 'heads', ...ELEMENT_STYLE_KEYS] as const;
+const OUTLINED_ELEMENT_KEYS = ['id', 'type', 'x', 'y', 'width', 'height', ...ELEMENT_STYLE_KEYS] as const;
+const ARROW_OR_LINE_ELEMENT_KEYS = ['id', 'type', 'points', 'heads', ...ELEMENT_STYLE_KEYS] as const;
 const TEXT_ELEMENT_KEYS = ['id', 'type', 'x', 'y', 'content', ...ELEMENT_STYLE_KEYS] as const;
 const ALL_ELEMENT_KEYS = [
-  ...new Set([...SHAPE_ELEMENT_KEYS, ...CONNECTOR_ELEMENT_KEYS, ...TEXT_ELEMENT_KEYS]),
+  ...new Set([...OUTLINED_ELEMENT_KEYS, ...ARROW_OR_LINE_ELEMENT_KEYS, ...TEXT_ELEMENT_KEYS]),
 ];
 const STROKE_KEYS = ['width', 'style'] as const;
 const FILL_KEYS = ['kind', 'grey'] as const;
@@ -349,7 +355,7 @@ export function parseScene(source: string): ParseResult {
   const defaults = parseDefaults(raw.defaults, problems);
   const elements = parseElements(raw.elements, defaults, problems);
   if (elements !== null) {
-    rejectMissingSnapTargets(elements, problems);
+    validateSnapTargets(elements, problems);
   }
 
   if (problems.length > 0 || title === null || elements === null) {
@@ -498,10 +504,10 @@ function parseElements(
 
 /**
  * A Snap end is drawn on its target's outline, so the target must exist and
- * must be a shape with one. The problem names the arrow or line, not the
- * target: the Scene's own Element is what the author has to fix.
+ * must be a rectangle, ellipse or diamond. The problem names the arrow or line,
+ * not the target: the Scene's own Element is what the author has to fix.
  */
-function rejectMissingSnapTargets(elements: Element[], problems: Problem[]): void {
+function validateSnapTargets(elements: Element[], problems: Problem[]): void {
   const byId = new Map(elements.map((element) => [element.id, element]));
   for (const element of elements) {
     if (element.type !== 'arrow' && element.type !== 'line') {
@@ -517,7 +523,7 @@ function rejectMissingSnapTargets(elements: Element[], problems: Problem[]): voi
           elementId: element.id,
           message: `snap target "${point.snap}" does not exist`,
         });
-      } else if (!isShape(target)) {
+      } else if (!isOutlined(target)) {
         problems.push({
           elementId: element.id,
           message: `snap target "${point.snap}" must be a rectangle, ellipse or diamond`,
@@ -525,10 +531,6 @@ function rejectMissingSnapTargets(elements: Element[], problems: Problem[]): voi
       }
     }
   }
-}
-
-function isShape(element: Element): element is ShapeElement {
-  return element.type === 'rectangle' || element.type === 'ellipse' || element.type === 'diamond';
 }
 
 function parseElement(
@@ -571,7 +573,7 @@ function parseElement(
       element = { id, type, points, heads, seed, ...style };
     }
   } else if (type !== null) {
-    const geometry = parseShapeGeometry(raw, report);
+    const geometry = parseOutlinedGeometry(raw, report);
     if (geometry !== null) {
       element = { id, type, ...geometry, seed, ...style };
     }
@@ -585,15 +587,15 @@ function elementKeys(type: Element['type'] | null): readonly string[] {
     return TEXT_ELEMENT_KEYS;
   }
   if (type === 'arrow' || type === 'line') {
-    return CONNECTOR_ELEMENT_KEYS;
+    return ARROW_OR_LINE_ELEMENT_KEYS;
   }
   if (type === null) {
     return ALL_ELEMENT_KEYS;
   }
-  return SHAPE_ELEMENT_KEYS;
+  return OUTLINED_ELEMENT_KEYS;
 }
 
-function parseShapeGeometry(
+function parseOutlinedGeometry(
   raw: Record<string, unknown>,
   report: (message: string) => void,
 ): { x: number; y: number; width: number; height: number } | null {
@@ -736,14 +738,8 @@ function parseStroke(
   }
   rejectUnknownKeys(raw, STROKE_KEYS, (unknownKey) => report(`unknown key "${unknownKey}"`));
   return {
-    width:
-      raw.width === undefined
-        ? fallback.width
-        : parseChoice(raw.width, 'stroke.width', STROKE_WIDTHS, fallback.width, report),
-    style:
-      raw.style === undefined
-        ? fallback.style
-        : parseChoice(raw.style, 'stroke.style', STROKE_STYLES, fallback.style, report),
+    width: parseChoice(raw.width, 'stroke.width', STROKE_WIDTHS, fallback.width, report),
+    style: parseChoice(raw.style, 'stroke.style', STROKE_STYLES, fallback.style, report),
   };
 }
 
@@ -759,16 +755,12 @@ function parseFill(
     return { ...fallback };
   }
   rejectUnknownKeys(raw, FILL_KEYS, (unknownKey) => report(`unknown key "${unknownKey}"`));
-  const grey =
-    raw.grey === undefined
-      ? fallback.grey
-      : parseIntInRange(raw.grey, 'fill.grey', GREY_MIN, GREY_MAX, report);
   return {
-    kind:
-      raw.kind === undefined
-        ? fallback.kind
-        : parseChoice(raw.kind, 'fill.kind', FILL_KINDS, fallback.kind, report),
-    grey: grey ?? fallback.grey,
+    kind: parseChoice(raw.kind, 'fill.kind', FILL_KINDS, fallback.kind, report),
+    grey:
+      raw.grey === undefined
+        ? fallback.grey
+        : (parseIntInRange(raw.grey, 'fill.grey', GREY_MIN, GREY_MAX, report) ?? fallback.grey),
   };
 }
 

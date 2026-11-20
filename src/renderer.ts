@@ -22,15 +22,15 @@
  */
 import { RoughGenerator } from 'roughjs/bin/generator.js';
 import type { Options, PathInfo } from 'roughjs/bin/core.js';
-import { canonicalScene, hashScene } from './scene.js';
+import { canonicalScene, hashScene, isOutlined } from './scene.js';
 import type {
-  ConnectorElement,
+  ArrowOrLineElement,
   Element,
   FontSize,
   Head,
+  OutlinedElement,
   Point,
   Scene,
-  ShapeElement,
   StrokeWidth,
   TextElement,
 } from './scene.js';
@@ -41,7 +41,6 @@ import {
   pointOnOutline,
   unit,
 } from './geometry.js';
-import type { Outline } from './geometry.js';
 
 const INK = 'var(--ink)';
 const MUTED = 'var(--muted)';
@@ -133,7 +132,7 @@ function elementBounds(element: Element, byId: Map<string, Element>): Box {
   switch (element.type) {
     case 'arrow':
     case 'line': {
-      const [start, end] = connectorPoints(element, byId);
+      const [start, end] = arrowOrLinePoints(element, byId);
       return {
         x: Math.min(start.x, end.x),
         y: Math.min(start.y, end.y),
@@ -171,19 +170,19 @@ function renderElement(element: Element, byId: Map<string, Element>): string {
   switch (element.type) {
     case 'arrow':
     case 'line':
-      return renderConnector(element, byId);
+      return renderArrowOrLine(element, byId);
     case 'text':
       return renderText(element);
     default:
-      return renderShape(element);
+      return renderOutlined(element);
   }
 }
 
 /**
- * One shape: its fill first, then its outline, so the ink of the outline
- * always sits on top of the fill it belongs to.
+ * One outlined Element: its fill first, then its outline, so the ink of the
+ * outline always sits on top of the fill it belongs to.
  */
-function renderShape(element: ShapeElement): string {
+function renderOutlined(element: OutlinedElement): string {
   const generator = new RoughGenerator();
   const width = STROKE_WIDTH_PX[element.stroke.width];
   const strokeColour = element.tone === 'muted' ? MUTED : INK;
@@ -209,7 +208,7 @@ function renderShape(element: ShapeElement): string {
       fillStyle: element.fill.kind === 'solid' ? 'solid' : element.fill.kind,
       fillWeight: Math.max(1, width / 2),
     };
-    for (const path of shapePaths(generator, element, options)) {
+    for (const path of outlinedPaths(generator, element, options)) {
       if (path.fill !== 'none') {
         paths.push(`<path d="${pathData(path.d)}" fill="${colour}"/>`);
       } else {
@@ -223,7 +222,7 @@ function renderShape(element: ShapeElement): string {
 
   const outlineOptions: Options = { ...commonOptions, stroke: strokeColour };
   const dash = strokeDash(width, element.stroke.style);
-  for (const path of shapePaths(generator, element, outlineOptions)) {
+  for (const path of outlinedPaths(generator, element, outlineOptions)) {
     paths.push(
       `<path d="${pathData(path.d)}" fill="none" stroke="${path.stroke}"` +
         ` stroke-width="${formatNumber(path.strokeWidth)}"${dash}/>`,
@@ -233,10 +232,10 @@ function renderShape(element: ShapeElement): string {
   return `<g stroke-linecap="round" stroke-linejoin="round">${paths.join('')}</g>`;
 }
 
-/** The outline of a shape, drawn by Rough.js, with whatever options the pass needs. */
-function shapePaths(
+/** The outline of an Element, drawn by Rough.js, with whatever options the pass needs. */
+function outlinedPaths(
   generator: RoughGenerator,
-  element: ShapeElement,
+  element: OutlinedElement,
   options: Options,
 ): PathInfo[] {
   switch (element.type) {
@@ -273,8 +272,8 @@ function shapePaths(
   }
 }
 
-/** A rounded rectangle as SVG path data, so Rough.js can draw and fill it like any other shape. */
-function roundedRectPath(element: ShapeElement): string {
+/** A rounded rectangle as SVG path data, so Rough.js can draw and fill it like any other outline. */
+function roundedRectPath(element: OutlinedElement): string {
   const x = element.x;
   const y = element.y;
   const width = element.width;
@@ -299,9 +298,9 @@ function roundedRectPath(element: ShapeElement): string {
  * One arrow or line: its shaft, then its heads on top. A Snapped end sits on
  * its target's outline, resolved from the other end's point.
  */
-function renderConnector(element: ConnectorElement, byId: Map<string, Element>): string {
+function renderArrowOrLine(element: ArrowOrLineElement, byId: Map<string, Element>): string {
   const generator = new RoughGenerator();
-  const [start, end] = connectorPoints(element, byId);
+  const [start, end] = arrowOrLinePoints(element, byId);
   const width = STROKE_WIDTH_PX[element.stroke.width];
   const colour = element.tone === 'muted' ? MUTED : INK;
   const dash = strokeDash(width, element.stroke.style);
@@ -335,7 +334,7 @@ function renderConnector(element: ConnectorElement, byId: Map<string, Element>):
 /** One arrow head, pointing along the arrow with its apex on the end. */
 function headPaths(
   generator: RoughGenerator,
-  element: ConnectorElement,
+  element: ArrowOrLineElement,
   kind: Head,
   apex: Point,
   direction: Point,
@@ -386,35 +385,23 @@ function headPaths(
  * Both ends of an arrow or line, with each Snapped end moved onto its target's
  * outline along the line from the other end's point towards the target centre.
  */
-function connectorPoints(element: ConnectorElement, byId: Map<string, Element>): [Point, Point] {
+function arrowOrLinePoints(
+  element: ArrowOrLineElement,
+  byId: Map<string, Element>,
+): [Point, Point] {
   const [start, end] = element.points;
   const resolve = (point: Point, other: Point): Point => {
     if (point.snap === undefined) {
       return { x: point.x, y: point.y };
     }
     const target = byId.get(point.snap);
-    if (target === undefined || !isShape(target)) {
+    if (target === undefined || !isOutlined(target)) {
       // parseScene already rejected this Scene; draw the end where it was asked.
       return { x: point.x, y: point.y };
     }
-    return pointOnOutline(outlineOf(target), other);
+    return pointOnOutline(target, other);
   };
   return [resolve(start, end), resolve(end, start)];
-}
-
-function outlineOf(element: ShapeElement): Outline {
-  return {
-    type: element.type,
-    x: element.x,
-    y: element.y,
-    width: element.width,
-    height: element.height,
-    corners: element.corners,
-  };
-}
-
-function isShape(element: Element): element is ShapeElement {
-  return element.type === 'rectangle' || element.type === 'ellipse' || element.type === 'diamond';
 }
 
 /**
