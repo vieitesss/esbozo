@@ -8,13 +8,15 @@
  * its Label would also overflow.
  */
 import assert from 'node:assert/strict';
-import { writeFile } from 'node:fs/promises';
+import { copyFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
-import opentype from 'opentype.js';
-import type { Glyph } from 'opentype.js';
 import { ez, sceneFolder } from './cli.ts';
+import { writeFont } from './fonts.ts';
+
+const KALAM = fileURLToPath(new URL('../fonts/Kalam-Regular.ttf', import.meta.url));
 
 function oneBox(element: Record<string, unknown>): unknown {
   return {
@@ -178,7 +180,7 @@ test('a missing Scene exits 3', async () => {
 
 test('--font is the font the measurement uses', async () => {
   const folder = await sceneFolder(oneBox({ label: 'orders and invoices' }));
-  await writeWideFont(folder);
+  await writeFont(folder, 'wide.ttf');
 
   const kalam = await ez(['check', 'scene.json'], folder);
   const wide = await ez(['check', 'scene.json', '--font', 'wide.ttf'], folder);
@@ -186,6 +188,42 @@ test('--font is the font the measurement uses', async () => {
   assert.equal(kalam.code, 0, kalam.stderr);
   assert.equal(wide.code, 6, 'the same Label is too wide in a one-em font');
   assert.match(wide.stderr, /^a: label does not fit: .*the text box is 140px wide$/m);
+});
+
+test('--css measures with the stylesheet font, and --font wins over it', async () => {
+  const folder = await sceneFolder(oneBox({ label: 'orders and invoices' }));
+  await writeFont(folder, 'wide.ttf');
+  await copyFile(KALAM, join(folder, 'kalam.ttf'));
+  await writeFile(
+    join(folder, 'theme.css'),
+    [
+      ':root { --font-hand: "Wide", cursive; }',
+      '@font-face { font-family: "Wide"; src: url("wide.ttf"); }',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const plain = await ez(['check', 'scene.json'], folder);
+  const styled = await ez(['check', 'scene.json', '--css', 'theme.css'], folder);
+  const overridden = await ez(
+    ['check', 'scene.json', '--css', 'theme.css', '--font', 'kalam.ttf'],
+    folder,
+  );
+
+  assert.equal(plain.code, 0, 'Kalam fits these words');
+  assert.equal(styled.code, 6, 'the stylesheet font is the font that measures');
+  assert.match(styled.stderr, /^a: label does not fit: .*the text box is 140px wide$/m);
+  assert.equal(overridden.code, 0, '--font beats the stylesheet');
+});
+
+test('a stylesheet that cannot be read exits 5', async () => {
+  const folder = await sceneFolder(FITS);
+
+  const run = await ez(['check', 'scene.json', '--css', 'nowhere.css'], folder);
+
+  assert.equal(run.code, 5);
+  assert.match(run.stderr, /^cannot read stylesheet nowhere\.css:/m);
 });
 
 test('a font that cannot be read exits 5', async () => {
@@ -210,6 +248,7 @@ test('wrong arguments exit 2 and explain the usage', async () => {
     ['check', 'scene.json', 'scene.json'],
     ['check', 'scene.json', '--theme', 'light'],
     ['check', 'scene.json', '--font'],
+    ['check', 'scene.json', '--css'],
     ['check', '--font', 'wide.ttf'],
   ]) {
     const run = await ez(args, folder);
@@ -225,38 +264,10 @@ test('--help lists check and every exit code', async () => {
   const help = await ez(['--help'], folder);
 
   assert.equal(help.code, 0);
-  assert.match(help.stdout, /usage: ez check <scene> \[--font <file>\]/);
+  assert.match(help.stdout, /usage: ez check <scene> \[--font <file>\] \[--css <stylesheet>\]/);
   for (const code of ['0', '2', '3', '4', '5', '6']) {
     assert.match(help.stdout, new RegExp(`^  ${code}  \\S`, 'm'), `exit code ${code} is documented`);
   }
   assert.match(help.stdout, /a Label that does not fit its Element/);
   assert.equal(help.stderr, '');
 });
-
-/** A font whose every glyph advances one em, so measurement is unmistakable. */
-async function writeWideFont(folder: string): Promise<void> {
-  const glyph = (name: string, code: number): Glyph => {
-    const path = new opentype.Path();
-    path.moveTo(0, 0);
-    path.lineTo(800, 0);
-    path.lineTo(800, 800);
-    path.close();
-    return new opentype.Glyph({ name, unicode: code, advanceWidth: 1000, path });
-  };
-  const alphabet = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,';
-  const glyphs = [
-    glyph('.notdef', 0),
-    ...alphabet
-      .split('')
-      .map((character) => glyph(character === ' ' ? 'space' : character, character.codePointAt(0)!)),
-  ];
-  const font = new opentype.Font({
-    familyName: 'Wide',
-    styleName: 'Regular',
-    unitsPerEm: 1000,
-    ascender: 800,
-    descender: -200,
-    glyphs,
-  });
-  await writeFile(join(folder, 'wide.ttf'), Buffer.from(font.toArrayBuffer()));
-}

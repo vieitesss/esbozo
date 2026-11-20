@@ -4,7 +4,7 @@
  * Surface:
  *
  *   ez render <scene> [--font <file>]
- *   ez check <scene> [--font <file>]
+ *   ez check <scene> [--font <file>] [--css <stylesheet>]
  *   ez png <scene> --theme light|dark [--css <stylesheet>]
  *                  [--ink <colour>] [--paper <colour>] [--muted <colour>]
  *                  [--font <file>]
@@ -15,10 +15,13 @@
  * `png` writes `<name>.<theme>.png` beside the Scene and prints that path, so
  * `sketch.json` gives `sketch.light.png` and `sketch.dark.png`.
  *
- * Words are measured: `render` and `check` measure with `--font`, or with the
- * bundled Kalam when it is absent. `png` measures with the font it draws with —
- * `--font`, then the stylesheet's `@font-face`, then Kalam — so the line breaks
- * in the PNG are the ones that font makes.
+ * Words are measured with the same font the drawing shows: `--font`, then a
+ * local `@font-face` in the stylesheet for the effective `--font-hand`, then
+ * the bundled Kalam. `render` reads no stylesheet (the SVG draws in the host's
+ * family), so it measures with `--font` or Kalam. `check` and `png` share one
+ * resolver, so the same Scene, stylesheet and font give the same measurement:
+ * `check` reads the stylesheet's light theme, because it has no `--theme`, and
+ * a dark-scope font belongs to `png --theme dark`.
  *
  * `png` needs a theme. Colours come from `--css` when given, from the built-in
  * themes otherwise; `--ink`, `--paper` and `--muted` win over both. The
@@ -56,7 +59,7 @@ const EXIT = {
 } as const;
 
 const RENDER_USAGE = 'usage: ez render <scene> [--font <file>]';
-const CHECK_USAGE = 'usage: ez check <scene> [--font <file>]';
+const CHECK_USAGE = 'usage: ez check <scene> [--font <file>] [--css <stylesheet>]';
 const PNG_USAGE =
   'usage: ez png <scene> --theme light|dark [--css <stylesheet>]' +
   ' [--ink <colour>] [--paper <colour>] [--muted <colour>] [--font <file>]';
@@ -104,7 +107,7 @@ export async function main(argv: readonly string[]): Promise<number> {
 }
 
 async function runRender(argv: readonly string[]): Promise<number> {
-  const parsed = parseSceneArguments(argv);
+  const parsed = parseSceneArguments(argv, SCENE_FLAGS);
   if (parsed === null) {
     process.stderr.write(`${RENDER_USAGE}\n`);
     return EXIT.usage;
@@ -136,7 +139,7 @@ async function runRender(argv: readonly string[]): Promise<number> {
  * does not parse gets exit 3 first, because there is nothing to measure.
  */
 async function runCheck(argv: readonly string[]): Promise<number> {
-  const parsed = parseSceneArguments(argv);
+  const parsed = parseSceneArguments(argv, CHECK_FLAGS);
   if (parsed === null) {
     process.stderr.write(`${CHECK_USAGE}\n`);
     return EXIT.usage;
@@ -146,7 +149,7 @@ async function runCheck(argv: readonly string[]): Promise<number> {
   if (!scene.ok) {
     return scene.exitCode;
   }
-  const layout = await loadLayout(parsed.fontPath, undefined);
+  const layout = await loadLayout(parsed.fontPath, parsed.cssPath);
   if (!layout.ok) {
     return layout.exitCode;
   }
@@ -162,27 +165,43 @@ async function runCheck(argv: readonly string[]): Promise<number> {
   return overflowed ? EXIT.labelOverflow : EXIT.ok;
 }
 
-/** `<scene> [--font <file>]`, the arguments `render` and `check` share. */
+/** `<scene> [--font <file>] [--css <stylesheet>]`, the arguments `render` and `check` read. */
 interface SceneArguments {
   scenePath: string;
   fontPath?: string;
+  cssPath?: string;
 }
 
-function parseSceneArguments(argv: readonly string[]): SceneArguments | null {
+/** The flags `render` reads; `check` reads the same plus the stylesheet. */
+const SCENE_FLAGS = { '--font': 'fontPath' } as const;
+
+const CHECK_FLAGS = { ...SCENE_FLAGS, '--css': 'cssPath' } as const;
+
+type SceneOption = 'fontPath' | 'cssPath';
+
+/** Space-separated flags only: `--font kalam.ttf`, never `--font=kalam.ttf`. */
+function parseSceneArguments(
+  argv: readonly string[],
+  flags: Readonly<Record<string, SceneOption>>,
+): SceneArguments | null {
   let scenePath: string | undefined;
-  let fontPath: string | undefined;
+  const values: Partial<Record<SceneOption, string>> = {};
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index] ?? '';
-    if (argument === '--font') {
-      const value = argv[index + 1];
-      if (value === undefined || value === '' || value.startsWith('--') || fontPath !== undefined) {
+    if (argument.startsWith('--')) {
+      const option = flags[argument];
+      if (option === undefined) {
         return null;
       }
-      fontPath = value;
+      const value = argv[index + 1];
+      if (value === undefined || value === '' || value.startsWith('--') || values[option] !== undefined) {
+        return null;
+      }
+      values[option] = value;
       index += 1;
       continue;
     }
-    if (argument.startsWith('--') || argument === '' || scenePath !== undefined) {
+    if (argument === '' || scenePath !== undefined) {
       return null;
     }
     scenePath = argument;
@@ -190,13 +209,18 @@ function parseSceneArguments(argv: readonly string[]): SceneArguments | null {
   if (scenePath === undefined) {
     return null;
   }
-  return { scenePath, ...(fontPath === undefined ? {} : { fontPath }) };
+  return { scenePath, ...values };
 }
 
 /**
- * The Layout for `--font`, or for the bundled Kalam when no file is given. A
- * font that cannot be read is exit 5, like a missing theme: the Scene cannot be
- * measured without it.
+ * The Layout for the font a command measures with: `--font`, then a local
+ * `@font-face` in the stylesheet, then the bundled Kalam — the same resolver
+ * `png` uses, so both commands measure the same bytes for the same inputs. A
+ * font or stylesheet that cannot be read is exit 5, like a missing theme: the
+ * Scene cannot be measured without it.
+ *
+ * `check` has no `--theme`, so it reads the light theme. A font declared in
+ * dark scope belongs to `png --theme dark`.
  */
 async function loadLayout(
   fontPath: string | undefined,
