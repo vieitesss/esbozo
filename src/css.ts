@@ -111,6 +111,9 @@ export function readColour(text: string): Rgba | null {
   const hex = /^#([0-9a-f]{3,8})$/i.exec(trimmed);
   if (hex !== null) {
     const digits = hex[1] ?? '';
+    if (![3, 4, 6, 8].includes(digits.length)) {
+      return null;
+    }
     const short = digits.length === 3 || digits.length === 4;
     const step = short ? 1 : 2;
     const channels: number[] = [];

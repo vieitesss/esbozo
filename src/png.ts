@@ -60,7 +60,7 @@ export { THEMES } from './css.js';
 export type { Theme } from './css.js';
 
 /** The three colours a theme is made of, each a resolved `rgb()`/`rgba()` value. */
-export interface Palette {
+interface Palette {
   ink: string;
   paper: string;
   muted: string;
@@ -109,7 +109,7 @@ export interface PngOptions {
  * the things worth saying that did not stop the render, such as a remote font
  * being ignored.
  */
-export type PngResult =
+type PngResult =
   | { ok: true; png: Uint8Array; notes: string[] }
   | { ok: false; problems: string[] };
 
