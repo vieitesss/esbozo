@@ -32,8 +32,22 @@ test('opening a Scene file paints it with the Renderer', async ({ page }) => {
   // Elements are on the page.
   await expect(page.locator('.painted path[stroke="var(--ink)"]').first()).toBeAttached();
   await expect(page.locator('.painted path[stroke="var(--muted)"]').first()).toBeAttached();
-  await expect(page.locator('.painted path[fill="var(--ink)"]').first()).toBeAttached();
+  await expect(page.locator('.painted path[fill^="color-mix("]').first()).toBeAttached();
   await expect(page.locator('.zoom')).toHaveText('100%');
+});
+
+test('a Scene that will not parse is reported and left alone on disk', async ({ page }) => {
+  const broken = JSON.stringify({
+    version: 1,
+    elements: [{ id: 'box-a', type: 'rectangle', x: 10, y: 10, width: 0, height: 40 }],
+  });
+  await openEditor(page, { 'broken.json': broken }, 'broken.json');
+
+  await expect(page.locator('.saved')).toContainText('width must be at least 1 pixel');
+  await expect(page.locator('.saved')).toContainText('box-a');
+  const files = await savedFiles(page);
+  expect(files['broken.json']).toBe(broken);
+  expect(files['broken.svg']).toBeUndefined();
 });
 
 test('a Scene that is not there opens empty and is saved as Scene and SVG', async ({ page }) => {
