@@ -162,6 +162,23 @@ export const SNAPPED_SCENE = {
 /** The view `SNAPPED_SCENE` lands in, worked out the same way as `VIEW`. */
 export const SNAPPED: View = { zoom: 1, panX: 410, panY: 320 };
 
+/**
+ * A box whose Label does not fit it, so the words reach above and below the
+ * outline: the ink bounds and the outline are two different rectangles, and
+ * only the outline may move a resize handle.
+ */
+export const OVERFLOW_SCENE = {
+  version: 1,
+  title: 'Overflow',
+  defaults: { roughness: 1 },
+  elements: [
+    { id: 'box', type: 'rectangle', x: 40, y: 40, width: 100, height: 40, label: 'words that wrap' },
+  ],
+};
+
+/** The view `OVERFLOW_SCENE` lands in, worked out the same way as `VIEW`. */
+export const OVERFLOW: View = { zoom: 1, panX: 550, panY: 340 };
+
 /** A Scene the validator rejects: `box-a` has no width. */
 export const BROKEN_SCENE = {
   version: 1,

@@ -154,6 +154,16 @@ export function elementBounds(
 }
 
 /**
+ * The outline an Element is stored as, without its words: the rectangle a
+ * handle sits on and a resize moves. A Label that overflows its Element draws
+ * outside this box, and dragging a handle that followed the ink would rewrite
+ * the geometry the author set.
+ */
+export function outlineBox(element: OutlinedElement): Box {
+  return { x: element.x, y: element.y, width: element.width, height: element.height };
+}
+
+/**
  * The two ends an arrow or line draws, each Snapped end resolved onto its
  * target's outline: the shaft the editor picks by, so a click follows the ink
  * rather than the empty box around it.
@@ -214,7 +224,7 @@ function placement(
         kind: 'outline',
         element,
         words: layout.label(element),
-        box: { x: element.x, y: element.y, width: element.width, height: element.height },
+        box: outlineBox(element),
       };
   }
 }

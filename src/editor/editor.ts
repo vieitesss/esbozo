@@ -8,7 +8,7 @@
  * `{ folder, name }` destination.
  */
 import type { Layout } from '../layout.js';
-import { elementsById, renderScene } from '../renderer.js';
+import { elementsById, outlineBox, renderScene } from '../renderer.js';
 import { emptyScene, isOutlined, parseScene, serialiseScene } from '../scene.js';
 import type { Element as SceneElement, Scene } from '../scene.js';
 import { sceneStem } from '../paths.js';
@@ -18,7 +18,6 @@ import {
   HANDLES,
   boxBetween,
   boxOf,
-  boxOfElement,
   elementAt,
   elementsInBox,
   fittedView,
@@ -348,8 +347,11 @@ export class EsbozoEditorElement extends HTMLElement {
         class: 'selection',
       });
       if (selected.length === 1 && first !== undefined && isOutlined(first)) {
+        // The handles ride the outline, not the ink: a Label that overflows its
+        // Element draws outside the box a resize is allowed to move.
+        const outline = outlineBox(first);
         for (const handle of HANDLES) {
-          const point = handlePoint(box, handle);
+          const point = handlePoint(outline, handle);
           const size = HANDLE_SIZE / this.#view.zoom;
           const node = this.#appendRect(overlay, {
             x: point.x - size / 2,
@@ -434,7 +436,7 @@ export class EsbozoEditorElement extends HTMLElement {
           kind: 'resize',
           id,
           handle: handle.getAttribute('data-handle') as Handle,
-          origin: boxOfElement(element, elementsById(this.#scene.elements), this.#layout),
+          origin: outlineBox(element),
           from: this.#scenePoint(event),
           before: serialiseScene(this.#scene),
         };

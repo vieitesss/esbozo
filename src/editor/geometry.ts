@@ -30,15 +30,6 @@ export interface Box {
 export const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const;
 export type Handle = (typeof HANDLES)[number];
 
-/** The box an Element covers, as the Renderer draws it. */
-export function boxOfElement(
-  element: Element,
-  byId: ReadonlyMap<string, Element>,
-  layout: Layout,
-): Box {
-  return elementBounds(element, byId, layout);
-}
-
 /** The box around every given Element, or null when there is none. */
 export function boxOf(
   elements: readonly Element[],
@@ -53,7 +44,7 @@ export function boxOf(
   let right = Number.NEGATIVE_INFINITY;
   let bottom = Number.NEGATIVE_INFINITY;
   for (const element of elements) {
-    const box = boxOfElement(element, byId, layout);
+    const box = elementBounds(element, byId, layout);
     left = Math.min(left, box.x);
     top = Math.min(top, box.y);
     right = Math.max(right, box.x + box.width);
@@ -84,7 +75,7 @@ export function elementAt(
       }
       continue;
     }
-    const box = boxOfElement(element, byId, layout);
+    const box = elementBounds(element, byId, layout);
     if (
       point.x >= box.x &&
       point.x <= box.x + box.width &&
@@ -117,7 +108,7 @@ export function elementsInBox(
 ): Element[] {
   const byId = elementsById(elements);
   return elements.filter((element) => {
-    const other = boxOfElement(element, byId, layout);
+    const other = elementBounds(element, byId, layout);
     return (
       other.x >= box.x &&
       other.y >= box.y &&

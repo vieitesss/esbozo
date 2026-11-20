@@ -20,6 +20,8 @@ import {
   CROSSED_SCENE,
   MIXED,
   MIXED_SCENE,
+  OVERFLOW,
+  OVERFLOW_SCENE,
   SCENE,
   SNAPPED,
   SNAPPED_SCENE,
@@ -229,6 +231,26 @@ test('a resize handle changes the saved geometry', async ({ app, browser, screen
     height: resized?.height,
   }).toEqual({ x: 40, y: 40, width: 150, height: 90 });
   await expectSvgMatchesCli(ui);
+});
+
+test('a resize follows the outline, not a Label that overflows it', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  const source = JSON.stringify(OVERFLOW_SCENE, null, 2);
+  await openEditor(ui, { A: { 'overflow.json': source } }, 'overflow.json');
+  await clickScene(ui, { x: 90, y: 60 }, [], OVERFLOW);
+
+  // Its words overflow above and below the box, so the ink is taller than the
+  // outline: the east handle is still the outline's right edge, mid height.
+  await dragBy(ui, { x: 140, y: 60 }, 10, 0, OVERFLOW);
+
+  const scene = await savedScene(ui, 'overflow.json');
+  const resized = scene.elements.find((element) => element.id === 'box');
+  expect({
+    x: resized?.x,
+    y: resized?.y,
+    width: resized?.width,
+    height: resized?.height,
+  }).toEqual({ x: 40, y: 40, width: 110, height: 40 });
 });
 
 test('Space pans and the wheel zooms without touching the Scene', async ({ app, browser, screen }) => {
