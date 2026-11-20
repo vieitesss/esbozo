@@ -522,8 +522,9 @@ function parseElements(
     return null;
   }
   const elements: Element[] = [];
+  // Every id the Scene lists, including the Elements that failed to parse, so a
+  // Snap to one of those is not a Snap to nothing.
   const seen = new Set<string>();
-  const declared = new Set<string>();
   for (const [index, entry] of raw.entries()) {
     if (!isRecord(entry)) {
       problems.push({
@@ -540,7 +541,6 @@ function parseElements(
       });
       continue;
     }
-    declared.add(id);
     if (seen.has(id)) {
       problems.push({ elementId: id, message: 'duplicate id' });
       continue;
@@ -553,7 +553,7 @@ function parseElements(
   }
   // An Element that failed to parse is still one the author declared, so a Snap
   // to it is not a Snap to nothing: its own problem is the one to report.
-  validateSnapTargets(elements, declared, problems);
+  validateSnapTargets(elements, seen, problems);
   return elements;
 }
 
@@ -562,14 +562,14 @@ function parseElements(
  * must be a rectangle, ellipse or diamond. The problem names the arrow or line,
  * not the target: the Scene's own Element is what the author has to fix.
  *
- * `declared` holds every id the Scene lists, including the Elements that failed
- * to parse. A Snap to one of those is not a Snap to a missing Element: the
- * target has its own problem, and calling it missing would send the author
- * looking for the wrong thing.
+ * `seen` holds every id the Scene lists, including the Elements that failed to
+ * parse. A Snap to one of those is not a Snap to a missing Element: the target
+ * has its own problem, and calling it missing would send the author looking for
+ * the wrong thing.
  */
 function validateSnapTargets(
   elements: Element[],
-  declared: ReadonlySet<string>,
+  seen: ReadonlySet<string>,
   problems: Problem[],
 ): void {
   const byId = new Map(elements.map((element) => [element.id, element]));
@@ -593,7 +593,7 @@ function validateSnapTargets(
       }
       const target = byId.get(point.snap);
       if (target === undefined) {
-        if (!declared.has(point.snap)) {
+        if (!seen.has(point.snap)) {
           problems.push({
             elementId: element.id,
             message: `snap target "${point.snap}" does not exist`,
