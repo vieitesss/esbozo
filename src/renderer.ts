@@ -18,7 +18,7 @@
  */
 import { RoughGenerator } from 'roughjs/bin/generator.js';
 import type { Options } from 'roughjs/bin/core.js';
-import { hashScene } from './scene.js';
+import { canonicalScene, hashScene } from './scene.js';
 import type { Element, Scene } from './scene.js';
 
 const INK = 'var(--ink)';
@@ -40,15 +40,16 @@ const GREY_INK_PERCENT = [0, 12, 24, 38, 55, 72, 100] as const;
 const GREY_LAST = GREY_INK_PERCENT.length - 1;
 
 export function renderScene(scene: Scene): string {
-  const hash = hashScene(scene);
-  const page = pageBounds(scene);
-  const body = scene.elements.map(renderElement).join('');
+  const canonical = canonicalScene(scene);
+  const hash = hashScene(canonical);
+  const page = pageBounds(canonical);
+  const body = canonical.elements.map(renderElement).join('');
 
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${page.width}" height="${page.height}"` +
       ` viewBox="${page.x} ${page.y} ${page.width} ${page.height}"` +
       ` role="img" font-family="${FONT}" data-scene-hash="sha256:${hash}">`,
-    `<title>${escapeXml(scene.title)}</title>`,
+    `<title>${escapeXml(canonical.title)}</title>`,
     body,
     '</svg>',
     '',
@@ -92,7 +93,7 @@ function pageBounds(scene: Scene): Page {
  */
 function renderElement(element: Element): string {
   const generator = new RoughGenerator();
-  // Scene geometry is already whole pixels: parse rounds once, so nothing here rounds again.
+  // `canonicalScene` already rounded the geometry: nothing here rounds it again.
   const geometry: [number, number, number, number] = [
     element.x,
     element.y,

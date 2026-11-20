@@ -39,10 +39,11 @@
  * them. Every parsed Scene is fully resolved: each Element carries its own
  * roughness, seed and style, so later stages never re-read the defaults.
  *
- * Geometry is rounded to whole pixels once, here, so the Scene in memory, its
- * serialisation, its hash and the SVG drawn from it all agree. Characters XML
- * cannot represent are rejected here, because the title and the ids end up in
- * the SVG.
+ * Geometry is rounded to whole pixels in one place, `canonicalScene`: parsing,
+ * serialising, hashing and drawing all go through it, so a Scene mutated in
+ * memory (the editor assigns `x = 40.2`) saves, hashes and draws as the Scene
+ * that reopens. Characters XML cannot represent are rejected here, because
+ * the title ends up in the SVG.
  */
 import { sha256, sha256Hex } from './sha256.js';
 
@@ -156,6 +157,28 @@ function wholePixels(value: number): number {
 }
 
 /**
+ * The Scene as it is saved, hashed and drawn: its geometry rounded to whole
+ * pixels, and nothing else changed. Parsed Scenes are canonical already; a
+ * Scene the editor mutates is not, so the one rounding rule (`wholePixels`) is
+ * applied here and nowhere else. The argument is never modified: the editor
+ * keeps the values it assigned.
+ */
+export function canonicalScene(scene: Scene): Scene {
+  return {
+    version: scene.version,
+    title: scene.title,
+    defaults: scene.defaults,
+    elements: scene.elements.map((element) => ({
+      ...element,
+      x: wholePixels(element.x),
+      y: wholePixels(element.y),
+      width: wholePixels(element.width),
+      height: wholePixels(element.height),
+    })),
+  };
+}
+
+/**
  * Deterministic default seed for an Element that carries none: the same id
  * always draws the same way, and it is never 0 (Rough.js reads 0 as "pick one
  * at random").
@@ -205,11 +228,12 @@ export function parseScene(source: string): ParseResult {
  * same Scene always hashes and diffs the same way.
  */
 export function serialiseScene(scene: Scene): string {
+  const canonical = canonicalScene(scene);
   const out = {
-    version: scene.version,
-    title: scene.title,
-    defaults: serialiseStyle(scene.defaults),
-    elements: scene.elements.map((element) => ({
+    version: canonical.version,
+    title: canonical.title,
+    defaults: serialiseStyle(canonical.defaults),
+    elements: canonical.elements.map((element) => ({
       id: element.id,
       type: element.type,
       x: element.x,
@@ -489,7 +513,7 @@ function parseNumber(
   return raw;
 }
 
-/** Geometry is rounded to whole pixels here, once: nothing downstream rounds again. */
+/** Geometry is rounded to whole pixels on the way in, and `canonicalScene` rounds it for a Scene mutated in memory. */
 function parseWholePixels(
   raw: unknown,
   field: string,
