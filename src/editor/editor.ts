@@ -300,12 +300,11 @@ export class EsbozoEditorElement extends HTMLElement {
     if (root.nodeName !== 'svg') {
       throw new Error('the Renderer did not return an SVG document');
     }
-    const viewBox = (root.getAttribute('viewBox') ?? '').trim().split(/[\s,]+/).map(Number);
-    const [left = 0, top = 0, width = 320, height = 240] = viewBox;
-    root.setAttribute('x', String(left));
-    root.setAttribute('y', String(top));
-    root.setAttribute('width', String(width));
-    root.setAttribute('height', String(height));
+    const page = viewBoxOf(root);
+    root.setAttribute('x', String(page.x));
+    root.setAttribute('y', String(page.y));
+    root.setAttribute('width', String(page.width));
+    root.setAttribute('height', String(page.height));
     root.setAttribute('overflow', 'visible');
     this.#painted.replaceChildren(document.importNode(root, true));
   }
@@ -682,6 +681,26 @@ export class EsbozoEditorElement extends HTMLElement {
             ? 'saved'
             : '';
   }
+}
+
+/**
+ * The page box the Renderer wrote into its SVG. Its `viewBox` is the only place
+ * the page's size comes from: nothing here guesses one.
+ */
+function viewBoxOf(root: Element): { x: number; y: number; width: number; height: number } {
+  const numbers = (root.getAttribute('viewBox') ?? '').trim().split(/[\s,]+/).map(Number);
+  const [x, y, width, height] = numbers;
+  if (
+    numbers.length !== 4 ||
+    x === undefined ||
+    y === undefined ||
+    width === undefined ||
+    height === undefined ||
+    !numbers.every(Number.isFinite)
+  ) {
+    throw new Error(`the Renderer's SVG has no usable viewBox: ${JSON.stringify(root.getAttribute('viewBox'))}`);
+  }
+  return { x, y, width, height };
 }
 
 /** A new Scene takes its title from the file name: `flow.json` opens as "flow". */
