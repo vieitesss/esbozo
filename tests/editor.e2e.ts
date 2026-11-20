@@ -449,6 +449,22 @@ test('the status says saved only for the bytes that are on disk', async ({ app, 
   expect(scene.elements.find((element) => element.id === 'a')?.x).toBe(60);
 });
 
+test('a font that will not load leaves the page with a visible error', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  // The hand font 404s, so nothing on the page can be measured with it.
+  await ui.browser.route('**/fonts/Kalam-Regular.ttf', (route) =>
+    route.fulfill({ status: 404, body: 'gone' }),
+  );
+  await ui.app.open('/editor.html');
+
+  // The page says what it could not load, in its own status line.
+  await expect(ui.screen.getByRole('status')).toContainText('cannot load fonts/Kalam-Regular.ttf');
+
+  // And it is still the editor: the tools a person reaches for are there.
+  await expect(ui.screen.getByRole('button', /Open folder/)).toBeVisible();
+  await ui.browser.unrouteAll();
+});
+
 test('the page serves the hand font itself and nothing from a font CDN', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
 

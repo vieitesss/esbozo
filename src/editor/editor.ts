@@ -745,12 +745,47 @@ function normaliseSceneName(raw: string): string {
 }
 
 /**
+ * The measurement a page's editor runs on, or the reason it has none: the page
+ * cannot place a Scene's words without the font's metrics, so it says so
+ * instead of showing an editor that cannot draw.
+ */
+export type PageFont = { ok: true; layout: Layout } | { ok: false; problem: string };
+
+/**
+ * The page shell with no editor behind it, for a page whose font did not load.
+ * It is the same shell — the tools and the status line a person sees — with the
+ * problem in the status line, so the page stays usable-looking and says why it
+ * is not.
+ */
+class UnavailableEditorElement extends HTMLElement {
+  readonly #problem: string;
+
+  constructor(problem: string) {
+    super();
+    this.#problem = problem;
+  }
+
+  connectedCallback(): void {
+    this.innerHTML = SHELL;
+    const saved = this.querySelector('.saved')!;
+    saved.setAttribute('data-state', 'failed');
+    saved.textContent = this.#problem;
+  }
+}
+
+/**
  * Registers the element with the measurement its page draws words with. The
  * browser builds a custom element with no arguments, so the Layout arrives
- * through this closure rather than through the constructor call.
+ * through this closure rather than through the constructor call. A page without
+ * one registers the shell alone, so a font that will not load is a visible
+ * problem rather than a blank page.
  */
-export function defineEditorElement(layout: Layout): void {
-  if (!customElements.get('esbozo-editor')) {
+export function defineEditorElement(font: PageFont): void {
+  if (customElements.get('esbozo-editor')) {
+    return;
+  }
+  if (font.ok) {
+    const { layout } = font;
     customElements.define(
       'esbozo-editor',
       class extends EsbozoEditorElement {
@@ -759,5 +794,15 @@ export function defineEditorElement(layout: Layout): void {
         }
       },
     );
+    return;
   }
+  const { problem } = font;
+  customElements.define(
+    'esbozo-editor',
+    class extends UnavailableEditorElement {
+      constructor() {
+        super(problem);
+      }
+    },
+  );
 }
