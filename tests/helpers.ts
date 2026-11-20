@@ -185,6 +185,45 @@ export const OVERFLOW_SCENE = {
 /** The view `OVERFLOW_SCENE` lands in, worked out the same way as `VIEW`. */
 export const OVERFLOW: View = { zoom: 1, panX: 550, panY: 340 };
 
+/**
+ * Three rectangles at uneven spacing, for Arrange: layer order, alignment and
+ * each axis's distribution move a different one of them, so a test can tell
+ * the actions apart from the saved geometry.
+ */
+export const THREE_SCENE = {
+  version: 1,
+  title: 'Three',
+  defaults: { roughness: 1 },
+  elements: [
+    { id: 'p', type: 'rectangle', x: 40, y: 40, width: 100, height: 60 },
+    { id: 'q', type: 'rectangle', x: 160, y: 200, width: 80, height: 40 },
+    { id: 'r', type: 'rectangle', x: 400, y: 100, width: 60, height: 60 },
+  ],
+};
+
+/** The view `THREE_SCENE` lands in, worked out the same way as `VIEW`. */
+export const THREE: View = { zoom: 1, panX: 390, panY: 260 };
+
+/**
+ * A box near the middle and one against the right edge: selecting the right-hand
+ * one would put it under the docked Style menu unless the view pans clear of it.
+ */
+export const EDGE_SCENE = {
+  version: 1,
+  title: 'Edge',
+  defaults: { roughness: 1 },
+  elements: [
+    { id: 'near', type: 'rectangle', x: 40, y: 40, width: 80, height: 60 },
+    { id: 'far', type: 'rectangle', x: 700, y: 40, width: 120, height: 80 },
+  ],
+};
+
+/** The view `EDGE_SCENE` lands in at 1280×800, worked out the same way as `VIEW`. */
+export const EDGE: View = { zoom: 1, panX: 210, panY: 320 };
+
+/** The view `EDGE_SCENE` lands in at 1366×768, for the window the note must fit. */
+export const EDGE_1366: View = { zoom: 1, panX: 253, panY: 304 };
+
 /** A Scene the validator rejects: `box-a` has no width. */
 export const BROKEN_SCENE = {
   version: 1,
@@ -332,15 +371,20 @@ export interface SavedElement {
   height?: number;
   content?: string;
   points?: Array<{ x: number; y: number; snap?: string }>;
-  fill?: { kind: string; grey: number };
-  stroke?: { width: string; style: string };
-  tone?: string;
   roughness?: number;
+  stroke?: { width: string; style: string };
+  fill?: { kind: string; grey: number };
+  tone?: string;
+  corners?: string;
+  fontSize?: string;
+  textAlign?: string;
+  heads?: { start: string; end: string };
 }
 
 export interface SavedScene {
   version: number;
   title: string;
+  defaults?: { roughness?: number };
   elements: SavedElement[];
 }
 
