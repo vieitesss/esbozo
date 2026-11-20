@@ -7,11 +7,14 @@
  * roughness, so nothing depends on Math.random or on the order of runs.
  *
  * Colours and the font are never spelled out: they come from `var(--ink)`,
- * `var(--paper)`, `var(--muted)` and `var(--font-hand)`, which hosts set. Grey
- * steps are ink painted over paper at a fixed opacity, and a hachure fill takes
- * one step darker than a solid fill so the two read the same weight.
- * The Scene hash is written into `data-scene-hash` so an SVG can always be
- * traced back to the Scene it came from.
+ * `var(--paper)`, `var(--muted)` and `var(--font-hand)`, which hosts set. Each
+ * grey step is a fixed `color-mix` of ink into paper, an opaque colour, so an
+ * overlap never darkens and a host backdrop other than paper never shows
+ * through. A hachure fill takes one step more ink than a solid fill so the two
+ * read as the same weight. The Scene hash is written into `data-scene-hash` so
+ * an SVG can always be traced back to the Scene it came from, and the root
+ * `<svg role="img">` carries its accessible name as its own first-child
+ * `<title>`, with no document-wide id to collide with.
  */
 import { RoughGenerator } from 'roughjs/bin/generator.js';
 import type { Options } from 'roughjs/bin/core.js';
@@ -20,6 +23,7 @@ import type { Element, Scene } from './scene.js';
 
 const INK = 'var(--ink)';
 const MUTED = 'var(--muted)';
+const PAPER = 'var(--paper)';
 const FONT = 'var(--font-hand)';
 
 /** Padding around the Scene's Elements, in whole pixels. */
@@ -28,11 +32,12 @@ const PADDING = 16;
 const EMPTY_PAGE = { width: 320, height: 240 };
 
 /**
- * The seven-grey ladder, as the fraction of ink laid over paper for each step:
- * 0 is bare paper, 6 is solid ink. #3 owns the final ladder; this one only has
- * to be readable and monotonic.
+ * The seven-grey ladder, as the percentage of ink mixed into paper for each
+ * step: 0 is bare paper, 6 is solid ink. #3 owns the final ladder; this one
+ * only has to be readable and monotonic.
  */
-const GREY_INK_FRACTION = [0, 0.12, 0.24, 0.38, 0.55, 0.72, 1] as const;
+const GREY_INK_PERCENT = [0, 12, 24, 38, 55, 72, 100] as const;
+const GREY_LAST = GREY_INK_PERCENT.length - 1;
 
 export function renderScene(scene: Scene): string {
   const hash = hashScene(scene);
@@ -42,9 +47,8 @@ export function renderScene(scene: Scene): string {
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${page.width}" height="${page.height}"` +
       ` viewBox="${page.x} ${page.y} ${page.width} ${page.height}"` +
-      ` role="img" aria-labelledby="esbozo-title" font-family="${FONT}"` +
-      ` data-scene-hash="sha256:${hash}" data-scene-version="${scene.version}">`,
-    `<title id="esbozo-title">${escapeXml(scene.title)}</title>`,
+      ` role="img" font-family="${FONT}" data-scene-hash="sha256:${hash}">`,
+    `<title>${escapeXml(scene.title)}</title>`,
     body,
     '</svg>',
     '',
@@ -99,29 +103,29 @@ function renderElement(element: Element): string {
   const paths: string[] = [];
 
   if (element.fill.kind !== 'none') {
+    // A hachure fill is drawn as lines, so it needs one step more ink than a
+    // solid wash to read as the same grey.
+    const grey =
+      element.fill.kind === 'hachure'
+        ? Math.min(element.fill.grey + 1, GREY_LAST)
+        : element.fill.grey;
+    const colour = greyColour(grey);
     const options: Options = {
       stroke: 'none',
-      fill: INK,
+      fill: colour,
       fillStyle: element.fill.kind === 'solid' ? 'solid' : 'hachure',
       fillWeight: Math.max(1, element.stroke.width / 2),
       roughness: element.roughness,
       seed: element.seed,
       strokeWidth: element.stroke.width,
     };
-    // A hachure fill is drawn as lines, so it needs one step more ink than a
-    // solid wash to read as the same grey.
-    const grey =
-      element.fill.kind === 'hachure'
-        ? Math.min(element.fill.grey + 1, GREY_INK_FRACTION.length - 1)
-        : element.fill.grey;
-    const opacity = formatNumber(GREY_INK_FRACTION[grey] ?? 0);
     for (const path of generator.toPaths(generator.rectangle(...geometry, options))) {
       if (path.fill !== 'none') {
-        paths.push(`<path d="${pathData(path.d)}" fill="${path.fill}" fill-opacity="${opacity}"/>`);
+        paths.push(`<path d="${pathData(path.d)}" fill="${colour}"/>`);
       } else {
         paths.push(
-          `<path d="${pathData(path.d)}" fill="none" stroke="${path.stroke}"` +
-            ` stroke-opacity="${opacity}" stroke-width="${formatNumber(path.strokeWidth)}"/>`,
+          `<path d="${pathData(path.d)}" fill="none" stroke="${colour}"` +
+            ` stroke-width="${formatNumber(path.strokeWidth)}"/>`,
         );
       }
     }
@@ -141,7 +145,23 @@ function renderElement(element: Element): string {
     );
   }
 
-  return `<g data-element-id="${escapeXml(element.id)}" stroke-linecap="round" stroke-linejoin="round">${paths.join('')}</g>`;
+  return `<g stroke-linecap="round" stroke-linejoin="round">${paths.join('')}</g>`;
+}
+
+/**
+ * One grey step as a fixed mix of ink into paper. Grey 0 is bare paper and grey
+ * 6 is solid ink; the steps between are opaque colours, so two overlapping
+ * fills keep one grey and a host backdrop never shows through.
+ */
+function greyColour(grey: number): string {
+  const percent = GREY_INK_PERCENT[grey] ?? 0;
+  if (percent === 0) {
+    return PAPER;
+  }
+  if (percent === GREY_INK_PERCENT[GREY_LAST]) {
+    return INK;
+  }
+  return `color-mix(in srgb, ${INK} ${percent}%, ${PAPER})`;
 }
 
 function strokeDash(width: number, style: Element['stroke']['style']): string {

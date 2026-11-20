@@ -99,9 +99,9 @@ test('render writes the SVG beside the Scene and prints its path', async () => {
   assert.equal(run.stdout.trim(), svgPath);
   const svg = await readFile(svgPath, 'utf8');
   assert.match(svg, /^<svg [^>]*xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
-  assert.match(svg, /<title id="esbozo-title">Two boxes<\/title>/);
-  assert.match(svg, /<g data-element-id="a"/);
-  assert.match(svg, /<g data-element-id="b"/);
+  assert.match(svg, /^<svg [^>]*>[\s\n]*<title>Two boxes<\/title>/);
+  assert.equal(fillsOf(svg).length, 1, 'the solid-filled Element painted a fill');
+  assert.deepEqual(mixesIn(svg), [38], 'the hachure-filled Element painted its lines');
 });
 
 test('two runs produce byte-identical SVG', async () => {
@@ -159,8 +159,8 @@ test('the SVG takes every colour and the font from CSS variables', async () => {
   assert.ok(colours.length > 0, 'the SVG paints something');
   for (const colour of colours) {
     assert.ok(
-      colour === 'none' || /^var\(--(ink|muted)\)$/.test(colour ?? ''),
-      `colour ${colour} is not a Scene CSS variable`,
+      colour === 'none' || CSS_VARIABLE.test(colour ?? '') || INK_INTO_PAPER.test(colour ?? ''),
+      `colour ${colour} is not a Scene CSS variable or a mix of two`,
     );
   }
 
@@ -168,13 +168,104 @@ test('the SVG takes every colour and the font from CSS variables', async () => {
   assert.deepEqual(fonts, ['var(--font-hand)']);
 
   assert.doesNotMatch(svg, /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/);
+  assert.doesNotMatch(svg, /\burl\(|blend-mode/i);
 });
+
+test('every fill colour is paper, ink, or a mix of only those two', async () => {
+  const svg = await renderOne({ version: 1, title: 'Greys', elements: greyBoxes([0, 1, 2, 3, 4, 5, 6]) });
+
+  const fills = fillsOf(svg);
+  assert.equal(fills.length, 7, 'one solid fill per grey step');
+  for (const fill of fills) {
+    assert.match(fill, new RegExp(`${CSS_VARIABLE.source}|${INK_INTO_PAPER.source}`), fill);
+    assert.doesNotMatch(fill, /--(?:muted|font-hand|anything)/, fill);
+  }
+
+  const steps = fills.map(inkPercent);
+  assert.deepEqual(steps, [0, 12, 24, 38, 55, 72, 100], 'grey 0 is paper, grey 6 is ink, steps in between grow');
+});
+
+test('overlapping fills stay one grey: no transparency on fills', async () => {
+  const svg = await renderOne({
+    version: 1,
+    title: 'Overlap',
+    elements: [
+      { id: 'under', type: 'rectangle', x: 20, y: 20, width: 120, height: 120, fill: { kind: 'solid', grey: 2 } },
+      { id: 'over', type: 'rectangle', x: 60, y: 60, width: 120, height: 120, fill: { kind: 'solid', grey: 2 } },
+    ],
+  });
+
+  assert.doesNotMatch(svg, /\b(?:fill-|stroke-)?opacity\s*=/, 'an overlap cannot darken without transparency');
+  const fills = fillsOf(svg);
+  assert.equal(fills.length, 2);
+  assert.deepEqual(new Set(fills), new Set([fills[0]]), 'both grey-2 fills are the same opaque colour');
+});
+
+test('a hachure fill paints one step more ink than the same solid grey', async () => {
+  const hachured = await renderOne(oneBox({ fill: { kind: 'hachure', grey: 3 } }));
+  const solidAt3 = await renderOne(oneBox({ fill: { kind: 'solid', grey: 3 } }));
+  const solidAt4 = await renderOne(oneBox({ fill: { kind: 'solid', grey: 4 } }));
+
+  assert.deepEqual(fillsOf(hachured), [], 'a hachure fill paints lines, not a wash');
+  const hachureLines = mixesIn(hachured);
+  assert.deepEqual(hachureLines, [inkPercent(fillsOf(solidAt4)[0]!)], 'its lines take the grey-4 mix');
+  assert.deepEqual(hachureLines, [55]);
+  assert.deepEqual(fillsOf(solidAt3).map(inkPercent), [38]);
+});
+
+test('the root SVG names itself with its own title, with no shared id', async () => {
+  const first = await renderOne(SAMPLE_SCENE);
+  const second = await renderOne({ ...SAMPLE_SCENE, title: 'Other boxes' });
+
+  const root = /^<svg\b[^>]*>/.exec(first)?.[0] ?? '';
+  assert.match(root, /\brole="img"/);
+  assert.doesNotMatch(first, /aria-labelledby|aria-label=/, 'the name is not borrowed through a reference');
+
+  const body = first.slice(root.length);
+  assert.match(body, /^\n<title>Two boxes<\/title>/, 'the accessible name is the SVG own first child');
+  assert.equal(body.match(/<title\b/g)?.length, 1);
+
+  const ids = new Set(idsOf(first));
+  for (const id of idsOf(second)) {
+    assert.equal(ids.has(id), false, `both SVGs use id ${id}`);
+  }
+});
+
+test('the title is escaped, so any text XML can carry survives', async () => {
+  const svg = await renderOne({ version: 1, title: 'A & B <tag> "quoted" ✓', elements: [] });
+
+  assert.match(svg, /<title>A &amp; B &lt;tag&gt; &quot;quoted&quot; ✓<\/title>/);
+});
+
+test('characters XML cannot represent are rejected in the title', async () => {
+  const folder = await sceneFolder({ version: 1, title: 'bad \u0000 title', elements: [] });
+
+  const run = await ez(['render', 'scene.json'], folder);
+
+  assert.equal(run.code, 3);
+  assert.match(run.stderr, /title must not contain characters XML cannot represent/);
+  assert.equal(existsSync(join(folder, 'scene.svg')), false);
+});
+
+test('characters XML cannot represent are rejected in an Element id', async () => {
+  const folder = await sceneFolder({
+    version: 1,
+    elements: [{ id: 'a\u0000b', type: 'rectangle', x: 10, y: 10, width: 40, height: 40 }],
+  });
+
+  const run = await ez(['render', 'scene.json'], folder);
+
+  assert.equal(run.code, 3);
+  assert.match(run.stderr, /id must not contain characters XML cannot represent/);
+  assert.equal(existsSync(join(folder, 'scene.svg')), false);
+});
+
 
 test('the SVG carries the Scene hash and a title and no script or external reference', async () => {
   const svg = await renderOne(SAMPLE_SCENE);
 
   assert.match(svg, /data-scene-hash="sha256:[0-9a-f]{64}"/);
-  assert.match(svg, /<title id="esbozo-title">Two boxes<\/title>/);
+  assert.match(svg, /<title>Two boxes<\/title>/);
   assert.doesNotMatch(svg, /<script/i);
   assert.doesNotMatch(svg, /\burl\(/i);
   assert.doesNotMatch(svg, /xlink/i);
@@ -226,7 +317,7 @@ test('an invalid Scene reports every Element it cannot parse', async () => {
 test('an empty Scene still renders a titled SVG page', async () => {
   const svg = await renderOne({ version: 1, title: 'Blank', elements: [] });
 
-  assert.match(svg, /<title id="esbozo-title">Blank<\/title>/);
+  assert.match(svg, /<title>Blank<\/title>/);
   assert.match(svg, /viewBox="0 0 320 240"/);
 });
 
@@ -280,6 +371,59 @@ function boxAt(x: number, y: number, options: BoxOptions = {}): Scene {
   };
 }
 
+/** One solid-filled box per grey step, left to right. */
+function greyBoxes(steps: number[]): SceneElement[] {
+  return steps.map((grey, index) => ({
+    id: `grey-${grey}`,
+    type: 'rectangle',
+    x: 20 + index * 60,
+    y: 20,
+    width: 40,
+    height: 40,
+    fill: { kind: 'solid', grey },
+  }));
+}
+
+/** The ink percentages of the grey mixes painted as lines, in document order. */
+function mixesIn(svg: string): number[] {
+  const mixes = [...svg.matchAll(/stroke="(color-mix\([^"]*\))"/g)].map((match) => inkPercent(match[1]!));
+  return [...new Set(mixes)];
+}
+
+/** One box Scene, so a test can vary a single part of it. */
+function oneBox(style: Partial<SceneElement> = {}): Scene {
+  return {
+    version: 1,
+    title: 'One box',
+    defaults: { roughness: 1 },
+    elements: [{ id: 'a', type: 'rectangle', x: 20, y: 20, width: 80, height: 80, ...style }],
+  };
+}
+
+/** Solid fills in document order: the opaque colour of each painted fill. */
+function fillsOf(svg: string): string[] {
+  return [...svg.matchAll(/fill="(?!none")([^"]*)"/g)].map((match) => match[1]!);
+}
+
+function idsOf(svg: string): string[] {
+  return [...svg.matchAll(/\bid="([^"]*)"/g)].map((match) => match[1]!);
+}
+
+/** The ink percentage a fill colour paints: paper is 0 and ink is 100. */
+function inkPercent(colour: string): number {
+  if (colour === 'var(--paper)') {
+    return 0;
+  }
+  if (colour === 'var(--ink)') {
+    return 100;
+  }
+  const match = /^color-mix\(in srgb, var\(--ink\) (\d+)%, var\(--paper\)\)$/.exec(colour);
+  assert.ok(match, `not a grey colour: ${colour}`);
+  return Number(match[1]);
+}
+
+const CSS_VARIABLE = /^var\(--(?:ink|muted|paper)\)$/;
+const INK_INTO_PAPER = /^color-mix\(in srgb, var\(--ink\) \d{1,3}%, var\(--paper\)\)$/;
 function withSeed(scene: Scene, seed: number): Scene {
   return {
     ...scene,

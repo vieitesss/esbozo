@@ -40,7 +40,9 @@
  * roughness, seed and style, so later stages never re-read the defaults.
  *
  * Geometry is rounded to whole pixels once, here, so the Scene in memory, its
- * serialisation, its hash and the SVG drawn from it all agree.
+ * serialisation, its hash and the SVG drawn from it all agree. Characters XML
+ * cannot represent are rejected here, because the title and the ids end up in
+ * the SVG.
  */
 import { sha256, sha256Hex } from './sha256.js';
 
@@ -251,11 +253,15 @@ function serialiseStyle(style: SceneStyle): {
 }
 
 function parseTitle(raw: unknown, problems: Problem[]): string | null {
-  if (typeof raw === 'string' && raw.trim() !== '') {
-    return raw;
+  if (typeof raw !== 'string' || raw.trim() === '') {
+    problems.push(sceneProblem('title must be a non-empty string'));
+    return null;
   }
-  problems.push(sceneProblem('title must be a non-empty string'));
-  return null;
+  if (hasXmlInvalidChars(raw)) {
+    problems.push(sceneProblem('title must not contain characters XML cannot represent'));
+    return null;
+  }
+  return raw;
 }
 
 function parseDefaults(raw: unknown, problems: Problem[]): SceneDefaults {
@@ -301,6 +307,13 @@ function parseElements(
       problems.push({
         elementId: null,
         message: `elements[${index}] needs a non-empty string id`,
+      });
+      continue;
+    }
+    if (hasXmlInvalidChars(id)) {
+      problems.push({
+        elementId: id,
+        message: 'id must not contain characters XML cannot represent',
       });
       continue;
     }
@@ -523,6 +536,28 @@ function parseIntInRange(
     return null;
   }
   return raw;
+}
+
+/**
+ * XML 1.0 allows tab, newline, carriage return, U+0020..U+D7FF, U+E000..U+FFFD
+ * and U+10000 upward. Everything else, lone surrogates included, would make
+ * the SVG unparseable.
+ */
+function hasXmlInvalidChars(text: string): boolean {
+  for (const character of text) {
+    const code = character.codePointAt(0)!;
+    const allowed =
+      code === 0x9 ||
+      code === 0xa ||
+      code === 0xd ||
+      (code >= 0x20 && code <= 0xd7ff) ||
+      (code >= 0xe000 && code <= 0xfffd) ||
+      code >= 0x10000;
+    if (!allowed) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
