@@ -12,10 +12,11 @@
  * `png` writes `<name>.<theme>.png` beside the Scene and prints that path, so
  * `sketch.json` gives `sketch.light.png` and `sketch.dark.png`.
  *
- * `png` needs a theme. Colours come from `--css` when given (its `:root` block
- * for light, its dark-mode block for dark), from the built-in themes otherwise;
- * `--ink`, `--paper` and `--muted` win over both. The font comes from `--font`
- * or from the bundled Kalam.
+ * `png` needs a theme. Colours come from `--css` when given, from the built-in
+ * themes otherwise; `--ink`, `--paper` and `--muted` win over both. The font
+ * comes from `--font`, then from a local `@font-face` in the stylesheet, then
+ * from the bundled Kalam. The stylesheet subset is documented in `src/css.ts`
+ * and printed by `ez --help`.
  *
  * Exit codes:
  *   0  the Scene rendered
@@ -25,7 +26,7 @@
  *   5  missing theme values, or a missing or unreadable font
  *
  * The codes live in one place, `EXIT`, so a caller can tell a bad Scene from a
- * failed write or an incomplete theme. 6 is kept for Label overflow.
+ * failed write or an incomplete theme.
  *
  * Problems are plain text, one per line, on stderr, and name the Element they
  * belong to: `a: width must be at least 1 pixel, got 0`.
@@ -51,6 +52,17 @@ const PNG_USAGE =
   'usage: ez png <scene> --theme light|dark [--css <stylesheet>]' +
   ' [--ink <colour>] [--paper <colour>] [--muted <colour>] [--font <file>]';
 
+/** The stylesheet subset `png` reads, the same one documented in `src/css.ts`. */
+const CSS_SUBSET = [
+  'css: `:root` and `html` declarations are the light theme; dark is those values',
+  'overridden by `@media (prefers-color-scheme: dark)` blocks and by `:root.dark`,',
+  '`:root[data-theme="dark"]`, `html.dark` and `html[data-theme="dark"]`. Other',
+  'selectors are ignored. Values may use `var()` and `color-mix(in srgb, A p%, B)`',
+  'with hex, rgb()/rgba() or CSS colour names.',
+].join('\n');
+
+const USAGE = `${RENDER_USAGE}\n${PNG_USAGE}\n${CSS_SUBSET}\n`;
+
 export async function main(argv: readonly string[]): Promise<number> {
   const [command, ...rest] = argv;
   if (command === 'render') {
@@ -59,7 +71,11 @@ export async function main(argv: readonly string[]): Promise<number> {
   if (command === 'png') {
     return runPng(rest);
   }
-  process.stderr.write(`${RENDER_USAGE}\n${PNG_USAGE}\n`);
+  if (command === '--help' || command === 'help') {
+    process.stdout.write(USAGE);
+    return EXIT.ok;
+  }
+  process.stderr.write(USAGE);
   return EXIT.usage;
 }
 
@@ -98,23 +114,7 @@ async function runPng(argv: readonly string[]): Promise<number> {
     return scene.exitCode;
   }
 
-  const options: PngOptions = { theme: parsed.theme };
-  if (parsed.ink !== undefined) {
-    options.ink = parsed.ink;
-  }
-  if (parsed.paper !== undefined) {
-    options.paper = parsed.paper;
-  }
-  if (parsed.muted !== undefined) {
-    options.muted = parsed.muted;
-  }
-  if (parsed.css !== undefined) {
-    options.cssPath = parsed.css;
-  }
-  if (parsed.font !== undefined) {
-    options.fontPath = parsed.font;
-  }
-
+  const { scenePath, ...options } = parsed;
   const rendered = await renderPng(renderScene(scene.value), options);
   if (!rendered.ok) {
     for (const problem of rendered.problems) {
@@ -126,7 +126,7 @@ async function runPng(argv: readonly string[]): Promise<number> {
     process.stderr.write(`${note}\n`);
   }
 
-  const outputPath = pngPathFor(parsed.scenePath, parsed.theme);
+  const outputPath = pngPathFor(scenePath, parsed.theme);
   try {
     await writeFile(outputPath, rendered.png);
   } catch (error) {
@@ -137,33 +137,44 @@ async function runPng(argv: readonly string[]): Promise<number> {
   return EXIT.ok;
 }
 
-interface PngArguments {
+/** Every `png` flag and the option it sets: one table for both jobs. */
+const PNG_FLAGS = {
+  '--theme': 'theme',
+  '--css': 'cssPath',
+  '--ink': 'ink',
+  '--paper': 'paper',
+  '--muted': 'muted',
+  '--font': 'fontPath',
+} as const;
+
+type PngFlag = keyof typeof PNG_FLAGS;
+type PngOption = (typeof PNG_FLAGS)[PngFlag];
+
+interface PngArguments extends PngOptions {
   scenePath: string;
-  theme: Theme;
-  css?: string;
-  ink?: string;
-  paper?: string;
-  muted?: string;
-  font?: string;
+}
+
+function isTheme(value: string): value is Theme {
+  return (THEMES as readonly string[]).includes(value);
 }
 
 /** Space-separated flags only: `--theme dark`, never `--theme=dark`. */
 function parsePngArguments(argv: readonly string[]): PngArguments | null {
   let scenePath: string | undefined;
-  const flags: Record<string, string> = {};
-  const known = new Set(['--theme', '--css', '--ink', '--paper', '--muted', '--font']);
+  const values: { [K in PngOption]?: string } = {};
 
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index] ?? '';
     if (argument.startsWith('--')) {
-      if (!known.has(argument)) {
+      if (!(argument in PNG_FLAGS)) {
         return null;
       }
+      const option = PNG_FLAGS[argument as PngFlag];
       const value = argv[index + 1];
       if (value === undefined || value === '' || value.startsWith('--')) {
         return null;
       }
-      flags[argument] = value;
+      values[option] = value;
       index += 1;
       continue;
     }
@@ -173,22 +184,11 @@ function parsePngArguments(argv: readonly string[]): PngArguments | null {
     scenePath = argument;
   }
 
-  if (scenePath === undefined) {
+  const theme = values.theme;
+  if (scenePath === undefined || theme === undefined || !isTheme(theme)) {
     return null;
   }
-  const requested = flags['--theme'];
-  if (requested === undefined || !(THEMES as readonly string[]).includes(requested)) {
-    return null;
-  }
-
-  const parsed: PngArguments = { scenePath, theme: requested as Theme };
-  for (const name of ['--css', '--ink', '--paper', '--muted', '--font'] as const) {
-    const value = flags[name];
-    if (value !== undefined) {
-      parsed[name.slice(2) as 'css' | 'ink' | 'paper' | 'muted' | 'font'] = value;
-    }
-  }
-  return parsed;
+  return { ...values, theme, scenePath };
 }
 
 type LoadedScene = { ok: true; value: Scene } | { ok: false; exitCode: number };
@@ -219,7 +219,7 @@ export function svgPathFor(scenePath: string): string {
 }
 
 /** `<name>.<theme>.png` beside the Scene: `sketch.json --theme dark` gives `sketch.dark.png`. */
-export function pngPathFor(scenePath: string, theme: Theme): string {
+function pngPathFor(scenePath: string, theme: Theme): string {
   return resolve(dirname(scenePath), `${stemOf(scenePath)}.${theme}.png`);
 }
 

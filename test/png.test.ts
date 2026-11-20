@@ -660,6 +660,18 @@ test('a font file with only a signature, or a webfont, exits 5', async () => {
   assert.equal(existsSync(join(folder, 'scene.light.png')), false);
 });
 
+test('--help documents the stylesheet subset', async () => {
+  const folder = await sceneFolder();
+
+  const help = await ez(['--help'], folder);
+
+  assert.equal(help.code, 0);
+  assert.match(help.stdout, /prefers-color-scheme: dark/);
+  assert.match(help.stdout, /:root\.dark/);
+  assert.match(help.stdout, /color-mix\(in srgb/);
+  assert.equal(help.stderr, '');
+});
+
 test('png on an invalid Scene exits 3 and names the Element', async () => {
   const folder = await sceneFolder({
     version: 1,
