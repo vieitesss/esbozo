@@ -838,6 +838,21 @@ test('every path and problem is plain text', async () => {
   assert.match(bad.stderr, /^cannot read font nowhere\.ttf: /);
 });
 
+test('color-mix takes one weight and one bare colour, as documented', async () => {
+  const folder = await sceneFolder();
+
+  for (const [css, paper] of [
+    ['bare.css', 'color-mix(in srgb, #ffffff, #000000)'],
+    ['double.css', 'color-mix(in srgb, #ffffff 50%, #000000 50%)'],
+  ] as const) {
+    await writeFile(join(folder, css), `:root { --ink: #003366; --paper: ${paper}; --muted: #777777; }`, 'utf8');
+    const run = await ez(['png', 'scene.json', '--theme', 'light', '--css', css], folder);
+    assert.equal(run.code, 5, css);
+    assert.match(run.stderr, /^stylesheet colour --paper is unresolved: color-mix\(/m, css);
+    assert.equal(existsSync(join(folder, 'scene.light.png')), false, css);
+  }
+});
+
 test('a theme colour written as a color-mix is resolved too', async () => {
   const folder = await sceneFolder();
   await writeFile(

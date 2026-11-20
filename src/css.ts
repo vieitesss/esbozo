@@ -20,8 +20,9 @@
  *   - A `@font-face` rule keeps the scope it is written in: one inside dark
  *     scope is dark's font alone, and the light theme never reads it.
  *   - Values may use `var()` — recursive, with `var(--x, fallback)` — and
- *     `color-mix(in srgb, A p%, B)`, whose operands may themselves be `var()`s.
- *     Parentheses are matched, so nesting works to any depth.
+ *     `color-mix(in srgb, A p%, B)`: `in srgb`, the first operand weighted, the
+ *     second bare. Operands may themselves be `var()`s, and parentheses are
+ *     matched, so nesting works to any depth.
  *   - A colour is `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `rgba()` (comma or
  *     space syntax, percentages allowed) or one of the CSS named colours.
  *     Anything else is reported as unresolved rather than passed to resvg,
@@ -300,26 +301,12 @@ function mixColours(arguments_: string): string | null {
   if (parts.length !== 3 || !/^in\s+srgb$/i.test(parts[0] ?? '')) {
     return null;
   }
-  const first = readWeightedColour(parts[1] ?? '');
-  const second = readWeightedColour(parts[2] ?? '');
+  const first = readMixOperand(parts[1] ?? '', true);
+  const second = readMixOperand(parts[2] ?? '', false);
   if (first === null || second === null) {
     return null;
   }
-  let firstWeight = first.weight;
-  let secondWeight = second.weight;
-  if (firstWeight === null && secondWeight === null) {
-    firstWeight = 50;
-    secondWeight = 50;
-  } else if (firstWeight === null) {
-    firstWeight = 100 - (secondWeight as number);
-  } else if (secondWeight === null) {
-    secondWeight = 100 - firstWeight;
-  }
-  const total = (firstWeight as number) + (secondWeight as number);
-  if (total <= 0) {
-    return null;
-  }
-  const share = (firstWeight as number) / total;
+  const share = first.weight / 100;
   const channel = (a: number, b: number): number => Math.round(a * share + b * (1 - share));
   return colourText({
     r: channel(first.colour.r, second.colour.r),
@@ -329,7 +316,12 @@ function mixColours(arguments_: string): string | null {
   });
 }
 
-function readWeightedColour(text: string): { colour: Rgba; weight: number | null } | null {
+/**
+ * One `color-mix` operand: the first carries the percentage, the second does
+ * not. A weight where the grammar has none, or no weight where it has one, is
+ * not a shape this subset reads.
+ */
+function readMixOperand(text: string, weighted: boolean): { colour: Rgba; weight: number } | null {
   const match = /^(.*?)(?:\s+([\d.]+)%)?$/.exec(text.trim());
   if (match === null) {
     return null;
@@ -338,8 +330,15 @@ function readWeightedColour(text: string): { colour: Rgba; weight: number | null
   if (colour === null) {
     return null;
   }
-  const weight = match[2] === undefined ? null : Number(match[2]);
-  return { colour, weight: weight !== null && Number.isFinite(weight) ? weight : null };
+  const written = match[2];
+  if (written === undefined) {
+    return weighted ? null : { colour, weight: 0 };
+  }
+  const weight = Number(written);
+  if (!weighted || !Number.isFinite(weight)) {
+    return null;
+  }
+  return { colour, weight: Math.min(100, Math.max(0, weight)) };
 }
 
 function readFunctionalColour(body: string): Rgba | null {
