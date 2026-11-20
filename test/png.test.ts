@@ -246,6 +246,8 @@ function hasPixel(png: Png, wanted: (rgba: [number, number, number, number]) => 
 
 const isRed = ([r, g, b]: [number, number, number, number]): boolean => r > 200 && g < 100 && b < 100;
 const isGreen = ([r, g, b]: [number, number, number, number]): boolean => g > 200 && r < 100 && b < 100;
+const isInk = ([r, g, b]: [number, number, number, number]): boolean =>
+  r < 0x80 && g < 0x80 && b < 0x80;
 
 test('png --theme light writes a PNG beside the Scene and prints its path', async () => {
   const folder = await sceneFolder();
@@ -323,6 +325,59 @@ test('a grey fill mixes rgb() and named inks into the paper', async () => {
       folder,
     );
     assert.deepEqual(png.pixel(100, 80), [255, 158, 158, 255], `ink ${ink}`);
+  }
+});
+
+test('a dashed or dotted Snap reaches its target as ink, not bare paper', async () => {
+  // An architect (roughness 0) extra-width line from (0,50) to a thin, solid box
+  // at x=119. The page is padded 16px left and up, so Scene x lands on pixel
+  // x + 16 and the contact point x=119 is pixel 135: the four pixels before it
+  // are the end of the shaft, and bare paper there is a stroke that stopped
+  // short.
+  const contact = 135;
+  const y = 66;
+
+  for (const style of ['dashed', 'dotted'] as const) {
+    const folder = await sceneFolder({
+      version: 1,
+      defaults: { roughness: 0 },
+      elements: [
+        {
+          id: 'box',
+          type: 'rectangle',
+          x: 119,
+          y: 0,
+          width: 100,
+          height: 100,
+          fill: { kind: 'none' },
+          stroke: { width: 'thin', style: 'solid' },
+        },
+        {
+          id: 'line',
+          type: 'line',
+          points: [
+            { x: 0, y: 50 },
+            { x: 0, y: 50, snap: 'box' },
+          ],
+          stroke: { width: 'extra', style },
+        },
+      ],
+    });
+
+    const { png } = await pngOne(['png', 'scene.json', '--theme', 'light'], folder);
+
+    for (let x = contact - 4; x < contact; x += 1) {
+      const rgba = png.pixel(x, y);
+      assert.ok(isInk(rgba), `${style}: pixel ${x} reaches the contact, got ${rgba}`);
+    }
+    const shaft: [number, number, number, number][] = [];
+    for (let x = 20; x < contact - 8; x += 1) {
+      shaft.push(png.pixel(x, y));
+    }
+    assert.ok(
+      shaft.some((rgba) => !isInk(rgba)),
+      `${style}: the shaft keeps its ${style} gaps instead of turning solid`,
+    );
   }
 });
 

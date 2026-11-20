@@ -21,6 +21,8 @@
  * A Snapped arrow or line end is resolved against its target's outline here
  * (`geometry.ts` does the maths), and its head sits on that end pointing along
  * the arrow, into the target.
+ * A dashed or dotted shaft fits its dash pattern to the length it draws, so a
+ * stroke that ends on an outline ends on a dash rather than on bare paper.
  */
 import { RoughGenerator } from 'roughjs/bin/generator.js';
 import type { Options, PathInfo } from 'roughjs/bin/core.js';
@@ -313,7 +315,11 @@ function renderArrowOrLine(element: ArrowOrLineElement, byId: Map<string, Elemen
   const [start, end] = arrowOrLinePoints(element, byId);
   const width = STROKE_WIDTH_PX[element.stroke.width];
   const colour = element.tone === 'muted' ? MUTED : INK;
-  const dash = strokeDash(width, element.stroke.style);
+  const dash = fittedDash(
+    width,
+    element.stroke.style,
+    Math.hypot(end.x - start.x, end.y - start.y),
+  );
   const paths: string[] = [];
 
   const lineOptions: Options = {
@@ -502,6 +508,42 @@ function strokeDash(width: number, style: Element['stroke']['style']): string {
     return ` stroke-dasharray="${formatNumber(width * 3)} ${formatNumber(width * 3)}"`;
   }
   return ` stroke-dasharray="${formatNumber(width)} ${formatNumber(width * 2)}"`;
+}
+
+/**
+ * The dash pattern of an arrow or line shaft, fitted to the length it draws, so
+ * the stroke begins and ends on a dash. A Snapped end must reach its target's
+ * outline, and a pattern cut off mid-gap stops short of it and leaves bare
+ * paper. Whole periods fit between the first dash and the last, and the gap is
+ * stretched or squeezed to take up the rest; a shaft too short for a dash, a
+ * gap and another dash draws as one dash instead of a pattern that misses its
+ * end.
+ */
+function fittedDash(
+  width: number,
+  style: Element['stroke']['style'],
+  length: number,
+): string {
+  if (style === 'solid') {
+    return '';
+  }
+  const [dash, gap] = style === 'dashed' ? [width * 3, width * 3] : [width, width * 2];
+  const turns = (length - dash) / (dash + gap);
+  let fitted = 0;
+  let drift = Number.POSITIVE_INFINITY;
+  for (const periods of [Math.floor(turns), Math.ceil(turns)]) {
+    const candidate = (length - dash) / periods - dash;
+    if (periods < 1 || candidate <= 0 || Math.abs(candidate - gap) >= drift) {
+      continue;
+    }
+    fitted = candidate;
+    drift = Math.abs(candidate - gap);
+  }
+  if (fitted === 0) {
+    // Too short for two dashes and a gap: one dash across the whole shaft.
+    return ` stroke-dasharray="${formatNumber(length)}"`;
+  }
+  return ` stroke-dasharray="${formatNumber(dash)} ${formatNumber(fitted)}"`;
 }
 
 /**
