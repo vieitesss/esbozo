@@ -601,7 +601,7 @@ function renderBlock(block: Block | null, colour: string): string {
  * 6 is solid ink; the steps between are opaque colours, so two overlapping
  * fills keep one grey and a host backdrop never shows through.
  */
-function greyColour(grey: number): string {
+export function greyColour(grey: number): string {
   const percent = GREY_INK_PERCENT[grey] ?? 0;
   if (percent === 0) {
     return PAPER;
