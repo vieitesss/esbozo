@@ -100,6 +100,11 @@ function renderElement(element: Element): string {
     element.height,
   ];
   const strokeColour = element.tone === 'muted' ? MUTED : INK;
+  const commonOptions: Options = {
+    seed: element.seed,
+    roughness: element.roughness,
+    strokeWidth: element.stroke.width,
+  };
   const paths: string[] = [];
 
   if (element.fill.kind !== 'none') {
@@ -111,13 +116,11 @@ function renderElement(element: Element): string {
         : element.fill.grey;
     const colour = greyColour(grey);
     const options: Options = {
+      ...commonOptions,
       stroke: 'none',
       fill: colour,
       fillStyle: element.fill.kind === 'solid' ? 'solid' : 'hachure',
       fillWeight: Math.max(1, element.stroke.width / 2),
-      roughness: element.roughness,
-      seed: element.seed,
-      strokeWidth: element.stroke.width,
     };
     for (const path of generator.toPaths(generator.rectangle(...geometry, options))) {
       if (path.fill !== 'none') {
@@ -131,12 +134,7 @@ function renderElement(element: Element): string {
     }
   }
 
-  const outlineOptions: Options = {
-    stroke: strokeColour,
-    strokeWidth: element.stroke.width,
-    roughness: element.roughness,
-    seed: element.seed,
-  };
+  const outlineOptions: Options = { ...commonOptions, stroke: strokeColour };
   const dash = strokeDash(element.stroke.width, element.stroke.style);
   for (const path of generator.toPaths(generator.rectangle(...geometry, outlineOptions))) {
     paths.push(
@@ -177,6 +175,8 @@ function strokeDash(width: number, style: Element['stroke']['style']): string {
 /**
  * Rough.js emits full float precision. Two decimals is plenty for a hand-drawn
  * path and keeps the SVG small; the rounding is exact, so runs stay identical.
+ * Rough.js's fixed-decimal conversion rounds tiny exponent-form coordinates to
+ * zero instead of rounding their mantissas, which would change SVG bytes.
  */
 function pathData(d: string): string {
   return d.replace(/-?\d+(?:\.\d+)?/g, (token) => formatNumber(Number(token)));
