@@ -7,8 +7,8 @@
  * folder only changes what the Scenes note lists: the open Scene keeps its own
  * `{ folder, name }` destination.
  */
-import { renderScene } from '../renderer.js';
-import { emptyScene, parseScene, serialiseScene } from '../scene.js';
+import { elementsById, renderScene } from '../renderer.js';
+import { emptyScene, isOutlined, parseScene, serialiseScene } from '../scene.js';
 import type { Element as SceneElement, Scene } from '../scene.js';
 import { sceneStem } from '../paths.js';
 import { pickFolder } from './files.js';
@@ -22,6 +22,8 @@ import {
   elementsInBox,
   fittedView,
   handlePoint,
+  moved,
+  resized,
   resizedBox,
   toScene,
   zoomedAt,
@@ -46,7 +48,7 @@ interface SaveTarget {
 
 type Drag =
   | { kind: 'pan'; fromScreen: Point; start: View }
-  | { kind: 'move'; from: Point; origins: Map<string, Point>; before: string }
+  | { kind: 'move'; from: Point; origins: Map<string, SceneElement>; before: string }
   | { kind: 'resize'; id: string; handle: Handle; origin: Box; from: Point; before: string }
   | { kind: 'box'; from: Point; to: Point; additive: boolean };
 
@@ -324,7 +326,8 @@ export class EsbozoEditorElement extends HTMLElement {
     const overlay = this.#overlay;
     overlay.replaceChildren();
     const selected = this.#selectedElements();
-    const box = boxOf(selected);
+    const first = selected[0];
+    const box = boxOf(selected, elementsById(this.#scene.elements));
     if (box !== null) {
       const padding = SELECTION_PADDING / this.#view.zoom;
       this.#appendRect(overlay, {
@@ -334,7 +337,7 @@ export class EsbozoEditorElement extends HTMLElement {
         height: box.height + padding * 2,
         class: 'selection',
       });
-      if (selected.length === 1) {
+      if (selected.length === 1 && first !== undefined && isOutlined(first)) {
         for (const handle of HANDLES) {
           const point = handlePoint(box, handle);
           const size = HANDLE_SIZE / this.#view.zoom;
@@ -346,7 +349,7 @@ export class EsbozoEditorElement extends HTMLElement {
             class: `handle handle-${handle}`,
           });
           node.setAttribute('data-handle', handle);
-          node.setAttribute('data-element', selected[0]!.id);
+          node.setAttribute('data-element', first.id);
         }
       }
     }
@@ -416,12 +419,12 @@ export class EsbozoEditorElement extends HTMLElement {
     if (handle !== null) {
       const id = handle.getAttribute('data-element') ?? '';
       const element = this.#scene.elements.find((candidate) => candidate.id === id);
-      if (element !== undefined) {
+      if (element !== undefined && isOutlined(element)) {
         this.#drag = {
           kind: 'resize',
           id,
           handle: handle.getAttribute('data-handle') as Handle,
-          origin: boxOfElement(element),
+          origin: boxOfElement(element, elementsById(this.#scene.elements)),
           from: this.#scenePoint(event),
           before: serialiseScene(this.#scene),
         };
@@ -439,7 +442,7 @@ export class EsbozoEditorElement extends HTMLElement {
       } else if (!this.#selected.includes(hit.id)) {
         this.#selected = [hit.id];
       }
-      const origins = new Map(this.#selectedElements().map((element) => [element.id, { x: element.x, y: element.y }]));
+      const origins = new Map(this.#selectedElements().map((element) => [element.id, element]));
       this.#drag = { kind: 'move', from: point, origins, before: serialiseScene(this.#scene) };
       this.#paint();
       return;
@@ -477,23 +480,20 @@ export class EsbozoEditorElement extends HTMLElement {
     const dx = point.x - drag.from.x;
     const dy = point.y - drag.from.y;
     if (drag.kind === 'move') {
-      for (const element of this.#scene.elements) {
-        const origin = drag.origins.get(element.id);
-        if (origin !== undefined) {
-          element.x = origin.x + dx;
-          element.y = origin.y + dy;
-        }
-      }
+      const origins = drag.origins;
+      this.#scene.elements = this.#scene.elements.map((element) => {
+        const origin = origins.get(element.id);
+        return origin === undefined ? element : moved(origin, dx, dy);
+      });
     } else {
       const element = this.#scene.elements.find((candidate) => candidate.id === drag.id);
       if (element === undefined) {
         return;
       }
       const box = resizedBox(drag.origin, drag.handle, dx, dy);
-      element.x = box.x;
-      element.y = box.y;
-      element.width = box.width;
-      element.height = box.height;
+      this.#scene.elements = this.#scene.elements.map((candidate) =>
+        candidate.id === drag.id ? resized(element, box) : candidate,
+      );
     }
     this.#paint();
   };
@@ -605,14 +605,13 @@ export class EsbozoEditorElement extends HTMLElement {
   };
 
   #nudge(dx: number, dy: number): void {
-    const selected = this.#selectedElements();
-    if (selected.length === 0) {
+    const selected = new Set(this.#selected);
+    if (selected.size === 0) {
       return;
     }
-    for (const element of selected) {
-      element.x += dx;
-      element.y += dy;
-    }
+    this.#scene.elements = this.#scene.elements.map((element) =>
+      selected.has(element.id) ? moved(element, dx, dy) : element,
+    );
     this.#paint();
     void this.#save();
   }

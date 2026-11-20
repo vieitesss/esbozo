@@ -1,8 +1,15 @@
 /**
- * The editing maths behind the editor: boxes, hit testing, resize and the
- * viewport transform. Pure functions over plain values, so the same code serves
- * the pointer handlers and the tests.
+ * The editing maths behind the editor: boxes, hit testing, moves, resizes and
+ * the viewport transform. Pure functions over plain values, so the same code
+ * serves the pointer handlers and the tests.
+ *
+ * Where an Element is comes from the Renderer (`elementBounds`, `pageBounds`),
+ * so the editor and a drawn page can never disagree. Hit testing and box-select
+ * work on those boxes for every Element type; a diagonal arrow's empty corner is
+ * part of its box until a later ticket gives the pointer a real outline pick.
  */
+import { elementBounds, elementsById, pageBounds } from '../renderer.js';
+import { isOutlined } from '../scene.js';
 import type { Element, Scene } from '../scene.js';
 
 export interface Point {
@@ -23,12 +30,13 @@ export type Handle = (typeof HANDLES)[number];
 
 export const MIN_SIZE = 1;
 
-export function boxOfElement(element: Element): Box {
-  return { x: element.x, y: element.y, width: element.width, height: element.height };
+/** The box an Element covers, as the Renderer draws it. */
+export function boxOfElement(element: Element, byId: ReadonlyMap<string, Element>): Box {
+  return elementBounds(element, byId);
 }
 
 /** The box around every given Element, or null when there is none. */
-export function boxOf(elements: readonly Element[]): Box | null {
+export function boxOf(elements: readonly Element[], byId: ReadonlyMap<string, Element>): Box | null {
   if (elements.length === 0) {
     return null;
   }
@@ -37,23 +45,26 @@ export function boxOf(elements: readonly Element[]): Box | null {
   let right = Number.NEGATIVE_INFINITY;
   let bottom = Number.NEGATIVE_INFINITY;
   for (const element of elements) {
-    left = Math.min(left, element.x);
-    top = Math.min(top, element.y);
-    right = Math.max(right, element.x + element.width);
-    bottom = Math.max(bottom, element.y + element.height);
+    const box = boxOfElement(element, byId);
+    left = Math.min(left, box.x);
+    top = Math.min(top, box.y);
+    right = Math.max(right, box.x + box.width);
+    bottom = Math.max(bottom, box.y + box.height);
   }
   return { x: left, y: top, width: right - left, height: bottom - top };
 }
 
 /** The topmost Element under a point: list order is layer order. */
 export function elementAt(elements: readonly Element[], point: Point): Element | null {
+  const byId = elementsById(elements);
   for (let index = elements.length - 1; index >= 0; index--) {
     const element = elements[index]!;
+    const box = boxOfElement(element, byId);
     if (
-      point.x >= element.x &&
-      point.x <= element.x + element.width &&
-      point.y >= element.y &&
-      point.y <= element.y + element.height
+      point.x >= box.x &&
+      point.x <= box.x + box.width &&
+      point.y >= box.y &&
+      point.y <= box.y + box.height
     ) {
       return element;
     }
@@ -63,8 +74,9 @@ export function elementAt(elements: readonly Element[], point: Point): Element |
 
 /** Every Element the box fully encloses: a box sweeps up only what is inside it. */
 export function elementsInBox(elements: readonly Element[], box: Box): Element[] {
+  const byId = elementsById(elements);
   return elements.filter((element) => {
-    const other = boxOfElement(element);
+    const other = boxOfElement(element, byId);
     return (
       other.x >= box.x &&
       other.y >= box.y &&
@@ -72,6 +84,33 @@ export function elementsInBox(elements: readonly Element[], box: Box): Element[]
       other.y + other.height <= box.y + box.height
     );
   });
+}
+
+/** An Element moved by a delta: box-like ones by their origin, arrows and lines by both ends. */
+export function moved(element: Element, dx: number, dy: number): Element {
+  if (element.type === 'arrow' || element.type === 'line') {
+    const [start, end] = element.points;
+    return {
+      ...element,
+      points: [
+        { ...start, x: start.x + dx, y: start.y + dy },
+        { ...end, x: end.x + dx, y: end.y + dy },
+      ],
+    };
+  }
+  return { ...element, x: element.x + dx, y: element.y + dy };
+}
+
+/**
+ * An Element resized to a box. Only an outlined Element carries a width and a
+ * height; Text is measured by the Renderer and an arrow or line by its ends, so
+ * resizing them is not defined yet and the handles do not appear for them.
+ */
+export function resized(element: Element, box: Box): Element {
+  if (!isOutlined(element)) {
+    return element;
+  }
+  return { ...element, x: box.x, y: box.y, width: box.width, height: box.height };
 }
 
 /** The box dragged between two points, in any direction. */
@@ -159,15 +198,12 @@ export function zoomedAt(view: View, factor: number, screenX: number, screenY: n
   };
 }
 
-/** A view that shows the Scene's Elements centred in the viewport. */
+/** A view that shows the page the Renderer draws, centred in the viewport. */
 export function fittedView(
-  scene: Pick<Scene, 'elements'>,
+  scene: Scene,
   viewport: { width: number; height: number },
 ): View {
-  const box = boxOf(scene.elements);
-  if (box === null) {
-    return { zoom: 1, panX: viewport.width / 2 - 160, panY: viewport.height / 2 - 120 };
-  }
+  const box = pageBounds(scene);
   const margin = 80;
   const zoom = clampZoom(
     Math.min(

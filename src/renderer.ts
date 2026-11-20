@@ -81,8 +81,8 @@ const TEXT_CHAR_WIDTH = 0.55;
 export function renderScene(scene: Scene): string {
   const canonical = canonicalScene(scene);
   const hash = hashScene(canonical);
-  const byId = new Map(canonical.elements.map((element) => [element.id, element]));
-  const page = pageBounds(canonical, byId);
+  const byId = elementsById(canonical.elements);
+  const page = pageBounds(canonical);
   const body = canonical.elements.map((element) => renderElement(element, byId)).join('');
 
   return [
@@ -96,17 +96,29 @@ export function renderScene(scene: Scene): string {
   ].join('\n');
 }
 
-interface Page {
+/** A box in Scene units: what an Element covers, and what a page shows. */
+export interface Box {
   x: number;
   y: number;
   width: number;
   height: number;
 }
 
-function pageBounds(scene: Scene, byId: Map<string, Element>): Page {
+/** Every Element by id, so a Snapped arrow or line end resolves its target. */
+export function elementsById(elements: readonly Element[]): Map<string, Element> {
+  return new Map(elements.map((element) => [element.id, element]));
+}
+
+/**
+ * The page a Scene occupies: the box around every Element, padded, or the empty
+ * page when there are none. Exported so a host fits the page the Renderer draws,
+ * not a second copy of the same arithmetic.
+ */
+export function pageBounds(scene: Scene): Box {
   if (scene.elements.length === 0) {
     return { x: 0, y: 0, ...EMPTY_PAGE };
   }
+  const byId = elementsById(scene.elements);
   let left = Number.POSITIVE_INFINITY;
   let top = Number.POSITIVE_INFINITY;
   let right = Number.NEGATIVE_INFINITY;
@@ -128,14 +140,8 @@ function pageBounds(scene: Scene, byId: Map<string, Element>): Page {
   };
 }
 
-interface Box {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-function elementBounds(element: Element, byId: Map<string, Element>): Box {
+/** The box an Element covers: what the editor hit-tests, selects and moves. */
+export function elementBounds(element: Element, byId: ReadonlyMap<string, Element>): Box {
   switch (element.type) {
     case 'arrow':
     case 'line': {
@@ -410,7 +416,7 @@ function headPaths(
  */
 function arrowOrLinePoints(
   element: ArrowOrLineElement,
-  byId: Map<string, Element>,
+  byId: ReadonlyMap<string, Element>,
 ): [Point, Point] {
   const [start, end] = element.points;
   const startTarget = snapTarget(element, start, byId);
@@ -448,7 +454,7 @@ function runsAgainst(from: Point, to: Point, fromCentre: Point, toCentre: Point)
 function snapTarget(
   element: ArrowOrLineElement,
   point: Point,
-  byId: Map<string, Element>,
+  byId: ReadonlyMap<string, Element>,
 ): OutlinedElement | undefined {
   if (point.snap === undefined) {
     return undefined;

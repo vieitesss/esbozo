@@ -45,7 +45,7 @@ export const SCENE = {
       height: 100,
       tone: 'muted',
       fill: { kind: 'solid', grey: 4 },
-      stroke: { width: 2, style: 'dashed' },
+      stroke: { width: 'bold', style: 'dashed' },
     },
   ],
 };
@@ -54,14 +54,14 @@ export const SCENE = {
 export const POSTER_SCENE = {
   version: 1,
   title: 'esbozo',
-  defaults: { roughness: 1, stroke: { width: 2, style: 'solid' } },
+  defaults: { roughness: 1, stroke: { width: 'bold', style: 'solid' } },
   elements: [
-    { id: 'note', type: 'rectangle', x: 40, y: 40, width: 380, height: 60, fill: { kind: 'none' }, stroke: { width: 1 } },
+    { id: 'note', type: 'rectangle', x: 40, y: 40, width: 380, height: 60, fill: { kind: 'none' }, stroke: { width: 'thin' } },
     { id: 'web', type: 'rectangle', x: 60, y: 150, width: 220, height: 130, fill: { kind: 'hachure', grey: 2 } },
     { id: 'agent', type: 'rectangle', x: 380, y: 150, width: 220, height: 130, fill: { kind: 'solid', grey: 4 }, tone: 'muted' },
     { id: 'scene', type: 'rectangle', x: 220, y: 330, width: 240, height: 120, fill: { kind: 'hachure', grey: 4 } },
-    { id: 'ink', type: 'rectangle', x: 60, y: 330, width: 120, height: 120, fill: { kind: 'solid', grey: 6 }, stroke: { width: 4 } },
-    { id: 'pencil', type: 'rectangle', x: 500, y: 330, width: 100, height: 120, fill: { kind: 'none' }, stroke: { width: 2, style: 'dashed' } }
+    { id: 'ink', type: 'rectangle', x: 60, y: 330, width: 120, height: 120, fill: { kind: 'solid', grey: 6 }, stroke: { width: 'extra' } },
+    { id: 'pencil', type: 'rectangle', x: 500, y: 330, width: 100, height: 120, fill: { kind: 'none' }, stroke: { width: 'bold', style: 'dashed' } }
   ],
 };
 
