@@ -15,14 +15,17 @@ import {
   MIXED,
   MIXED_SCENE,
   SCENE,
+  allowWrites,
   at,
   browseFolder,
   clickScene,
   drag,
   dragBy,
   expectSvgMatchesCli,
+  holdWrites,
   openEditor,
   openNewScene,
+  releaseWrite,
   savedFiles,
   savedScene,
 } from './helpers.js';
@@ -325,6 +328,57 @@ test('browsing another folder never moves where the open Scene saves', async ({ 
   expect(browsed.title).toBe('B copy');
   expect(browsed.elements.find((element) => element.id === 'a')?.x).toBe(40);
   expect((await savedFiles(page, 'B'))['same.svg']).toBeUndefined();
+});
+
+test('reopening a Scene waits for the save already in flight', async ({ page }) => {
+  await openEditor(page, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+  // The disk goes quiet with the first edit still unwritten.
+  await holdWrites(page, 'scene.json');
+  await clickScene(page, { x: 100, y: 80 });
+  await page.keyboard.press('Shift+ArrowRight');
+  await expect(page.getByRole('status')).toHaveText('saving…');
+
+  // Reopening the same file from the note waits for that write to land.
+  await browseFolder(page, 'A');
+  await page.getByRole('button', { name: 'scene.json', exact: true }).click();
+  await releaseWrite(page);
+  await allowWrites(page);
+  await expect(page.getByRole('status')).toHaveText('saved');
+
+  // The reopened Scene carries the first nudge (x 50), so the second reaches 60.
+  await clickScene(page, { x: 100, y: 80 });
+  await page.keyboard.press('Shift+ArrowRight');
+  const scene = await savedScene(page);
+  expect(scene.elements.find((element) => element.id === 'a')?.x).toBe(60);
+});
+
+test('the status says saved only for the bytes that are on disk', async ({ page }) => {
+  await openEditor(page, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+  await holdWrites(page, 'scene.json');
+
+  await clickScene(page, { x: 100, y: 80 });
+  await page.keyboard.press('Shift+ArrowRight');
+  await page.keyboard.press('Shift+ArrowRight');
+
+  // The first write lands (x 50) while the edit that made it stale (x 60) is
+  // still queued: the newest bytes are not on disk, so nothing is "saved".
+  await releaseWrite(page);
+  await expect
+    .poll(async () => {
+      const files = await savedFiles(page);
+      const scene = JSON.parse(files['scene.json'] ?? '{}') as {
+        elements: Array<{ id: string; x?: number }>;
+      };
+      return scene.elements.find((element) => element.id === 'a')?.x;
+    })
+    .toBe(50);
+  await expect(page.getByRole('status')).toHaveText('saving…');
+
+  await releaseWrite(page);
+  await allowWrites(page);
+  const scene = await savedScene(page);
+  expect(scene.elements.find((element) => element.id === 'a')?.x).toBe(60);
 });
 
 test('the page serves the hand font itself and nothing from a font CDN', async ({ page }) => {

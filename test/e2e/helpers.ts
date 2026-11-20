@@ -153,6 +153,37 @@ export const FOLDER = 'A';
 interface Stub {
   __esbozoFolders: Folders;
   __esbozoPicks: string[];
+  __esbozoGate?: ((name: string) => Promise<void>) | null;
+  __esbozoGates?: Array<() => void>;
+}
+
+/** Hold every write to `name` open, so a test can see the disk stay busy. */
+export async function holdWrites(page: Page, name: string): Promise<void> {
+  await page.evaluate((fileName) => {
+    const window_ = window as unknown as Stub;
+    window_.__esbozoGates = [];
+    window_.__esbozoGate = (written) =>
+      written === fileName
+        ? new Promise<void>((resolve) => window_.__esbozoGates!.push(resolve))
+        : Promise.resolve();
+  }, name);
+}
+
+/** Let the write that is waiting on the gate land. */
+export async function releaseWrite(page: Page): Promise<void> {
+  await page.waitForFunction(
+    () => ((window as unknown as Stub).__esbozoGates?.length ?? 0) > 0,
+  );
+  await page.evaluate(() => {
+    (window as unknown as Stub).__esbozoGates!.shift()!();
+  });
+}
+
+/** Stop holding writes: everything the editor writes lands at once. */
+export async function allowWrites(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    (window as unknown as Stub).__esbozoGate = null;
+  });
 }
 
 /** Open the built page with the stubbed folders ready to be picked. */

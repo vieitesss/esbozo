@@ -176,8 +176,10 @@ export class EsbozoEditorElement extends HTMLElement {
   }
 
   /**
-   * Open a Scene by name. A file that is not there opens as an empty Scene, and
-   * both files are written straight away so the folder and the page agree.
+   * Open a Scene by name. Writes the current Scene already queued land first,
+   * so a reopen reads the edit it just made instead of the bytes before it. A
+   * file that is not there opens as an empty Scene, and both files are written
+   * straight away so the folder and the page agree.
    */
   async #openScene(name: string): Promise<void> {
     const folder = this.#browsed;
@@ -185,6 +187,7 @@ export class EsbozoEditorElement extends HTMLElement {
       this.#setSaved('failed', 'open a folder first');
       return;
     }
+    await this.#saveQueue;
     let source: string | null;
     try {
       source = await folder.read(name);
@@ -209,7 +212,11 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#setSaved('saved');
   }
 
-  /** Write the Scene and the SVG beside it, in the folder the Scene came from. */
+  /**
+   * Write the Scene and the SVG beside it, in the folder the Scene came from.
+   * Writes land in order, and the status says `saved` only for the last one
+   * queued, so it never claims a Scene that a newer edit has overtaken.
+   */
   async #save(): Promise<void> {
     const target = this.#target;
     if (target === null) {
@@ -218,15 +225,18 @@ export class EsbozoEditorElement extends HTMLElement {
     const sceneSource = serialiseScene(this.#scene);
     const svgSource = renderScene(this.#scene);
     this.#setSaved('saving');
-    this.#saveQueue = this.#saveQueue.then(async () => {
+    const writing = this.#saveQueue.then(async () => {
       try {
         await target.folder.write(target.name, sceneSource, svgSource);
-        this.#setSaved('saved');
+        if (this.#saveQueue === writing) {
+          this.#setSaved('saved');
+        }
       } catch (error) {
         this.#setSaved('failed', (error as Error).message);
       }
     });
-    await this.#saveQueue;
+    this.#saveQueue = writing;
+    await writing;
   }
 
   /** Toggle the dot Grid, as `G` does. */

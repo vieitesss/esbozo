@@ -9,7 +9,8 @@
  * repeats, which keeps a second pick of the same folder possible.
  *
  * Nothing in the editor knows about it: it is the same `showDirectoryPicker`,
- * directory handle and writable path a browser gives.
+ * directory handle and writable path a browser gives. `window.__esbozoGate` can
+ * hold a write open, so a test sees what the editor does while the disk is busy.
  */
 (() => {
   const folders = () => {
@@ -55,6 +56,10 @@
           buffer += typeof data === 'string' ? data : new TextDecoder().decode(data);
         },
         async close() {
+          const gate = window.__esbozoGate;
+          if (typeof gate === 'function') {
+            await gate(name);
+          }
           filesIn(folder)[name] = buffer;
         },
       };
