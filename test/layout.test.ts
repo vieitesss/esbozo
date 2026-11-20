@@ -163,7 +163,7 @@ test('a font with tall glyphs overflows a box Kalam fits', () => {
 
   const overflow = tall.overflow(box);
   assert.ok(overflow !== null, 'the tall font does not fit the same room');
-  assert.match(overflow.message, /need [\d.]+px, the text box is 30px tall/);
+  assert.match(overflow.message, /needs 36px, the text box is 30px tall/);
 });
 
 test('free-standing Text breaks where the author wrote, never at a box edge', () => {
