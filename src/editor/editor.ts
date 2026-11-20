@@ -395,7 +395,7 @@ export class EsbozoEditorElement extends HTMLElement {
     if (event.button !== 0 && event.button !== 1) {
       return;
     }
-    this.#capture(event);
+    this.#canvas.setPointerCapture(event.pointerId);
     const target = event.target as Element | null;
     if (this.#spaceDown || event.button === 1) {
       this.#drag = { kind: 'pan', fromScreen: this.#screenPoint(event), start: { ...this.#view } };
@@ -520,14 +520,6 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#view = zoomedAt(this.#view, factor, point.x, point.y);
     this.#paint();
   };
-
-  #capture(event: PointerEvent): void {
-    try {
-      this.#canvas.setPointerCapture(event.pointerId);
-    } catch {
-      // Synthetic pointers in tests have no capture to take.
-    }
-  }
 
   // ----------------------------------------------------------------- keyboard
 
