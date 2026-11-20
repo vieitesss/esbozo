@@ -14,15 +14,9 @@
  * pointer and the keys, so it is exercised through the same path a person uses.
  */
 import { renderScene } from '../renderer.js';
-import {
-  DEFAULT_STYLE,
-  DEFAULT_TITLE,
-  SCENE_VERSION,
-  parseScene,
-  serialiseScene,
-  wholePixels,
-} from '../scene.js';
+import { emptyScene, parseScene, serialiseScene } from '../scene.js';
 import type { Element as SceneElement, Scene } from '../scene.js';
+import { sceneStem } from '../paths.js';
 import { pickFolder } from './files.js';
 import type { SceneFolder } from './files.js';
 import {
@@ -63,7 +57,9 @@ const SHELL = `
       <circle class="dot" cx="1" cy="1" r="${DOT_RADIUS}"></circle>
     </pattern>
   </defs>
-  <g class="grid" aria-hidden="true"><rect class="grid-rect"></rect></g>
+  <g class="grid" aria-hidden="true">
+    <rect class="grid-rect" x="-100000" y="-100000" width="200000" height="200000"></rect>
+  </g>
   <g class="viewport">
     <g class="painted"></g>
     <g class="overlay"></g>
@@ -90,7 +86,7 @@ const SHELL = `
 `;
 
 export class EsbozoEditorElement extends HTMLElement {
-  #scene: Scene = emptyScene(DEFAULT_TITLE);
+  #scene: Scene = emptyScene();
   #selected: string[] = [];
   #view: View = { zoom: 1, panX: 0, panY: 0 };
   #grid = true;
@@ -191,7 +187,13 @@ export class EsbozoEditorElement extends HTMLElement {
       this.#setSaved('failed', 'open a folder first');
       return;
     }
-    const source = await folder.read(name);
+    let source: string | null;
+    try {
+      source = await folder.read(name);
+    } catch (error) {
+      this.#setSaved('failed', `cannot read ${name}: ${(error as Error).message}`);
+      return;
+    }
     if (source === null) {
       this.#load(emptyScene(stemOf(name)), name);
       await this.save();
@@ -231,21 +233,17 @@ export class EsbozoEditorElement extends HTMLElement {
   }
 
   /** Toggle the dot Grid, as `G` does. */
-  toggleGrid(): void {
+  #toggleGrid(): void {
     this.#grid = !this.#grid;
     this.querySelector('[data-act="grid"]')!.setAttribute('aria-pressed', String(this.#grid));
     this.#paint();
   }
 
   /** Toggle light and dark, which only swaps the page's CSS variables. */
-  toggleTheme(): void {
+  #toggleTheme(): void {
     const next = document.documentElement.dataset['theme'] === 'dark' ? 'light' : 'dark';
     this.#applyTheme(next);
     this.#paint();
-  }
-
-  get zoom(): number {
-    return this.#view.zoom;
   }
 
   #load(scene: Scene, name: string): void {
@@ -265,24 +263,29 @@ export class EsbozoEditorElement extends HTMLElement {
 
   // ------------------------------------------------------------------ painting
 
+  /**
+   * Pan, zoom and the Grid follow the pointer at once, because they are only
+   * numbers the view group already carries. Repainting the Scene is what costs,
+   * so that waits for the next frame.
+   */
   #paint(): void {
+    this.#applyView();
     if (this.#paintQueued) {
       return;
     }
     this.#paintQueued = true;
     requestAnimationFrame(() => {
       this.#paintQueued = false;
-      this.#paintNow();
+      this.#drawScene();
+      this.#drawOverlay();
     });
   }
 
-  #paintNow(): void {
+  #applyView(): void {
     const { zoom, panX, panY } = this.#view;
     this.#viewport.setAttribute('transform', `translate(${panX} ${panY}) scale(${zoom})`);
     this.#zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
     this.#drawGrid();
-    this.#drawScene();
-    this.#drawOverlay();
   }
 
   /** The dot Grid stays the same size on screen at every zoom. */
@@ -516,7 +519,6 @@ export class EsbozoEditorElement extends HTMLElement {
       return;
     }
     if (drag.kind === 'move' || drag.kind === 'resize') {
-      this.#roundGeometry();
       this.#paint();
       if (serialiseScene(this.#scene) !== drag.before) {
         void this.save();
@@ -525,16 +527,6 @@ export class EsbozoEditorElement extends HTMLElement {
     }
     this.#paint();
   };
-
-  /** A saved Scene holds whole pixels, so the editor settles on them too. */
-  #roundGeometry(): void {
-    for (const element of this.#scene.elements) {
-      element.x = wholePixels(element.x);
-      element.y = wholePixels(element.y);
-      element.width = Math.max(1, wholePixels(element.width));
-      element.height = Math.max(1, wholePixels(element.height));
-    }
-  }
 
   #onWheel = (event: WheelEvent): void => {
     event.preventDefault();
@@ -568,7 +560,7 @@ export class EsbozoEditorElement extends HTMLElement {
       return;
     }
     if (event.key === 'g' || event.key === 'G') {
-      this.toggleGrid();
+      this.#toggleGrid();
       return;
     }
     if (event.key === 'Escape') {
@@ -623,7 +615,6 @@ export class EsbozoEditorElement extends HTMLElement {
       element.x += dx;
       element.y += dy;
     }
-    this.#roundGeometry();
     this.#paint();
     void this.save();
   }
@@ -642,9 +633,9 @@ export class EsbozoEditorElement extends HTMLElement {
     if (action === 'open') {
       void this.openFolder();
     } else if (action === 'grid') {
-      this.toggleGrid();
+      this.#toggleGrid();
     } else if (action === 'theme') {
-      this.toggleTheme();
+      this.#toggleTheme();
     }
   };
 
@@ -729,23 +720,9 @@ export class EsbozoEditorElement extends HTMLElement {
   }
 }
 
-export function emptyScene(title: string): Scene {
-  return {
-    version: SCENE_VERSION,
-    title,
-    defaults: {
-      roughness: DEFAULT_STYLE.roughness,
-      stroke: { ...DEFAULT_STYLE.stroke },
-      fill: { ...DEFAULT_STYLE.fill },
-      tone: DEFAULT_STYLE.tone,
-      corners: DEFAULT_STYLE.corners,
-    },
-    elements: [],
-  };
-}
-
+/** A new Scene takes its title from the file name: `flow.json` opens as "flow". */
 function stemOf(fileName: string): string {
-  return fileName.replace(/\.json$/i, '').replace(/\.esbozo$/i, '') || DEFAULT_TITLE;
+  return sceneStem(fileName) || 'Scene';
 }
 
 function normaliseSceneName(raw: string): string {
