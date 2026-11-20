@@ -33,6 +33,7 @@
  */
 import { readFile, writeFile } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
+import { sceneStem } from './paths.js';
 import { parseScene } from './scene.js';
 import { renderScene } from './renderer.js';
 import { THEMES, renderPng } from './png.js';
@@ -216,16 +217,12 @@ async function loadScene(scenePath: string): Promise<LoadedScene> {
 
 /** `<name>.svg` beside the Scene: only the `.json` suffix is replaced, so `a.esbozo.json` gives `a.esbozo.svg`. */
 export function svgPathFor(scenePath: string): string {
-  return resolve(dirname(scenePath), `${stemOf(scenePath)}.svg`);
+  return resolve(dirname(scenePath), `${sceneStem(basename(scenePath))}.svg`);
 }
 
 /** `<name>.<theme>.png` beside the Scene: `sketch.json --theme dark` gives `sketch.dark.png`. */
 function pngPathFor(scenePath: string, theme: Theme): string {
-  return resolve(dirname(scenePath), `${stemOf(scenePath)}.${theme}.png`);
-}
-
-function stemOf(scenePath: string): string {
-  return basename(scenePath).replace(/\.json$/i, '');
+  return resolve(dirname(scenePath), `${sceneStem(basename(scenePath))}.${theme}.png`);
 }
 
 process.exitCode = await main(process.argv.slice(2));

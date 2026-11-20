@@ -1,11 +1,17 @@
-import { chmod } from 'node:fs/promises';
+/**
+ * Build the two artefacts: the `ez` CLI and the editor page.
+ *
+ * Both share the Scene and the Renderer, and neither needs a node builtin, so
+ * the browser bundle is the same source as the CLI's.
+ */
+import { chmod, copyFile } from 'node:fs/promises';
 import { build } from 'esbuild';
 
-const outfile = 'dist/cli.js';
+const cliOutfile = 'dist/cli.js';
 
 await build({
   entryPoints: ['src/cli.ts'],
-  outfile,
+  outfile: cliOutfile,
   bundle: true,
   platform: 'node',
   format: 'esm',
@@ -15,4 +21,17 @@ await build({
   logLevel: 'info',
 });
 
-await chmod(outfile, 0o755);
+await chmod(cliOutfile, 0o755);
+
+await build({
+  entryPoints: ['src/editor/main.ts'],
+  outfile: 'dist/editor.js',
+  bundle: true,
+  platform: 'browser',
+  format: 'esm',
+  target: 'es2022',
+  logLevel: 'info',
+});
+
+await copyFile('src/editor/editor.css', 'dist/editor.css');
+await copyFile('src/editor/page.html', 'dist/editor.html');
