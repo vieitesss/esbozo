@@ -47,23 +47,33 @@ export interface FontFace {
   url: string;
 }
 
-const LIGHT_ROOT = /^(?::root|html|body)$/i;
+const LIGHT_ROOT = /^(?::root|html)$/i;
+const DARK_ROOT = /^(?::root|html)(?:\.dark|\[data-theme\s*=\s*(?:"dark"|'dark'|dark)\])$/i;
 const DARK_MEDIA = /@media[^{]*prefers-color-scheme\s*:\s*dark/i;
 
-/** The custom properties that apply to `theme`. */
+/**
+ * The custom properties that apply to `theme`. Dark starts from the light
+ * declarations, so a stylesheet that only declares `:root` describes both
+ * themes and a dark block only has to name what changes.
+ */
 export function themeVariables(css: string, theme: Theme): Variables {
-  const tables: Record<Theme, Record<string, string>> = { light: {}, dark: {} };
+  const base: Record<string, string> = {};
+  const dark: Record<string, string> = {};
   eachRule(stripComments(css), (prelude, body, inDarkBlock) => {
     if (prelude.startsWith('@')) {
       return;
     }
-    const target: Theme = inDarkBlock ? 'dark' : 'light';
-    if (target === 'light' && !LIGHT_ROOT.test(prelude)) {
-      return;
+    for (const raw of prelude.split(',')) {
+      const selector = raw.trim();
+      if (!inDarkBlock && LIGHT_ROOT.test(selector)) {
+        assign(base, body);
+      }
+      if (DARK_ROOT.test(selector) || (inDarkBlock && LIGHT_ROOT.test(selector))) {
+        assign(dark, body);
+      }
     }
-    assign(tables[target], body);
   });
-  return tables[theme];
+  return theme === 'dark' ? { ...base, ...dark } : base;
 }
 
 /** Every `@font-face` rule in a stylesheet, in source order. */
@@ -586,11 +596,11 @@ function declarationsOf(body: string): { name: string; value: string }[] {
   return declarations;
 }
 
-/** Adds a block's custom properties to a table, keeping the first declared. */
+/** Adds a block's custom properties to a table; a later declaration wins. */
 function assign(table: Record<string, string>, body: string): void {
   for (const declaration of declarationsOf(body)) {
     if (declaration.name.startsWith('--')) {
-      table[declaration.name] ??= declaration.value;
+      table[declaration.name] = declaration.value;
     }
   }
 }

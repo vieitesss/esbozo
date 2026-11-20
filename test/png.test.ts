@@ -393,6 +393,70 @@ test('--css supplies the colours of each theme', async () => {
   assert.ok(hasPixel(dark.png, ([r, g, b]) => r > 200 && g > 200 && b > 200), 'dark ink is the site ink');
 });
 
+test('the dark theme inherits the base colours and overrides only what it declares', async () => {
+  const folder = await sceneFolder({
+    version: 1,
+    elements: [
+      { id: 'ink', type: 'rectangle', x: 20, y: 20, width: 120, height: 80 },
+      { id: 'muted', type: 'rectangle', x: 200, y: 20, width: 120, height: 80, tone: 'muted', stroke: { width: 8 } },
+    ],
+  });
+  await writeFile(
+    join(folder, 'site.css'),
+    [
+      ':root { --ink: #003366; --paper: #fafafa; --muted: #777777; }',
+      '@media (prefers-color-scheme: dark) {',
+      '  :root { --ink: #e8e8e8; --paper: #101010; }',
+      '}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const light = await pngOne(['png', 'scene.json', '--theme', 'light', '--css', 'site.css'], folder);
+  const dark = await pngOne(['png', 'scene.json', '--theme', 'dark', '--css', 'site.css'], folder);
+
+  assert.deepEqual(light.png.pixel(0, 0), [0xfa, 0xfa, 0xfa, 255]);
+  assert.deepEqual(dark.png.pixel(0, 0), [0x10, 0x10, 0x10, 255]);
+  // --muted is declared once, in the base block, and still applies in dark.
+  assert.ok(hasPixel(dark.png, ([r, g, b]) => r === 0x77 && g === 0x77 && b === 0x77), 'dark keeps the base muted');
+});
+
+test('the dark theme comes from the root scopes, not from any dark selector', async () => {
+  const folder = await sceneFolder();
+  await writeFile(
+    join(folder, 'site.css'),
+    [
+      ':root { --ink: #003366; --paper: #fafafa; --muted: #777777; }',
+      '.dark-card { --paper: #ff0000; --ink: #ff0000; --muted: #ff0000; }',
+      ':root.dark { --ink: #e8e8e8; }',
+      'html[data-theme="dark"] { --paper: #123456; }',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const light = await pngOne(['png', 'scene.json', '--theme', 'light', '--css', 'site.css'], folder);
+  const dark = await pngOne(['png', 'scene.json', '--theme', 'dark', '--css', 'site.css'], folder);
+
+  assert.deepEqual(light.png.pixel(0, 0), [0xfa, 0xfa, 0xfa, 255]);
+  // #123456 from html[data-theme="dark"], never #ff0000 from .dark-card.
+  assert.deepEqual(dark.png.pixel(0, 0), [0x12, 0x34, 0x56, 255]);
+});
+
+test('a later declaration wins over an earlier one', async () => {
+  const folder = await sceneFolder();
+  await writeFile(
+    join(folder, 'site.css'),
+    [':root { --paper: #ff0000; }', ':root { --ink: #003366; --paper: #fafafa; --muted: #777777; }', ''].join('\n'),
+    'utf8',
+  );
+
+  const { png } = await pngOne(['png', 'scene.json', '--theme', 'light', '--css', 'site.css'], folder);
+
+  assert.deepEqual(png.pixel(0, 0), [0xfa, 0xfa, 0xfa, 255]);
+});
+
 test('an explicit colour wins over the stylesheet', async () => {
   const folder = await sceneFolder();
   await writeFile(join(folder, 'site.css'), ':root { --ink: #003366; --paper: #fafafa; --muted: #777777; }', 'utf8');
@@ -428,15 +492,12 @@ test('png without a usable theme exits 2 and explains the usage', async () => {
 test('a stylesheet without a theme colour exits 5 and names what is missing', async () => {
   const folder = await sceneFolder();
   await writeFile(join(folder, 'site.css'), ':root { --ink: #003366; --paper: #fafafa; }', 'utf8');
-  await writeFile(
-    join(folder, 'light-only.css'),
-    ':root { --ink: #003366; --paper: #fafafa; --muted: #777777; }',
-    'utf8',
-  );
+  await writeFile(join(folder, 'ink-only.css'), ':root { --ink: #003366; }', 'utf8');
 
   for (const [css, theme, missing] of [
     ['site.css', 'light', /^stylesheet is missing: --muted$/m],
-    ['light-only.css', 'dark', /^stylesheet is missing: --ink \(dark\), --paper \(dark\), --muted \(dark\)$/m],
+    // Dark inherits the light values, so only the two names nobody declares are missing.
+    ['ink-only.css', 'dark', /^stylesheet is missing: --paper \(dark\), --muted \(dark\)$/m],
   ] as const) {
     const run = await ez(['png', 'scene.json', '--theme', theme, '--css', css], folder);
     assert.equal(run.code, 5, `\`--theme ${theme} --css ${css}\``);
