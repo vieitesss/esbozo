@@ -84,6 +84,9 @@ export const VIEW: View = { zoom: 1, panX: 470, panY: 300 };
 /** The view `MIXED_SCENE` lands in, worked out the same way. */
 export const MIXED: View = { zoom: 1, panX: 440, panY: 205 };
 
+/** The view `POSTER_SCENE` lands in, worked out the same way. */
+export const POSTER: View = { zoom: 1, panX: 320, panY: 155 };
+
 /** A Scene point, as the pointer has to reach it on the page. */
 export function at(point: Point, view: View = VIEW): Point {
   return { x: point.x * view.zoom + view.panX, y: point.y * view.zoom + view.panY };
@@ -173,7 +176,7 @@ export async function savedFiles(page: Page, folder = FOLDER): Promise<Record<st
 
 /** The saved Scene, parsed, once the editor says it saved. */
 export async function savedScene(page: Page, name = 'scene.json', folder = FOLDER): Promise<SavedScene> {
-  await expect(page.locator('.saved')).toHaveText('saved');
+  await expect(page.getByRole('status')).toHaveText('saved');
   const files = await savedFiles(page, folder);
   const source = files[name];
   if (source === undefined) {
@@ -251,7 +254,7 @@ export async function cliRender(scene: unknown): Promise<string> {
 
 /** The editor saved both files, and the SVG is the CLI's own output. */
 export async function expectSvgMatchesCli(page: Page, name = 'scene.json', folder = FOLDER): Promise<void> {
-  await expect(page.locator('.saved')).toHaveText('saved');
+  await expect(page.getByRole('status')).toHaveText('saved');
   const files = await savedFiles(page, folder);
   const svgName = name.replace(/\.json$/i, '.svg');
   const saved = files[svgName];

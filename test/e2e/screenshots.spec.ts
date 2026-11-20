@@ -8,7 +8,7 @@
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from '@playwright/test';
-import { POSTER_SCENE, clickScene, openEditor } from './helpers.js';
+import { POSTER, POSTER_SCENE, clickScene, openEditor } from './helpers.js';
 
 const shots = process.env['ESBOZO_SHOTS'];
 
@@ -19,7 +19,7 @@ test('the editor in light and dark', async ({ page }) => {
   await openEditor(page, folders, 'scene.json');
   await page.evaluate(() => document.fonts.ready);
   // A selection, so the handles and the dashed box are in the picture.
-  await clickScene(page, { x: 170, y: 215 });
+  await clickScene(page, { x: 170, y: 215 }, [], POSTER);
   await page.waitForTimeout(150);
   const folder = shots ?? 'shots';
   await mkdir(folder, { recursive: true });
