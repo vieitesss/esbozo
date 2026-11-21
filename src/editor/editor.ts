@@ -67,6 +67,7 @@ import { railArt, railMarkup } from './rail.js';
 import { attachedTo, endPoint, freedEnd, isShaft, otherEnd, released, targetAt, withEnd } from './snap.js';
 import type { End } from './snap.js';
 import { TextSession } from './text-session.js';
+import type { TextSessionPlace } from './text-session.js';
 import { fieldFor, withoutWords, withWords, wordsOf } from './words.js';
 import { PaintCache, sceneFile } from './paint.js';
 import type { SceneFiles } from './paint.js';
@@ -942,8 +943,10 @@ class EsbozoEditorElement extends HTMLElement {
       if (editing === null) {
         return this.#scene.elements;
       }
+      // The field in front of the page holds the words; the Element under it
+      // only has the room they need, so the page never shows them twice.
       return this.#scene.elements.map((element) =>
-        element.id === editing.id ? editing.element : element,
+        element.id === editing.id ? withoutWords(editing.element) : element,
       );
     }
     if (drag.kind === 'draw') {
@@ -1364,6 +1367,9 @@ class EsbozoEditorElement extends HTMLElement {
   #refresh(): void {
     this.#syncMenu();
     this.#clearOfMenu();
+    // The view may have moved to make room for the note: the words being typed
+    // move with it rather than staying behind on the page.
+    this.#plotField();
     this.#paint();
   }
 
@@ -1398,6 +1404,7 @@ class EsbozoEditorElement extends HTMLElement {
   #changedView(view: View): void {
     this.#view = view;
     this.#clearOfMenu();
+    this.#plotField();
     this.#paint();
   }
 
@@ -1890,12 +1897,8 @@ class EsbozoEditorElement extends HTMLElement {
     }
 
     const point = this.#scenePoint(event);
-    const hit = elementAt(
-      this.#scene.elements,
-      point,
-      PICK_TOLERANCE / this.#view.zoom,
-      this.#layout,
-    );
+    const reach = PICK_TOLERANCE / this.#view.zoom;
+    const hit = elementAt(this.#scene.elements, point, reach, this.#layout);
     if (hit !== null) {
       if (event.shiftKey) {
         this.#selected = this.#selected.includes(hit.id)
@@ -2039,16 +2042,13 @@ class EsbozoEditorElement extends HTMLElement {
   /** A Text is placed: the words are typed where the Text will sit. */
   #openTextInput(at: Point): void {
     this.#setTool('select');
+    const placed = newText(at, '', freshId('text', idsOf(this.#scene.elements)), this.#scene.defaults);
     this.#text = new TextSession({
       host: this,
       name: 'Text',
-      place: {
-        page: toPage(this.#view, at),
-        zoom: this.#view.zoom,
-        fontSize: fontSizePx(this.#scene.defaults.fontSize),
-        wrap: null,
-        align: 'left',
-      },
+      // An empty Text is words, so the Layout still says where its first line
+      // sits and how tall it is: the field opens on that line, not beside it.
+      place: this.#fieldPlace(placed),
       words: '',
       commit: (content) => this.#commitText(at, content),
     });
@@ -2062,22 +2062,20 @@ class EsbozoEditorElement extends HTMLElement {
   #openWords(element: SceneElement): void {
     this.#setTool('select');
     this.#selected = [element.id];
+    // The page paints the Element with the room its words need from the first
+    // frame, not from the first keystroke, so the words are in one place.
+    this.#editing = {
+      id: element.id,
+      element: withWords(element, wordsOf(element), this.#layout),
+    };
     // The note follows the selection, and the view makes room for it before the
     // field is placed: a pan under an open field would leave it behind the words.
     this.#refresh();
-    const field = fieldFor(element, elementsById(this.#scene.elements), this.#layout);
-    this.#editing = { id: element.id, element };
     this.#text = new TextSession({
       host: this,
-      name: field.kind,
-      place: {
-        page: toPage(this.#view, field.at),
-        zoom: this.#view.zoom,
-        fontSize: fontSizePx(element.fontSize),
-        wrap: field.wrap,
-        align: field.align,
-      },
-      words: field.words,
+      name: element.type === 'text' ? 'Text' : 'Label',
+      place: this.#fieldPlace(this.#editing.element),
+      words: wordsOf(element),
       typed: (words) => this.#showWords(element, words),
       commit: (words) => this.#commitWords(element, words),
     });
@@ -2090,11 +2088,36 @@ class EsbozoEditorElement extends HTMLElement {
    * that a change.
    */
   #showWords(element: SceneElement, words: string): void {
-    const grown = withWords(element, words, this.#layout);
-    // The field in front of the page holds the words; the Element under it only
-    // grows for them, so the page never shows them twice.
-    this.#editing = { id: element.id, element: withoutWords(grown) };
+    this.#editing = { id: element.id, element: withWords(element, words, this.#layout) };
+    // The box the field types in is measured from the same grown Element, so a
+    // long word widens the Element and the field at once and stays on one line.
+    this.#plotField();
     this.#paint();
+  }
+
+  /**
+   * Where a field over these words sits: the words' own block from the Layout
+   * the Renderer draws with, in the page pixels the view puts it at.
+   */
+  #fieldPlace(element: SceneElement): TextSessionPlace {
+    const field = fieldFor(element, elementsById(this.#scene.elements), this.#layout);
+    return {
+      page: toPage(this.#view, field.at),
+      zoom: this.#view.zoom,
+      fontSize: fontSizePx(element.fontSize),
+      lineHeight: this.#layout.lineHeight(element.fontSize),
+      wrap: field.wrap,
+      align: field.align,
+    };
+  }
+
+  /** Move the open field to where the words it holds now belong. */
+  #plotField(): void {
+    const editing = this.#editing;
+    if (editing === null || this.#text === null) {
+      return;
+    }
+    this.#text.place(this.#fieldPlace(editing.element));
   }
 
   /**
@@ -2158,6 +2181,7 @@ class EsbozoEditorElement extends HTMLElement {
     }
     this.#applyScene(parsed.scene, { select: [element.id] });
   }
+
 
   #onPointerMove = (event: PointerEvent): void => {
     const drag = this.#drag;

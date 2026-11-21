@@ -108,6 +108,62 @@ export function at(point: Point, view: View = VIEW): Point {
 }
 
 /**
+ * One box whose Label fits it with room to spare, so opening the words on it
+ * changes nothing the Scene draws: the page and the field are two views of the
+ * same two lines, and their ink has to land in the same place.
+ */
+export const WORDS_SCENE = {
+  version: 1,
+  title: 'Words',
+  defaults: { roughness: 1 },
+  elements: [
+    { id: 'box', type: 'rectangle', x: 40, y: 40, width: 200, height: 120, label: 'words that wrap and grow' },
+  ],
+};
+
+/** The view `WORDS_SCENE` lands in, worked out the same way as `VIEW`. */
+export const WORDS: View = { zoom: 1, panX: 508, panY: 308 };
+
+/**
+ * A Label whose outer spaces are the author's, not the editor's: words nobody
+ * touched have to stay exactly as they were written.
+ */
+export const SPACED_SCENE = {
+  version: 1,
+  title: 'Spaced',
+  defaults: { roughness: 1 },
+  elements: [
+    { id: 'box', type: 'rectangle', x: 40, y: 40, width: 200, height: 120, label: '  Hello  ' },
+  ],
+};
+
+/**
+ * A vertical arrow with a Label: the words are ink beside the shaft rather than
+ * on it, so picking them is its own problem, and a widening Label is measured
+ * against a shaft that does not move.
+ */
+export const BESIDE_SCENE = {
+  version: 1,
+  title: 'Beside',
+  defaults: { roughness: 1 },
+  elements: [
+    {
+      id: 'shaft',
+      type: 'arrow',
+      points: [
+        { x: 300, y: 120 },
+        { x: 300, y: 320 },
+      ],
+      heads: { start: 'none', end: 'arrow' },
+      label: 'up',
+    },
+  ],
+};
+
+/** The view `BESIDE_SCENE` lands in, worked out the same way as `VIEW`. */
+export const BESIDE: View = { zoom: 1, panX: 351, panY: 180 };
+
+/**
  * A thick horizontal line, and a diagonal arrow whose bounding box holds a
  * rectangle: the shapes whose boxes lie about where their ink is.
  */
@@ -484,6 +540,25 @@ export const LONG_SCENE = {
 
 /** The view `LONG_SCENE` lands in at 1366×768: the page fitted at the manual floor. */
 export const LONG_1366: View = { zoom: 0.1, panX: -71, panY: 360 };
+
+/**
+ * Three boxes on one row, the two outer ones under where the note docks. The
+ * first click lands on `far`, its selection docks the note and the view pans
+ * clear, which puts `other` where the pointer is for the second click.
+ */
+export const SHIFTED_SCENE = {
+  version: 1,
+  title: 'Shifted',
+  defaults: { roughness: 1 },
+  elements: [
+    { id: 'near', type: 'rectangle', x: 40, y: 40, width: 80, height: 60 },
+    { id: 'far', type: 'rectangle', x: 700, y: 40, width: 120, height: 80 },
+    { id: 'other', type: 'rectangle', x: 820, y: 40, width: 90, height: 80 },
+  ],
+};
+
+/** The view `SHIFTED_SCENE` lands in, worked out the same way as `VIEW`. */
+export const SHIFTED: View = { zoom: 1, panX: 165, panY: 320 };
 
 /**
  * An unlabelled vertical arrow that the note docks over. Its selection box has
@@ -898,6 +973,79 @@ export async function doubleClickScene(
   view: View = VIEW,
 ): Promise<void> {
   await ui.screen.doubleTapAt(at(point, view));
+}
+
+/**
+ * Type the way an input method does, and leave the composition open.
+ *
+ * Chromium delivers a composition as `compositionstart`, the preedit in the
+ * field with every `input` marked composing, and then `compositionend` with the
+ * confirmed words. CDP's `Input.imeSetComposition` is not reachable from a test
+ * in this harness, so those are the events dispatched here, with
+ * `InputEvent.isComposing` set the way the browser sets it: the editor sees the
+ * same events either way.
+ */
+export async function composing(ui: Ui, preedit: string): Promise<void> {
+  await ui.browser.evaluate((text) => {
+    const field = document.activeElement as HTMLTextAreaElement | null;
+    if (field === null || field.tagName !== 'TEXTAREA') {
+      throw new Error('no field has the focus to compose in');
+    }
+    const from = field.value;
+    (field as HTMLTextAreaElement & { composingFrom?: string }).composingFrom = from;
+    field.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: '' }));
+    field.value = from + text;
+    field.setSelectionRange(field.value.length, field.value.length);
+    field.dispatchEvent(
+      new InputEvent('input', {
+        bubbles: true,
+        isComposing: true,
+        data: text,
+        inputType: 'insertCompositionText',
+      }),
+    );
+    return true;
+  }, preedit);
+}
+
+/** Confirm the open composition, as the IME does when the person picks a candidate. */
+export async function confirmComposition(ui: Ui, words: string): Promise<void> {
+  await ui.browser.evaluate((text) => {
+    const field = document.activeElement as
+      | (HTMLTextAreaElement & { composingFrom?: string })
+      | null;
+    if (field === null || field.tagName !== 'TEXTAREA') {
+      throw new Error('no field has a composition to confirm');
+    }
+    const from = field.composingFrom ?? '';
+    field.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: text }));
+    field.value = from + text;
+    field.setSelectionRange(field.value.length, field.value.length);
+    field.dispatchEvent(
+      new InputEvent('input', { bubbles: true, isComposing: false, data: text, inputType: 'insertCompositionText' }),
+    );
+    return true;
+  }, words);
+}
+
+/** Cancel the open composition: the preedit leaves the field and nothing was typed. */
+export async function cancelComposition(ui: Ui): Promise<void> {
+  await ui.browser.evaluate(() => {
+    const field = document.activeElement as
+      | (HTMLTextAreaElement & { composingFrom?: string })
+      | null;
+    if (field === null || field.tagName !== 'TEXTAREA') {
+      throw new Error('no field has a composition to cancel');
+    }
+    const from = field.composingFrom ?? '';
+    field.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '' }));
+    field.value = from;
+    field.setSelectionRange(from.length, from.length);
+    field.dispatchEvent(
+      new InputEvent('input', { bubbles: true, isComposing: false, data: '', inputType: 'deleteCompositionText' }),
+    );
+    return true;
+  });
 }
 
 /** Drag from a Scene point by a page-pixel offset. */

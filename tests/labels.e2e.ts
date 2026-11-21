@@ -9,11 +9,15 @@
 import { describe, test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import {
+  BESIDE,
+  BESIDE_SCENE,
   MIXED,
   MIXED_SCENE,
   OVERFLOW,
   OVERFLOW_SCENE,
   SCENE,
+  WORDS,
+  WORDS_SCENE,
   clickScene,
   cliCheck,
   doubleClickScene,
@@ -21,13 +25,23 @@ import {
   savedFiles,
   savedScene,
 } from './helpers.ts';
+import { shot } from './pixels.ts';
+import type { Rect } from './pixels.ts';
 
 const SCENE_SOURCE = JSON.stringify(SCENE, null, 2);
 const MIXED_SOURCE = JSON.stringify(MIXED_SCENE, null, 2);
 const OVERFLOW_SOURCE = JSON.stringify(OVERFLOW_SCENE, null, 2);
+const WORDS_SOURCE = JSON.stringify(WORDS_SCENE, null, 2);
+const BESIDE_SOURCE = JSON.stringify(BESIDE_SCENE, null, 2);
 
 /** A Label long enough that the box it is typed into has to grow downwards. */
 const LONG_LABEL = 'words that wrap and grow';
+
+/** A single word too wide for the box it is typed into. */
+const LONG_WORD = 'antidisestablishmentarianism';
+
+/** Ink: the ink of a Scene is near black on near white, so half way is the line. */
+const DARK = 0.5;
 
 describe('labels', () => {
   test('double-clicking a box Element types its Label in place, and the Scene keeps the words', async ({
@@ -303,4 +317,58 @@ describe('labels', () => {
     await openEditor(ui, { A: { 'scene.json': OVERFLOW_SOURCE } }, 'scene.json');
     expect((await cliCheck(await savedScene(ui))).code).toBe(6);
   });
+  test('the field writes the words exactly where the Scene draws them', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'words.json': WORDS_SOURCE } }, 'words.json');
+
+    // The box is at page (548, 348) in `WORDS`; its words fit inside it, so the
+    // space between the two views is the ink of the same two lines.
+    const inside: Rect = { x: 556, y: 356, width: 184, height: 104 };
+    const drawn = await shot(ui);
+    const before = drawn.darkCentre(inside, DARK);
+    expect(before.count).toBeGreaterThan(100);
+
+    await doubleClickScene(ui, { x: 100, y: 80 }, WORDS);
+    await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveValue(LONG_LABEL);
+    const typed = await shot(ui);
+    const after = typed.darkCentre(inside, DARK);
+
+    // Same words, same size, same lines, same place: only the painter changed.
+    expect(Math.abs(after.x - before.x)).toBeLessThan(2);
+    expect(Math.abs(after.y - before.y)).toBeLessThan(2);
+    expect(typed.bands(inside, DARK)).toBe(drawn.bands(inside, DARK));
+  });
+
+  test('one long word grows the box and stays on one line while it is typed', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.pressSequentially(LONG_WORD);
+    const typing = await shot(ui);
+    await label.press('Escape');
+
+    // The box grew sideways for the word, so the field did too: the word is on
+    // one line inside an outline that holds it, not five lines spilling out.
+    const box = (await savedScene(ui)).elements[0];
+    expect(box?.width).toBeGreaterThan(200);
+    expect(box?.height).toBe(80);
+    const interior: Rect = {
+      x: 470 + (box?.x ?? 0) + 8,
+      y: 300 + (box?.y ?? 0) + 8,
+      width: (box?.width ?? 0) - 16,
+      height: (box?.height ?? 0) - 16,
+    };
+    expect(typing.bands(interior, DARK)).toBe(1);
+  });
+
 });

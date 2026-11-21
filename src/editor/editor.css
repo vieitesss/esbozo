@@ -254,7 +254,8 @@ esbozo-editor .text-input {
   color: var(--ink);
   caret-color: var(--sel);
   font-family: var(--font-hand);
-  line-height: 1.25;
+  /* the line the words draw on, from the font's own metrics: the editor sets it
+     with the rest of the place, so the field and the Scene share one baseline */
   white-space: pre;
   field-sizing: content;
 }

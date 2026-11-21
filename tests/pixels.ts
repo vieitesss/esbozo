@@ -14,6 +14,12 @@ import { readFile } from 'node:fs/promises';
 import { inflateSync } from 'node:zlib';
 import type { Ui } from './helpers.ts';
 
+/** Dark pixels a row needs before it counts as a row with something written on it. */
+const INK_PER_ROW = 3;
+
+/** Bare rows between two bands of ink: closer than this is one line's descender. */
+const BAND_GAP = 3;
+
 /** A rectangle in page CSS pixels. */
 export interface Rect {
   x: number;
@@ -39,6 +45,12 @@ export interface Shot {
   darkCentre(region: Rect, threshold: number): Centre;
   /** How far the dark pixels of a region reach, or null when it holds none. */
   darkBounds(region: Rect, threshold: number): Rect | null;
+  /**
+   * How many separate bands of ink a region holds: runs of rows dark enough to
+   * be written on, with bare rows between them. One line of words is one band,
+   * whatever the words say.
+   */
+  bands(region: Rect, threshold: number): number;
 }
 
 /** Screenshot the page as it is now. */
@@ -117,6 +129,31 @@ export async function shot(ui: Ui): Promise<Shot> {
       return total === 0
         ? { x: Number.NaN, y: Number.NaN, count: 0 }
         : { x: sumX / total, y: sumY / total, count: total };
+    },
+
+    bands(region, threshold) {
+      // A row is written on when a few of its pixels are dark: a glyph's
+      // crossbar is ink, and the antialiasing either side of it is not.
+      const written = new Map<number, number>();
+      each(region, (_x, y, luminance) => {
+        if (luminance < threshold) {
+          const row = Math.round(y);
+          written.set(row, (written.get(row) ?? 0) + 1);
+        }
+      });
+      const rows = [...written.entries()]
+        .filter(([, count]) => count >= INK_PER_ROW)
+        .map(([row]) => row)
+        .sort((one, other) => one - other);
+      let bands = 0;
+      let previous = Number.NEGATIVE_INFINITY;
+      for (const row of rows) {
+        if (row - previous > BAND_GAP) {
+          bands += 1;
+        }
+        previous = row;
+      }
+      return bands;
     },
   };
 }

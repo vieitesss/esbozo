@@ -1,11 +1,15 @@
 /**
  * The in-place input a Text or a Label is typed into.
  *
- * The words are typed where the words will sit, in the hand font and at the size
- * they draw, so the page never has to guess what they will look like. A Label
- * wraps in the box its Element gives it and the box widens the field to match;
- * a Text and the Label of an arrow or a line never wrap, so their field grows
- * with what is typed instead.
+ * The words are typed where the words sit, in the hand font, at the size they
+ * draw and on the same line they draw on, so the page never has to guess what
+ * they will look like. A Label wraps in the box its Element gives it and the
+ * box widens the field to match; a Text and the Label of an arrow or a line
+ * never wrap, so their field grows with what is typed instead.
+ *
+ * The caller moves and resizes the field as the words change and the view does,
+ * from the Layout the Renderer draws with, so what is typed and what will be
+ * saved are the same block of words in the same place.
  *
  * A newline the person types is a line break the Scene keeps. Enter on an empty
  * line, Escape and a click away end the session; what it holds is handed to the
@@ -16,13 +20,15 @@
 import type { Point } from './geometry.js';
 
 /** Where the input sits and how big its words are. */
-interface TextSessionPlace {
+export interface TextSessionPlace {
   /** The page point the words' top-left corner sits at. */
   readonly page: Point;
   /** The zoom the page is at, so the words read at the size they will draw. */
   readonly zoom: number;
   /** The size the words draw at, in Scene units. */
   readonly fontSize: number;
+  /** The distance between two baselines at that size, in Scene units. */
+  readonly lineHeight: number;
   /** The width the words wrap in, in Scene units, or null when they never wrap. */
   readonly wrap: number | null;
   /** Where the words sit in that width. */
@@ -56,15 +62,6 @@ export class TextSession {
     input.setAttribute('aria-label', name);
     input.rows = 1;
     input.spellcheck = false;
-    input.style.left = `${place.page.x}px`;
-    input.style.top = `${place.page.y}px`;
-    input.style.fontSize = `${place.fontSize * place.zoom}px`;
-    input.style.textAlign = place.align;
-    if (place.wrap !== null) {
-      // A Label wraps where its Element wraps it: the field is that box, in page
-      // pixels, so a line breaks where the Scene will break it.
-      input.style.width = `${place.wrap * place.zoom}px`;
-    }
     input.value = words;
     input.addEventListener('keydown', this.#onKeyDown);
     input.addEventListener('blur', this.#onBlur);
@@ -77,9 +74,31 @@ export class TextSession {
     this.#input = input;
     this.#commit = commit;
     host.append(input);
+    this.place(place);
     input.focus();
     // The caret goes after the words, where a person adding to them looks for it.
     input.setSelectionRange(input.value.length, input.value.length);
+  }
+
+  /**
+   * Put the field where the words it holds now belong: the words' own size and
+   * line height, the box that wraps them, and the page point the block starts
+   * at. The caller asks again on every keystroke and on every move of the view,
+   * so the field can never be left behind by either.
+   */
+  place(place: TextSessionPlace): void {
+    const input = this.#input;
+    input.style.left = `${place.page.x}px`;
+    input.style.top = `${place.page.y}px`;
+    input.style.fontSize = `${place.fontSize * place.zoom}px`;
+    input.style.lineHeight = `${place.lineHeight * place.zoom}px`;
+    input.style.textAlign = place.align;
+    input.classList.toggle('wrap', place.wrap !== null);
+    if (place.wrap !== null) {
+      // A Label wraps where its Element wraps it: the field is that box, in page
+      // pixels, so a line breaks where the Scene will break it.
+      input.style.width = `${place.wrap * place.zoom}px`;
+    }
     this.#fit();
   }
 

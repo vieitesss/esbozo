@@ -207,6 +207,8 @@ export interface Layout {
   area(element: Element): Box | null;
   /** The Label that does not fit its Element, or null when it fits or there is none. */
   overflow(element: Element): Overflow | null;
+  /** Baseline-to-baseline distance of words at a named size, in pixels: the line the in-place field types on. */
+  lineHeight(size: FontSize): number;
   /** The Element grown down and right until its Label fits. Elements without one come back unchanged. */
   grow<T extends Element>(element: T): T;
   /**
@@ -225,6 +227,7 @@ export function createLayout(parsed: ParsedFont): Layout {
     label: (element, shaft) => labelBlock(element, metrics, shaft),
     area: (element) => (isTextOrShaft(element) ? null : labelArea(element)),
     overflow: (element) => labelOverflow(element, metrics),
+    lineHeight: (size) => metrics.lineHeight(FONT_SIZE_PX[size]),
     grow: (element) => grown(element, metrics),
     ...(parsed.glyphs === undefined ? {} : { glyphs: parsed.glyphs }),
   };

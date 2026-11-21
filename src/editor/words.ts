@@ -9,20 +9,15 @@
  */
 import type { Layout, Shaft } from '../layout.js';
 import { drawnShaft } from '../renderer.js';
-import type { ArrowOrLineElement, Element, TextAlign } from '../scene.js';
-
-/** `Label` for words that belong to an Element, `Text` for words that are one. */
-export type WordsKind = 'Label' | 'Text';
-
+import type { Element, TextAlign } from '../scene.js';
 /** Where the in-place editor opens, and what it opens on. */
-export interface Field {
+interface Field {
   /** The Scene point the field's top-left corner sits at. */
   readonly at: { x: number; y: number };
   /** The width the words wrap in, in Scene units, or null when they never wrap. */
   readonly wrap: number | null;
   /** Where the words sit in that width. */
   readonly align: TextAlign;
-  readonly kind: WordsKind;
   /** The words the field opens with. */
   readonly words: string;
 }
@@ -34,9 +29,13 @@ export function wordsOf(element: Element): string {
 
 /**
  * Where a person types this Element's words: over the box a Label fills, over
- * the words of a Text, and beside the middle of an arrow's or line's shaft. A
- * shaft with no Label yet is measured as an empty one, so its field opens
- * exactly where the words will land.
+ * the words of a Text, and beside the middle of an arrow's or line's shaft.
+ *
+ * The place comes from the words the Element holds *now*, so asking again as
+ * they change is asking the Layout the Renderer would draw. A shaft with no
+ * Label yet, and a box with no Label, are measured as holding one empty line,
+ * so their field opens exactly where the first words will land rather than at
+ * a corner that would jump on the first keystroke.
  */
 export function fieldFor(
   element: Element,
@@ -49,30 +48,32 @@ export function fieldFor(
       at: { x: block.x, y: block.y },
       wrap: null,
       align: element.textAlign,
-      kind: 'Text',
       words: element.content,
     };
   }
   if (element.type === 'arrow' || element.type === 'line') {
-    const shaft: Shaft = shaftOf(element, byId);
+    const [start, end] = drawnShaft(element, byId);
+    const shaft: Shaft = { start, end };
     const block =
-      layout.label(element, shaft) ?? layout.label({ ...element, label: '' }, shaft);
+      layout.label(element, shaft) ?? layout.label({ ...element, label: ' ' }, shaft);
     return {
-      at: { x: block?.x ?? shaft.start.x, y: block?.y ?? shaft.start.y },
+      at: { x: block?.x ?? start.x, y: block?.y ?? start.y },
       wrap: null,
       align: 'center',
-      kind: 'Label',
       words: wordsOf(element),
     };
   }
   const area = layout.area(element);
+  if (area === null) {
+    return { at: { x: element.x, y: element.y }, wrap: null, align: element.textAlign, words: wordsOf(element) };
+  }
+  // The words wrap in the box the Element gives them, and their first line
+  // sits where the Renderer puts it inside that box, not at its top edge.
+  const block = layout.label(element) ?? layout.label({ ...element, label: ' ' });
   return {
-    // A Label wraps in the box its Element gives it, which is also where its
-    // lines sit: the field opens over that box, not over the words it holds now.
-    at: area === null ? { x: element.x, y: element.y } : { x: area.x, y: area.y },
-    wrap: area === null ? null : area.width,
+    at: { x: area.x, y: block?.y ?? area.y },
+    wrap: area.width,
     align: element.textAlign,
-    kind: 'Label',
     words: wordsOf(element),
   };
 }
@@ -87,10 +88,7 @@ export function withWords(element: Element, words: string, layout: Layout): Elem
   if (element.type === 'text') {
     return { ...element, content: words };
   }
-  const labelled =
-    words === ''
-      ? stripLabel(element)
-      : { ...element, label: words };
+  const labelled = words === '' ? stripLabel(element) : { ...element, label: words };
   return layout.grow(labelled);
 }
 
@@ -101,15 +99,6 @@ export function withWords(element: Element, words: string, layout: Layout): Elem
  */
 export function withoutWords(element: Element): Element {
   return element.type === 'text' ? { ...element, content: '' } : stripLabel(element);
-}
-
-/** The two ends an arrow or line draws, with Snap resolved: the shaft its Label belongs to. */
-function shaftOf(
-  element: ArrowOrLineElement,
-  byId: ReadonlyMap<string, Element>,
-): Shaft {
-  const [start, end] = drawnShaft(element, byId);
-  return { start, end };
 }
 
 /** The Element without its Label: an emptied Label leaves no `label` key behind. */
