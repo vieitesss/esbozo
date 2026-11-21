@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { gzipSync } from 'node:zlib';
 import { test } from 'node:test';
+import { transform } from 'esbuild';
 import { ez, tempFolder } from './cli.ts';
 
 const run = promisify(execFile);
@@ -47,8 +48,13 @@ test('ez bundle writes one versioned module, and a second run replaces it', asyn
 
   const bytes = await readFile(path, 'utf8');
   assert.notEqual(bytes, 'the bundle from yesterday');
-  // The one thing a plain page cannot do without: the tag it writes in HTML.
-  assert.match(bytes, /customElements\.define\("esbozo-editor"/);
+  // It is one JavaScript module, parsed by the same tool that wrote it: a file
+  // cut short or half written fails here, not on the page it is dropped into.
+  // What it *does* is the browser suite's job (`tests/embed.e2e.ts`), which
+  // loads it into a plain page and drives the element it defines.
+  const parsed = await transform(bytes, { loader: 'js', format: 'esm' });
+  assert.ok(parsed.code.length > 0);
+  assert.ok(bytes.length > 1000, 'the bundle is the editor, not a stub');
 
   const second = await ez(['bundle', folder], ROOT);
   assert.equal(second.code, 0, second.stderr);
