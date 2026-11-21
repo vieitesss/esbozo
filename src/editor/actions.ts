@@ -51,6 +51,8 @@ export interface ActionState {
   readonly canRedo?: boolean;
   /** Whether the page has the async Clipboard API: an insecure origin has none. */
   readonly clipboard?: boolean;
+  /** Whether the page can open a folder at all: a served one lists Scenes, a static one needs the picker. */
+  readonly folder?: boolean;
 }
 
 /** What the editor does, as the actions name it. */
@@ -397,7 +399,9 @@ const OTHER_ACTIONS: readonly ActionSpec[] = [
     group: 'Scene',
     bindings: [],
     minSelected: 0,
-    reason: always,
+    // Offered where the page can do it: a served page lists its Scenes, and a
+    // static one needs the browser's directory picker.
+    reason: (state) => (state.folder === false ? 'this page cannot open a folder' : null),
     run: (host) => host.openFolder(),
   },
 ];

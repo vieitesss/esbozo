@@ -1534,6 +1534,35 @@ test('Zoom in, Zoom out and Reset zoom run from the palette', async ({ app, brow
   await expect(zoomLabel).toHaveText('100%');
 });
 
+test('Open folder is offered only where the page can open one', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+  // The stubbed directory picker is there, as it is in Chrome over a secure
+  // origin, so the page can open a folder and the row says so by running.
+  await palette(ui);
+  await browser.keyboard.type('open folder');
+  await expect(command(ui, 'Open folder…')).not.toBeDisabled();
+  await browser.keyboard.press('Escape');
+
+  // A page served as plain files over HTTP has no directory picker at all.
+  await browser.evaluate(() => {
+    delete (window as { showDirectoryPicker?: unknown }).showDirectoryPicker;
+    return true;
+  });
+
+  await palette(ui);
+  await browser.keyboard.type('open folder');
+  await expect(command(ui, 'Open folder…')).toBeDisabled();
+  await expect(command(ui, 'Open folder…')).toContainText('this page cannot open a folder');
+
+  // A greyed row is not a command: Enter runs nothing, the palette stays open
+  // and the status line is not handed an error about an API the page never had.
+  await browser.keyboard.press('Enter');
+  await expect(screen.getByRole('dialog', 'Commands')).toBeVisible();
+  await expect(screen.getByRole('status')).not.toContainText('File System Access');
+});
+
 // ---------------------------------------------------------------- PNG export
 
 /** Export the open Scene from the palette, and read what the browser downloaded. */

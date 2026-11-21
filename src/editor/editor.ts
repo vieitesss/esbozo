@@ -40,7 +40,7 @@ import { CommandPalette } from './palette.js';
 import { menuSignature, roughnessNote, styleNote } from './menu.js';
 import { nextRoughness, styled } from './style.js';
 import type { StyleKey } from './style.js';
-import { pickFolder } from './files.js';
+import { canPickFolder, pickFolder } from './files.js';
 import { servedFolder } from './server-folder.js';
 import type { SceneFolder } from './files.js';
 import {
@@ -683,7 +683,7 @@ export class EsbozoEditorElement extends HTMLElement {
     }
   }
 
-  /** What the actions may look at: the selection, the history, and the clipboard the page has. */
+  /** What the actions may look at: the selection, the history, the clipboard and the folder the page has. */
   #actionState(): ActionState {
     const selected = this.#selectedElements();
     return {
@@ -692,6 +692,7 @@ export class EsbozoEditorElement extends HTMLElement {
       canUndo: this.#history.canUndo,
       canRedo: this.#history.canRedo,
       clipboard: clipboardApi() !== null,
+      folder: this.#served || canPickFolder(),
     };
   }
 
