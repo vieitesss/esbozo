@@ -1819,7 +1819,7 @@ test('the ? button opens the Shortcuts sheet, and Escape shuts it', async ({ app
   await expect(help).toHaveAttribute('aria-expanded', 'true');
   await expect(sheet).toBeVisible();
   // Each shortcut has a visible key or gesture.
-  for (const key of ['Space', 'wheel', '⌘ +/−', 'G', 'Q']) {
+  for (const key of ['Space', 'wheel', '⌘+ / ⌘−', 'G', 'Q']) {
     await expect(sheet).toContainText(key);
   }
 
