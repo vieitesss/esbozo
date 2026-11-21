@@ -15,12 +15,12 @@ real files. Both run under `pnpm e2e`.
 
 ## Why the agent suite is separate
 
-e2e's replay cache only covers `agent.act`: a recorded action replays without
-touching the model. `agent.assert` and `agent.waitFor` are judgements of the
-live screen, so they call the model on every run. `pnpm e2e` is therefore
-model-free and needs no key, and `pnpm e2e:agent` needs `OPENCODE_API_KEY` (or a
-`.env` at the project root) and costs a call per judgement.
+e2e's model steps are judgements of the live screen, so `agent.assert` and
+`agent.waitFor` call the model on every run. `pnpm e2e` is therefore model-free
+and needs no key, and `pnpm e2e:agent` needs `OPENCODE_API_KEY` (or a `.env` at
+the project root) and costs a call per judgement.
 
-The one `agent.act` step, "turn the Grid off", is recorded in `.e2e/cache/`,
-which is committed. Record a new one with the key set before committing it, or
-the suite would replay nothing on a key-less machine.
+Drive the page the way a person does: role clicks and keys, as the theme switch
+and the tool rail already are. `agent` is then only asked to judge (`assert`,
+`waitFor`), never to act, so nothing is recorded and `.e2e/cache/` stays unused
+and ignored.
