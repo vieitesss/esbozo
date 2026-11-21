@@ -3574,7 +3574,7 @@ function groupOf(id: string, svg: string): SVGGElement {
   return group;
 }
 
-/** A new Scene takes its title from the file name: `flow.json` opens as "flow". */
+/** A new Scene takes its title from the file name: `flow.esbozo` opens as "flow". */
 function stemOf(fileName: string): string {
   return sceneStem(fileName) || 'Scene';
 }

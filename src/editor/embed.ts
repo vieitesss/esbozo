@@ -1,7 +1,7 @@
 /**
  * The bundle's entry: `<esbozo-editor>` on a page that is not esbozo's own.
  *
- *   <esbozo-editor scene="scene.json" save="save" font="Kalam-Regular.ttf"></esbozo-editor>
+ *   <esbozo-editor scene="scene.esbozo" save="save" font="Kalam-Regular.ttf"></esbozo-editor>
  *   <script type="module" src="esbozo-0.0.0.js"></script>
  *
  * Three attributes, and nothing else:

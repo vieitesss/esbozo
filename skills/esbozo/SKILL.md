@@ -5,7 +5,9 @@ description: Esbozo Scenes (hand-drawn diagrams as JSON) with the `ez` CLI. Use 
 
 # esbozo
 
-A **Scene** is one JSON file: the only source of a diagram. You write it, `ez` checks and renders it, and you look at the result. The SVG and PNG files `ez` writes are outputs: change the Scene and render again, and leave every generated file as `ez` wrote it.
+A **Scene** is one file: the only source of a diagram. You write it, `ez` checks and renders it, and you look at the result. Name it `<name>.esbozo`; `<name>.json` is accepted too, and older Scenes keep that name. The SVG and PNG files `ez` writes are outputs: change the Scene and render again, and leave every generated file as `ez` wrote it.
+
+A `.esbozo` file is JSON, byte for byte the schema below, so every JSON reader, `jq` and `JSON.stringify` work on it unchanged. The extension is what tells a Scene from the other JSON files a folder holds.
 
 ## Run `ez`
 
@@ -13,7 +15,7 @@ Build the repository once, then run the CLI from it:
 
 ```sh
 pnpm install && pnpm build    # in a clone of the esbozo repository
-node dist/cli.js check <name>.json
+node dist/cli.js check <name>.esbozo
 ```
 
 Everywhere below, `ez` stands for `node dist/cli.js`, or for the `ez` bin when the package is linked into the path. The npm package (`npx esbozo <command>`, a global `ez`) arrives with #13 and is not on the registry yet. `ez --help` lists every command, flag, default and exit code; flags take a separate value: `--theme dark`, never `--theme=dark`.
@@ -22,19 +24,19 @@ Everywhere below, `ez` stands for `node dist/cli.js`, or for the `ez` bin when t
 
 Repeat until `ez check` exits 0 and the PNGs look right:
 
-1. **Write** `<name>.json`.
-2. **Check**: `ez check <name>.json`. It prints nothing when clean. Otherwise each problem is one line on stderr, `<element id>: <message>`, and the exit code says which kind:
+1. **Write** `<name>.esbozo`.
+2. **Check**: `ez check <name>.esbozo`. It prints nothing when clean. Otherwise each problem is one line on stderr, `<element id>: <message>`, and the exit code says which kind:
    - `3` the file does not parse or breaks the schema: fix the named key.
    - `6` a Label does not fit its Element: enlarge the Element or shorten the words (see Layout rules).
    - `5` font or stylesheet unreadable (only when you pass `--font` or `--css`).
    - `2` wrong arguments.
 
    A note on stderr beside exit `0` is a warning, not a failure: for example a remote `@font-face` in `--css` is replaced by the bundled Kalam, so your Labels were measured with Kalam. Read it.
-3. **Render PNGs**: `ez png <name>.json --theme light` and `--theme dark`. Each prints the path it wrote: `<name>.light.png`, `<name>.dark.png`.
+3. **Render PNGs**: `ez png <name>.esbozo --theme light` and `--theme dark`. Each prints the path it wrote: `<name>.light.png`, `<name>.dark.png`.
 4. **Look** at both PNGs with your image viewer. Judge them against the Layout rules: words clear of lines and edges, arrows meeting Elements, rows and columns aligned, nothing crowded, both themes readable.
 5. **Fix** the Scene, return to step 2.
 
-When the look is right, `ez render <name>.json` writes `<name>.svg` beside the Scene. A site shows that SVG; it takes its colours and font from the page's CSS variables `--ink`, `--paper`, `--muted` and `--font-hand`, and falls back to the light theme's own values when the file is opened on its own or shown in an `<img>`. The same Scene and the same font file give the same SVG bytes.
+When the look is right, `ez render <name>.esbozo` writes `<name>.svg` beside the Scene. A site shows that SVG; it takes its colours and font from the page's CSS variables `--ink`, `--paper`, `--muted` and `--font-hand`, and falls back to the light theme's own values when the file is opened on its own or shown in an `<img>`. The same Scene and the same font file give the same SVG bytes.
 
 For a diagram that belongs to a site, pass its own values: `--css <stylesheet>` and `--font <file>` on `ez check` and `ez png` (`--font` on `ez render`). Otherwise the built-in themes and the bundled Kalam font apply. `ez check` reads the stylesheet only to find the light theme's font, since it draws nothing; `ez png --theme dark` reads the dark theme's colours and font. `ez --help` has the rest.
 
@@ -47,7 +49,7 @@ For a diagram that belongs to a site, pass its own values: `--css <stylesheet>` 
 3. It exits `4` when it cannot start (port taken: pass another `--port`; editor not built: run `pnpm build`). `SIGINT` or `SIGTERM` stops it with `0`.
 4. Keep writing the Scene file, `ez check` it and `ez render` it as before. The page reads a Scene when the person opens it, so ask them to reload after you change the file. A Scene open in the page is saved over your file the next time the person edits it: leave a Scene they are editing alone.
 
-Only top-level `*.json` files in `<dir>` are Scenes. Flags, routes and what a save guarantees are in `docs/save-api.md` of the esbozo repository.
+Only top-level `*.esbozo` files in `<dir>` are Scenes, and a `*.json` file there is one only when it holds a Scene: other JSON is left out of the list. Flags, routes and what a save guarantees are in `docs/save-api.md` of the esbozo repository.
 
 ## Scene schema
 

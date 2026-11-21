@@ -15,7 +15,9 @@
  * `check` reports what is wrong with a Scene and prints nothing when it is
  * clean, so a script can rely on the exit code alone.
  * `png` writes `<name>.<theme>.png` beside the Scene and prints that path, so
- * `sketch.json` gives `sketch.light.png` and `sketch.dark.png`.
+ * `sketch.esbozo` gives `sketch.light.png` and `sketch.dark.png`. A Scene is a
+ * `.esbozo` file, or a `.json` one that holds a Scene: the extension only names
+ * the outputs beside it.
  *
  * Words are measured with the same font the drawing shows: `--font`, then a
  * local `@font-face` in the stylesheet for the effective `--font-hand`, then
@@ -535,7 +537,7 @@ function svgPathFor(scenePath: string): string {
   return resolve(dirname(scenePath), svgFileName(basename(scenePath)));
 }
 
-/** `<name>.<theme>.png` beside the Scene: `sketch.json --theme dark` gives `sketch.dark.png`. */
+/** `<name>.<theme>.png` beside the Scene: `sketch.esbozo --theme dark` gives `sketch.dark.png`. */
 function pngPathFor(scenePath: string, theme: Theme): string {
   return resolve(dirname(scenePath), `${sceneStem(basename(scenePath))}.${theme}.png`);
 }

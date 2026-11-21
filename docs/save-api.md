@@ -23,14 +23,14 @@ Flags take a separate value: `--port 4320`, never `--port=4320`. `ez serve` runs
 A Scene name is one path segment, taken after percent-decoding, and it has to be all of these:
 
 - A plain file name at the top level of the folder: no `/` or `\`, and no subfolder.
-- Not hidden and not relative: it does not start with `.`, so `.a.json`, `.` and `..` are out.
-- Ending in `.json`, in any letter case: `a.json` and `A.JSON` both pass.
+- Not hidden and not relative: it does not start with `.`, so `.a.esbozo`, `.` and `..` are out.
+- Ending in `.esbozo` or `.json`, in any letter case: `a.esbozo`, `a.json` and `A.JSON` all pass.
 
 A request path with a `.` or `..` segment, or with broken percent-encoding, is refused before anything else. A name that is a symlink to somewhere outside the folder is refused too.
 
-`GET /api/scenes` lists only the names a request can open: regular files at the top level that pass these rules, sorted. Folders, symlinks, hidden files and other extensions never appear.
+`GET /api/scenes` lists only the names a request can open: regular files at the top level that pass these rules, sorted. Folders, symlinks, hidden files and other extensions never appear. A `.json` name is any other JSON file's too, so the list keeps one only when its bytes parse as a Scene: a `package.json` or a `tsconfig.json` beside the Scenes is left out, and so is a Scene file that will not parse. A `.esbozo` name is this project's own extension, so it is listed however it reads, and a file that will not parse says what is wrong when it is opened.
 
-The SVG of a Scene is `<name without .json>.svg` beside it: `a.json` gives `a.svg`, `a.esbozo.JSON` gives `a.esbozo.svg`. Writing a name the filesystem reads as another (`a.json` and `A.JSON` on a case-insensitive disk) takes the same write queue, so those two cannot race. Whether `GET` finds `b.json` when the file is `B.JSON` is the filesystem's answer, not the server's.
+The SVG of a Scene is `<name without its extension>.svg` beside it: `a.esbozo` gives `a.svg`, `a.json` gives `a.svg`, and `a.esbozo.JSON` gives `a.esbozo.svg`. Writing a name the filesystem reads as another (`a.esbozo` and `A.ESBOZO` on a case-insensitive disk) takes the same write queue, so those two cannot race. Whether `GET` finds `b.esbozo` when the file is `B.ESBOZO` is the filesystem's answer, not the server's.
 
 ## Routes
 
@@ -40,7 +40,7 @@ Every response carries `cache-control: no-store`. Every API response, and every 
 
 ```sh
 curl http://127.0.0.1:4320/api/scenes
-# {"folder":"diagrams","readOnly":false,"scenes":["a.json","b.json"]}
+# {"folder":"diagrams","readOnly":false,"scenes":["a.esbozo","b.json"]}
 ```
 
 `folder` is the folder's own name, not its path. Any other method answers `405`.
@@ -60,7 +60,7 @@ Two spellings of one write. The body is JSON with two strings:
 ```sh
 curl -X PUT -H 'content-type: application/json' \
   -d '{"scene":"{\"version\":1,\"elements\":[]}","svg":"<svg xmlns=\"http://www.w3.org/2000/svg\"/>"}' \
-  http://127.0.0.1:4320/api/scenes/hello.json
+  http://127.0.0.1:4320/api/scenes/hello.esbozo
 # {}
 ```
 

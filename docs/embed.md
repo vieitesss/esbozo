@@ -8,8 +8,8 @@ ez bundle public/          # public/esbozo-0.0.0.js
 
 ```html
 <esbozo-editor
-  scene="/sketches/flow.json"
-  save="/api/scenes/flow.json"
+  scene="/sketches/flow.esbozo"
+  save="/api/scenes/flow.esbozo"
   font="/fonts/Kalam-Regular.ttf"></esbozo-editor>
 <script type="module" src="/esbozo-0.0.0.js"></script>
 ```

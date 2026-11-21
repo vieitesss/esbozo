@@ -1,6 +1,6 @@
 # Scene schema
 
-A Scene is one JSON file. `ez check` and the editor read it through the same parser (`src/scene.ts`), so what this page says is what both accept. For a quick start, read `skills/esbozo/SKILL.md`.
+A Scene is one file: JSON named `<name>.esbozo`, or `<name>.json` for a Scene that already carries that name. `.esbozo` is the extension a new Scene takes, and the bytes are JSON either way. `ez check` and the editor read it through the same parser (`src/scene.ts`), so what this page says is what both accept. For a quick start, read `skills/esbozo/SKILL.md`.
 
 ```json
 {
