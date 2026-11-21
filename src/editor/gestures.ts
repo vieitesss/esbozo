@@ -177,6 +177,8 @@ interface GestureHost {
   applyScene(next: Scene, options?: { amend?: boolean; select?: readonly string[] }): void;
   /** The note follows the selection, the view makes room for it, the page repaints. */
   refresh(): void;
+  /** The page is held in the hand, or let go of: the status bar names the pan while it lasts. */
+  panning(on: boolean): void;
 }
 
 export class Gestures {
@@ -247,6 +249,15 @@ export class Gestures {
     this.#spaceDown = true;
     this.#host.board.classList.add('hand');
     this.#host.board.classList.remove('pen');
+    this.#showPanning();
+  }
+
+  /**
+   * The page is held in the hand while a Space press lasts or a pan drag runs.
+   * The status bar says so for exactly that long.
+   */
+  #showPanning(): void {
+    this.#host.panning(this.#spaceDown);
   }
 
   /**
@@ -260,12 +271,12 @@ export class Gestures {
       this.#releasePointer();
       this.#host.board.classList.remove('panning');
     }
-    if (!this.#spaceDown) {
-      return;
+    if (this.#spaceDown) {
+      this.#spaceDown = false;
+      this.#host.board.classList.remove('hand');
+      this.#host.board.classList.toggle('pen', this.#host.tool() !== 'select');
     }
-    this.#spaceDown = false;
-    this.#host.board.classList.remove('hand');
-    this.#host.board.classList.toggle('pen', this.#host.tool() !== 'select');
+    this.#showPanning();
   }
 
   /**

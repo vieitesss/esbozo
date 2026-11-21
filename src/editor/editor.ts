@@ -123,6 +123,10 @@ class EsbozoEditorElement extends HTMLElement {
   #newScene!: HTMLFormElement;
   #whereLabel!: HTMLElement;
   #modeLabel!: HTMLElement;
+  /** What this page may do with the Scene: it may only read one, or it may write it. */
+  #readOnly = false;
+  /** The page is held in the hand: a Space press or a pan drag is naming itself. */
+  #panning = false;
   #savedLabel!: HTMLElement;
   #menu!: HTMLElement;
   #roughButton!: HTMLButtonElement;
@@ -303,6 +307,10 @@ class EsbozoEditorElement extends HTMLElement {
       openTextInput: (at) => this.#openTextInput(at),
       applyScene: (next, options) => this.#applyScene(next, options),
       refresh: () => this.#refresh(),
+      panning: (on) => {
+        this.#panning = on;
+        this.#showPill();
+      },
     });
 
     if (this.#ownsKeysWhenFocused) {
@@ -490,16 +498,25 @@ class EsbozoEditorElement extends HTMLElement {
     }
   };
 
-  /** The status bar's word for what this page may do with the Scene. */
+  /** What this page may do with the Scene, and the pill that says what it is doing. */
   #showMode(folder: SceneFolder): void {
-    const readOnly = folder.readOnly || this.#connection.refused;
-    this.#modeLabel.textContent = readOnly ? 'read-only' : '';
-    this.#newScene.hidden = readOnly;
-    if (readOnly) {
+    this.#readOnly = folder.readOnly || this.#connection.refused;
+    this.#newScene.hidden = this.#readOnly;
+    if (this.#readOnly) {
       // Write access just ended: nothing stays armed that could change a Scene
       // this page may only read.
       this.#endEdits();
     }
+    this.#showPill();
+  }
+
+  /**
+   * The one owner of the mode pill: the pan in the hand is what the page is doing
+   * now, and `read-only` is what it may not do either way. A pan names itself
+   * while it lasts, and hands the pill back to the other word when it ends.
+   */
+  #showPill(): void {
+    this.#modeLabel.textContent = this.#panning ? 'Panning' : this.#readOnly ? 'read-only' : '';
   }
 
   /** Let go of every edit in flight: half-typed words, the gesture in hand, and the tool. */
