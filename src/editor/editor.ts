@@ -283,6 +283,12 @@ export class EsbozoEditorElement extends HTMLElement {
   #layer: SVGSVGElement | null = null;
   /** The drawings and the drawing of one Element at a time, kept between frames. */
   #paintables: PaintCache | null = null;
+  /**
+   * The measurement the Element groups on the page were drawn with. A font the
+   * page names late moves the PaintCache's generation, and everything drawn
+   * before it stops being the drawing this page makes.
+   */
+  #drawnMeasurement = -1;
   /** The selection the Style menu was built for, so a rebuild only happens on a change. */
   #menuFor: string | null = null;
 
@@ -1396,6 +1402,13 @@ export class EsbozoEditorElement extends HTMLElement {
   #drawScene(): void {
     const drag = this.#drag;
     if (drag !== null && drag.kind === 'move') {
+      if (this.#paintables !== null && this.#paintables.generation !== this.#drawnMeasurement) {
+        // A font landed while the pointer was down: every Label may break
+        // differently, so the drawings this gesture carries are made again —
+        // once, here, before the transforms go back on. A move frame that
+        // changed no measurement draws nothing, as before.
+        this.#drawElements(this.#scene.elements);
+      }
       this.#moveGroups(drag);
       this.#followSnaps(drag);
       if (drag.shown.size > 0) {
@@ -1420,6 +1433,7 @@ export class EsbozoEditorElement extends HTMLElement {
     const paintables = (this.#paintables ??= new PaintCache(this.#layout));
     const paint = paintables.paint(shown);
     this.#painted = paint;
+    this.#drawnMeasurement = paintables.generation;
     // A group moved by a drag carries a transform the Scene never holds: every
     // group starts a frame where its Element is.
     for (const id of this.#moved) {

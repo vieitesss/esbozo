@@ -63,6 +63,11 @@ export class PaintCache {
    * hold the layout the old one broke.
    */
   #generation = 0;
+
+  /** Which measurement the drawings in hand are keyed on: a new one is a new drawing. */
+  get generation(): number {
+    return this.#generation;
+  }
   /** The last painting, by Element id: what a frame reuses. */
   #elements = new Map<string, PaintedElement>();
 

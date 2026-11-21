@@ -196,6 +196,70 @@ test('a font the page swaps is measured again for the words already on the page'
   }
 });
 
+test('a font that lands while an Element is being moved redraws it before the release', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), { l: LABEL_SOURCE });
+  /** The words the box is drawn with, line by line, as the page holds them now. */
+  const lines = (): Promise<string[]> =>
+    browser.evaluate(() =>
+      Array.from(
+        document.querySelectorAll('.painted [data-element="l"] text'),
+        (line) => line.textContent,
+      ),
+    );
+  try {
+    const ui: Ui = { app, browser, screen };
+    // The page that always named the wide file: the lines a late measurement owes.
+    await app.open(`${embed.url}/label-wide.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    await settle(ui);
+    const wide = await lines();
+    expect(wide.length).toBeGreaterThan(1);
+
+    // The same box in Kalam: fewer lines, so a page still holding them is stale.
+    await app.open(`${embed.url}/label-kalam.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    await settle(ui);
+    expect(await lines()).not.toEqual(wide);
+
+    // A press inside the box moves it: the gesture carries the drawing the page
+    // already had with a transform, and the pointer is still down.
+    const grip = await browser.evaluate(() => {
+      const box = document.querySelector('.painted [data-element="l"]')!.getBoundingClientRect();
+      return { x: box.left + box.width / 2, y: box.top + box.height / 5 };
+    });
+    await browser.mouse.move(grip.x, grip.y);
+    await browser.mouse.down();
+    await browser.mouse.move(grip.x + 40, grip.y + 20);
+    await settle(ui);
+    const carried = () =>
+      browser.evaluate(() =>
+        document.querySelector('.painted [data-element="l"]')!.hasAttribute('transform'),
+      );
+    expect(await carried()).toBe(true);
+
+    // The page names the wide file while the pointer is still down. Its words
+    // are measured for the movement in flight, not left for the release: what
+    // the box is drawn with is what the page that always named it draws.
+    await browser.evaluate(() => {
+      document.querySelector('esbozo-editor')!.setAttribute('font', 'fonts/b.ttf');
+      return true;
+    });
+    await expect.poll(lines).toEqual(wide);
+    // And it is still where the pointer carries it, not back at its own place.
+    expect(await carried()).toBe(true);
+
+    await browser.mouse.up();
+    await settle(ui);
+    expect(await lines()).toEqual(wide);
+  } finally {
+    await embed.stop();
+  }
+});
+
 test('a Scene the page lets go of leaves no ink of its own while the next is read', async ({
   app,
   browser,
