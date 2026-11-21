@@ -86,12 +86,13 @@ test('an input method leaves unconfirmed words in the field until the compositio
     value: 'にほん',
   });
 
-  // Committed: the same words, and the composition the browser was holding is
-  // over. Chromium ends a CDP-driven composition with an untrusted event, so
-  // only the kind is asserted here.
-  await imeCommit();
+  // Committed, with the word the person picked rather than the preedit they
+  // were shown: the composition the browser held is over, and the field holds
+  // the confirmed words. Chromium ends a CDP-driven composition with an
+  // untrusted event, so only the kind is asserted here.
+  await imeCommit('日本');
   const committed = await state(browser);
-  expect(committed.value).toBe('にほん');
+  expect(committed.value).toBe('日本');
   expect(kinds(committed.seen)).toEqual([
     'compositionstart',
     'compositionupdate',
@@ -110,7 +111,7 @@ test('an input method leaves unconfirmed words in the field until the compositio
     return true;
   });
   const left = await state(browser);
-  expect(left.value).toBe('にほんだめ');
+  expect(left.value).toBe('日本だめ');
   expect(kinds(left.seen).slice(committed.seen.length)).toEqual([
     'compositionstart',
     'compositionupdate',

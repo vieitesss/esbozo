@@ -87,13 +87,16 @@ export async function imeCompose(text: string): Promise<void> {
 /**
  * Confirms the preedit `imeCompose` left, as picking a candidate does: the
  * browser ends the composition and the words become the field's own text.
+ * `chosen` is the word the person picked, when it is not the preedit itself
+ * (`にほん` shown, `日本` committed) — the case where reading the field's value
+ * while the composition is open gets the words wrong.
  */
-export async function imeCommit(): Promise<void> {
+export async function imeCommit(chosen?: string): Promise<void> {
   if (composing === undefined) {
     throw new Error('imeCommit without imeCompose: there is no preedit to confirm');
   }
   const cdp = await session();
-  const text = composing;
+  const text = chosen ?? composing;
   composing = undefined;
   await cdp.send('Input.insertText', { text });
 }
