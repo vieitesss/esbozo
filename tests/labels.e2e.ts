@@ -170,6 +170,13 @@ const UNDER: View = { zoom: 1, panX: 390, panY: 200 };
 const UNDER_LABEL: Rect = { x: 645, y: 388, width: 10, height: 27 };
 const UNDER_FILL: Rect = { x: 700, y: 388, width: 10, height: 27 };
 
+/**
+ * The same patch either side of the caret an empty Label draws, where the papers
+ * a blank Label would knock out would be and the caret's own ink is not.
+ */
+const UNDER_CARET: Rect = { x: 646, y: 388, width: 2, height: 27 };
+const UNDER_CARET_BESIDE: Rect = { x: 652, y: 388, width: 2, height: 27 };
+
 /** A single letter: enough words to have ink, and no more. */
 const ONE_LETTER = 'w';
 
@@ -415,9 +422,17 @@ describe('labels', () => {
     // And the shaft's own ink runs whole through its middle.
     expect(empty.darkCount({ x: 560, y: 419, width: 180, height: 4 }, 0.5)).toBeGreaterThan(600);
 
+    // Opening the Label draws a caret and no words: a blank Label is still no
+    // Label, so the patch a paper rectangle would cover stays fill either side
+    // of the caret standing in it.
+    await doubleClickScene(ui, { x: 260, y: 220 }, UNDER);
+    const opened = await shot(ui);
+    for (const beside of [UNDER_CARET, UNDER_CARET_BESIDE]) {
+      expect(Math.abs(opened.meanLuminance(beside) - fill)).toBeLessThan(0.02);
+    }
+
     // Words arrive: they are drawn where they will save, and the paper they sit
     // on knocks the fill out from under them.
-    await doubleClickScene(ui, { x: 260, y: 220 }, UNDER);
     const label = screen.getByRole('textbox', { name: 'Label' });
     await label.pressSequentially('on the line');
     await settle(ui);
