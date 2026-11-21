@@ -1062,8 +1062,8 @@ export class EsbozoEditorElement extends HTMLElement {
       this.#duplicate();
       return true;
     }
-    if (event.key >= '1' && event.key <= '7') {
-      const tool = toolAt(Number(event.key));
+    if (/^[1-9]$/.test(event.key)) {
+      const tool = toolAt(event.key);
       if (tool !== null) {
         event.preventDefault();
         this.#setTool(tool);

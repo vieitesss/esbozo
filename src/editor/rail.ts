@@ -8,10 +8,12 @@
  */
 import { RoughGenerator } from 'roughjs/bin/generator.js';
 import { TOOLS } from './tools.js';
+import type { ToolId } from './tools.js';
 
-const ICONS: Record<string, string> = {
+/** One icon per tool. Typed by tool id, so a tool without an icon cannot be added. */
+const ICONS: Record<ToolId, string> = {
   select: '<path d="M5 3l6 17 2.6-7L21 10z" fill="currentColor" stroke="currentColor" stroke-width="1.1"/>',
-  rect: '<rect x="4" y="6.5" width="16" height="11" rx="2"/>',
+  rectangle: '<rect x="4" y="6.5" width="16" height="11" rx="2"/>',
   ellipse: '<ellipse cx="12" cy="12" rx="8" ry="6"/>',
   diamond: '<path d="M12 3.5L20.5 12 12 20.5 3.5 12z"/>',
   arrow: '<path d="M4 19L19.5 4.5M19.5 4.5h-5.5M19.5 4.5V10"/>',
@@ -22,7 +24,7 @@ const ICONS: Record<string, string> = {
 /** The rail's buttons, each icon drawn twice so it looks pencilled over. */
 export function railMarkup(): string {
   return TOOLS.map((tool) => {
-    const icon = ICONS[tool.icon] ?? '';
+    const icon = ICONS[tool.id];
     const pressed = tool.id === 'select' ? 'true' : 'false';
     return (
       `<button type="button" data-tool="${tool.id}" aria-label="${tool.name}"` +

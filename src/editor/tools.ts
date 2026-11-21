@@ -17,18 +17,16 @@ interface Tool {
   readonly name: string;
   /** The single key that picks the tool. */
   readonly shortcut: string;
-  /** The rail's icon for it. */
-  readonly icon: string;
 }
 
 export const TOOLS: readonly Tool[] = [
-  { id: 'select', name: 'Select', shortcut: 'V', icon: 'select' },
-  { id: 'rectangle', name: 'Rectangle', shortcut: 'R', icon: 'rect' },
-  { id: 'ellipse', name: 'Ellipse', shortcut: 'E', icon: 'ellipse' },
-  { id: 'diamond', name: 'Diamond', shortcut: 'D', icon: 'diamond' },
-  { id: 'arrow', name: 'Arrow', shortcut: 'A', icon: 'arrow' },
-  { id: 'line', name: 'Line', shortcut: 'S', icon: 'line' },
-  { id: 'text', name: 'Text', shortcut: 'T', icon: 'text' },
+  { id: 'select', name: 'Select', shortcut: 'V' },
+  { id: 'rectangle', name: 'Rectangle', shortcut: 'R' },
+  { id: 'ellipse', name: 'Ellipse', shortcut: 'E' },
+  { id: 'diamond', name: 'Diamond', shortcut: 'D' },
+  { id: 'arrow', name: 'Arrow', shortcut: 'A' },
+  { id: 'line', name: 'Line', shortcut: 'S' },
+  { id: 'text', name: 'Text', shortcut: 'T' },
 ];
 
 export type ToolId = Tool['id'];
@@ -39,7 +37,11 @@ export function toolForLetter(letter: string): ToolId | null {
   return TOOLS.find((tool) => tool.shortcut.toLowerCase() === key)?.id ?? null;
 }
 
-/** The tool a rail position picks: 1 is the first tool on the rail. */
-export function toolAt(position: number): ToolId | null {
+/** The tool a digit picks: `1` is the first tool on the rail, and past its end there is none. */
+export function toolAt(key: string): ToolId | null {
+  const position = Number(key);
+  if (!Number.isInteger(position) || position < 1 || position > TOOLS.length) {
+    return null;
+  }
   return TOOLS[position - 1]?.id ?? null;
 }
