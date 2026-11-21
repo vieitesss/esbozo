@@ -8,8 +8,9 @@ import { opencodeConsole } from 'e2e/oauth/opencode-console';
  * stubbed (see `tests/fake-file-system.js`) so the Scene the editor saves can be
  * read back and compared with `ez render`.
  *
- * e2e starts the server itself, so a run needs no second terminal. The page is
- * served from `dist`, which `pnpm e2e` builds first.
+ * e2e starts the server itself on a port it picks, so a run needs no second
+ * terminal and cannot drive another worktree's build. The page is served from
+ * `dist`, which `pnpm e2e` builds first.
  *
  * The server stays `scripts/serve.mjs` rather than `ez serve`: a served page
  * takes its folder from the save API, and this suite's folder is the stubbed
@@ -37,11 +38,12 @@ export default {
     {
       engine: web({ viewport: { width: 1280, height: 800 } }),
       app: {
-        url: 'http://127.0.0.1:4319',
+        // Port 0 asks e2e for a free port and fills it into `{port}`, so parallel
+        // worktrees never share a server and a stale one is never reused.
+        url: 'http://127.0.0.1:0',
         command: {
           executable: process.execPath,
-          args: ['scripts/serve.mjs', 'dist', '4319'],
-          reuseExisting: true,
+          args: ['scripts/serve.mjs', 'dist', '{port}'],
           log: '.e2e/logs/app.log',
         },
       },
