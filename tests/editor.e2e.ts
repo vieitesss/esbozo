@@ -1507,6 +1507,52 @@ test('undoing the Scene default roughness puts the status bar back', async ({ ap
   expect((await savedScene(ui)).defaults?.roughness).toBe(1);
 });
 
+test('the status line keeps the Scene top left, the view bottom left and no mode pill', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await ui.browser.setViewport({ width: 1366, height: 768 });
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+  await expect(ui.screen.getByRole('status')).toHaveText('saved');
+
+  // Everything the line says is still there, found the way a person finds it.
+  for (const drawn of [
+    ui.screen.getByRole('button', /Open folder/),
+    ui.screen.getByText('A / scene.json'),
+    ui.screen.getByRole('status'),
+    ui.screen.getByRole('button', 'Grid'),
+    ui.screen.getByRole('button', 'rough · artist'),
+    ui.screen.getByText(/^\d+%$/),
+  ]) {
+    await expect(drawn).toBeVisible();
+  }
+
+  // What the Scene is goes in the top left corner — the folder, its name and what
+  // became of it, three lines of them, where only bare paper was — and what the
+  // view is doing stays in the bottom left, one line of Grid, roughness and zoom.
+  const TOP_LEFT: Rect = { x: 0, y: 0, width: 360, height: 96 };
+  const BOTTOM_LEFT: Rect = { x: 0, y: 690, width: 360, height: 70 };
+  // The bottom centre, where a mode would be named: the 164 pixels around it.
+  const BOTTOM_MIDDLE: Rect = { x: 601, y: 690, width: 164, height: 70 };
+  const page = await shot(ui);
+  expect(page.bands(TOP_LEFT, 0.7)).toBe(3);
+  expect(page.bands(BOTTOM_LEFT, 0.6)).toBe(1);
+
+  // Nothing transient is being named, so the bottom centre is bare paper: no pill
+  // before a Space pan, and none after the pan that ends when the key comes up.
+  const pill = ui.screen.getByText('read-only');
+  await expect(pill).toBeHidden();
+  expect((await shot(ui)).darkCount(BOTTOM_MIDDLE, 0.6)).toBe(0);
+
+  await ui.browser.keyboard.down('Space');
+  await drag(ui, { x: 640, y: 400 }, { x: 700, y: 440 });
+  await ui.browser.keyboard.up('Space');
+  await expect(pill).toBeHidden();
+  expect((await shot(ui)).darkCount(BOTTOM_MIDDLE, 0.6)).toBe(0);
+});
+
 test('the docked note never covers the selection: the view pans clear of it', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'edge.json': EDGE_SOURCE } }, 'edge.json');

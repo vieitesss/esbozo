@@ -36,13 +36,19 @@ export const SHELL = `
 </div>
 <nav class="rail" aria-label="Tools"><svg class="rail-art" aria-hidden="true"></svg>${railMarkup()}</nav>
 <footer class="status">
-  <button type="button" data-act="open">Open folder…</button>
-  <button type="button" data-act="grid" aria-pressed="true">Grid</button>
-  <button type="button" data-act="roughness" title="Scene default roughness for new Elements"></button>
-  <span class="zoom">100%</span>
-  <span class="where"></span>
-  <span class="mode"></span>
-  <span class="saved" role="status" data-state="idle"></span>
+  <div class="corner-id">
+    <button type="button" data-act="open">Open folder…</button>
+    <span class="where"></span>
+    <span class="saved" role="status" data-state="idle"></span>
+  </div>
+  <div class="corner-mode">
+    <span class="mode"></span>
+  </div>
+  <div class="corner-view">
+    <button type="button" data-act="grid" aria-pressed="true">Grid</button>
+    <button type="button" data-act="roughness" title="Scene default roughness for new Elements"></button>
+    <span class="zoom">100%</span>
+  </div>
   <span class="hint">Space pan · wheel zoom · ⌘ +/− · G Grid · Q commands</span>
 </footer>
 <div class="palette" role="dialog" aria-label="Commands" hidden>
