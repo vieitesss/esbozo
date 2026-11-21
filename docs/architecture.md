@@ -1,6 +1,6 @@
 # Architecture
 
-esbozo has four modules behind small interfaces, and two programs built from them: the `ez` CLI and the editor page. The words are defined in [GLOSSARY.md](../GLOSSARY.md).
+esbozo has four modules behind small interfaces, and two programs built from them: the `ez` CLI and the editor page. In the source, neither imports the other. The words are defined in [GLOSSARY.md](../GLOSSARY.md).
 
 ## The four modules
 
@@ -8,9 +8,9 @@ esbozo has four modules behind small interfaces, and two programs built from the
 
 **Layout** (`src/layout.ts`) is the words. Given the bytes of a font, it measures a line, wraps a Label, places lines inside an Element, says whether a Label fits (`overflow`) and how far an Element would have to grow (`grow`). It reads font bytes and never a file, so it runs in Node and in the browser. It depends on Scene's types.
 
-**Renderer** (`src/renderer.ts`, with the outline maths in `src/geometry.ts`) turns a Scene and a Layout into an SVG string. It is pure: the same Scene gives the same bytes. Rough.js draws the hand-made paths, each Element with its own seed. Colours and font are CSS variables (`--ink`, `--paper`, `--muted`, `--font-hand`), the grey steps are fixed mixes of ink into paper, and the SVG carries the Scene hash and a title. It resolves each Snapped end onto its target's outline. It depends on Scene and Layout.
+**Renderer** (`src/renderer.ts`, with the outline maths in `src/geometry.ts`) turns a Scene and a Layout into an SVG string. It is pure: the same Scene measured with the same font file gives the same bytes. Rough.js draws the hand-made paths, each Element with its own seed. Colours and font are CSS variables (`--ink`, `--paper`, `--muted`, `--font-hand`), the grey steps are fixed mixes of ink into paper, and the SVG carries the Scene hash and a title. It resolves each Snapped end onto its target's outline. It depends on Scene and Layout.
 
-**Editor** (`src/editor/`) is the `<esbozo-editor>` custom element. It holds the Scene in memory, paints it with the Renderer, and turns pointer and keyboard input into Scene changes. It saves by writing the Scene and its SVG together, through the folder interface in `src/editor/files.ts`. It depends on Scene, Layout and Renderer, and on nothing in the CLI.
+**Editor** (`src/editor/`) is the `<esbozo-editor>` custom element. It holds the Scene in memory, paints it with the Renderer, and turns pointer and keyboard input into Scene changes. It saves the Scene and its SVG through the folder interface in `src/editor/files.ts`. It depends on Scene, Layout and Renderer, and on nothing in the CLI.
 
 Each module depends only on the ones before it:
 
@@ -18,9 +18,11 @@ Each module depends only on the ones before it:
 - Layout: Scene.
 - Renderer: Scene and Layout.
 - Editor: Scene, Layout and Renderer.
-- CLI: all four, plus font, stylesheet and PNG code the editor never loads.
+- CLI: Scene, Layout and Renderer, plus font, stylesheet, PNG and server code the editor never loads. It imports nothing from `src/editor/`.
 
 Nothing depends backwards: Scene knows nothing of rendering, Layout knows nothing of SVG, and the Renderer knows nothing of a browser or a file.
+
+The CLI and the editor meet only at run time, in one place: `ez serve` reads the editor's built page files (`editor.html`, `editor.css`, `editor.js` and the font) from beside `dist/cli.js` and sends them to a browser. It never loads that code itself. Without a build, `serve` exits `4`; every other command works.
 
 ## One font, three readers
 
