@@ -25,6 +25,21 @@ export function sha256Hex(text: string): string {
   return toHex(sha256(new TextEncoder().encode(text)));
 }
 
+/**
+ * SHA-256 of a UTF-8 string, as lowercase hex, from the platform's own digest
+ * where it has one — the browser's SubtleCrypto hashes off the task that asked,
+ * so a save is not a long task. The bytes are the string's either way, so this
+ * is `sha256Hex`'s digest: a browser and the CLI hash one Scene to one hash.
+ */
+export async function sha256HexAsync(text: string): Promise<string> {
+  const bytes = new TextEncoder().encode(text);
+  const subtle = globalThis.crypto?.subtle;
+  if (subtle === undefined) {
+    return toHex(sha256(bytes));
+  }
+  return toHex(new Uint8Array(await subtle.digest('SHA-256', bytes)));
+}
+
 /** SHA-256 of a byte string, as 32 raw bytes. */
 export function sha256(input: Uint8Array): Uint8Array {
   const message = pad(input);

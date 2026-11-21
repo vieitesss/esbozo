@@ -520,6 +520,11 @@ describe('shortcuts that edit', () => {
     await dragBy(ui, { x: PAPER.x + 25, y: PAPER.y + 50 }, 20, 0);
     await clickScene(ui, { x: 100, y: 80 });
     await browser.keyboard.press('x');
+    // The delete's own bytes: a save is assembled in the frame after the edit,
+    // so the file is read once the Scene it holds is the one the delete made.
+    await expect
+      .poll(async () => (await savedScene(ui)).elements.map((element) => element.id))
+      .toEqual(['b', drawnId]);
     const afterDelete = (await savedFiles(ui))['scene.json'];
 
     await browser.keyboard.press('Meta+z');
@@ -539,7 +544,9 @@ describe('shortcuts that edit', () => {
     await browser.keyboard.press('Shift+Meta+z');
     expect((await saved(ui)).get(drawnId)?.x).toBe(440);
     await browser.keyboard.press('Shift+Meta+z');
-    expect((await savedFiles(ui))['scene.json']).toBe(afterDelete);
+    await expect
+      .poll(async () => (await savedFiles(ui))['scene.json'])
+      .toBe(afterDelete);
   });
 
   test('a shortcut pressed mid-drag waits for the pointer: one Element, one undo step', async ({

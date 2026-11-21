@@ -9,18 +9,31 @@
  *
  * The drawing is the Renderer's own, Element for Element: what the page shows
  * and what `ez render` writes are the same bytes, because the saved file is
- * assembled by `sceneSvg` from these same drawings.
+ * assembled from these same drawings and from each Element's own JSON.
+ *
+ * Assembling, not re-serialising, is what keeps a save off the task that asked
+ * for it: an edit writes the blocks it already holds, and the hash of those
+ * bytes comes from the platform's digest, off the task that asked for it too.
  */
 import type { Layout } from '../layout.js';
 import { elementsById, renderElement, sceneSvg } from '../renderer.js';
 import type { ElementDrawing } from '../renderer.js';
-import { canonicalElement, canonicalScene, hashScene } from '../scene.js';
+import { canonicalElement, sceneJson, serialiseElementJson } from '../scene.js';
 import type { Element, Scene } from '../scene.js';
+import { sha256HexAsync } from '../sha256.js';
 
 /** One Element's drawing, and what it was made from. */
 export interface PaintedElement extends ElementDrawing {
   /** The canonical JSON of the Element and of the outlines its ends snap to. */
   readonly key: string;
+  /** The Element's block in the Scene file it saves, as the serialiser writes it. */
+  readonly json: string;
+}
+
+/** A Scene's file and the SVG beside it: what one save writes. */
+export interface SceneFiles {
+  readonly json: string;
+  readonly svg: string;
 }
 
 /** What one frame of the page is made of: the drawings in Scene order. */
@@ -103,7 +116,7 @@ export class PaintCache {
     if (painted !== undefined && painted.key === key) {
       return painted;
     }
-    return { key, ...renderElement(element, byId, this.#layout) };
+    return { key, json: elementJson(element), ...renderElement(element, byId, this.#layout) };
   }
 
   /** The Scene as it is shown now — gesture and all — drawn Element by Element. */
@@ -123,14 +136,52 @@ export class PaintCache {
   }
 
   /**
-   * The SVG the Scene saves, out of the drawings the page already shows: no
-   * Element is drawn twice for one edit. The bytes are `renderScene`'s own,
-   * hash, page and title included.
+   * The Scene's file and the SVG beside it, out of the JSON and the drawings in
+   * hand: no Element is serialised or drawn twice for one edit. The bytes are
+   * `serialiseScene`'s and `renderScene`'s own — the hash is the platform's
+   * digest of the file's own bytes, so it is the CLI's hash too.
    */
-  svg(scene: Scene): string {
-    const canonical = canonicalScene(scene);
-    const byId = elementsById(canonical.elements);
-    const drawings = canonical.elements.map((element) => this.element(element, byId));
-    return sceneSvg(canonical, hashScene(canonical), drawings);
+  async files(scene: Scene): Promise<SceneFiles> {
+    const drawings = this.#drawingsFor(scene);
+    const json = sceneJson(
+      scene,
+      drawings.map((drawing) => drawing.json),
+    );
+    return { json, svg: sceneSvg(scene, await sha256HexAsync(json), drawings) };
   }
+
+  /**
+   * A Scene's drawings, Element by Element, out of the ones in hand: the drawing
+   * already made where the key says it is still the same, and a fresh draw of
+   * the Element where it is not. Nothing is stored, so a Scene a save speaks for
+   * — the one the page held a frame ago — never takes the drawings the page is
+   * showing.
+   */
+  #drawingsFor(scene: Scene): readonly PaintedElement[] {
+    const canonical = scene.elements.map(canonicalElement);
+    const byId = elementsById(canonical);
+    return canonical.map((element) => this.element(element, byId));
+  }
+}
+
+/**
+ * The Element JSON blocks made so far, by the Element object they were made
+ * from. A Scene is edited by replacing the Elements that changed, so the ones
+ * that did not are the same objects, and their block in the file is the string
+ * it already was: a save writes a Scene's file out of the blocks in hand rather
+ * than serialising the whole Scene again.
+ */
+const JSON_OF = new WeakMap<Element, string>();
+
+/** One Element's block in the Scene file, made once per Element. */
+function elementJson(element: Element): string {
+  const held = JSON_OF.get(element);
+  if (held !== undefined) {
+    return held;
+  }
+  // The file holds whole pixels, as the drawing does: an Element the editor
+  // holds mid-gesture is saved as the Element it will be.
+  const json = serialiseElementJson(canonicalElement(element));
+  JSON_OF.set(element, json);
+  return json;
 }

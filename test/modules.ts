@@ -22,6 +22,7 @@ export interface ProjectModules {
   History: typeof import('../src/editor/history.ts').History;
   emptyScene: typeof import('../src/scene.ts').emptyScene;
   renderScene: typeof import('../src/renderer.ts').renderScene;
+  PaintCache: typeof import('../src/editor/paint.ts').PaintCache;
   createLayout: typeof import('../src/layout.ts').createLayout;
   parseFontFile: typeof import('../src/layout.ts').parseFontFile;
   /** Kalam's bytes, so a test measures with the font the CLI measures with. */
@@ -40,6 +41,7 @@ export async function loadProjectModules(): Promise<ProjectModules> {
       `export { parseScene, serialiseScene, hashScene, emptyScene, serialiseFragment, parseFragment } from ${source('scene.ts')};`,
       `export { History } from ${source('editor/history.ts')};`,
       `export { renderScene } from ${source('renderer.ts')};`,
+      `export { PaintCache } from ${source('editor/paint.ts')};`,
       `export { createLayout, parseFontFile } from ${source('layout.ts')};`,
       `export { default as KALAM } from ${JSON.stringify(
         fileURLToPath(new URL('../fonts/Kalam-Regular.ttf', import.meta.url)),

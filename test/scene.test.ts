@@ -129,6 +129,80 @@ test('drawing a Snap whose target has no outline fails loudly', () => {
   assert.throws(() => renderScene(toWords, LAYOUT), /arrow: snap target "nowhere" does not exist/);
 });
 
+test('the saved file is written the one way a person reads: two spaces, one Element per block', () => {
+  // A Scene file as it sits on disk, and as `serialiseScene` has to keep it:
+  // the version, the title, the whole defaults object, then each Element's own
+  // block, its style spelled out and an alignment only when one is written.
+  const FILE = `{
+  "version": 1,
+  "title": "Two things",
+  "defaults": {
+    "roughness": 1,
+    "stroke": {
+      "width": "bold",
+      "style": "solid"
+    },
+    "fill": {
+      "kind": "none",
+      "grey": 2
+    },
+    "tone": "ink",
+    "corners": "sharp",
+    "fontSize": "M"
+  },
+  "elements": [
+    {
+      "id": "box",
+      "type": "rectangle",
+      "x": 40,
+      "y": 40,
+      "width": 160,
+      "height": 120,
+      "label": "orders",
+      "seed": 3,
+      "roughness": 2,
+      "stroke": {
+        "width": "thin",
+        "style": "dashed"
+      },
+      "fill": {
+        "kind": "solid",
+        "grey": 5
+      },
+      "tone": "muted",
+      "corners": "round",
+      "fontSize": "L",
+      "textAlign": "left"
+    },
+    {
+      "id": "words",
+      "type": "text",
+      "x": 40,
+      "y": 200,
+      "content": "free-standing",
+      "seed": 5,
+      "roughness": 1,
+      "stroke": {
+        "width": "bold",
+        "style": "solid"
+      },
+      "fill": {
+        "kind": "none",
+        "grey": 2
+      },
+      "tone": "ink",
+      "corners": "sharp",
+      "fontSize": "M",
+      "textAlign": "right"
+    }
+  ]
+}
+`;
+
+  const scene = parsed(JSON.parse(FILE));
+  assert.equal(serialiseScene(scene), FILE, 'the file read and written is the same file, byte for byte');
+});
+
 test('a Scene that writes no alignment centres its Labels and leaves its Text left', () => {
   // The Scene the editor starts from: no alignment, so each Element resolves
   // its own. A Scene saved from it and reopened must read the same way.

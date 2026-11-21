@@ -449,10 +449,52 @@ function parseSceneObject(raw: unknown): ParseResult {
  * same Scene always hashes and diffs the same way.
  */
 export function serialiseScene(scene: Scene): string {
-  return `${JSON.stringify(sceneObject(scene), null, 2)}\n`;
+  const canonical = canonicalScene(scene);
+  return sceneJson(canonical, canonical.elements.map(serialiseElementJson));
 }
 
-/** A Scene as the plain object both a Scene file and a fragment are written from. */
+/**
+ * A Scene file, out of the JSON of each Element it holds, in the Scene's order:
+ * the head is written here, and each Element's own block is written once by
+ * `serialiseElementJson`, so a page that already holds those blocks assembles
+ * the very file this serialiser writes — not a second one that reads the same.
+ */
+export function sceneJson(scene: Scene, elements: readonly string[]): string {
+  return [
+    '{',
+    `  "version": ${JSON.stringify(scene.version)},`,
+    `  "title": ${JSON.stringify(scene.title)},`,
+    `  "defaults": ${following(JSON.stringify(serialiseStyle(scene.defaults), null, 2), 2)},`,
+    `  "elements": ${elements.length === 0 ? '[]' : `[\n${elements.join(',\n')}\n  ]`}`,
+    '}',
+    '',
+  ].join('\n');
+}
+
+/** One Element's block in a Scene file: its own JSON, indented into the array. */
+export function serialiseElementJson(element: Element): string {
+  return indented(JSON.stringify(serialiseElement(element), null, 2), 4);
+}
+
+/** The JSON of a value with every line moved right: a block on a line of its own. */
+function indented(json: string, spaces: number): string {
+  const pad = ' '.repeat(spaces);
+  return json
+    .split('\n')
+    .map((line) => `${pad}${line}`)
+    .join('\n');
+}
+
+/** The JSON of a value with every line but the first moved right: it follows `"key": `. */
+function following(json: string, spaces: number): string {
+  const pad = ' '.repeat(spaces);
+  return json
+    .split('\n')
+    .map((line, index) => (index === 0 ? line : `${pad}${line}`))
+    .join('\n');
+}
+
+/** A Scene as the plain object a fragment is written from. */
 function sceneObject(scene: Scene): {
   version: number;
   title: string;

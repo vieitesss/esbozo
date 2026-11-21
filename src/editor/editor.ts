@@ -68,6 +68,7 @@ import { attachedTo, endPoint, freedEnd, isShaft, otherEnd, released, targetAt, 
 import type { End } from './snap.js';
 import { TextSession } from './text-session.js';
 import { PaintCache } from './paint.js';
+import type { SceneFiles } from './paint.js';
 import type { Paint } from './paint.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -98,6 +99,13 @@ let active: EsbozoEditorElement | null = null;
 
 /** How many editors this page has made: each one's Grid is a pattern of its own. */
 let instances = 0;
+
+/** The frame that is already due: a save waits for it, so the task that asked ends first. */
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => resolve());
+  });
+}
 
 /** Where the open Scene saves: the folder and the name it was opened from. */
 interface SaveTarget {
@@ -796,32 +804,45 @@ export class EsbozoEditorElement extends HTMLElement {
    * never to a URL the page names later. Writes land in order, and the status
    * says `saved` only for the newest one, so it never claims a Scene that a
    * newer edit has overtaken.
+   *
+   * The bytes are assembled in the frame that is already due, out of what the
+   * page holds, so the task that asked for the save — a release, a key press —
+   * ends before the file is built and hashed.
    */
   async #save(): Promise<void> {
     const target = this.#target;
+    // The Scene this write speaks for: an edit is a new Scene, never a change
+    // to the one in hand, so this stays the Scene the edit made however many
+    // more land before the write is built.
+    const scene = this.#scene;
     if (target === null || target.folder.readOnly || this.#refused) {
       // Nothing is open, or this page may only read: nothing is sent.
       return;
     }
-    const sceneSource = serialiseScene(this.#scene);
-    const svgSource = this.#svgSource();
     this.#setSaved('saving');
-    const writing = this.#saveQueue.then(() => this.#write(target, sceneSource, svgSource));
+    const writing = this.#saveQueue.then(() => this.#writeScene(target, scene));
     this.#saveQueue = writing;
     if (await writing && this.#saveQueue === writing) {
       this.#setSaved('saved');
     }
   }
 
+  /** One write of one Scene, assembled after the frame that is already due. */
+  async #writeScene(target: SaveTarget, scene: Scene): Promise<boolean> {
+    await nextFrame();
+    const files = await this.#sceneFiles(scene);
+    return this.#write(target, files.json, files.svg);
+  }
+
   /**
-   * The SVG the Scene saves, out of the drawings the page already shows. The
+   * A Scene's file and its SVG, out of the JSON and the drawings in hand. The
    * paint in flight is settled first — the frame that was about to run is this
    * one — so an edit draws each Element once and writes the same bytes
    * `ez render` writes.
    */
-  #svgSource(): string {
+  #sceneFiles(scene: Scene): Promise<SceneFiles> {
     this.#drawScene();
-    return (this.#paintables ??= new PaintCache(this.#layout)).svg(this.#scene);
+    return (this.#paintables ??= new PaintCache(this.#layout)).files(scene);
   }
 
   /**

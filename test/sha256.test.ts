@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
-import { sha256Hex } from '../src/sha256.ts';
+import { sha256Hex, sha256HexAsync } from '../src/sha256.ts';
 
 const SAMPLES = [
   '',
@@ -31,6 +31,31 @@ const SAMPLES = [
 test('sha256Hex matches OpenSSL for the same UTF-8 bytes', () => {
   for (const sample of SAMPLES) {
     assert.equal(sha256Hex(sample), openssl(sample), JSON.stringify(sample.slice(0, 24)));
+  }
+});
+
+test('the platform digest is the same hash, for every sample', async () => {
+  // The editor hashes a save with SubtleCrypto, so the bytes it digests have to
+  // come out the same as the portable implementation's — and as OpenSSL's, which
+  // is what the CLI stamps into the SVG.
+  assert.notEqual(nativeDigest(), undefined, 'this Node has the platform digest, so it is what is exercised');
+  for (const sample of SAMPLES) {
+    assert.equal(await sha256HexAsync(sample), openssl(sample), JSON.stringify(sample.slice(0, 24)));
+  }
+});
+
+test('without a platform digest, the portable one answers the same bytes', async () => {
+  const saved = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
+  Object.defineProperty(globalThis, 'crypto', { value: undefined, configurable: true });
+  try {
+    assert.equal(nativeDigest(), undefined, 'the platform digest is out of reach for this test');
+    for (const sample of SAMPLES) {
+      assert.equal(await sha256HexAsync(sample), openssl(sample), JSON.stringify(sample.slice(0, 24)));
+    }
+  } finally {
+    if (saved !== undefined) {
+      Object.defineProperty(globalThis, 'crypto', saved);
+    }
   }
 });
 
@@ -66,6 +91,11 @@ test('the Scene, Renderer and hash modules bundle for the browser', async () => 
 
   assert.equal(bundled.outputFiles?.length, 1, 'the browser build produced one module');
 });
+
+/** The platform digest, when the runtime has one. */
+function nativeDigest(): unknown {
+  return (globalThis as { crypto?: { subtle?: unknown } }).crypto?.subtle;
+}
 
 function openssl(text: string): string {
   return createHash('sha256').update(text, 'utf8').digest('hex');
