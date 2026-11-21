@@ -288,12 +288,7 @@ class EsbozoEditorElement extends HTMLElement {
       menu: this.#menu,
       scene: () => this.#scene,
       layout: () => this.#connection.layout,
-      view: () => this.#page.viewport.view,
-      setView: (view) => {
-        this.#page.viewport.view = view;
-      },
-      scenePoint: (pointer) => this.#page.viewport.scenePoint(pointer),
-      screenPoint: (pointer) => this.#page.viewport.screenPoint(pointer),
+      page: this.#page,
       selected: () => this.#selected,
       select: (ids) => {
         this.#selected = [...ids];
@@ -302,16 +297,11 @@ class EsbozoEditorElement extends HTMLElement {
       setTool: (tool) => this.#setTool(tool),
       writable: () => this.#connection.writable(),
       text: () => this.#text,
-      wordsOffset: (point) => this.#page.wordsOffset(point),
-      wordsNearest: (point) => this.#page.wordsNearest(point),
       typedOffset: (drawn) => this.#typedOffset(drawn),
       openWords: (element) => this.#openWords(element),
       openTextInput: (at) => this.#openTextInput(at),
       applyScene: (next, options) => this.#applyScene(next, options),
       refresh: () => this.#refresh(),
-      paint: () => this.#page.paint(),
-      paintWords: () => this.#page.paintWords(),
-      ink: (id) => this.#page.ink(id),
     });
 
     if (this.#ownsKeysWhenFocused) {
@@ -515,7 +505,7 @@ class EsbozoEditorElement extends HTMLElement {
     // dropped with the preview it painted, rather than left on a page that may
     // only read.
     if (this.#gestures.holdsScene()) {
-      this.#gestures.cancelDrag();
+      this.#gestures.cancel();
     }
     if (this.#tool !== 'select') {
       this.#setTool('select');
@@ -1191,7 +1181,7 @@ class EsbozoEditorElement extends HTMLElement {
       // here, before the gesture that holds the Scene, because that guard is
       // about edits — and an Escape is what keeps one from landing.
       event.preventDefault();
-      this.#gestures.cancelDrag();
+      this.#gestures.cancel();
       return;
     }
     if (this.#gestures.holdsScene()) {
