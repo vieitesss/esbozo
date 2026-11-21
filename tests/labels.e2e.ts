@@ -1093,6 +1093,51 @@ describe('labels', () => {
     expect((await savedScene(ui, 'words.json')).elements[0]?.label).toBe(`${RTL_WORDS}X`);
   });
 
+  test('a caret walked back through the words moves alone, and keeps the boxes around them', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+    await stillCaret();
+
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.pressSequentially('orders and');
+
+    /** The caret's own column, in the strip above the glyphs where it stands alone. */
+    const caretColumn = async (): Promise<number> => {
+      const words = (await shot(ui)).darkBounds(INSIDE, DARK);
+      expect(words).not.toBeNull();
+      const caret = (await shot(ui)).darkBounds(
+        { x: INSIDE.x, y: (words as Rect).y + 1, width: INSIDE.width, height: 3 },
+        CARET,
+      );
+      expect(caret).not.toBeNull();
+      return (caret as Rect).x;
+    };
+
+    const before = await shot(ui);
+    const ink = before.darkBounds(INSIDE, GLYPH);
+    expect(ink).not.toBeNull();
+    // The words' first letters, clear of the end the caret stands at: a caret
+    // covers the ink it touches, so the two ends of the line are not the ink's.
+    const start: Rect = { x: (ink as Rect).x, y: (ink as Rect).y, width: 24, height: (ink as Rect).height };
+    const caretBefore = await caretColumn();
+    for (let step = 0; step < 3; step += 1) {
+      await label.press('ArrowLeft');
+    }
+
+    // A frame a caret moved on is a frame of its own: the caret walks left, and
+    // the glyphs and the boxes the frame before drew are still the same ones.
+    const after = await shot(ui);
+    expect(await caretColumn()).toBeLessThan(caretBefore - 4);
+    expect(after.darkBounds(start, GLYPH)).toEqual(before.darkBounds(start, GLYPH));
+    const around = { x: 500, y: 330, width: 60, height: 14 };
+    expect(after.darkCount(around, DARK)).toBe(before.darkCount(around, DARK));
+  });
+
   test('Up walks to the line above the caret, not to a soft-wrapped row of the field', async ({
     app,
     browser,

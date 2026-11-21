@@ -317,7 +317,8 @@ class EsbozoEditorElement extends HTMLElement {
   #spaceDown = false;
   /** The writes in order; the number each answers with is whether it landed. */
   #saveQueue: Promise<unknown> = Promise.resolve();
-  #paintQueued = false;
+  /** What the next frame owes the page: nothing yet, the words' own layer, or the whole page. */
+  #paintQueued: 'none' | 'words' | 'page' = 'none';
   /**
    * Counts the Scene: every replacement of `#scene` makes a new number, and the
    * page repaints only when the number it painted is not this one. A pan, a
@@ -360,6 +361,12 @@ class EsbozoEditorElement extends HTMLElement {
    */
   #highlight!: SVGGElement;
   #overlay!: SVGGElement;
+  /**
+   * The caret and the preedit's rule, in a layer of their own inside the overlay:
+   * a caret that moves redraws these and leaves the boxes, the handles and the
+   * overflow outline where the last frame put them.
+   */
+  #wordsLayer: SVGGElement | null = null;
   #gridRect!: SVGRectElement;
   #gridLayer!: SVGGElement;
   #dots!: SVGPatternElement;
@@ -1463,14 +1470,41 @@ class EsbozoEditorElement extends HTMLElement {
    */
   #paint(): void {
     this.#applyView();
-    if (this.#paintQueued) {
+    this.#queuedFrame('page');
+  }
+
+  /**
+   * The caret, the selection or an input method's preedit moved, and nothing
+   * else did: the words' own layer is drawn again, and the Scene is not asked
+   * anything. A caret that walks one boundary per key repeat must not cost what
+   * a Scene of three hundred Elements costs, nor scan every Label's overflow.
+   */
+  #paintWords(): void {
+    this.#queuedFrame('words');
+  }
+
+  /**
+   * One frame, asking for what the page owes it. A whole page makes an already
+   * queued words frame redundant, so it takes its place; nothing downgrades one.
+   */
+  #queuedFrame(what: 'words' | 'page'): void {
+    const queued = this.#paintQueued;
+    if (queued === 'page' || queued === what) {
       return;
     }
-    this.#paintQueued = true;
+    this.#paintQueued = what;
+    if (queued !== 'none') {
+      return;
+    }
     requestAnimationFrame(() => {
-      this.#paintQueued = false;
-      this.#drawScene();
-      this.#drawOverlay();
+      const owed = this.#paintQueued;
+      this.#paintQueued = 'none';
+      if (owed === 'page') {
+        this.#drawScene();
+        this.#drawOverlay();
+      } else {
+        this.#drawWords();
+      }
     });
   }
 
@@ -1686,8 +1720,10 @@ class EsbozoEditorElement extends HTMLElement {
    */
   #drawOverlay(): void {
     const overlay = this.#overlay;
+    // The words' own layer is the one thing a frame of its own may keep: it is
+    // put back by `#drawWords`, and it is nobody else's.
     overlay.replaceChildren();
-    this.#highlight.replaceChildren();
+    this.#wordsLayer = null;
     // A Label that does not fit its Element is outlined in red, on the rule
     // `ez check` reports: one function, so the page and the CLI cannot disagree.
     for (const element of this.#shownElements()) {
@@ -1738,7 +1774,7 @@ class EsbozoEditorElement extends HTMLElement {
         });
       }
     }
-    this.#drawWords(overlay, this.#highlight);
+    this.#drawWords();
   }
 
   /**
@@ -1751,26 +1787,33 @@ class EsbozoEditorElement extends HTMLElement {
    * ink inside them keeps its own colour; the caret and the preedit's rule go in
    * the overlay, in screen pixels, so they keep their width at every zoom.
    */
-  #drawWords(overlay: SVGGElement, behind: SVGGElement): void {
+  #drawWords(): void {
+    this.#wordsLayer?.remove();
+    this.#wordsLayer = null;
+    this.#highlight.replaceChildren();
     const text = this.#text;
     const block = this.#wordsBlock();
     if (text === null || block === null) {
       return;
     }
+    const layer = document.createElementNS(SVG_NS, 'g');
+    layer.setAttribute('class', 'words');
+    this.#overlay.append(layer);
+    this.#wordsLayer = layer;
     const state = text.state();
     const at = (offset: number): number => this.#shift.drawn(offset);
     const glyphs = this.#wordsGlyphs(block);
 
     for (const box of this.#layout.selection(block, at(state.start), at(state.end), glyphs)) {
-      this.#appendRect(behind, { ...box, class: 'words-selection' });
+      this.#appendRect(this.#highlight, { ...box, class: 'words-selection' });
     }
 
     const preedit = state.preedit;
     if (preedit !== null) {
       for (const box of this.#layout.selection(block, at(preedit.from), at(preedit.to), glyphs)) {
-        this.#appendRect(behind, { ...box, class: 'preedit' });
+        this.#appendRect(this.#highlight, { ...box, class: 'preedit' });
         const page = this.#pageBox(box);
-        this.#appendRect(overlay, {
+        this.#appendRect(layer, {
           x: page.x,
           y: page.y + page.height - PREEDIT_RULE,
           width: page.width,
@@ -1782,7 +1825,7 @@ class EsbozoEditorElement extends HTMLElement {
 
     const caret = this.#layout.caret(block, at(state.caret), glyphs);
     const page = this.#pageBox({ x: caret.x, y: caret.y, width: 0, height: caret.height });
-    this.#appendRect(overlay, {
+    this.#appendRect(layer, {
       x: page.x - CARET_WIDTH / 2,
       y: page.y,
       width: CARET_WIDTH,
@@ -2249,7 +2292,7 @@ class EsbozoEditorElement extends HTMLElement {
       name: 'Text',
       words: '',
       typed: (words) => this.#showTyped(words),
-      moved: () => this.#paint(),
+      moved: () => this.#paintWords(),
       line: (key, state) => this.#wordsLine(key, state),
       commit: (words) => this.#commitText(words),
       ended: () => this.#endText(),
@@ -2285,7 +2328,7 @@ class EsbozoEditorElement extends HTMLElement {
       name: element.type === 'text' ? 'Text' : 'Label',
       words: wordsOf(element),
       typed: (words) => this.#showWords(element, words),
-      moved: () => this.#paint(),
+      moved: () => this.#paintWords(),
       line: (key, state) => this.#wordsLine(key, state),
       commit: (words) => this.#commitWords(element, words),
       ended: () => this.#endText(),
