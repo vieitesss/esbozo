@@ -43,6 +43,10 @@ const SELF = /^(?:scripts\/check-rules\.mjs|test\/check-rules\.test\.ts)$/;
  * The one comment this script takes: a markup regex may parse the SVG a save
  * wrote, because that file is public output. The wording is exact on purpose —
  * a string that happens to hold `check-rules:` excuses nothing.
+ *
+ * It is honour-system: the script sees a pattern and a nearby comment, never the
+ * SVG that pattern is handed, so it cannot tell a written file from the page. A
+ * person reading the diff is the one who catches a comment on the wrong regex.
  */
 const EXCUSE = '// check-rules: markup of a written SVG file, not the page';
 
