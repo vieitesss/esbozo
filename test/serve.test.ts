@@ -893,6 +893,26 @@ test('the startup line names the build it serves, so a stale server is told apar
   assert.match(server.startup, /^serving .+ on http:\/\/\S+ \(build \S+\)$/);
 });
 
+test('the health route answers the build the server was started with', async () => {
+  const server = await served(await sceneFolder(SCENE));
+  const answer = await request(server, '/api/health');
+  assert.equal(answer.status, 200);
+  assert.equal(answer.body, JSON.stringify({ build: buildOn(server.startup) }));
+
+  // A method other than GET is refused like every other route that only reads.
+  assert.deepEqual(await request(server, '/api/health', 'PUT'), {
+    status: 405,
+    body: '{"error":"use GET"}',
+  });
+});
+
+/** The build id the startup line carries, from its trailing `(build <id>)`. */
+function buildOn(startup: string): string {
+  const found = /\(build (\S+)\)/.exec(startup);
+  assert.ok(found !== null, `the startup line names no build: ${startup}`);
+  return found[1]!;
+}
+
 async function assertMissing(path: string): Promise<void> {
   await assert.rejects(stat(path), `${path} was not written`);
 }

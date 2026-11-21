@@ -8,6 +8,7 @@
  *
  *   GET  /api/scenes                  the folder's name, its Scene file names
  *                                     and whether writes are refused
+ *   GET  /api/health                  the build this server is, as { "build": "<id>" }
  *   GET  /api/scenes/<name>           200 with the Scene source, or 404
  *   PUT  /api/scenes/<name>           { "scene": "<source>", "svg": "<source>" }
  *   POST /api/scenes/<name>           the same write, for a client that posts
@@ -36,6 +37,7 @@ import { createServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { basename, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { BUILD } from './build-id.js';
 import { PAGE_ASSETS } from './page-assets.js';
 import { listedAsScene, MAX_LISTED_SCENE_BYTES, sceneExtension, svgFileName } from './paths.js';
 import { SCENES_API, sceneWrite } from './scenes-api.js';
@@ -44,6 +46,9 @@ import { parseScene } from './scene.js';
 
 /** The biggest write the server reads: a Scene is text, and a page of it is small. */
 const BODY_LIMIT = 8 * 1024 * 1024;
+
+/** The one path that answers which build this server is. */
+const HEALTH_API = '/api/health';
 
 /** The built page and its assets, beside the bundled CLI. */
 const ASSETS = fileURLToPath(new URL('.', import.meta.url));
@@ -160,6 +165,14 @@ async function handle(
     return;
   }
   const pathname = new URL(raw, 'http://localhost').pathname;
+  if (pathname === HEALTH_API) {
+    if (request.method !== 'GET') {
+      sendJson(response, 405, { error: 'use GET' });
+      return;
+    }
+    sendJson(response, 200, { build: BUILD });
+    return;
+  }
   if (pathname === SCENES_API || pathname === `${SCENES_API}/`) {
     if (request.method !== 'GET') {
       sendJson(response, 405, { error: 'use GET' });
