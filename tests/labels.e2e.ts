@@ -48,6 +48,7 @@ import {
   cliCheckBytes,
   clickScene,
   doubleClickScene,
+  drag,
   dragBy,
   holdWrites,
   openEditor,
@@ -133,9 +134,9 @@ const ALIGNED_SOURCE = JSON.stringify(
 );
 
 /**
- * A filled box with an arrow under its bottom edge, so the place the arrow's
- * Label would take is grey fill and not bare paper: paper knocked out there
- * shows as a paler patch instead of hiding in the sheet it is cut from.
+ * A filled box the size of the page, so anything drawn on it sits on grey fill
+ * rather than on bare paper: paper knocked out of it shows as a paler patch
+ * instead of hiding in the sheet it is cut from.
  */
 const UNDER_SOURCE = JSON.stringify(
   {
@@ -152,7 +153,6 @@ const UNDER_SOURCE = JSON.stringify(
         height: 200,
         fill: { kind: 'solid', grey: 4 },
       },
-      { id: 'shaft', type: 'arrow', points: [{ x: 150, y: 250 }, { x: 350, y: 250 }] },
     ],
   },
   null,
@@ -163,12 +163,12 @@ const UNDER_SOURCE = JSON.stringify(
 const UNDER: View = { zoom: 1, panX: 390, panY: 200 };
 
 /**
- * Where that arrow's empty Label would be painted, and a patch of the same grey
- * fill away from it: one grey reads the same in both places until paper is
- * knocked out of one of them.
+ * Where an arrow drawn across that box at Scene y 220 would paint its empty
+ * Label, and a patch of the same grey fill away from it: one grey reads the
+ * same in both places until paper is knocked out of one of them.
  */
-const UNDER_LABEL: Rect = { x: 632, y: 416, width: 16, height: 30 };
-const UNDER_FILL: Rect = { x: 700, y: 416, width: 16, height: 30 };
+const UNDER_LABEL: Rect = { x: 645, y: 388, width: 10, height: 27 };
+const UNDER_FILL: Rect = { x: 700, y: 388, width: 10, height: 27 };
 
 /** A single letter: enough words to have ink, and no more. */
 const ONE_LETTER = 'w';
@@ -389,13 +389,22 @@ describe('labels', () => {
     ]);
   });
 
-  test('an arrow with no words in its Label knocks no paper out of what runs under it', async ({
+  test('a freshly drawn arrow knocks no paper out of what runs under it, and its words do', async ({
     app,
     browser,
     screen,
   }) => {
     const ui = { app, browser, screen };
     await openEditor(ui, { A: { 'under.json': UNDER_SOURCE } }, 'under.json');
+
+    // An arrow drawn straight across the box, with Alt so its ends stay free of
+    // the outline: the place its Label would take is grey fill either way.
+    await screen.getByRole('button', { name: 'Arrow' }).click();
+    await browser.keyboard.down('Alt');
+    await drag(ui, at({ x: 160, y: 220 }, UNDER), at({ x: 360, y: 220 }, UNDER));
+    await browser.keyboard.up('Alt');
+    await settle(ui);
+    expect((await savedScene(ui, 'under.json')).elements.length).toBe(2);
 
     // The arrow carries no words yet, so there is nothing to sit on paper: the
     // fill under the place its Label would take shows through untouched.
@@ -404,11 +413,11 @@ describe('labels', () => {
     expect(Math.abs(empty.meanLuminance(UNDER_LABEL) - fill)).toBeLessThan(0.02);
 
     // And the shaft's own ink runs whole through its middle.
-    expect(empty.darkCount({ x: 615, y: 448, width: 50, height: 3 }, 0.5)).toBeGreaterThan(140);
+    expect(empty.darkCount({ x: 560, y: 419, width: 180, height: 4 }, 0.5)).toBeGreaterThan(600);
 
     // Words arrive: they are drawn where they will save, and the paper they sit
     // on knocks the fill out from under them.
-    await doubleClickScene(ui, { x: 250, y: 250 }, UNDER);
+    await doubleClickScene(ui, { x: 260, y: 220 }, UNDER);
     const label = screen.getByRole('textbox', { name: 'Label' });
     await label.pressSequentially('on the line');
     await settle(ui);
@@ -419,7 +428,7 @@ describe('labels', () => {
 
     await label.press('Escape');
     const saved = await savedScene(ui, 'under.json');
-    expect(saved.elements.find((element) => element.id === 'shaft')?.label).toBe('on the line');
+    expect(saved.elements[1]?.label).toBe('on the line');
   });
 
   test("an arrow's Label takes Align and Size from the Style menu, and lines up as it is told", async ({
