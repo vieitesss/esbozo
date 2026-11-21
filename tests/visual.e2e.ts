@@ -67,13 +67,13 @@ test('the dot Grid is there, a person turns it off, and the canvas goes plain', 
   await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
   const before = (await savedFiles(ui))['scene.json'];
 
-  await ui.agent.assert('the empty paper beside the drawings is covered in a regular pattern of small dots', {
+  await ui.agent.assert('the empty paper beside the Elements is covered in a regular pattern of small dots', {
     vision: 'only',
   });
 
   await ui.screen.getByRole('button', 'Grid').click();
 
-  await ui.agent.assert('the empty paper beside the drawings is plain, with no dots on it', { vision: 'only' });
+  await ui.agent.assert('the empty paper beside the Elements is plain, with no dots on it', { vision: 'only' });
 
   // A view change, so the Scene on disk is untouched, byte for byte.
   expect((await savedFiles(ui))['scene.json']).toBe(before);
@@ -266,7 +266,7 @@ test('the palette is a note over the paper: a search field, action names and the
 
   await browser.keyboard.press('q');
   await ui.agent.assert(
-    'a search field sits over the drawing with a list of action names below it, each name with a keyboard shortcut at its right',
+    'a search field sits over the Scene with a list of action names below it, each name with a keyboard shortcut at its right',
     { vision: 'only' },
   );
 

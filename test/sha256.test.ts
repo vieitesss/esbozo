@@ -38,7 +38,7 @@ test('the platform digest is the same hash, for every sample', async () => {
   // The editor hashes a save with SubtleCrypto, so the bytes it digests have to
   // come out the same as the portable implementation's — and as OpenSSL's, which
   // is what the CLI stamps into the SVG.
-  assert.notEqual(nativeDigest(), undefined, 'this Node has the platform digest, so it is what is exercised');
+  assert.notEqual(nativeDigest(), undefined, 'this runtime has the platform digest, so it is what is exercised');
   for (const sample of SAMPLES) {
     assert.equal(await sha256HexAsync(sample), openssl(sample), JSON.stringify(sample.slice(0, 24)));
   }

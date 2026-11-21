@@ -58,7 +58,7 @@ export async function exportPng(options: PngExport): Promise<void> {
   const variables: Variables = { ...page, '--font-hand': options.family };
   const resolved = resolveSvgColours(renderScene(options.scene, options.layout), variables);
   if (!resolved.ok) {
-    throw new Error(resolved.problems[0] ?? 'the drawing cannot be resolved');
+    throw new Error(resolved.problems[0] ?? 'the SVG cannot be resolved');
   }
   const glyphs = options.layout.glyphs;
   if (glyphs === undefined) {
@@ -66,7 +66,7 @@ export async function exportPng(options: PngExport): Promise<void> {
   }
   const outlined = outlineText(resolved.value, glyphs);
   if (!outlined.ok) {
-    throw new Error(outlined.problems[0] ?? 'the drawing cannot be outlined');
+    throw new Error(outlined.problems[0] ?? 'the SVG cannot be outlined');
   }
   const size = sizeOf(outlined.svg);
   const drawing = await rasterise(outlined.svg, page['--paper'], size, options);

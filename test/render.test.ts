@@ -62,7 +62,9 @@ test('render writes the SVG beside the Scene and prints its path', async () => {
   const svgPath = join(folder, 'scene.svg');
   assert.equal(run.stdout.trim(), svgPath);
   const svg = await readFile(svgPath, 'utf8');
+  // check-rules: markup of the CLI's SVG, not the page
   assert.match(svg, /^<svg [^>]*xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
+  // check-rules: markup of the CLI's SVG, not the page
   assert.match(svg, /^<svg [^>]*>[\s\n]*<title>Two boxes<\/title>/);
   assert.equal(fillsOf(svg).length, 1, 'the solid-filled Element painted a fill');
   assert.deepEqual(mixesIn(svg), [], 'the Element that writes no fill painted no lines');
@@ -101,7 +103,7 @@ test('the Scene hash covers the seed the SVG is drawn with', async () => {
   assert.notEqual(hashOf(first), hashOf(second), 'and the hash follows it');
 });
 
-test('a fractional coordinate rounds to a whole pixel once, for hash and drawing', async () => {
+test('a fractional coordinate rounds to a whole pixel once, for the hash and the SVG', async () => {
   const at40 = await renderOne(boxAt(40, 40));
   const at40point2 = await renderOne(boxAt(40.2, 40));
   const at39point9 = await renderOne(boxAt(39.9, 40));
@@ -112,7 +114,7 @@ test('a fractional coordinate rounds to a whole pixel once, for hash and drawing
   assert.equal(hashOf(at40point2), hashOf(at40));
 
   assert.match(at40, /viewBox="24 24 152 112"/);
-  assert.notEqual(at41, at40, 'a whole pixel of difference moves the drawing');
+  assert.notEqual(at41, at40, 'a whole pixel of difference moves the SVG');
   assert.notEqual(hashOf(at41), hashOf(at40), 'and changes the hash');
 });
 
@@ -434,6 +436,7 @@ function accessibleName(svg: string): string {
   if (label !== undefined) {
     return decodeXml(label);
   }
+  // check-rules: markup of the CLI's SVG, not the page
   return decodeXml(/^<svg\b[^>]*>\s*<title>([^<]*)<\/title>/.exec(svg)?.[1] ?? '');
 }
 

@@ -46,11 +46,11 @@ test('a Scene mutated in memory saves, hashes and draws as its whole pixels', ()
   assert.equal(serialiseScene(reopened.scene), saved, 'saving that Scene again changes nothing');
 
   assert.equal(hashScene(dragged), hashScene(whole), 'the hash follows the saved geometry');
-  assert.equal(renderScene(dragged, LAYOUT), renderScene(whole, LAYOUT), 'and so does the drawing');
+  assert.equal(renderScene(dragged, LAYOUT), renderScene(whole, LAYOUT), 'and so does the SVG');
   assert.match(renderScene(dragged, LAYOUT), /viewBox="24 24 152 112"/);
 });
 
-test('saving and drawing leave the Scene the caller holds alone', () => {
+test('saving and rendering leave the Scene the caller holds alone', () => {
   const scene = parsed(BOX);
   const box = rectangleOf(scene);
   box.x = 40.2;
@@ -91,11 +91,11 @@ test('an arrow dragged in memory saves and draws as its whole-pixel points', () 
   assert.equal(saved, serialiseScene(whole), 'the points are saved as whole pixels');
   assert.doesNotMatch(saved, /200\.4|39\.9|100\.3|100\.2/);
   assert.equal(hashScene(scene), hashScene(whole), 'the hash follows the saved points');
-  assert.equal(renderScene(scene, LAYOUT), renderScene(whole, LAYOUT), 'and so does the drawing');
+  assert.equal(renderScene(scene, LAYOUT), renderScene(whole, LAYOUT), 'and so does the SVG');
   assert.equal(parseScene(saved).ok, true, 'the saved Scene still parses');
 });
 
-test('drawing a Snap whose target has no outline fails loudly', () => {
+test('rendering a Snap whose target has no outline fails loudly', () => {
   // The editor can hold a Scene that never went through parseScene, so the
   // Renderer refuses to draw a free end where the Scene says there is a Snap.
   const toWords = parsed({

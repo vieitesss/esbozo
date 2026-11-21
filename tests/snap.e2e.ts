@@ -95,6 +95,7 @@ function reaches(point: Point, expected: Point, tolerance = 0.5): boolean {
 
 /** Every path's drawn points, in document order: where each move, line and curve ends. */
 function drawnPaths(svg: string): Point[][] {
+  // check-rules: markup of the SVG the save wrote, not the page
   return [...svg.matchAll(/<path\b[^>]*\bd="([^"]*)"/g)].map((match) => {
     const points: Point[] = [];
     for (const [, command = '', args = ''] of (match[1] ?? '').matchAll(/([A-Za-z])([^A-Za-z]*)/g)) {
@@ -119,7 +120,7 @@ async function tieToPost(ui: Ui): Promise<void> {
   await drag(ui, at(TIE_END, SNAP), at({ x: 330, y: 100 }, SNAP));
 }
 
-describe('drawing an end onto an Element', () => {
+describe('an end drawn onto an Element', () => {
   test('an arrow drawn onto a box saves that end attached to it', async ({ app, browser, screen }) => {
     const ui = { app, browser, screen };
     await open(ui);

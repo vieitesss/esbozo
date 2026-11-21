@@ -243,3 +243,43 @@ test('a test that drives the page by role and key, and asserts on pixels, is qui
   assert.equal(run.code, 0, run.all);
   assert.deepEqual(run.found, []);
 });
+
+test('a name that holds an Avoid term inside one word is quiet: node_modules is not a node', async () => {
+  const run = await check({
+    'test/bundle.test.ts': "test('the bundled CLI runs with no node_modules beside it', () => {});\n",
+  });
+
+  assert.equal(run.code, 0, run.all);
+  assert.deepEqual(run.found, []);
+});
+
+test('a selector is not copy a person reads', async () => {
+  const run = await check({
+    'tests/editor.e2e.ts': "const board = 'esbozo-editor .board';\n",
+  });
+
+  assert.equal(run.code, 0, run.all);
+  assert.deepEqual(run.found, []);
+});
+
+test('a markup regex on the SVG file a test read is quiet with the one comment', async () => {
+  const excused = await check({
+    'test/render.test.ts': [
+      'function titleOf(svg: string): string {',
+      "  // check-rules: markup of the CLI's SVG, not the page",
+      "  return /<title>([^<]*)<\\/title>/.exec(svg)?.[1] ?? '';",
+      '}',
+    ].join('\n'),
+  });
+  assert.equal(excused.code, 0, excused.all);
+  assert.deepEqual(excused.found, []);
+
+  const saved = await check({
+    'tests/snap.e2e.ts': [
+      "  // check-rules: markup of the SVG the save wrote, not the page",
+      "  assert.match((await savedFiles(ui))['scene.svg'] ?? '', /^<svg[\\s>]/);",
+    ].join('\n'),
+  });
+  assert.equal(saved.code, 0, saved.all);
+  assert.deepEqual(saved.found, []);
+});

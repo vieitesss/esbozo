@@ -30,7 +30,7 @@ import {
   newText,
   without,
 } from './elements.js';
-import type { DrawingTool } from './elements.js';
+import type { ElementTool } from './elements.js';
 import { arranged, movableCount } from './arrange.js';
 import type { ArrangeAct } from './arrange.js';
 import { actionById, actionFor } from './actions.js';
@@ -132,7 +132,7 @@ type Drag =
   | { kind: 'resize'; id: string; handle: Handle; origin: Box; from: Point; shown: SceneElement }
   | {
       kind: 'draw';
-      tool: Exclude<DrawingTool, 'text'>;
+      tool: Exclude<ElementTool, 'text'>;
       id: string;
       from: Point;
       /** What the drag has drawn so far: a preview, not an Element of the Scene yet. */
@@ -1901,7 +1901,7 @@ class EsbozoEditorElement extends HTMLElement {
    * A drawing tool is in hand: the press starts a preview Element, and every
    * move reshapes it until the release settles it into the Scene.
    */
-  #startDrawing(tool: DrawingTool, point: Point): void {
+  #startDrawing(tool: ElementTool, point: Point): void {
     if (tool === 'text') {
       // Opened on the release, not the press: the press's own default action
       // would take the focus straight back off the input.

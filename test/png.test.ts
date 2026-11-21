@@ -270,7 +270,7 @@ test('png --theme dark writes its own PNG beside the Scene', async () => {
   assert.deepEqual(readSize(await readFile(join(folder, 'scene.dark.png'))), PAGE);
 });
 
-test('the paper colour is painted under the drawing, light or dark', async () => {
+test('the paper colour is painted under the SVG, light or dark', async () => {
   const folder = await sceneFolder();
 
   const light = await pngOne(['png', 'scene.json', '--theme', 'light'], folder);
@@ -1037,7 +1037,7 @@ test('a font file with only a signature, or a webfont, exits 5', async () => {
   assert.equal(existsSync(join(folder, 'scene.light.png')), false);
 });
 
-test('--help documents the stylesheet subset', async () => {
+test('--help lists the stylesheet subset', async () => {
   const folder = await sceneFolder();
 
   const help = await ez(['--help'], folder);

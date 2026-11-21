@@ -17,13 +17,13 @@
  */
 import type { Layout } from '../layout.js';
 import { elementsById, renderElement, sceneSvg } from '../renderer.js';
-import type { ElementDrawing } from '../renderer.js';
+import type { DrawnElement } from '../renderer.js';
 import { canonicalElement, sceneJson, serialiseElementJson } from '../scene.js';
 import type { Element, Scene } from '../scene.js';
 import { sha256HexAsync } from '../sha256.js';
 
 /** One Element's drawing, and what it was made from. */
-export interface PaintedElement extends ElementDrawing {
+export interface PaintedElement extends DrawnElement {
   /** The canonical JSON of the Element and of the outlines its ends snap to. */
   readonly key: string;
   /** The Element's block in the Scene file it saves, as the serialiser writes it. */

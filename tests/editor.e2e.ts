@@ -1759,7 +1759,7 @@ function inkShare(png: Buffer): number {
   return inked / (image.width * image.height);
 }
 
-test('Export PNG (light) downloads the drawing `ez png` gives for the same Scene', async ({ app, browser, screen }) => {
+test('Export PNG (light) downloads the image `ez png` gives for the same Scene', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   // A Scene with words in it: the SVG the browser rasterises has to carry the
   // page's font, or the PNG would be the same drawing in another typeface.

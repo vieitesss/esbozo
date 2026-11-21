@@ -99,7 +99,7 @@ export function renderScene(scene: Scene, layout: Layout): string {
  * Exported so an editor that keeps what it last painted asks the Renderer for
  * one Element at a time, and gets the very same bytes `renderScene` writes.
  */
-export interface ElementDrawing {
+export interface DrawnElement {
   readonly bounds: Box;
   readonly svg: string;
 }
@@ -113,7 +113,7 @@ export function renderElement(
   element: Element,
   byId: ReadonlyMap<string, Element>,
   layout: Layout,
-): ElementDrawing {
+): DrawnElement {
   return drawElement(element, byId, layout);
 }
 
@@ -125,7 +125,7 @@ export function renderElement(
 export function sceneSvg(
   scene: Scene,
   hash: string,
-  drawings: readonly ElementDrawing[],
+  drawings: readonly DrawnElement[],
 ): string {
   const page = pageOfBounds(drawings.map((drawing) => drawing.bounds));
   const body = drawings.map((drawing) => drawing.svg).join('');
@@ -277,7 +277,7 @@ function drawElement(
   element: Element,
   byId: ReadonlyMap<string, Element>,
   layout: Layout,
-): ElementDrawing {
+): DrawnElement {
   const placed = placement(element, byId, layout);
   return { bounds: joined(placed.box, placed.words), svg: svgOf(placed) };
 }

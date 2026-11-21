@@ -21,12 +21,12 @@ const DEFAULT_BOX = { width: 160, height: 100 };
 const CLICK_SLOP = 4;
 
 /** The tool ids that draw an Element. */
-export type DrawingTool = Exclude<ToolId, 'select'>;
+export type ElementTool = Exclude<ToolId, 'select'>;
 
 /** The tools that draw a box: everything but a Text, an arrow and a line. */
-type BoxTool = Exclude<DrawingTool, 'text' | 'arrow' | 'line'>;
+type BoxTool = Exclude<ElementTool, 'text' | 'arrow' | 'line'>;
 
-function drawsBox(tool: DrawingTool): tool is BoxTool {
+function drawsBox(tool: ElementTool): tool is BoxTool {
   return tool !== 'text' && tool !== 'arrow' && tool !== 'line';
 }
 
@@ -57,7 +57,7 @@ function styleFrom(defaults: SceneStyle, type: Element['type']): ElementStyle {
  * its two ends, carrying the Scene's defaults.
  */
 export function drawn(
-  tool: Exclude<DrawingTool, 'text'>,
+  tool: Exclude<ElementTool, 'text'>,
   from: Point,
   to: Point,
   id: string,
@@ -89,7 +89,7 @@ export function drawn(
  * there is no stroke to give a length.
  */
 export function drawnAtClick(
-  tool: DrawingTool,
+  tool: ElementTool,
   at: Point,
   id: string,
   defaults: SceneStyle,

@@ -134,7 +134,7 @@ test('a new measurement draws the Scene again, and the file keeps its bytes', as
 
   paintables.measure(WIDE_LAYOUT);
   paintables.paint(scene.elements);
-  assert.equal(paintables.generation, 1, 'a measurement is a new generation of drawings');
+  assert.equal(paintables.generation, 1, 'a measurement is a new generation of the painted Elements');
   const after = await paintables.files(scene);
 
   assert.equal(after.json, before.json, 'a font is not part of the Scene file');
@@ -142,7 +142,7 @@ test('a new measurement draws the Scene again, and the file keeps its bytes', as
   assert.notEqual(after.svg, before.svg, 'and the wide font draws other words');
 });
 
-test('a Scene the drawings were not made for is drawn before its file is written', async () => {
+test('a Scene whose Elements changed since they were painted is drawn before its file is written', async () => {
   const scene = sceneOf();
   const paintables = new PaintCache(KALAM_LAYOUT);
   paintables.paint(scene.elements);

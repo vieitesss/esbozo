@@ -64,7 +64,7 @@ async function saved(ui: Ui, name = 'scene.json') {
   return new Map(scene.elements.map((element) => [element.id, element]));
 }
 
-describe('drawing', () => {
+describe('the tools', () => {
   test('R draws a rectangle where it is dragged, and the tool goes back to Select', async ({
     app,
     browser,
@@ -289,7 +289,7 @@ describe('drawing', () => {
     expect((await savedFiles(ui))['scene.json']).toBe(SCENE_SOURCE);
   });
 
-  test('Space pans with a tool in hand instead of drawing', async ({ app, browser, screen }) => {
+  test('Space pans with a tool in hand instead of placing an Element', async ({ app, browser, screen }) => {
     const ui = { app, browser, screen };
     await open(ui);
 

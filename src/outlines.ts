@@ -54,7 +54,7 @@ export function outlineText(svg: string, glyphs: Glyphs): OutlinedSvg {
   }
   const outlined = svg.replace(TEXT, () => drawn.shift() ?? '');
   if (outlined.includes('<text')) {
-    return { ok: false, problems: ['the drawing has words this page cannot outline'] };
+    return { ok: false, problems: ['the SVG has words this page cannot outline'] };
   }
   return { ok: true, svg: outlined };
 }

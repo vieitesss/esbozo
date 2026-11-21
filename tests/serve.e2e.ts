@@ -88,7 +88,7 @@ async function folderWith(files: Record<string, string>): Promise<string> {
   return folder;
 }
 
-test('a Scene switch stacks by the new Scene, however the old drawings were reused', async ({
+test('a Scene switch stacks by the new Scene, however the old SVGs were reused', async ({
   app,
   browser,
   screen,

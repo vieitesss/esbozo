@@ -49,6 +49,7 @@ test('the bundled CLI renders and draws a PNG with no node_modules beside it', a
 
   const rendered = await run(process.execPath, [cli, 'render', 'scene.json'], { cwd: folder });
   assert.match(rendered.stdout, /scene\.svg\n$/, 'render prints the path it wrote');
+  // check-rules: markup of the CLI's SVG, not the page
   assert.match(await readFile(join(folder, 'scene.svg'), 'utf8'), /^<svg[\s>]/);
 
   const drawn = await run(process.execPath, [cli, 'png', 'scene.json', '--theme', 'dark'], {
@@ -57,7 +58,7 @@ test('the bundled CLI renders and draws a PNG with no node_modules beside it', a
   assert.match(drawn.stdout, /scene\.dark\.png\n$/, 'png prints the path it wrote');
   const png = await readFile(join(folder, 'scene.dark.png'));
   assert.deepEqual(png.subarray(0, 8), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
-  assert.ok(png.length > 1000, 'the PNG holds a drawing, not just a header');
+  assert.ok(png.length > 1000, 'the PNG holds an image, not just a header');
 });
 
 test('the bundled CLI serves the page and the folder with no node_modules beside it', async () => {

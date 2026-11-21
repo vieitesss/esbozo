@@ -182,7 +182,7 @@ test('a Snapped end follows a round rectangle around its corner arc', async () =
   assert.ok(near(end.y, 102.75, 0.2), `the end is on the corner arc at y=${end.y}`);
 });
 
-test('a round diamond rounds its vertices in the drawing and in Snap', async () => {
+test('a round diamond rounds its vertices in the SVG and in Snap', async () => {
   // 200x100 diamond at (100,100): top (200,100), right (300,150), bottom
   // (200,200), left (100,150). A 12px fillet at the sharp right vertex sits
   // 26.83px inside it, so its nearest point to that vertex is x=285.17.
@@ -890,6 +890,7 @@ function attribute(tag: string, name: string): string | undefined {
 
 /** Each `<text>` Element with its content, so a test can ask what one Text drew. */
 function textElements(svg: string): string[] {
+  // check-rules: markup of the CLI's SVG, not the page
   return [...svg.matchAll(/<text\b[^>]*>[\s\S]*?<\/text>/g)].map((match) => match[0]);
 }
 
