@@ -1,0 +1,12 @@
+#!/bin/sh
+# The fast half of `pnpm check`, before the commit exists. One file, no
+# dependency, and opt-in once per clone:
+#
+#   git config core.hooksPath .githooks
+#
+# The whole guardrail is `pnpm check`, which CI runs on every push and pull
+# request; this only spares a round trip on the two checks that take a second.
+set -e
+
+pnpm --silent lint
+pnpm --silent check-rules
