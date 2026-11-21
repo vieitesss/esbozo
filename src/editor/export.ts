@@ -86,8 +86,10 @@ function tooBig(options: PngExport, page: { width: number; height: number }): To
 /**
  * A Scene's file name as a shell reads it: bare when every character of it is
  * one the shell leaves alone, and in single quotes when it is not, so a name
- * with a space in it stays one argument. A single quote inside the name ends
- * the quoted run and comes back as `\'`: that is how a shell writes one.
+ * with a space in it stays one argument. A single quote of the name itself
+ * closes the quoted run, is escaped outside it, and the run opens again —
+ * `'` becomes `'\''` — which is the only way a shell carries one inside single
+ * quotes.
  */
 function shellQuote(name: string): string {
   if (/^[A-Za-z0-9._/@%+-]+$/.test(name)) {
