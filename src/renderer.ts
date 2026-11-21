@@ -512,9 +512,11 @@ function shaftWords(
     x: words.x + dx,
     y: words.y + dy,
     lines: words.lines.map((line) => ({
-      text: line.text,
+      ...line,
       x: line.x + dx,
       baseline: line.baseline + dy,
+      boundaries: line.boundaries.map((x) => x + dx),
+      top: line.top + dy,
     })),
   };
 }
