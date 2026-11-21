@@ -12,6 +12,10 @@ import {
   BESIDE,
   BESIDE_SCENE,
   BLANK_SCENE,
+  FOLLOW,
+  FOLLOW_SCENE,
+  LABELLED,
+  LABELLED_SCENE,
   MIXED,
   MIXED_SCENE,
   OVERFLOW,
@@ -24,6 +28,8 @@ import {
   SHIFTED,
   SHIFTED_SCENE,
   SPACED_SCENE,
+  UNPLACED,
+  UNPLACED_SCENE,
   WORDS,
   WORDS_SCENE,
   EMPTY,
@@ -38,6 +44,7 @@ import {
   savedScene,
   settle,
 } from './helpers.ts';
+import type { Ui, View } from './helpers.ts';
 import { imeCommit, imeCompose, insertText, livePage, stillCaret } from './cdp.ts';
 import { shot } from './pixels.ts';
 import type { Rect, Shot } from './pixels.ts';
@@ -52,6 +59,34 @@ const SPACED_SOURCE = JSON.stringify(SPACED_SCENE, null, 2);
 const BESIDE_SOURCE = JSON.stringify(BESIDE_SCENE, null, 2);
 const SHIFTED_SOURCE = JSON.stringify(SHIFTED_SCENE, null, 2);
 const BLANK_SOURCE = JSON.stringify(BLANK_SCENE, null, 2);
+const LABELLED_SOURCE = JSON.stringify(LABELLED_SCENE, null, 2);
+const UNPLACED_SOURCE = JSON.stringify(UNPLACED_SCENE, null, 2);
+const FOLLOW_SOURCE = JSON.stringify(FOLLOW_SCENE, null, 2);
+
+/**
+ * The paper a saved shaft Label paints, in page pixels: the one rectangle the
+ * SVG fills with paper, moved from Scene units by the view the page shows.
+ */
+async function savedPaper(ui: Ui, name: string, view: View): Promise<Rect> {
+  const svg = (await savedFiles(ui))[name];
+  if (svg === undefined) {
+    throw new Error(`${name} was not saved`);
+  }
+  // check-rules: markup of a written SVG file, not the page
+  const found = /<rect x="([-\d.]+)" y="([-\d.]+)" width="([-\d.]+)" height="([-\d.]+)" fill="var\(--paper\)"\/>/.exec(
+    svg,
+  );
+  if (found === null) {
+    throw new Error(`${name} paints no paper`);
+  }
+  const [x, y, width, height] = found.slice(1).map(Number) as [number, number, number, number];
+  return {
+    x: x * view.zoom + view.panX,
+    y: y * view.zoom + view.panY,
+    width: width * view.zoom,
+    height: height * view.zoom,
+  };
+}
 
 /** A Label long enough that the box it is typed into has to grow downwards. */
 const LONG_LABEL = 'words that wrap and grow';
@@ -2057,5 +2092,187 @@ describe('labels', () => {
     expect(Math.abs(live.y - left.darkCentre(inside, DARK).y)).toBeLessThan(4);
     expect(typing.bands(inside, DARK)).toBe(left.bands(inside, DARK));
     expect(await savedFiles(ui)).toEqual(before);
+  });
+
+  test('dragging a shaft Label places it where the pointer leaves it, and the Scene keeps that place', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'labelled.json': LABELLED_SOURCE } }, 'labelled.json');
+
+    // The words' own ink, clear of the shaft below them: what the drag has to
+    // carry, and the only ink on the page that can be in this region.
+    const words: Rect = { x: 500, y: 280, width: 320, height: 150 };
+    const before = await shot(ui);
+    const start = before.darkBounds(words, DARK);
+    expect(start).not.toBeNull();
+
+    // Taken by their middle, so the drag keeps the hold it took: 120px right is
+    // a fifth more of the shaft, and 40px up is 40 more pixels to the side the
+    // words already sit on. Both are what the file has to keep.
+    await dragBy(ui, { x: 300, y: 139 }, 120, -40, LABELLED);
+    expect((await savedScene(ui, 'labelled.json')).elements[0]?.labelAt).toEqual({
+      t: 0.8,
+      offset: 101,
+    });
+
+    // The ink went where the pointer did, and nowhere else: a gesture that moved
+    // the words without the file saying so, or the other way round, is caught.
+    await browser.keyboard.press('Escape');
+    const carried = await shot(ui);
+    const moved = carried.darkBounds(words, DARK);
+    expect(moved).not.toBeNull();
+    expect(Math.abs((moved as Rect).x - (start as Rect).x - 120)).toBeLessThan(1.5);
+    expect(Math.abs((moved as Rect).y - (start as Rect).y + 40)).toBeLessThan(1.5);
+  });
+
+  test("a Label dragged onto the shaft is paper over the shaft's own ink", async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'labelled.json': LABELLED_SOURCE } }, 'labelled.json');
+    const before = await shot(ui);
+
+    // 61px down puts the words' middle on the shaft: `offset: 0`. The paper the
+    // save writes is the paper the page paints, so the strip of it that no glyph
+    // reaches is where the shaft has to be gone.
+    await dragBy(ui, { x: 300, y: 139 }, 0, 61, LABELLED);
+    expect((await savedScene(ui, 'labelled.json')).elements[0]?.labelAt).toEqual({ t: 0.5, offset: 0 });
+    const paper = await savedPaper(ui, 'labelled.svg', LABELLED);
+    /** A strip of the shaft's own row, on the page, inside the paper's own span. */
+    const along = (from: number): Rect => ({ x: from, y: 436, width: 2, height: 5 });
+
+    expect(before.darkCount(along(paper.x + 1), DARK)).toBeGreaterThan(0);
+    await browser.keyboard.press('Escape');
+    const onLine = await shot(ui);
+    expect(onLine.darkCount(along(paper.x + 1), DARK)).toBe(0);
+    // The shaft still draws where the paper does not reach: the words cut a hole
+    // in it rather than covering the page.
+    expect(onLine.darkCount(along(paper.x - 4), DARK)).toBeGreaterThan(0);
+    expect(onLine.darkCount({ x: paper.x, y: paper.y, width: paper.width, height: paper.height }, DARK)).toBeGreaterThan(50);
+
+    // Pressing the words where they now lie takes them again, and not the shaft
+    // under them: the line's own points are the ones it always had.
+    await dragBy(ui, { x: 300, y: 200 }, 0, -61, LABELLED);
+    const placed = await savedScene(ui, 'labelled.json');
+    expect(placed.elements[0]?.labelAt).toEqual({ t: 0.5, offset: 61 });
+    expect(placed.elements[0]?.points).toEqual([
+      { x: 100, y: 200 },
+      { x: 500, y: 200 },
+    ]);
+  });
+
+  test('the words of a placed Label ride the shaft a Snapped Element moves', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'follow.json': FOLLOW_SOURCE } }, 'follow.json');
+
+    // The words sit below the shaft, clear of both the box and the line.
+    const words: Rect = { x: 600, y: 400, width: 200, height: 70 };
+    const before = await shot(ui);
+    const start = before.darkBounds(words, DARK);
+    expect(start).not.toBeNull();
+
+    // The box is carried 40px along the line it is Snapped to, so the outline the
+    // end lands on moves with it: the shaft's start goes 40px on and its middle,
+    // where the words are placed, goes half of that.
+    await dragBy(ui, { x: 60, y: 300 }, 40, 0, FOLLOW);
+    const scene = await savedScene(ui, 'follow.json');
+    expect(scene.elements[0]?.x).toBe(70);
+    expect(scene.elements[1]?.labelAt).toEqual({ t: 0.5, offset: -39 });
+    expect(scene.elements[1]?.points).toEqual([
+      { x: 100, y: 300, snap: 'box' },
+      { x: 500, y: 300 },
+    ]);
+
+    await browser.keyboard.press('Escape');
+    const after = await shot(ui);
+    const moved = after.darkBounds(words, DARK);
+    expect(moved).not.toBeNull();
+    expect(Math.abs((moved as Rect).x - (start as Rect).x - 20)).toBeLessThan(1.5);
+    expect(Math.abs((moved as Rect).y - (start as Rect).y)).toBeLessThan(1.5);
+  });
+
+  test('double-clicking a placed shaft Label types its words where they are', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'labelled.json': LABELLED_SOURCE } }, 'labelled.json');
+
+    const words: Rect = { x: 560, y: 366, width: 180, height: 30 };
+    const before = await shot(ui);
+    const placed = before.darkCentre(words, DARK);
+    expect(placed.count).toBeGreaterThan(50);
+
+    await doubleClickScene(ui, { x: 300, y: 139 }, LABELLED);
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await expect(label).toHaveValue('moving');
+    await label.pressSequentially(' on');
+    const typing = await shot(ui);
+    await label.press('Escape');
+
+    const scene = await savedScene(ui, 'labelled.json');
+    expect(scene.elements[0]?.label).toBe('moving on');
+    // The words are edited where they are placed, not where Layout first put
+    // them: the ink of the session is on the placed line — a hair above the
+    // glyphs is the caret, and a line that moved would be worth 29 — and the
+    // place Layout would have used, 42px lower, holds nothing at all.
+    const written = typing.darkCentre({ x: 560, y: 366, width: 180, height: 30 }, DARK);
+    expect(written.count).toBeGreaterThan(50);
+    expect(Math.abs(written.y - placed.y)).toBeLessThan(2);
+    expect(typing.darkCount({ x: 560, y: 400, width: 180, height: 30 }, DARK)).toBe(0);
+    expect(scene.elements[0]?.labelAt).toEqual({ t: 0.5, offset: 61 });
+  });
+
+  test('undo takes a placed Label back to where it was, and redo puts it back', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'unplaced.json': UNPLACED_SOURCE } }, 'unplaced.json');
+
+    const words: Rect = { x: 520, y: 340, width: 280, height: 70 };
+    const before = await shot(ui);
+    const start = before.darkBounds(words, DARK);
+    expect(start).not.toBeNull();
+
+    // The first placement: a Label the Scene never placed, taken where Layout put
+    // it and carried 100px along the shaft and 30px to its side.
+    await dragBy(ui, { x: 300, y: 182 }, 100, -30, UNPLACED);
+    const placed = await savedScene(ui, 'unplaced.json');
+    expect(placed.elements[0]?.labelAt?.t).toBe(0.75);
+
+    // One undo takes the whole drag back: the Label is one the Scene never
+    // placed, and no `labelAt` is left behind.
+    await browser.keyboard.press('ControlOrMeta+z');
+    const undone = await savedScene(ui, 'unplaced.json');
+    expect(Object.hasOwn(undone.elements[0] ?? {}, 'labelAt')).toBe(false);
+    // The selection's own ink is no part of the Scene: it goes before the page
+    // is read, so the pixels that are compared are the words' alone.
+    await browser.keyboard.press('Escape');
+    const back = (await shot(ui)).darkBounds(words, DARK);
+    expect(back).not.toBeNull();
+    expect(Math.abs((back as Rect).x - (start as Rect).x)).toBeLessThan(1.5);
+    expect(Math.abs((back as Rect).y - (start as Rect).y)).toBeLessThan(1.5);
+
+    // Redo puts the same place back, and the ink with it.
+    await browser.keyboard.press('ControlOrMeta+Shift+z');
+    const again = await savedScene(ui, 'unplaced.json');
+    expect(again.elements[0]?.labelAt).toEqual(placed.elements[0]?.labelAt);
+    await browser.keyboard.press('Escape');
+    const carried = (await shot(ui)).darkBounds(words, DARK);
+    expect(carried).not.toBeNull();
+    expect(Math.abs((carried as Rect).x - (start as Rect).x - 100)).toBeLessThan(1.5);
+    expect(Math.abs((carried as Rect).y - (start as Rect).y + 30)).toBeLessThan(1.5);
   });
 });

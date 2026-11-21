@@ -9,8 +9,10 @@
  */
 import { createLayout } from '../layout.js';
 import type { Block, Layout, LineGlyphs, Metrics } from '../layout.js';
+import { labelAtFor } from '../geometry.js';
 import { drawnShaft, elementBounds, elementsById, outlineBox } from '../renderer.js';
 import {
+  canonicalElement,
   emptyScene,
   isOutlined,
   hasXmlInvalidChars,
@@ -55,6 +57,7 @@ import {
   handlePoint,
   landingOffset,
   moved,
+  pressedLabel,
   resized,
   resizedBox,
   toScene,
@@ -167,6 +170,16 @@ type Drag =
       shown: SceneElement;
     }
   | { kind: 'text'; at: Point }
+  | {
+      kind: 'label';
+      id: string;
+      /** The drawn shaft the Label rides, as the press found it. */
+      shaft: { start: Point; end: Point };
+      /** How far off the words' middle the press landed: the words keep that hold. */
+      grab: Point;
+      /** The Element as the drag shows its Label placed. */
+      shown: SceneElement;
+    }
   | {
       kind: 'words';
       /** Where the selection is anchored, as an offset into the field's words. */
@@ -1062,6 +1075,9 @@ class EsbozoEditorElement extends HTMLElement {
     if (drag.kind === 'end') {
       return this.#scene.elements.map((element) => (element.id === drag.id ? drag.shown : element));
     }
+    if (drag.kind === 'label') {
+      return this.#scene.elements.map((element) => (element.id === drag.id ? drag.shown : element));
+    }
     return this.#scene.elements;
   }
 
@@ -1076,7 +1092,11 @@ class EsbozoEditorElement extends HTMLElement {
     const drag = this.#drag;
     return (
       drag !== null &&
-      (drag.kind === 'draw' || drag.kind === 'move' || drag.kind === 'resize' || drag.kind === 'end')
+      (drag.kind === 'draw' ||
+        drag.kind === 'move' ||
+        drag.kind === 'resize' ||
+        drag.kind === 'end' ||
+        drag.kind === 'label')
     );
   }
 
@@ -2148,6 +2168,40 @@ class EsbozoEditorElement extends HTMLElement {
     }
 
     const point = this.#scenePoint(event);
+    // A shaft's Label is words a person can press wherever it sits, over its own
+    // shaft included: taking hold of them places them, and never moves the shaft
+    // they are written about.
+    const label = editing ? pressedLabel(this.#scene.elements, point, this.#layout) : null;
+    if (label !== null) {
+      const id = label.element.id;
+      if (event.shiftKey) {
+        this.#selected = this.#selected.includes(id)
+          ? this.#selected.filter((selected) => selected !== id)
+          : [...this.#selected, id];
+      } else if (!this.#selected.includes(id)) {
+        this.#selected = [id];
+      }
+      this.#press = {
+        id,
+        at: this.#screenPoint(event),
+        time: event.timeStamp,
+        shift: event.shiftKey,
+      };
+      const [start, end] = drawnShaft(label.element, elementsById(this.#scene.elements));
+      this.#drag = {
+        kind: 'label',
+        id,
+        shaft: { start, end },
+        grab: {
+          x: point.x - (label.box.x + label.box.width / 2),
+          y: point.y - (label.box.y + label.box.height / 2),
+        },
+        shown: label.element,
+      };
+      this.#refresh();
+      return;
+    }
+
     const reach = PICK_TOLERANCE / this.#view.zoom;
     const hit = elementAt(this.#scene.elements, point, reach, this.#layout);
     // A double-click opens the words under its *first* click: selecting what it
@@ -2751,6 +2805,17 @@ class EsbozoEditorElement extends HTMLElement {
     if (drag.kind === 'text') {
       return;
     }
+    if (drag.kind === 'label') {
+      // The words follow the pointer by the hold they were taken by, so they do
+      // not jump to it. The place is the drawing's own, so what the frame shows
+      // is what the release saves.
+      const anchor = { x: point.x - drag.grab.x, y: point.y - drag.grab.y };
+      if (isShaft(drag.shown)) {
+        drag.shown = { ...drag.shown, labelAt: labelAtFor(drag.shaft, anchor) };
+      }
+      this.#paint();
+      return;
+    }
     const dx = point.x - drag.from.x;
     const dy = point.y - drag.from.y;
     if (drag.kind === 'end') {
@@ -2834,6 +2899,20 @@ class EsbozoEditorElement extends HTMLElement {
       // The selection the drag made is the field's already: the release settles
       // nothing and the words stay open.
       this.#drag = null;
+      return;
+    }
+    if (drag.kind === 'label') {
+      // One step, rounded where the Scene rounds every number, so the place the
+      // ink showed is the place the file holds. A press that carried nothing
+      // leaves the Scene as it was, and records no step.
+      const placed = drag.shown;
+      this.#drag = null;
+      this.#applyScene({
+        ...this.#scene,
+        elements: this.#scene.elements.map((element) =>
+          element.id === drag.id ? canonicalElement(placed) : element,
+        ),
+      });
       return;
     }
     if (drag.kind === 'draw') {

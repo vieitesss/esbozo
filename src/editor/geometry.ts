@@ -12,7 +12,7 @@
 import { drawnShaft, elementBounds, elementsById, inkBounds, labelInkBounds, pageBounds, shaftLabel, strokeWidthOf } from '../renderer.js';
 import type { Layout } from '../layout.js';
 import { MIN_SIZE, isOutlined } from '../scene.js';
-import type { Element, Scene } from '../scene.js';
+import type { ArrowOrLineElement, Element, Scene } from '../scene.js';
 
 export interface Point {
   x: number;
@@ -111,7 +111,7 @@ export function elementAt(
 
 /** A shaft's Label a press landed on: the Element it belongs to, and the box its words paint. */
 export interface PressedLabel {
-  readonly element: Element;
+  readonly element: ArrowOrLineElement;
   readonly box: Box;
 }
 

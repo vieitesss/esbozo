@@ -194,6 +194,84 @@ export const BESIDE_SCENE = {
 export const BESIDE: View = { zoom: 1, panX: 351, panY: 180 };
 
 /**
+ * A level line whose Label is placed above the middle of the shaft: a drag of
+ * 120px right and 40px up from there is `labelAt: { t: 0.8, offset: 101 }`, the
+ * arithmetic a test can predict from the page alone. The offset is odd so the
+ * page the Scene fits is a whole number of pixels either side of its middle.
+ */
+export const LABELLED_SCENE = {
+  version: 1,
+  title: 'Labelled',
+  defaults: { roughness: 1 },
+  elements: [
+    {
+      id: 'rule',
+      type: 'line',
+      points: [
+        { x: 100, y: 200 },
+        { x: 500, y: 200 },
+      ],
+      heads: { start: 'none', end: 'none' },
+      label: 'moving',
+      labelAt: { t: 0.5, offset: 61 },
+    },
+  ],
+};
+
+/** The view `LABELLED_SCENE` lands in, worked out the same way as `VIEW`. */
+export const LABELLED: View = { zoom: 1, panX: 340, panY: 238 };
+
+/** The same line with its words where Layout puts them, for a first placement. */
+export const UNPLACED_SCENE = {
+  version: 1,
+  title: 'Unplaced',
+  defaults: { roughness: 1 },
+  elements: [
+    {
+      id: 'rule',
+      type: 'line',
+      points: [
+        { x: 100, y: 200 },
+        { x: 500, y: 200 },
+      ],
+      heads: { start: 'none', end: 'none' },
+      label: 'moving',
+    },
+  ],
+};
+
+/** The view `UNPLACED_SCENE` lands in, worked out the same way as `VIEW`. */
+export const UNPLACED: View = { zoom: 1, panX: 340, panY: 216.5 };
+
+/**
+ * A box with a line Snapped to its middle, and the Line's Label placed below the
+ * shaft: moving the box along the line keeps the Label's `t` and offset, so the
+ * words ride the shaft the Snap redraws.
+ */
+export const FOLLOW_SCENE = {
+  version: 1,
+  title: 'Follow',
+  defaults: { roughness: 1 },
+  elements: [
+    { id: 'box', type: 'rectangle', x: 30, y: 270, width: 60, height: 60 },
+    {
+      id: 'rule',
+      type: 'line',
+      points: [
+        { x: 100, y: 300, snap: 'box' },
+        { x: 500, y: 300 },
+      ],
+      heads: { start: 'none', end: 'none' },
+      label: 'moving',
+      labelAt: { t: 0.5, offset: -39 },
+    },
+  ],
+};
+
+/** The view `FOLLOW_SCENE` lands in, worked out the same way as `VIEW`. */
+export const FOLLOW: View = { zoom: 1, panX: 375, panY: 88 };
+
+/**
  * A thick horizontal line, and a diagonal arrow whose bounding box holds a
  * rectangle: the shapes whose boxes lie about where their ink is.
  */
@@ -964,6 +1042,7 @@ interface SavedElement {
   height?: number;
   content?: string;
   label?: string;
+  labelAt?: { t: number; offset: number };
   points?: Array<{ x: number; y: number; snap?: string }>;
   roughness?: number;
   stroke?: { width: string; style: string };
