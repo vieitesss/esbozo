@@ -116,6 +116,12 @@ const THE_LABEL: Rect = { x: 500, y: 350, width: 300, height: 200 };
  * wrap puts there, and Kalam's shorter wrap leaves bare.
  */
 const LABEL_LOW: Rect = { x: 560, y: 408, width: 170, height: 26 };
+/**
+ * The whole Label through the box's interior: every line the wide file wraps
+ * into, from the first line's row to the last, and in from the box's edges so
+ * no row of a selection handle is in it.
+ */
+const LABEL_INTERIOR: Rect = { x: 575, y: 366, width: 130, height: 68 };
 /** Where `SNAPPED_SCENE` draws on the bordered page: the whole drawing and nothing else. */
 const BORDERED_INK: Rect = { x: 300, y: 200, width: 680, height: 400 };
 
@@ -229,6 +235,9 @@ test('a font that lands while an Element is being moved redraws it before the re
     await expect(screen.getByRole('status')).toHaveText('saved');
     await settle(ui);
     const wideLow = await inkIn(LABEL_LOW);
+    // The same box whole: every line the wide file's wrap draws, which a page
+    // that measured the font late owes the gesture in full.
+    const wideWords = await inkIn(LABEL_INTERIOR);
 
     // The same box in Kalam: fewer lines, so a page still holding them is stale.
     await app.open(`${embed.url}/label-kalam.html`);
@@ -261,8 +270,13 @@ test('a font that lands while an Element is being moved redraws it before the re
       document.querySelector('esbozo-editor')!.setAttribute('font', 'fonts/b.ttf');
       return true;
     });
-    const carriedLow = { ...LABEL_LOW, x: LABEL_LOW.x + 40, y: LABEL_LOW.y + 20 };
-    await expect.poll(() => inkIn(carriedLow)).toBeGreaterThan(wideLow * 0.9);
+    const carriedWords = { ...LABEL_INTERIOR, x: LABEL_INTERIOR.x + 40, y: LABEL_INTERIOR.y + 20 };
+    // The whole wrap, not the lower band alone: a redraw that kept some of the
+    // old font's lines is short of the reference by more than 3% — one line of
+    // this wrap is 6% of it — while the same drawing reads within a fifth of a
+    // per cent of it. The pointer is still down for both readings.
+    await expect.poll(() => inkIn(carriedWords)).toBeGreaterThan(wideWords * 0.97);
+    expect(await inkIn(carriedWords)).toBeLessThan(wideWords * 1.03);
     // And it is still where the pointer carries it, not back at its own place.
     const redrawn = await inkOf(THE_LABEL);
     expect(Math.abs(middle(redrawn).x - middle(carried).x)).toBeLessThanOrEqual(2);
@@ -270,9 +284,11 @@ test('a font that lands while an Element is being moved redraws it before the re
 
     await browser.mouse.up();
     await settle(ui);
-    // The release adds nothing to the words: the wide file's wrap was already
-    // the drawing when the file landed.
-    expect(await inkIn(carriedLow)).toBeGreaterThan(wideLow * 0.9);
+    // The release adds nothing to the words: the whole wrap was already the
+    // drawing when the file landed.
+    const releasedWords = await inkIn(carriedWords);
+    expect(releasedWords).toBeGreaterThan(wideWords * 0.97);
+    expect(releasedWords).toBeLessThan(wideWords * 1.03);
   } finally {
     await embed.stop();
   }
