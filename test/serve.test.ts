@@ -7,7 +7,7 @@
  * attacker would try them, and the file outside has to stay untouched.
  */
 import assert from 'node:assert/strict';
-import { mkdir, readFile, stat, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { ez, sceneFolder, startServe, tempFolder } from './cli.ts';
@@ -133,6 +133,45 @@ test('a write stores the Scene and its SVG side by side', async () => {
   // No temporary files are left behind either.
   const list = JSON.parse((await request(server, '/api/scenes')).body) as { scenes: string[] };
   assert.deepEqual(list.scenes, ['saved.json', 'scene.json']);
+});
+
+test('writes of one Scene that overlap leave the pair from a single request', async () => {
+  const folder = await sceneFolder(SCENE);
+  const server = await served(folder);
+
+  const overlapping = Array.from({ length: 48 }, (_, index) =>
+    request(server, '/api/scenes/busy.json', 'PUT', {
+      scene: JSON.stringify({ ...SCENE, title: `write ${index}` }, null, 2),
+      svg: `<svg xmlns="http://www.w3.org/2000/svg"><title>write ${index}</title></svg>`,
+    }),
+  );
+  const answers = await Promise.all(overlapping);
+  assert.deepEqual(
+    answers.map((answer) => answer.status),
+    answers.map(() => 200),
+    'every write is answered',
+  );
+
+  const saved = JSON.parse(await readFile(join(folder, 'busy.json'), 'utf8')) as { title: string };
+  const svg = await readFile(join(folder, 'busy.svg'), 'utf8');
+  assert.match(svg, new RegExp(`<title>${saved.title}</title>`), `the SVG beside “${saved.title}” is its own`);
+});
+
+test('a folder where the SVG name is taken fails the write and keeps the old pair', async () => {
+  const folder = await sceneFolder(SCENE);
+  const server = await served(folder);
+  const first = sent({ ...SCENE, title: 'Kept' });
+  assert.equal((await request(server, '/api/scenes/kept.json', 'PUT', first)).status, 200);
+
+  // A folder took the SVG's name, so the pair can no longer be written.
+  await rm(join(folder, 'kept.svg'));
+  await mkdir(join(folder, 'kept.svg'));
+
+  const answer = await request(server, '/api/scenes/kept.json', 'PUT', sent({ ...SCENE, title: 'Replaced' }));
+
+  assert.equal(answer.status, 409);
+  assert.match(answer.body, /kept\.svg/);
+  assert.equal(await readFile(join(folder, 'kept.json'), 'utf8'), first.scene);
 });
 
 test('an invalid Scene is refused and nothing is written', async () => {

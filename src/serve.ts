@@ -16,8 +16,8 @@
  * refused, so neither a read nor a write can leave the folder.
  *
  * A written Scene is parsed with `parseScene` first and refused with 400 when
- * it is invalid, so the server never stores what `ez check` rejects. The two
- * files are written to temporaries and renamed into place, Scene then SVG.
+ * it is invalid, so the server never stores what `ez check` rejects. A Scene and
+ * its SVG are committed together, one write of a name at a time.
  *
  * No auth: the default bind is 127.0.0.1, and a host that reaches further is
  * the caller's choice.
@@ -250,7 +250,15 @@ async function handleScene(
     return;
   }
 
-  await writePair(root, name, written);
+  try {
+    await serialised(join(root, name), () => writePair(root, name, written));
+  } catch (error) {
+    if (!(error instanceof WriteRefused)) {
+      throw error;
+    }
+    sendJson(response, error.status, { error: error.message });
+    return;
+  }
   sendJson(response, 200, { scene: name, svg: svgFileName(name) });
 }
 
@@ -317,26 +325,118 @@ function parseWrite(body: string): SceneWrite | null {
   return { scene, svg };
 }
 
+/** A write the folder itself refuses, with the answer it deserves. */
+class WriteRefused extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+/** The writes in flight, one queue per output pair, so two never interleave. */
+const queued = new Map<string, Promise<void>>();
+
+/** Run `job` after every earlier job for `key`, whatever those jobs did. */
+function serialised<T>(key: string, job: () => Promise<T>): Promise<T> {
+  const next = (queued.get(key) ?? Promise.resolve()).then(job);
+  const settled = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  queued.set(key, settled);
+  void settled.then(() => {
+    if (queued.get(key) === settled) {
+      queued.delete(key);
+    }
+  });
+  return next;
+}
+
+/** One file of a pair: where it goes, what it holds now, and where its bytes wait. */
+interface StagedFile {
+  readonly target: string;
+  readonly text: string;
+  readonly previous: string | null;
+  readonly temporary: string;
+}
+
 /**
- * Both files land or neither does: each is written to its own temporary and
- * then renamed, Scene first, so a reader never sees a Scene beside an old SVG.
+ * Replace the Scene and its SVG of one name together. Calls for one pair are
+ * queued, so the two files on disk always come from a single write: the pair a
+ * reader finds is the one before a write or the one after it, never a Scene from
+ * one request beside an SVG from another.
+ *
+ * Each file is replaced atomically, Scene first, and what a write replaces is
+ * read before anything lands: a failure after the first rename puts back every
+ * file already replaced, so a failed write leaves the previous pair. A reader
+ * between the two renames can see the new Scene beside the previous SVG; the SVG
+ * never leads the Scene, and both are the same write once the request answers.
  */
 async function writePair(root: string, name: string, written: SceneWrite): Promise<void> {
-  const pair = [
+  const wanted = [
     { target: join(root, name), text: written.scene },
     { target: join(root, svgFileName(name)), text: written.svg },
   ];
-  const staged = pair.map((file) => ({ ...file, temporary: `${file.target}.${randomUUID()}.tmp` }));
+  const staged: StagedFile[] = [];
+  for (const file of wanted) {
+    staged.push({
+      ...file,
+      previous: await previousOf(file.target),
+      temporary: `${file.target}.${randomUUID()}.tmp`,
+    });
+  }
+
+  const replaced: StagedFile[] = [];
   try {
     for (const file of staged) {
       await writeFile(file.temporary, file.text, 'utf8');
     }
     for (const file of staged) {
       await rename(file.temporary, file.target);
+      replaced.push(file);
     }
+  } catch (error) {
+    await putBack(replaced);
+    throw error;
   } finally {
     for (const file of staged) {
       await unlink(file.temporary).catch(() => {});
+    }
+  }
+}
+
+/** What a target holds now, `null` when it is not there, or a refusal to replace it. */
+async function previousOf(target: string): Promise<string | null> {
+  try {
+    return await readFile(target, 'utf8');
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') {
+      return null;
+    }
+    if (code === 'EISDIR') {
+      throw new WriteRefused(409, `${basename(target)} is a folder: save the Scene under another name`);
+    }
+    throw error;
+  }
+}
+
+/** Undo the renames a failed write made, newest first, so the pair comes back. */
+async function putBack(replaced: readonly StagedFile[]): Promise<void> {
+  for (const file of [...replaced].reverse()) {
+    try {
+      if (file.previous === null) {
+        await unlink(file.target);
+        continue;
+      }
+      // Through a temporary, so a reader never sees half of the old file.
+      const temporary = `${file.target}.${randomUUID()}.tmp`;
+      await writeFile(temporary, file.previous, 'utf8');
+      await rename(temporary, file.target);
+    } catch {
+      // The write has already failed: this is the most the server can do.
     }
   }
 }
