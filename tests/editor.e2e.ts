@@ -1838,11 +1838,16 @@ test('the ? button opens the Shortcuts sheet, and Escape shuts it', async ({ app
   await expect(ui.screen.getByRole('dialog', 'Style')).toBeVisible();
 });
 
-test('a press on the page shuts the Shortcuts sheet and draws nothing', async ({ app, browser, screen }) => {
+test('a press on the page shuts the Shortcuts sheet and lands where it was aimed', async ({
+  app,
+  browser,
+  screen,
+}) => {
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
   const help = ui.screen.getByRole('button', 'Shortcuts');
   const sheet = ui.screen.getByRole('dialog', 'Shortcuts');
+  const style = ui.screen.getByRole('dialog', 'Style');
 
   // Open, shut with the button, open again: the toggle leaves the tool in Select
   // and the Scene where it was, so the press below has nothing to draw with.
@@ -1853,12 +1858,26 @@ test('a press on the page shuts the Shortcuts sheet and draws nothing', async ({
   await help.click();
   await expect(sheet).toBeVisible();
 
+  // One Element selected, so a press the sheet shut on and a press it swallowed
+  // are told apart: the sheet shuts either way, and only a press that landed
+  // also lets the selection go. The press that selected the box shut the sheet,
+  // so the sheet is asked for again once the selection is in hand.
+  await clickScene(ui, { x: 100, y: 80 });
+  await expect(style).toBeVisible();
+  await help.click();
+  await expect(sheet).toBeVisible();
+  await expect(style).toBeVisible();
+
   await clickScene(ui, { x: 60, y: 300 });
   await expect(sheet).toBeHidden();
   await expect(help).toHaveAttribute('aria-expanded', 'false');
-  expect((await savedScene(ui)).elements.map((element) => element.id)).toEqual(
-    SCENE.elements.map((element) => element.id),
-  );
+  await expect(style).toBeHidden();
+
+  // The press was bare paper: the box is where the Scene has it, and the nudge a
+  // selection would have answered moves nothing and writes nothing.
+  await browser.keyboard.press('Shift+ArrowRight');
+  await settle(ui);
+  expect((await savedFiles(ui))['scene.json']).toBe(SCENE_SOURCE);
 });
 
 test('the docked note never covers the selection: the view pans clear of it', async ({ app, browser, screen }) => {
