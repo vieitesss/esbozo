@@ -177,8 +177,8 @@ interface GestureHost {
   applyScene(next: Scene, options?: { amend?: boolean; select?: readonly string[] }): void;
   /** The note follows the selection, the view makes room for it, the page repaints. */
   refresh(): void;
-  /** The page is held in the hand, or let go of: the status bar names the pan while it lasts. */
-  panning(on: boolean): void;
+  /** Refresh the status bar after the held Space or pan drag changes. */
+  showPanning(): void;
 }
 
 export class Gestures {
@@ -201,8 +201,6 @@ export class Gestures {
    */
   #cancelledClick = false;
   #spaceDown = false;
-  /** The pointer is carrying the page: a pan drag is in flight. */
-  #panDrag = false;
 
   constructor(host: GestureHost) {
     this.#host = host;
@@ -231,6 +229,11 @@ export class Gestures {
     return this.#spaceDown;
   }
 
+  /** A held Space names the pan even before the pointer starts carrying the page. */
+  get panning(): boolean {
+    return this.#spaceDown || this.#drag?.kind === 'pan';
+  }
+
   /** Nothing pairs a click any more: a drag started, a key came, a zoom moved the page. */
   forgetClicks(): void {
     this.#press = null;
@@ -251,32 +254,13 @@ export class Gestures {
     this.#spaceDown = true;
     this.#host.board.classList.add('hand');
     this.#host.board.classList.remove('pen');
-    this.#showPanning();
+    this.#host.showPanning();
   }
 
-  /**
-   * The page is held in the hand while a Space press lasts or a pan drag runs.
-   * The status bar says so for exactly that long.
-   */
-  #showPanning(): void {
-    this.#host.panning(this.#spaceDown || this.#panDrag);
-  }
-
-  /** A pan drag begins: the grabbing cursor and the status bar's word follow one flag. */
-  #beginPan(): void {
-    this.#panDrag = true;
-    this.#host.board.classList.add('panning');
-    this.#showPanning();
-  }
-
-  /**
-   * The pan drag is over, however it ended: the cursor is the hand's again, and
-   * a Space still held keeps the word the press gave.
-   */
-  #endPan(): void {
-    this.#panDrag = false;
-    this.#host.board.classList.remove('panning');
-    this.#showPanning();
+  /** Only a pan drag grabs the cursor. A held Space alone still names the pan. */
+  #showPanDrag(): void {
+    this.#host.board.classList.toggle('panning', this.#drag?.kind === 'pan');
+    this.#host.showPanning();
   }
 
   /**
@@ -285,17 +269,19 @@ export class Gestures {
    * the event cannot carry the view any further.
    */
   endSpacePan(): void {
-    if (this.#drag !== null && this.#drag.kind === 'pan') {
+    const wasPanning = this.panning;
+    if (this.#drag?.kind === 'pan') {
       this.#drag = null;
       this.#releasePointer();
-      this.#endPan();
     }
     if (this.#spaceDown) {
       this.#spaceDown = false;
       this.#host.board.classList.remove('hand');
       this.#host.board.classList.toggle('pen', this.#host.tool() !== 'select');
     }
-    this.#showPanning();
+    if (wasPanning) {
+      this.#showPanDrag();
+    }
   }
 
   /**
@@ -307,7 +293,9 @@ export class Gestures {
     this.#drag = null;
     this.#releasePointer();
     this.#forgetPress();
-    this.#endPan();
+    if (drag?.kind === 'pan') {
+      this.#showPanDrag();
+    }
     if (drag !== null && drag.kind === 'draw') {
       // The preview drew under an id the Scene never took.
       this.#host.select([]);
@@ -341,9 +329,13 @@ export class Gestures {
    * that takes the editor off its DOM, or one that moves to another Scene.
    */
   drop(): void {
+    const wasDraggingPan = this.#drag?.kind === 'pan';
     this.#drag = null;
     this.#press = null;
     this.#releasePointer();
+    if (wasDraggingPan) {
+      this.#showPanDrag();
+    }
   }
 
   /**
@@ -414,7 +406,7 @@ export class Gestures {
         fromScreen: viewport.screenPoint(event),
         start: { ...viewport.view },
       };
-      this.#beginPan();
+      this.#showPanDrag();
       return;
     }
     const tool = this.#host.tool();
@@ -664,7 +656,6 @@ export class Gestures {
   up = (event: PointerEvent): void => {
     const { viewport } = this.#host.page;
     const drag = this.#drag;
-    this.#endPan();
     // The pointer comes up for this gesture or for one already ended: either way
     // it is the browser's again.
     this.#releasePointer();
@@ -757,6 +748,7 @@ export class Gestures {
       return;
     }
     this.#drag = null;
+    this.#showPanDrag();
     this.#host.refresh();
   };
 

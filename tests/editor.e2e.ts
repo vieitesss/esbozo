@@ -1680,6 +1680,37 @@ test('another Scene takes the pan word with the Scene it named', async ({ app, b
   await ui.browser.keyboard.up('Space');
 });
 
+for (const hostChange of ['disconnect', 'reset'] as const) {
+  test(`a pan ends on a host ${hostChange}`, async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+    const pill = screen.getByText('Panning');
+    const mouse = livePage().mouse;
+
+    await browser.keyboard.down('Space');
+    await mouse.move(640, 400);
+    await mouse.down();
+    await expect(pill).toBeVisible();
+
+    await browser.evaluate((change) => {
+      const editor = document.querySelector('esbozo-editor')!;
+      if (change === 'disconnect') {
+        const { parentElement, nextSibling } = editor;
+        editor.remove();
+        parentElement!.insertBefore(editor, nextSibling);
+      } else {
+        editor.setAttribute('scene', 'another-scene.json');
+      }
+      return true;
+    }, hostChange);
+
+    // Neither teardown waits for a pointer or Space release to clear the pill.
+    await expect(pill).toBeHidden();
+    await mouse.up();
+    await browser.keyboard.up('Space');
+  });
+}
+
 test('the ? button opens the Shortcuts sheet, and Escape shuts it', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');

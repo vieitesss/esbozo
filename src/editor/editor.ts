@@ -125,8 +125,6 @@ class EsbozoEditorElement extends HTMLElement {
   #modeLabel!: HTMLElement;
   /** What this page may do with the Scene: it may only read one, or it may write it. */
   #readOnly = false;
-  /** The page is held in the hand: a Space press or a pan drag is naming itself. */
-  #panning = false;
   #savedLabel!: HTMLElement;
   #menu!: HTMLElement;
   #roughButton!: HTMLButtonElement;
@@ -307,10 +305,7 @@ class EsbozoEditorElement extends HTMLElement {
       openTextInput: (at) => this.#openTextInput(at),
       applyScene: (next, options) => this.#applyScene(next, options),
       refresh: () => this.#refresh(),
-      panning: (on) => {
-        this.#panning = on;
-        this.#showPill();
-      },
+      showPanning: () => this.#showPill(),
     });
 
     if (this.#ownsKeysWhenFocused) {
@@ -516,7 +511,10 @@ class EsbozoEditorElement extends HTMLElement {
    * while it lasts, and hands the pill back to the other word when it ends.
    */
   #showPill(): void {
-    this.#modeLabel.textContent = this.#panning ? 'Panning' : this.#readOnly ? 'read-only' : '';
+    const text = this.#gestures.panning ? 'Panning' : this.#readOnly ? 'read-only' : '';
+    if (this.#modeLabel.textContent !== text) {
+      this.#modeLabel.textContent = text;
+    }
   }
 
   /** Let go of every edit in flight: half-typed words, the gesture in hand, and the tool. */
