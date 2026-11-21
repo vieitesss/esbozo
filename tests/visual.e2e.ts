@@ -26,6 +26,7 @@ import {
   MIXED,
   MIXED_SCENE,
   SCENE,
+  at,
   clickScene,
   drag,
   openEditor,
@@ -33,6 +34,9 @@ import {
 } from './helpers.ts';
 
 const SCENE_SOURCE = JSON.stringify(SCENE, null, 2);
+
+/** Empty canvas, clear of the two fixture rectangles and of the rail. */
+const PAPER = { x: 420, y: 40 };
 const MIXED_SOURCE = JSON.stringify(MIXED_SCENE, null, 2);
 const BROKEN_SOURCE = JSON.stringify(BROKEN_SCENE, null, 2);
 
@@ -139,4 +143,58 @@ test('holding Space and dragging pans the view', async ({ agent, app, browser, s
 
   // Panning is a view change, so the Scene on disk is untouched.
   expect((await savedFiles(ui))['scene.json']).toBe(before);
+});
+
+test('a tool comes into hand on the rail, and the pencil draws a box that lands selected', async ({
+  agent,
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { agent, app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+  // Rectangle is picked with the left hand; the rail has to say so.
+  await browser.keyboard.press('r');
+  await ui.agent.assert(
+    'on the left tool rail, the Rectangle button is the one filled dark, and the Select button is not',
+    { vision: 'only' },
+  );
+
+  await drag(ui, at(PAPER), at({ x: PAPER.x + 120, y: PAPER.y + 100 }));
+  await ui.agent.assert(
+    'a new hand-drawn rectangle sits to the right of the two drawn side by side, hugged by a thin dashed selection box',
+    { vision: 'only' },
+  );
+
+  // A duplicate is visible ink: a copy of what was just drawn, offset off it.
+  await browser.keyboard.press('c');
+  await ui.agent.assert('four hand-drawn rectangles are on the paper, two overlapping', {
+    vision: 'only',
+  });
+});
+
+test('a new Text is typed in place, in the hand it draws in, and stays as words on the paper', async ({
+  agent,
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { agent, app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+  await browser.keyboard.press('t');
+  await clickScene(ui, { x: 420, y: 300 });
+  await screen.getByRole('textbox', { name: 'Text' }).pressSequentially('draw me');
+
+  await ui.agent.assert(
+    'the words "draw me" sit on the empty paper where they were typed, in a handwritten style, with no box or form around them',
+    { vision: 'only' },
+  );
+
+  await screen.getByRole('textbox', { name: 'Text' }).press('Escape');
+  await ui.agent.assert(
+    'the words "draw me" are still on the empty paper, in the same hand, and there is no cursor or input field beside them',
+    { vision: 'only' },
+  );
 });
