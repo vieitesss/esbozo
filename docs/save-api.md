@@ -32,7 +32,7 @@ The SVG of a Scene is `<name without .json>.svg` beside it: `a.json` gives `a.sv
 
 ## Routes
 
-All bodies the server sends are JSON (`content-type: application/json; charset=utf-8`) with `cache-control: no-store`. Every failure is `{ "error": "<message>" }`.
+Every response carries `cache-control: no-store`. Every API response, and every failure on any route, is JSON (`content-type: application/json; charset=utf-8`), and every failure is `{ "error": "<message>" }`. Only the successful body of a page file (see The page) is HTML, CSS, JavaScript or a font.
 
 ### `GET /api/scenes`
 
@@ -45,7 +45,7 @@ curl http://127.0.0.1:4320/api/scenes
 
 ### `GET /api/scenes/<name>`
 
-`200` with the Scene file exactly as it is on disk (not re-serialised), or `404` `no Scene named <name>`. A name the rules refuse is `400`; a symlink that leaves the folder is `403`.
+`200` with the Scene file exactly as it is on disk (not re-serialised), or `404` `no Scene named <name>` when the name is not a Scene file: there is no such file, or the name belongs to a folder. A name the rules refuse is `400`; a symlink that leaves the folder is `403`.
 
 ### `PUT /api/scenes/<name>`, `POST /api/scenes/<name>`
 
@@ -64,33 +64,44 @@ curl -X PUT -H 'content-type: application/json' \
 
 `200` with `{}` means both files are written. The server stores `scene` byte for byte, so send the canonical text (`serialiseScene`, as the editor does) if you want canonical files. It parses `scene` with the same parser as `ez check` and refuses an invalid one; it does not look inside `svg`, and it does not check that the SVG belongs to the Scene or that Labels fit (that is `ez check`, exit `6`).
 
-The Content-Type has to be `application/json` (parameters such as `; charset=utf-8` are fine; the case of the type is not). A browser page on another origin can send `text/plain` without asking first, and this rule is what stops it writing to the folder.
+The Content-Type has to be the media type `application/json`, matched without regard to letter case (`Application/JSON` passes), with parameters such as `; charset=utf-8` allowed. A browser page on another origin can send `text/plain` without asking first, and this rule is what stops it writing to the folder.
 
 ## Status codes
 
-The checks run in this order, and the first that fails answers.
+### Checks for every route
+
+These run before any route-specific work, in this order. The first that fails answers.
 
 | Status | When |
 | --- | --- |
-| `400` | Broken percent-encoding, a `.` or `..` segment, or a name the rules refuse. The body is not JSON of the shape above (both `scene` and `svg` must be strings). The Scene is invalid: `the Scene is invalid: <problems>`. |
-| `403` | The name is a symlink that leaves the folder: `<name> leaves the folder`. The folder is served `--read-only` and the request is a `PUT` or `POST`: `this folder is served read-only`. |
-| `404` | `GET` of a Scene that does not exist, or a path that is not a page file (`no page file <path>`). |
-| `405` | A method the route does not take: `use GET` for the listing and page files, `use GET, PUT or POST` for a Scene. |
-| `415` | A write whose Content-Type is not `application/json`. Read-only wins over this: a read-only folder answers `403` first. |
-| `413` | A body over 8 MiB (`8388608` bytes). Nothing is written. |
-| `409` | The Scene's file or its SVG is a folder or another non-file: `<name> is a folder: save the Scene under another name`. Nothing is written. |
+| `400` | Broken percent-encoding, or a `.` or `..` segment in the path (`%2e%2e` too). |
+| `405` | The listing or a page file with a method other than `GET`: `use GET`. |
+| `404` | A path outside `/api/scenes` that is not a page file: `no page file <path>`. |
+
+A Scene route (`/api/scenes/<name>`) then checks the name and its place before the method: a name the rules refuse is `400`, and a symlink that leaves the folder is `403` (`<name> leaves the folder`). After that, `GET` answers `200` or `404` (`no Scene named <name>`), and a method other than `GET`, `PUT` or `POST` is `405` (`use GET, PUT or POST`).
+
+### Checks for a write
+
+A `PUT` or `POST` then passes these, in order. The first that fails answers.
+
+| Status | When |
+| --- | --- |
+| `403` | The folder is served `--read-only`: `this folder is served read-only`. This comes before every check below it, so a read-only folder answers `403` even for a wrong Content-Type. |
+| `415` | The Content-Type is not `application/json`. |
+| `413` | The body is over 8 MiB (`8388608` bytes). Nothing is written. |
+| `400` | The body is not JSON of the shape above (both `scene` and `svg` must be strings), or the Scene is invalid: `the Scene is invalid: <problems>`. |
+| `409` | The Scene's file or its SVG exists and is not a regular file: `<name> is a folder: save the Scene under another name`, or `<name> is not a file: save the Scene under another name` for any other kind of entry. Nothing is written. |
 | `500` | A write failed on disk. If even the undo failed, the message names the copy of the old Scene that is left behind. |
 
-Order, for a `PUT` or `POST`: name rules (`400`), containment (`403`), method (`405`), read-only (`403`), Content-Type (`415`), size (`413`), body shape (`400`), Scene validity (`400`), then the write (`409`, `500`).
+## Writes are serialised and undone on failure
 
-## The pair is written together
-
-A write replaces the Scene and its SVG as one unit:
+A write replaces the Scene and its SVG, but the pair is not atomic:
 
 1. Both targets are checked first. A target that is not a regular file is `409` and nothing changes.
-2. Writes to one name go through one queue, so two requests never interleave. The two files on disk are always from one request.
-3. The old Scene is copied aside, both new texts are written to temporary files, then the Scene is renamed into place, then the SVG. A failure in between puts the old Scene back and leaves the old SVG untouched.
-4. A reader between the two renames can see the new Scene beside the previous SVG. The SVG never leads the Scene, and once the request answers they are the same write.
+2. Writes to one name go through one queue, so two writes never interleave. The queue is per Scene: writes to different Scenes run at the same time, and a `GET` does not wait for it.
+3. The old Scene is copied aside, both new texts are written to temporary files, then the Scene is renamed into place, then the SVG.
+4. A failure before or between the renames puts the old Scene back and leaves the old SVG untouched. That is a rollback within the request, not a transaction a reader can see.
+5. A reader that looks between the two renames sees the new Scene beside the previous SVG. The SVG never leads the Scene. Once the request answers `200`, both files come from that write.
 
 An invalid Scene, a wrong Content-Type and a body that is too large leave both files untouched.
 
