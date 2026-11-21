@@ -40,7 +40,7 @@ Each element is an editor of its own: its own Scene, its own font, its own save 
 
 The element is the editor the served page shows — one implementation, `src/editor/`, with the same Renderer and the same Layout — and the single Scene is a third implementation of the storage seam in `src/editor/files.ts` (`src/editor/scene-url.ts`), after a picked folder and a served one. There is no fork of the editor in the bundle.
 
-So it has the whole editor: the tool rail, the Grid, selection, Snap, the keyboard shortcuts, autosave on every change, and no unsaved-changes prompt. What it does not have is esbozo's page around it: there is no folder to browse and no second Scene to create, so those two handles are hidden.
+So it has the whole editor: the tool rail, the Grid, selection, Snap, the keyboard shortcuts, autosave on every change, and no unsaved-changes prompt. What it does not have is esbozo's page around it: there is no folder to browse and no second Scene to create, so those two handles are hidden, and no PNG export — a PNG draws its words from the font's outlines and its paper and ink from the served page's palette, and the bundle has the metrics alone. The command palette lists both Export rows greyed out, saying to use `ez png` on the Scene file instead.
 
 ## Where it sits
 
@@ -56,4 +56,4 @@ The theme follows `<html data-theme>`: set `"dark"` for dark paper. The bundle d
 
 ## Size
 
-The bundle is one minified file, Rough.js and the editor's stylesheet included, of about 34 kB gzipped. `test/embed-bundle.test.ts` fails if it grows past 60 kB gzipped, so a dependency that quietly doubles it cannot land unnoticed.
+The bundle is one minified file, Rough.js and the editor's stylesheet included, of about 43 kB gzipped. `test/embed-bundle.test.ts` measures it and prints the number on every run, and fails if it grows past 60 kB gzipped, so a dependency that quietly doubles it cannot land unnoticed.
