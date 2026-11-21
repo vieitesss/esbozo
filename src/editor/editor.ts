@@ -2954,12 +2954,13 @@ class EsbozoEditorElement extends HTMLElement {
       // file holds. A press that carried nothing leaves the Scene as it was, and
       // records no step.
       const placed = canonicalElement(drag.shown);
+      const labelAt = isShaft(placed) ? placed.labelAt : undefined;
       this.#drag = null;
       this.#applyScene({
         ...this.#scene,
         elements: this.#scene.elements.map((element) =>
-          element.id === drag.id && isShaft(element) && isShaft(placed) && placed.labelAt !== undefined
-            ? { ...element, labelAt: placed.labelAt }
+          element.id === drag.id && isShaft(element) && labelAt !== undefined
+            ? { ...element, labelAt }
             : element,
         ),
       });
