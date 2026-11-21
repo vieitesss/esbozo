@@ -44,6 +44,7 @@ import {
   openEditor,
   savedFiles,
 } from './helpers.ts';
+import { stillCaret } from './cdp.ts';
 
 const SCENE_SOURCE = JSON.stringify(SCENE, null, 2);
 
@@ -208,7 +209,9 @@ test('a new Text is typed in place, in the hand it draws in, and stays as words 
   await screen.getByRole('textbox', { name: 'Text' }).pressSequentially('draw me');
 
   // The words are drawn by the canvas and the caret is drawn on them: there is
-  // no box holding a second copy of what is being typed.
+  // no box holding a second copy of what is being typed. A caret that blinks is
+  // caught by a screenshot in either half of its blink, so it is held still.
+  await stillCaret();
   await ui.agent.assert(
     'the words "draw me" sit on the empty paper where they were typed, in a handwritten style as the Scene writes them, and a thin vertical line stands among those words as a cursor; no box, bar or second copy of the words is drawn anywhere else on the page',
     { vision: 'only' },
