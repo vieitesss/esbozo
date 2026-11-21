@@ -28,9 +28,9 @@ A Scene name is one path segment, taken after percent-decoding, and it has to be
 
 A request path with a `.` or `..` segment, or with broken percent-encoding, is refused before anything else. A name that is a symlink to somewhere outside the folder is refused too.
 
-`GET /api/scenes` lists only the names a request can open: regular files at the top level that pass these rules, sorted. Folders, symlinks, hidden files and other extensions never appear. A `.json` name is any other JSON file's too, so the list keeps one only when its bytes parse as a Scene: a `package.json` or a `tsconfig.json` beside the Scenes is left out, and so is a Scene file that will not parse. A `.esbozo` name is this project's own extension, so it is listed however it reads, and a file that will not parse says what is wrong when it is opened.
+`GET /api/scenes` lists only the names a request can open: regular files at the top level that pass these rules, sorted. Folders, symlinks, hidden files and other extensions never appear. A `.json` name is any other JSON file's too, so the list keeps one only when its bytes parse as a Scene: a `package.json` or a `tsconfig.json` beside the Scenes is left out, and so is a Scene file that will not parse. A `.esbozo` name is this project's own extension, so it is listed however it reads, and a file that will not parse says what is wrong when it is opened. A `.json` the list cannot read — gone, unreadable, or over 5 MB — is left out instead of failing the listing.
 
-The SVG of a Scene is `<name without its extension>.svg` beside it: `a.esbozo` gives `a.svg`, `a.json` gives `a.svg`, and `a.esbozo.JSON` gives `a.esbozo.svg`. Writing a name the filesystem reads as another (`a.esbozo` and `A.ESBOZO` on a case-insensitive disk) takes the same write queue, so those two cannot race. Whether `GET` finds `b.esbozo` when the file is `B.ESBOZO` is the filesystem's answer, not the server's.
+The SVG of a Scene is `<name without its extension>.svg` beside it: `a.esbozo` gives `a.svg`, `a.json` gives `a.svg`, and `a.esbozo.JSON` gives `a.esbozo.svg`. Names that reach one SVG — `a.esbozo` and `a.json`, or `a.esbozo` and `A.ESBOZO` on a case-insensitive disk — take the same write queue, so they cannot race. Whether `GET` finds `b.esbozo` when the file is `B.ESBOZO` is the filesystem's answer, not the server's.
 
 ## Routes
 
@@ -100,7 +100,7 @@ A `PUT` or `POST` then passes these, in order. The first that fails answers.
 A write replaces the Scene and its SVG, but the pair is not atomic:
 
 1. Both targets are checked first. A target that is not a regular file is `409` and nothing changes.
-2. Writes to one name go through one queue, so two writes never interleave. The queue is per Scene: writes to different Scenes run at the same time, and a `GET` does not wait for it.
+2. Writes go through one queue per output pair, so two writes never interleave. `flow.esbozo` and `flow.json` both replace `flow.svg`, so they share one queue and the last successful save owns `flow.svg`; writes whose Scenes have different SVGs run at the same time, and a `GET` does not wait for a write.
 3. The old Scene is copied aside, both new texts are written to temporary files, then the Scene is renamed into place, then the SVG.
 4. A failure before or between the renames puts the old Scene back and leaves the old SVG untouched. That is a rollback within the request, not a transaction a reader can see.
 5. A reader that looks between the two renames sees the new Scene beside the previous SVG. The SVG never leads the Scene. Once the request answers `200`, both files come from that write.

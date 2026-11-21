@@ -335,7 +335,8 @@ test('the list names the Scenes at the top level and says the folder is writable
 
 test('the list offers only names the API opens', async () => {
   const folder = await tempFolder();
-  await writeFile(join(folder, '.hidden.json'), '{}', 'utf8');
+  // A valid Scene, so the hidden-file rule is what keeps it out of the list.
+  await writeFile(join(folder, '.hidden.json'), SCENE_SOURCE, 'utf8');
   await writeFile(join(folder, 'upper.JSON'), SCENE_SOURCE, 'utf8');
   await writeFile(join(folder, 'scene.json'), SCENE_SOURCE, 'utf8');
   const server = await served(folder);
@@ -523,6 +524,48 @@ test('two names that are one file here share one write queue', async (t) => {
   );
 
   await assertPairFrom(folder, 'alias.json', writes);
+});
+
+test('two names that share one SVG keep both Scenes, and the last write owns it', async () => {
+  const folder = await sceneFolder(SCENE);
+  const server = await served(folder);
+
+  // `flow.esbozo` and `flow.json` are two Scene files beside one `flow.svg`, so
+  // their writes go through one queue: the SVG is one request's, never two
+  // interleaved, and neither write reaches into the other's Scene file.
+  const writes = distinctWrites(40, (index) => (index % 2 === 0 ? 'flow.esbozo' : 'flow.json'));
+  const answers = await Promise.all(
+    writes.map((one) => request(server, `/api/scenes/${one.name}`, 'PUT', one.write)),
+  );
+  assert.deepEqual(
+    answers.map((answer) => answer.status),
+    answers.map(() => 200),
+    'every write is answered',
+  );
+
+  const shared = await readFile(join(folder, 'flow.svg'), 'utf8');
+  assert.ok(
+    writes.some((one) => one.write.svg === shared),
+    'the SVG on disk is one request\'s, byte for byte',
+  );
+  const esbozo = await readFile(join(folder, 'flow.esbozo'), 'utf8');
+  const json = await readFile(join(folder, 'flow.json'), 'utf8');
+  assert.ok(
+    writes.some((one) => one.name === 'flow.esbozo' && one.write.scene === esbozo),
+    'flow.esbozo is one of its own writes',
+  );
+  assert.ok(
+    writes.some((one) => one.name === 'flow.json' && one.write.scene === json),
+    'flow.json is one of its own writes',
+  );
+
+  // The last successful save owns the shared SVG, whichever name it saved.
+  const last = sent({ ...SCENE, title: 'Owner' });
+  assert.equal((await request(server, '/api/scenes/flow.esbozo', 'PUT', last)).status, 200);
+  assert.equal(await readFile(join(folder, 'flow.svg'), 'utf8'), last.svg);
+  assert.equal(await readFile(join(folder, 'flow.esbozo'), 'utf8'), last.scene);
+  assert.equal(await readFile(join(folder, 'flow.json'), 'utf8'), json);
+  assert.deepEqual((await readdir(folder)).sort(), ['flow.esbozo', 'flow.json', 'flow.svg', 'scene.json']);
 });
 
 test('aliased writes that all fail keep the previous pair', async (t) => {

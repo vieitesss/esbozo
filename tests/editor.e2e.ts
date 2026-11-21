@@ -196,9 +196,13 @@ test('a picked folder lists its Scenes, not the other JSON files beside them', a
   const view = await shot(ui);
   expect(view.meanLuminance(GREY_BOX)).toBeLessThan(view.meanLuminance(PAPER) - 0.2);
 
-  // The folder's other JSON files are not Scenes, so they are not offered.
+  // The note lists the folder while it is open, and loading a Scene hides it — a
+  // button nobody can see is no evidence that the list left it out.
+  await browseFolder(ui, 'A');
+  await expect(screen.getByRole('button', 'scene.esbozo')).toBeVisible();
   await expect(screen.getByRole('button', 'package.json')).toHaveCount(0);
   await expect(screen.getByRole('button', 'broken.json')).toHaveCount(0);
+  await browser.keyboard.press('Escape');
 
   // An .esbozo Scene saves its SVG beside it, by the same rule as a .json one.
   await dragBy(ui, { x: 100, y: 80 }, 37, 23);
