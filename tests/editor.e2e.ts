@@ -445,6 +445,83 @@ test('a press on the drawn border selects the Element in a zoomed-in view', asyn
   }
 });
 
+/**
+ * Two bold, plain-stroked boxes a 4px gap apart: the right one's tolerance halo
+ * reaches the left one's border ink, so a press there has two candidates.
+ */
+const HALO_SCENE = {
+  version: 1,
+  title: 'Halo',
+  defaults: { roughness: 0 },
+  elements: [
+    { id: 'left', type: 'rectangle', x: 40, y: 40, width: 100, height: 80, stroke: { width: 'bold' } },
+    { id: 'right', type: 'rectangle', x: 144, y: 40, width: 96, height: 80, stroke: { width: 'bold' } },
+  ],
+};
+const HALO_SOURCE = JSON.stringify(HALO_SCENE, null, 2);
+
+/** The view `HALO_SCENE` lands in: its 200×80 page fitted one to one. */
+const HALO = { zoom: 1, panX: 500, panY: 320 };
+
+/** The middle of `HALO_SCENE`'s right-hand box, where its own ink is. */
+const HALO_RIGHT = at({ x: 192, y: 80 }, HALO);
+
+/** The row the press follows, and where the lower box's border ink sits on it. */
+const HALO_ROW = { x: 620, y: HALO_RIGHT.y - 0.5, width: 20, height: 1 };
+
+/** Two plain boxes whose interiors overlap: the second is drawn over the first. */
+const OVERLAP_SCENE = {
+  version: 1,
+  title: 'Overlap',
+  defaults: { roughness: 0 },
+  elements: [
+    { id: 'under', type: 'rectangle', x: 40, y: 40, width: 120, height: 80, fill: { kind: 'solid', grey: 2 } },
+    { id: 'over', type: 'rectangle', x: 100, y: 50, width: 120, height: 80, fill: { kind: 'solid', grey: 4 } },
+  ],
+};
+const OVERLAP_SOURCE = JSON.stringify(OVERLAP_SCENE, null, 2);
+
+/** The view `OVERLAP_SCENE` lands in: its 180×90 page fitted one to one. */
+const OVERLAP = { zoom: 1, panX: 510, panY: 315 };
+
+test('a press on a lower Element\u2019s border ink is not taken by the halo above it', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'halo.json': HALO_SOURCE } }, 'halo.json');
+
+  // The left box's right border, from the page's own pixels: it is the only ink
+  // on this row, and the box the pointer is aimed near belongs to its neighbour.
+  const ink = (await shot(ui)).darkBounds(HALO_ROW, DRAWN);
+  expect(ink, 'the left box draws its right border here').not.toBeNull();
+  const onInk = { x: ink!.x + ink!.width / 2, y: HALO_RIGHT.y };
+
+  await press(onInk);
+  await browser.keyboard.press('Shift+ArrowRight');
+
+  // Only the box whose ink was pressed moved: the halo of the box above it is
+  // not ink, and a press on ink is never bare canvas.
+  const scene = await savedScene(ui, 'halo.json');
+  expect(savedXs(scene)).toEqual([
+    ['left', 50],
+    ['right', 144],
+  ]);
+});
+
+test('a press inside two overlapping boxes picks the topmost Element', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'overlap.json': OVERLAP_SOURCE } }, 'overlap.json');
+
+  // The press is inside both boxes and outside neither border: the Element
+  // drawn last is the one that moves.
+  await press(at({ x: 130, y: 85 }, OVERLAP));
+  await browser.keyboard.press('Shift+ArrowRight');
+
+  const scene = await savedScene(ui, 'overlap.json');
+  expect(savedXs(scene)).toEqual([
+    ['under', 40],
+    ['over', 110],
+  ]);
+});
+
 test("a click on a rectangle inside an arrow's box selects the rectangle", async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'crossed.json': CROSSED_SOURCE } }, 'crossed.json');

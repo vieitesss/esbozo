@@ -60,10 +60,15 @@ export function unionOf(boxes: readonly Box[]): Box | null {
 /**
  * The topmost Element under a point: list order is layer order. An arrow or
  * line is picked by its drawn shaft, `tolerance` Scene units off it; every other
- * Element by its box, grown by the same reach so the ink a rough outline draws
- * outside that box is still the Element. With `words`, a shaft's Label is picked
- * too: its ink sits beside the shaft, further out than a click picks a line by,
- * and it is words a person can see and double-click like any other.
+ * Element by its box, grown by the ink a rough outline draws outside it, and then
+ * by `tolerance` too. With `words`, a shaft's Label is picked too: its ink sits
+ * beside the shaft, further out than a click picks a line by, and it is words a
+ * person can see and double-click like any other.
+ *
+ * Ink answers before the tolerance does. A press on the border an Element draws
+ * is that Element's, even when a higher layer's empty halo reaches it; the halo
+ * only answers a press no ink at all received, which is what makes bare canvas
+ * near a border still the Element's the way it always was.
  */
 export function elementAt(
   elements: readonly Element[],
@@ -73,6 +78,7 @@ export function elementAt(
   { words = false }: { words?: boolean } = {},
 ): Element | null {
   const byId = elementsById(elements);
+  let halo: Element | null = null;
   for (let index = elements.length - 1; index >= 0; index--) {
     const element = elements[index]!;
     if (element.type === 'arrow' || element.type === 'line') {
@@ -89,17 +95,20 @@ export function elementAt(
       }
       continue;
     }
-    // An outlined Element's ink strays outside its box, so the box it is picked
-    // by grows by the reach a shaft gets plus that stray: a press on the border
-    // it draws lands on the Element, not on bare canvas.
+    // An outlined Element's ink strays outside its box: the box it is picked by
+    // grows by that stray and the stroke's half width, and then by the tolerance.
     const reach = isOutlined(element)
-      ? Math.max(tolerance, strokeWidthOf(element) / 2) + inkReach(element)
+      ? strokeWidthOf(element) / 2 + inkReach(element)
       : 0;
-    if (holds(grownBy(elementBounds(element, byId, layout), reach), point)) {
+    const ink = grownBy(elementBounds(element, byId, layout), reach);
+    if (holds(ink, point)) {
       return element;
     }
+    if (halo === null && holds(grownBy(ink, tolerance), point)) {
+      halo = element;
+    }
   }
-  return null;
+  return halo;
 }
 
 /** A box grown by `reach` on every side, or the box itself when it has none. */
