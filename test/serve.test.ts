@@ -191,10 +191,10 @@ test('a write stores the Scene and its SVG side by side', async () => {
 });
 
 /**
- * Writes that differ in both files, alternating between two names: the pair on
- * disk names the request it came from by its bytes alone.
+ * Writes that differ in both files, and in the name used, so the pair on disk
+ * names the request it came from by its bytes alone.
  */
-function aliasedWrites(
+function distinctWrites(
   count: number,
   nameFor: (index: number) => string,
 ): { readonly name: string; readonly write: ReturnType<typeof sent> }[] {
@@ -234,11 +234,26 @@ async function foldsCase(folder: string): Promise<boolean> {
   }
 }
 
+/** Make a file that a rename will not replace, where the platform can. */
+async function makeUnreplaceable(path: string): Promise<boolean> {
+  try {
+    await run('chflags', ['uchg', path]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Give it back, so nothing is left that a folder cannot be cleaned of. */
+async function makeReplaceable(path: string): Promise<void> {
+  await run('chflags', ['nouchg', path]).catch(() => {});
+}
+
 test('writes of one Scene that overlap leave the pair from a single request', async () => {
   const folder = await sceneFolder(SCENE);
   const server = await served(folder);
 
-  const writes = aliasedWrites(48, () => 'busy.json');
+  const writes = distinctWrites(48, () => 'busy.json');
   const answers = await Promise.all(
     writes.map((one) => request(server, `/api/scenes/${one.name}`, 'PUT', one.write)),
   );
@@ -261,7 +276,7 @@ test('two names that are one file here share one write queue', async (t) => {
 
   // Both names open the same two files, so these writes race for one pair: the
   // pair that survives has to be the two texts of a single request.
-  const writes = aliasedWrites(40, (index) => (index % 2 === 0 ? 'alias.json' : 'alias.JSON'));
+  const writes = distinctWrites(40, (index) => (index % 2 === 0 ? 'alias.json' : 'alias.JSON'));
   const answers = await Promise.all(
     writes.map((one) => request(server, `/api/scenes/${one.name}`, 'PUT', one.write)),
   );
@@ -288,7 +303,7 @@ test('aliased writes that all fail keep the previous pair', async (t) => {
   await rm(join(folder, 'alias.svg'));
   await mkdir(join(folder, 'alias.svg'));
 
-  const writes = aliasedWrites(20, (index) => (index % 2 === 0 ? 'alias.json' : 'alias.JSON'));
+  const writes = distinctWrites(20, (index) => (index % 2 === 0 ? 'alias.json' : 'alias.JSON'));
   const answers = await Promise.all(
     writes.map((one) => request(server, `/api/scenes/${one.name}`, 'PUT', one.write)),
   );
@@ -376,20 +391,6 @@ test('a restore that fails is reported, with the copy that still holds the Scene
     await makeReplaceable(scene);
   }
 });
-
-/** Make a file that a rename will not replace, where the platform can. */
-async function makeUnreplaceable(path: string): Promise<boolean> {  try {
-    await run('chflags', ['uchg', path]);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Give it back, so nothing is left that a folder cannot be cleaned of. */
-async function makeReplaceable(path: string): Promise<void> {
-  await run('chflags', ['nouchg', path]).catch(() => {});
-}
 
 test('a folder where the SVG name is taken fails the write and keeps the old pair', async () => {
   const folder = await sceneFolder(SCENE);
