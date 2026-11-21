@@ -111,6 +111,11 @@ const DRAWING: Rect = { x: 24, y: 24, width: 1232, height: 752 };
 const UNDER_LABEL: Rect = { x: 500, y: 420, width: 260, height: 120 };
 /** The box and the words in it: every line the label breaks into. */
 const THE_LABEL: Rect = { x: 500, y: 350, width: 300, height: 200 };
+/**
+ * Inside the lower half of `LABEL_SCENE`'s box: the lines the wide file's extra
+ * wrap puts there, and Kalam's shorter wrap leaves bare.
+ */
+const LABEL_LOW: Rect = { x: 560, y: 408, width: 170, height: 26 };
 
 /** Where `WORDS_SCENE`'s Text draws in a full-window editor: its ink and nothing else. */
 const WORDS: Rect = { x: 520, y: 480, width: 240, height: 60 };
@@ -202,59 +207,70 @@ test('a font that lands while an Element is being moved redraws it before the re
   screen,
 }) => {
   const embed = await startEmbed(await bundleFolder(), { l: LABEL_SOURCE });
-  /** The words the box is drawn with, line by line, as the page holds them now. */
-  const lines = (): Promise<string[]> =>
-    browser.evaluate(() =>
-      Array.from(
-        document.querySelectorAll('.painted [data-element="l"] > *'),
-        (line) => line.textContent,
-      ),
-    );
   try {
     const ui: Ui = { app, browser, screen };
-    // The page that always named the wide file: the lines a late measurement owes.
+    /** The ink a region of the page shows, or a loud failure: the drawing is there. */
+    const inkOf = async (region: Rect): Promise<Rect> => {
+      const found = (await shot(ui)).darkBounds(region, 0.6);
+      if (found === null) {
+        throw new Error('the page shows no ink');
+      }
+      return found;
+    };
+    /** How much ink the words put in a part of the box. */
+    const inkIn = async (region: Rect): Promise<number> => (await shot(ui)).darkCount(region, 0.6);
+    /** Where a drawing sits on the page: the middle of the ink it covers. */
+    const middle = (rect: Rect) => ({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
+
+    // The page that always named the wide file: the wrap a late measurement owes.
     await app.open(`${embed.url}/label-wide.html`);
     await expect(screen.getByRole('status')).toHaveText('saved');
     await settle(ui);
-    const wide = await lines();
-    expect(wide.length).toBeGreaterThan(1);
+    const wideLow = await inkIn(LABEL_LOW);
 
     // The same box in Kalam: fewer lines, so a page still holding them is stale.
     await app.open(`${embed.url}/label-kalam.html`);
     await expect(screen.getByRole('status')).toHaveText('saved');
     await settle(ui);
-    expect(await lines()).not.toEqual(wide);
+    const thinLow = await inkIn(LABEL_LOW);
+    // And the two files wrap differently, or none of this says anything: the
+    // box draws the same ink in its lower half, and only the wide file's words
+    // reach it.
+    expect(thinLow).toBeGreaterThan(0);
+    expect(wideLow).toBeGreaterThan(thinLow * 2);
 
     // A press inside the box moves it: the gesture carries the drawing the page
-    // already had with a transform, and the pointer is still down.
-    const grip = await browser.evaluate(() => {
-      const box = document.querySelector('.painted [data-element="l"]')!.getBoundingClientRect();
-      return { x: box.left + box.width / 2, y: box.top + box.height / 5 };
-    });
+    // already had, and the pointer is still down.
+    const box = await inkOf(THE_LABEL);
+    const grip = { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 5) };
     await browser.mouse.move(grip.x, grip.y);
     await browser.mouse.down();
     await browser.mouse.move(grip.x + 40, grip.y + 20);
     await settle(ui);
-    const carried = () =>
-      browser.evaluate(() =>
-        document.querySelector('.painted [data-element="l"]')!.hasAttribute('transform'),
-      );
-    expect(await carried()).toBe(true);
+    const carried = await inkOf(THE_LABEL);
+    expect(Math.abs(middle(carried).x - middle(box).x - 40)).toBeLessThanOrEqual(2);
+    expect(Math.abs(middle(carried).y - middle(box).y - 20)).toBeLessThanOrEqual(2);
 
     // The page names the wide file while the pointer is still down. Its words
-    // are measured for the movement in flight, not left for the release: what
-    // the box is drawn with is what the page that always named it draws.
+    // are measured for the movement in flight, not left for the release: the
+    // lines it wraps into are on the page now, drawn with the box the pointer
+    // carries — the ink the page that always named it draws, 40 and 20 on.
     await browser.evaluate(() => {
       document.querySelector('esbozo-editor')!.setAttribute('font', 'fonts/b.ttf');
       return true;
     });
-    await expect.poll(lines).toEqual(wide);
+    const carriedLow = { ...LABEL_LOW, x: LABEL_LOW.x + 40, y: LABEL_LOW.y + 20 };
+    await expect.poll(() => inkIn(carriedLow)).toBeGreaterThan(wideLow * 0.9);
     // And it is still where the pointer carries it, not back at its own place.
-    expect(await carried()).toBe(true);
+    const redrawn = await inkOf(THE_LABEL);
+    expect(Math.abs(middle(redrawn).x - middle(carried).x)).toBeLessThanOrEqual(2);
+    expect(Math.abs(middle(redrawn).y - middle(carried).y)).toBeLessThanOrEqual(2);
 
     await browser.mouse.up();
     await settle(ui);
-    expect(await lines()).toEqual(wide);
+    // The release adds nothing to the words: the wide file's wrap was already
+    // the drawing when the file landed.
+    expect(await inkIn(carriedLow)).toBeGreaterThan(wideLow * 0.9);
   } finally {
     await embed.stop();
   }

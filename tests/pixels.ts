@@ -37,6 +37,8 @@ export interface Shot {
   darkCount(region: Rect, threshold: number): number;
   /** Where the dark pixels of a region sit, on average. */
   darkCentre(region: Rect, threshold: number): Centre;
+  /** How far the dark pixels of a region reach, or null when it holds none. */
+  darkBounds(region: Rect, threshold: number): Rect | null;
 }
 
 /** Screenshot the page as it is now. */
@@ -81,6 +83,23 @@ export async function shot(ui: Ui): Promise<Shot> {
         }
       });
       return count;
+    },
+
+    darkBounds(region, threshold) {
+      let left = Number.POSITIVE_INFINITY;
+      let top = Number.POSITIVE_INFINITY;
+      let right = Number.NEGATIVE_INFINITY;
+      let bottom = Number.NEGATIVE_INFINITY;
+      each(region, (x, y, luminance) => {
+        if (luminance >= threshold) return;
+        left = Math.min(left, x);
+        top = Math.min(top, y);
+        right = Math.max(right, x);
+        bottom = Math.max(bottom, y);
+      });
+      if (left > right) return null;
+      // One pixel is one device pixel, which is a fraction of a CSS pixel.
+      return { x: left, y: top, width: right - left + 1 / scale, height: bottom - top + 1 / scale };
     },
 
     darkCentre(region, threshold) {
