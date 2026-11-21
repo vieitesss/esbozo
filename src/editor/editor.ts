@@ -7,18 +7,19 @@
  * folder only changes what the Scenes note lists: the open Scene keeps its own
  * `{ folder, name }` destination.
  */
-import { createLayout, fontSizePx } from '../layout.js';
+import { createLayout } from '../layout.js';
 import type { Layout, Metrics } from '../layout.js';
 import { drawnShaft, elementBounds, elementsById, outlineBox } from '../renderer.js';
 import {
   emptyScene,
   isOutlined,
+  hasXmlInvalidChars,
   parseFragment,
   parseScene,
   serialiseFragment,
   serialiseScene,
 } from '../scene.js';
-import type { Element as SceneElement, Scene } from '../scene.js';
+import type { Element as SceneElement, Scene, TextElement } from '../scene.js';
 import { sceneStem } from '../paths.js';
 import {
   copies,
@@ -56,7 +57,6 @@ import {
   moved,
   resized,
   resizedBox,
-  toPage,
   toScene,
   unionOf,
   zoomedAt,
@@ -68,7 +68,7 @@ import { attachedTo, endPoint, freedEnd, isShaft, otherEnd, released, targetAt, 
 import type { End } from './snap.js';
 import { TextSession } from './text-session.js';
 import type { TextSessionPlace } from './text-session.js';
-import { fieldFor, withoutWords, withWords, wordsOf } from './words.js';
+import { withWords, wordsOf } from './words.js';
 import { PaintCache, sceneFile } from './paint.js';
 import type { SceneFiles } from './paint.js';
 import type { Paint } from './paint.js';
@@ -342,6 +342,11 @@ class EsbozoEditorElement extends HTMLElement {
    * alone and a half-typed Label is never a history step.
    */
   #editing: { id: string; element: SceneElement } | null = null;
+  /**
+   * The Text being typed for the first time, as it will land: it is drawn on the
+   * page but it is not in the Scene until the words are committed.
+   */
+  #draft: TextElement | null = null;
   #note!: HTMLElement;
   #files!: HTMLUListElement;
   #newScene!: HTMLFormElement;
@@ -481,6 +486,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#newScene.addEventListener('submit', this.#onNewScene);
     this.#files.addEventListener('click', this.#onFileClick);
     this.#menu.addEventListener('click', this.#onMenuClick);
+    this.#menu.addEventListener('pointerdown', this.#onMenuPress);
     document.addEventListener('keydown', this.#onKeyDown);
     document.addEventListener('keyup', this.#onKeyUp);
     // A Space held while the page loses the focus never sends its release: the
@@ -735,8 +741,10 @@ class EsbozoEditorElement extends HTMLElement {
 
   /** Let go of every edit in flight: half-typed words, and the tool in hand. */
   #endEdits(): void {
-    this.#text?.cancel();
+    this.#text?.discard();
     this.#text = null;
+    this.#editing = null;
+    this.#draft = null;
     if (this.#tool !== 'select') {
       this.#setTool('select');
     }
@@ -957,20 +965,22 @@ class EsbozoEditorElement extends HTMLElement {
   /**
    * The Scene as the page shows it: committed Elements plus the gesture in
    * flight and the words being typed. Never the Scene that is saved, so half a
-   * drag or half a Label can never be a step.
+   * drag or half a Label can never be a step. The words of a Label or a Text
+   * being edited are drawn by the Renderer like any others: the canvas is the
+   * one place that shows what saving would render.
    */
   #shownElements(): SceneElement[] {
     const drag = this.#drag;
     const editing = this.#editing;
+    const draft = this.#draft;
     if (drag === null) {
-      if (editing === null) {
-        return this.#scene.elements;
-      }
-      // The field in front of the page holds the words; the Element under it
-      // only has the room they need, so the page never shows them twice.
-      return this.#scene.elements.map((element) =>
-        element.id === editing.id ? withoutWords(editing.element) : element,
-      );
+      const words =
+        editing === null
+          ? this.#scene.elements
+          : this.#scene.elements.map((element) =>
+              element.id === editing.id ? editing.element : element,
+            );
+      return draft === null ? words : [...words, draft];
     }
     if (drag.kind === 'draw') {
       return [...this.#scene.elements, drag.preview];
@@ -1428,6 +1438,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#view = view;
     // Zoom is not part of a double-click: the next press starts a new one.
     this.#press = null;
+    this.#lastClick = null;
     this.#clearOfMenu();
     this.#plotField();
     this.#paint();
@@ -1807,26 +1818,45 @@ class EsbozoEditorElement extends HTMLElement {
    * One rectangle policy does it: the view pans left just far enough, and zooms
    * out just far enough when a pan cannot clear a wide selection. Panning waits
    * for the end of a drag, because moving the view out from under the pointer
-   * mid-drag would make the Element chase it.
+   * mid-drag would make the Element chase it. The rectangle is measured from
+   * what the page shows, so a box grown by the words being typed is cleared too.
    */
   #clearOfMenu(): void {
-    if (this.#drag !== null || this.#menu.hidden) {
+    if (this.#drag !== null) {
+      return;
+    }
+    const note = this.#noteBox();
+    if (note === null) {
       return;
     }
     const canvas = this.#canvasBox();
-    const note = this.#menu.getBoundingClientRect();
-    const selected = this.#selectedElements();
+    const shown = this.#shownElements();
+    const selected = new Set(this.#selected);
     this.#view = clearedView(this.#view, {
-      selection: boxOf(selected, elementsById(this.#scene.elements), this.#layout),
-      note: {
-        x: note.left - canvas.left,
-        y: note.top - canvas.top,
-        width: note.width,
-        height: note.height,
-      },
+      selection: boxOf(
+        shown.filter((element) => selected.has(element.id)),
+        elementsById(shown),
+        this.#layout,
+      ),
+      note,
       left: this.#rail.getBoundingClientRect().right - canvas.left + MENU_GAP,
       gap: MENU_GAP,
     });
+  }
+
+  /** The Style note's own page box, while it is on the page. */
+  #noteBox(): Box | null {
+    if (this.#menu.hidden) {
+      return null;
+    }
+    const canvas = this.#canvasBox();
+    const note = this.#menu.getBoundingClientRect();
+    return {
+      x: note.left - canvas.left,
+      y: note.top - canvas.top,
+      width: note.width,
+      height: note.height,
+    };
   }
 
   // ------------------------------------------------------------------ pointer
@@ -1867,18 +1897,21 @@ class EsbozoEditorElement extends HTMLElement {
     if (event.button !== 0 && event.button !== 1) {
       return;
     }
-    if (this.#text !== null) {
+    if (this.#text !== null && event.button === 0) {
       // The click that takes the focus off the words commits them, and goes no
-      // further: it is not also a click on the canvas.
+      // further: it is not also a click on the canvas. A middle press is a pan,
+      // which leaves the words open where they are.
       this.#press = null;
       this.#lastClick = null;
       this.#text.finish();
       return;
     }
-    this.#board.setPointerCapture(event.pointerId);
+    this.#capture(event);
     const target = event.target as Element | null;
     if (this.#spaceDown || event.button === 1) {
+      // A pan is not a click: the next press starts a fresh sequence.
       this.#press = null;
+      this.#lastClick = null;
       this.#drag = { kind: 'pan', fromScreen: this.#screenPoint(event), start: { ...this.#view } };
       this.#board.classList.add('panning');
       return;
@@ -2087,22 +2120,24 @@ class EsbozoEditorElement extends HTMLElement {
   /** A Text is placed: the words are typed where the Text will sit. */
   #openTextInput(at: Point): void {
     this.#setTool('select');
-    const placed = newText(at, '', freshId('text', idsOf(this.#scene.elements)), this.#scene.defaults);
+    // The Text the words will make, drawn on the page as they arrive: the page
+    // shows what saving would render, and the field only holds the caret.
+    this.#draft = newText(at, '', freshId('text', idsOf(this.#scene.elements)), this.#scene.defaults);
     this.#text = new TextSession({
       host: this,
       name: 'Text',
-      // An empty Text is words, so the Layout still says where its first line
-      // sits and how tall it is: the field opens on that line, not beside it.
-      place: this.#fieldPlace(placed),
+      place: () => this.#fieldPlace(),
       words: '',
-      commit: (content) => this.#commitText(at, content),
+      typed: (words) => this.#showTyped(words),
+      commit: (words) => this.#commitText(words),
     });
+    this.#paint();
   }
 
   /**
-   * Open the in-place editor on an Element's words, over them: a Label where its
-   * Element puts it, a Text where its words sit. Nothing of the Scene changes
-   * until the words are committed.
+   * Open the in-place editor on an Element's words. The page draws them at once,
+   * and the box sits beside them; nothing of the Scene changes until the words
+   * are committed.
    */
   #openWords(element: SceneElement): void {
     // A read-only folder has nowhere to put the words, so nothing opens, by
@@ -2124,7 +2159,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#text = new TextSession({
       host: this,
       name: element.type === 'text' ? 'Text' : 'Label',
-      place: this.#fieldPlace(this.#editing.element),
+      place: () => this.#fieldPlace(),
       words: wordsOf(element),
       typed: (words) => this.#showWords(element, words),
       commit: (words) => this.#commitWords(element, words),
@@ -2132,94 +2167,137 @@ class EsbozoEditorElement extends HTMLElement {
   }
 
   /**
-   * What the page shows while the words are typed: the Element grown so a Label
-   * fits, its own words left to the field. It is a preview, not the Scene: a
-   * container grows with its words as they arrive, and only the commit makes
-   * that a change.
+   * What the page shows while a Label or a Text is typed: the Element grown so
+   * its words fit, with those words, drawn by the Renderer like any other. It is
+   * a preview, not the Scene: only the commit makes it a change.
    */
   #showWords(element: SceneElement, words: string): void {
-    this.#editing = { id: element.id, element: withWords(element, words, this.#layout) };
-    // The box the field types in is measured from the same grown Element, so a
-    // long word widens the Element and the field at once and stays on one line.
+    // Words the Scene cannot hold are never drawn: the page keeps the last it
+    // could, and the words that were typed are refused when they are committed.
+    if (!hasXmlInvalidChars(words)) {
+      this.#editing = { id: element.id, element: withWords(element, words, this.#layout) };
+      // The grown Element is what the note must not cover, and the box follows it.
+      this.#clearOfMenu();
+    }
+    this.#plotField();
+    this.#paint();
+  }
+
+  /** The Text being typed, with the words it has so far. */
+  #showTyped(words: string): void {
+    const draft = this.#draft;
+    if (draft === null) {
+      return;
+    }
+    if (!hasXmlInvalidChars(words)) {
+      this.#draft = { ...draft, content: words };
+    }
     this.#plotField();
     this.#paint();
   }
 
   /**
-   * Where a field over these words sits: the words' own block from the Layout
-   * the Renderer draws with, in the page pixels the view puts it at.
+   * Where the box sits: beside what is being edited, on the page, clear of the
+   * note. Asked again on every keystroke and on every move of the view.
    */
-  #fieldPlace(element: SceneElement): TextSessionPlace {
-    const field = fieldFor(element, elementsById(this.#scene.elements), this.#layout);
+  #fieldPlace(): TextSessionPlace {
+    const area = this.#fieldArea();
+    if (area === null) {
+      throw new Error('no words are being edited, so there is no place for the field');
+    }
+    return { area, page: this.#viewportSize(), note: this.#noteBox() };
+  }
+
+  /**
+   * The page box of the words the field edits: the Element grown for them, or
+   * where a new Text's words will land. It is the Renderer's own bounds, so the
+   * box is placed against what is drawn.
+   */
+  #fieldArea(): Box | null {
+    const element = this.#editing?.element ?? this.#draft;
+    if (element === null) {
+      return null;
+    }
+    const bounds = elementBounds(element, elementsById(this.#shownElements()), this.#layout);
+    const { zoom, panX, panY } = this.#view;
     return {
-      page: toPage(this.#view, field.at),
-      zoom: this.#view.zoom,
-      fontSize: fontSizePx(element.fontSize),
-      lineHeight: this.#layout.lineHeight(element.fontSize),
-      wrap: field.wrap,
-      align: field.align,
+      x: bounds.x * zoom + panX,
+      y: bounds.y * zoom + panY,
+      width: bounds.width * zoom,
+      height: bounds.height * zoom,
     };
   }
 
-  /** Move the open field to where the words it holds now belong. */
+  /** Move the open box to where the words it holds now belong. */
   #plotField(): void {
-    const editing = this.#editing;
-    if (editing === null || this.#text === null) {
+    const text = this.#text;
+    if (text === null) {
       return;
     }
-    this.#text.place(this.#fieldPlace(editing.element));
+    text.place(this.#fieldPlace());
   }
 
   /**
    * Commit the words typed in place: one undo step for the whole session, the
    * Element's growth included. Words nobody changed are not an edit and write
    * nothing; an emptied Label stops being one, and an emptied Text goes; words a
-   * Scene could not hold are refused in the status line and leave it as it was.
+   * Scene could not hold are refused in the status line, and the field keeps them
+   * so the person can fix them.
    */
-  #commitWords(element: SceneElement, raw: string): void {
-    this.#text = null;
-    this.#editing = null;
+  #commitWords(element: SceneElement, raw: string): boolean {
     // The comparison is the raw value against the words the Element held before
     // anything is trimmed: words nobody touched are the same words, whatever
     // spaces the author wrote them with.
     if (raw === wordsOf(element)) {
-      this.#paint();
-      return;
+      this.#closeWords();
+      return true;
     }
-    // What the person typed is what the Scene checks, so a control character is
-    // refused for being one rather than quietly trimmed out of the words. A
-    // field holding nothing but spaces is the words cleared out.
-    const typed = raw.trim() === '' ? '' : raw;
-    const problem = this.#problem(this.#wordsScene(element, typed));
+    // What the person typed is what the Scene checks, before anything is
+    // trimmed: a control character is refused for being one, and a lone one is
+    // never the empty words that would silently delete a Label.
+    const problem = this.#problem(this.#wordsScene(element, raw));
     if (problem !== null) {
       this.#setSaved('failed', problem);
-      this.#paint();
-      return;
+      return false;
     }
     const words = raw.trim();
+    this.#closeWords();
     this.#land(this.#wordsScene(element, words), words === '' && element.type === 'text' ? [] : [element.id]);
+    return true;
   }
 
   /**
-   * Commit the in-place input's words: a Text with words in them, or nothing.
-   *
-   * The raw value is checked first, as typed, for the same reason a Label's is:
-   * a control character a person typed is refused rather than trimmed away.
+   * Commit a new Text's words: a Text with words in them, or nothing. The raw
+   * value is checked first, as typed, for the same reason a Label's is: a control
+   * character a person typed is refused rather than trimmed away, and a lone one
+   * never becomes the empty words that would throw the Text away.
    */
-  #commitText(at: Point, raw: string): void {
-    this.#text = null;
-    const words = raw.trim();
-    if (words === '') {
-      return;
+  #commitText(raw: string): boolean {
+    const draft = this.#draft;
+    if (draft === null) {
+      return true;
     }
-    const id = freshId('text', idsOf(this.#scene.elements));
-    const defaults = this.#scene.defaults;
-    const problem = this.#problem([...this.#scene.elements, newText(at, raw, id, defaults)]);
+    const problem = this.#problem([...this.#scene.elements, { ...draft, content: raw }]);
     if (problem !== null) {
       this.#setSaved('failed', problem);
-      return;
+      return false;
     }
-    this.#land([...this.#scene.elements, newText(at, words, id, defaults)], [id]);
+    const words = raw.trim();
+    this.#text = null;
+    this.#draft = null;
+    if (words === '') {
+      this.#paint();
+      return true;
+    }
+    this.#land([...this.#scene.elements, { ...draft, content: words }], [draft.id]);
+    return true;
+  }
+
+  /** The words are done being typed: the page goes back to showing the Scene. */
+  #closeWords(): void {
+    this.#text = null;
+    this.#editing = null;
+    this.#paint();
   }
 
   /** The Scene these words would make, with this Element's words replaced. */
@@ -2285,6 +2363,8 @@ class EsbozoEditorElement extends HTMLElement {
         panX: drag.start.panX + (point.x - drag.fromScreen.x),
         panY: drag.start.panY + (point.y - drag.fromScreen.y),
       };
+      // The words follow the page they are drawn on, box and all.
+      this.#plotField();
       this.#paint();
       return;
     }
@@ -2469,8 +2549,33 @@ class EsbozoEditorElement extends HTMLElement {
     );
   }
 
-  /** A press anywhere but the canvas starts a new click sequence, as the browser's own does. */
+  /**
+   * Take the pointer for the gesture that is starting. A pointer the browser has
+   * already let go cannot be captured, and the gesture still ends on the release
+   * it gets, so a capture that is no longer there is not a failure.
+   */
+  #capture(event: PointerEvent): void {
+    try {
+      this.#board.setPointerCapture(event.pointerId);
+    } catch {
+      // Nothing to take: the gesture runs on the events the board still gets.
+    }
+  }
+
+  /**
+   * A press anywhere on the page, before it becomes a click: words being typed
+   * are finished here, while the focus is still theirs.
+   *
+   * The order matters for an input method. Losing the focus confirms a preedit
+   * into the field, so a blur that ended the session would keep words nobody
+   * chose; finishing first drops the preedit as an unconfirmed composition.
+   * A press off the canvas also starts a new click sequence, as the browser's own does.
+   */
   #onAnyPress = (event: PointerEvent): void => {
+    const text = this.#text;
+    if (text !== null && event.button === 0 && !text.holds(event.target as Node | null)) {
+      text.finish();
+    }
     if (!this.#canvas.contains(event.target as Node | null)) {
       this.#lastClick = null;
     }
@@ -2481,6 +2586,35 @@ class EsbozoEditorElement extends HTMLElement {
     const point = this.#screenPoint(event);
     const factor = Math.exp(-event.deltaY * (event.ctrlKey ? 0.01 : 0.0015));
     this.#changedView(zoomedAt(this.#view, factor, point.x, point.y));
+  };
+
+  /**
+   * A press on the docked note. The note is there only because the first click of
+   * a double-click selected something, and docking it can put it right where the
+   * second click lands. The words that open are still the ones the first click
+   * found, and the press makes no pick of its own: cancelling it takes the
+   * compatibility click with it.
+   */
+  #onMenuPress = (event: PointerEvent): void => {
+    const first = this.#lastClick;
+    if (first === null || event.button !== 0) {
+      return;
+    }
+    const press: Press = { id: null, at: this.#screenPoint(event), time: event.timeStamp };
+    if (!this.#isDoubleClick(first, press)) {
+      return;
+    }
+    this.#lastClick = null;
+    const opening =
+      first.id === null ? undefined : this.#scene.elements.find((element) => element.id === first.id);
+    if (opening === undefined) {
+      return;
+    }
+    // The press opened the words: it is no longer a press on the page, and the
+    // editor's own outside-press handler must not finish the field it just made.
+    event.preventDefault();
+    event.stopPropagation();
+    this.#openWords(opening);
   };
 
   /** Whether a press is the second half of a double-click: near the first in time and place. */

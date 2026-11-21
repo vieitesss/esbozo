@@ -238,33 +238,37 @@ esbozo-editor .rail button svg {
 esbozo-editor .rail button svg .ghost { opacity: 0.3; transform: translate(0.8px, 0.7px); }
 esbozo-editor .rail button[aria-pressed="true"] svg .ghost { opacity: 0.45; }
 
-/* a new Text is typed where it will sit: the words, in the hand, at the size
-   the Text draws, with nothing around them that would not be in the Scene */
+/* the box words are typed in: a small plain field beside the Element, holding
+   the caret, the selection and an input method's preedit. It is not the words:
+   the canvas draws those, at the size and in the hand the Scene saves them in,
+   so nothing here has to line up with them and nothing here can drift. */
 esbozo-editor .text-input {
   position: absolute;
   z-index: 30;
+  min-width: 12ch;
+  max-width: 40ch;
   margin: 0;
-  padding: 0;
-  border: 0;
+  padding: 3px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--paper) 94%, var(--ink));
+  box-shadow: 0 1px 0 var(--line), 0 8px 16px -14px var(--shadow);
   outline: none;
   resize: none;
   overflow: hidden;
-  min-width: 3ch;
-  background: transparent;
+  field-sizing: content;
+  white-space: pre;
   color: var(--ink);
   caret-color: var(--sel);
-  font-family: var(--font-hand);
-  /* the line the words draw on, from the font's own metrics: the editor sets it
-     with the rest of the place, so the field and the Scene share one baseline */
-  white-space: pre;
-  field-sizing: content;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1.4;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
-/* a Label wraps where its Element wraps it: the field is that box, as wide as
-   the box and as tall as the lines in it */
-esbozo-editor .text-input.wrap {
-  white-space: pre-wrap;
-  field-sizing: fixed;
+esbozo-editor .text-input:focus {
+  border-color: var(--sel);
 }
 
 /* a Label that does not fit its Element, on the rule `ez check` reports */

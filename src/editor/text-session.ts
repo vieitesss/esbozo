@@ -1,41 +1,43 @@
 /**
  * The in-place input a Text or a Label is typed into.
  *
- * The words are typed where the words sit, in the hand font, at the size they
- * draw and on the same line they draw on, so the page never has to guess what
- * they will look like. A Label wraps in the box its Element gives it and the
- * box widens the field to match; a Text and the Label of an arrow or a line
- * never wrap, so their field grows with what is typed instead.
+ * The canvas is what shows the words as they will save: every keystroke is
+ * handed to the caller, which repaints the Scene through the Renderer, the
+ * Element grown for its words included. The input itself is only a small plain
+ * box beside the Element — a place for the caret, the selection and an input
+ * method's preedit — so it never claims to be the words and never has to match
+ * how they break or where they land.
  *
- * The caller moves and resizes the field as the words change and the view does,
- * from the Layout the Renderer draws with, so what is typed and what will be
- * saved are the same block of words in the same place.
+ * The caller asks for a place as the Element grows and the view moves, and the
+ * box keeps itself on the page and off the Style note from what it measures of
+ * itself. It does not wrap at the Element's width, size its words, or line them
+ * up: nothing here can drift from the drawing, because nothing here draws.
  *
  * A newline the person types is a line break the Scene keeps. Enter on an empty
  * line, Escape and a click away end the session; the raw value is handed to the
  * caller exactly once, untrimmed, so it can decide what an unchanged field
- * means and what the Scene will accept. Every keystroke is also handed over as
- * it happens, so what holds the words can grow with them. While it is open its
- * keys are the input's, not the editor's, and an input method's preedit is not
- * words until it is confirmed: keys do not end a composition, and finishing
- * mid-composition keeps only what was confirmed.
+ * means and what the Scene will accept. The caller answers whether the words
+ * may land: refused words keep the field open with them, so a person can fix
+ * what the Scene would not hold. While it is open its keys are the input's, not
+ * the editor's, and an input method's preedit is not words until it is
+ * confirmed: keys do not end a composition, and finishing mid-composition keeps
+ * only what was confirmed.
  */
-import type { Point } from './geometry.js';
+import { overlaps } from './geometry.js';
+import type { Box } from './geometry.js';
 
-/** Where the input sits and how big its words are. */
+/** Room between the box and what it edits, and between the box and the page's edges, in page pixels. */
+const FIELD_GAP = 6;
+const FIELD_MARGIN = 12;
+
+/** Where the input sits and what room the page has for it. */
 export interface TextSessionPlace {
-  /** The page point the words' top-left corner sits at. */
-  readonly page: Point;
-  /** The zoom the page is at, so the words read at the size they will draw. */
-  readonly zoom: number;
-  /** The size the words draw at, in Scene units. */
-  readonly fontSize: number;
-  /** The distance between two baselines at that size, in Scene units. */
-  readonly lineHeight: number;
-  /** The width the words wrap in, in Scene units, or null when they never wrap. */
-  readonly wrap: number | null;
-  /** Where the words sit in that width. */
-  readonly align: 'left' | 'center' | 'right';
+  /** The page box of what is being edited: the grown Element, or where a new Text's words will be. */
+  readonly area: Box;
+  /** The page's own size, in page pixels: the box stays on it. */
+  readonly page: { readonly width: number; readonly height: number };
+  /** The Style note's page box, which the box must not sit under, or null when there is none. */
+  readonly note: Box | null;
 }
 
 interface TextSessionOptions {
@@ -43,18 +45,19 @@ interface TextSessionOptions {
   readonly host: HTMLElement;
   /** What the field holds, as it is called: "Label" or "Text". */
   readonly name: string;
-  readonly place: TextSessionPlace;
+  /** Where the box goes: asked once it is on the page, so it can measure itself. */
+  readonly place: () => TextSessionPlace;
   /** The words it opens with, and where the caret goes: after them. */
   readonly words: string;
-  /** Called with the words as typed, on every keystroke, so they can grow what holds them. */
+  /** Called with the words as typed, on every keystroke, so the page can draw them. */
   readonly typed?: (words: string) => void;
-  /** Called once, with the field's value as it stands, untrimmed. */
-  readonly commit: (words: string) => void;
+  /** Called once, with the field's value as it stands, untrimmed: true when the words may land. */
+  readonly commit: (words: string) => boolean;
 }
 
 export class TextSession {
   readonly #input: HTMLTextAreaElement;
-  readonly #commit: (words: string) => void;
+  readonly #commit: (words: string) => boolean;
   #open = true;
   /** True while an input method is composing: the value holds a preedit, not words yet. */
   #composing = false;
@@ -65,7 +68,6 @@ export class TextSession {
     const { host, name, place, words, typed, commit } = options;
     const input = document.createElement('textarea');
     input.className = 'text-input';
-    input.classList.toggle('wrap', place.wrap !== null);
     input.setAttribute('aria-label', name);
     input.rows = 1;
     input.spellcheck = false;
@@ -75,85 +77,81 @@ export class TextSession {
     input.addEventListener('compositionstart', this.#onCompositionStart);
     input.addEventListener('compositionend', this.#onCompositionEnd);
     if (typed !== undefined) {
-      input.addEventListener('input', () => {
-        this.#fit();
-        typed(input.value);
-      });
+      input.addEventListener('input', () => typed(input.value));
     }
     this.#input = input;
     this.#commit = commit;
     host.append(input);
-    this.place(place);
+    // On the page before it is placed: its own size is what the place is measured from.
+    this.place(place());
     input.focus();
     // The caret goes after the words, where a person adding to them looks for it.
     input.setSelectionRange(input.value.length, input.value.length);
   }
 
   /**
-   * Put the field where the words it holds now belong: the words' own size and
-   * line height, the box that wraps them, and the page point the block starts
-   * at. The caller asks again on every keystroke and on every move of the view,
-   * so the field can never be left behind by either.
+   * Put the box beside what it edits: under it when the page has room, above it
+   * when it has not, always on the page, and to the left of the Style note when
+   * it would sit under it. The caller asks again on every keystroke and on every
+   * move of the view, so the box follows the Element and the page.
    */
   place(place: TextSessionPlace): void {
     const input = this.#input;
-    input.style.left = `${place.page.x}px`;
-    input.style.top = `${place.page.y}px`;
-    input.style.fontSize = `${place.fontSize * place.zoom}px`;
-    input.style.lineHeight = `${place.lineHeight * place.zoom}px`;
-    input.style.textAlign = place.align;
-    input.classList.toggle('wrap', place.wrap !== null);
-    if (place.wrap !== null) {
-      // A Label wraps where its Element wraps it: the field is that box, in page
-      // pixels, so a line breaks where the Scene will break it.
-      input.style.width = `${place.wrap * place.zoom}px`;
+    const width = input.offsetWidth;
+    const height = input.offsetHeight;
+    const { area, page, note } = place;
+    const under = area.y + area.height + FIELD_GAP;
+    const over = area.y - FIELD_GAP - height;
+    const y =
+      under + height <= page.height - FIELD_MARGIN
+        ? under
+        : over >= FIELD_MARGIN
+          ? over
+          : Math.max(FIELD_MARGIN, page.height - FIELD_MARGIN - height);
+    let x = Math.max(FIELD_MARGIN, Math.min(area.x, page.width - FIELD_MARGIN - width));
+    if (note !== null && overlaps({ x, y, width, height }, note)) {
+      const left = note.x - FIELD_GAP - width;
+      if (left >= FIELD_MARGIN) {
+        x = left;
+      }
     }
-    this.#fit();
+    input.style.left = `${Math.round(x)}px`;
+    input.style.top = `${Math.round(y)}px`;
+  }
+
+  /** Whether this press is the field's own: a press in it moves its caret, and nothing else. */
+  holds(target: Node | null): boolean {
+    return this.#input.contains(target);
   }
 
   /**
    * End the session: the words, or nothing, and the input goes. The click that
    * takes the focus off the words is followed by a blur that ends the same
-   * session again, so a second call does nothing.
+   * session again, so a second call does nothing. Words the caller will not
+   * keep leave the field open with them, and no answer of that kind closes it.
    */
-  finish(): void {
+  finish(): boolean {
     if (!this.#open) {
-      return;
+      return true;
     }
-    const words = this.#close();
-    this.#commit(words);
-  }
-
-  /**
-   * End the session without its words: the Scene moved on under the input, so
-   * what was typed into it belongs to nothing.
-   */
-  cancel(): void {
-    if (!this.#open) {
-      return;
-    }
-    this.#close();
-  }
-
-  /** The input goes, and is read once: whatever asked for the end gets the words. */
-  #close(): string {
-    this.#open = false;
     // A composition still open has not been confirmed: its preedit is not words
     // a person wrote yet, so what the field held before it is what is kept.
     const words = this.#composing ? this.#confirmed : this.#input.value;
+    if (!this.#commit(words)) {
+      return false;
+    }
+    this.#open = false;
     this.#input.remove();
-    return words;
+    return true;
   }
 
-  /** A wrapping field is as tall as the lines it holds; a field that never wraps grows by itself. */
-  #fit(): void {
-    if (!this.#input.classList.contains('wrap')) {
+  /** Give up on the words: the field goes and the caller keeps the Scene it had. */
+  discard(): void {
+    if (!this.#open) {
       return;
     }
-    // The lines have to be laid out before they can be counted: a field that
-    // still holds the old height measures the old wrapping.
-    this.#input.style.height = 'auto';
-    this.#input.style.height = `${this.#input.scrollHeight}px`;
+    this.#open = false;
+    this.#input.remove();
   }
 
   #onCompositionStart = (): void => {
@@ -174,7 +172,11 @@ export class TextSession {
     }
     if (event.key === 'Escape') {
       event.preventDefault();
-      this.finish();
+      // Escape leaves the words when they cannot land: refused words are the
+      // one thing a person must still be able to walk away from.
+      if (!this.finish()) {
+        this.discard();
+      }
       return;
     }
     if (event.key !== 'Enter' || event.shiftKey) {
@@ -190,6 +192,10 @@ export class TextSession {
   };
 
   #onBlur = (): void => {
-    this.finish();
+    // Words the Scene refused keep the field, so the person can fix them: the
+    // focus goes back to what they were typing.
+    if (!this.finish()) {
+      this.#input.focus();
+    }
   };
 }

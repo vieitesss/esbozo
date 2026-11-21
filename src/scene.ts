@@ -1124,10 +1124,13 @@ function parseChoice<T extends string>(
 /**
  * XML 1.0 allows tab, newline, carriage return, U+0020..U+D7FF, U+E000..U+FFFD
  * and U+10000 upward. Everything else, lone surrogates included, would make
- * the SVG unparseable. Only the title and the Text content enter the SVG, so
- * only they are checked: an Element id is a name, never ink.
+ * the SVG unparseable. Only the title, a Text's content and a Label enter the
+ * SVG, so only they are checked: an Element id is a name, never ink.
+ *
+ * The editor asks the same question of words before it draws them: what the
+ * Scene cannot hold must not reach the page's own SVG either.
  */
-function hasXmlInvalidChars(text: string): boolean {
+export function hasXmlInvalidChars(text: string): boolean {
   for (const character of text) {
     const code = character.codePointAt(0)!;
     const allowed =

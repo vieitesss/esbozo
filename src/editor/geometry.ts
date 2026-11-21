@@ -327,7 +327,7 @@ export function fittedView(
 }
 
 /** Whether two boxes share any area at all. */
-function overlaps(one: Box, other: Box): boolean {
+export function overlaps(one: Box, other: Box): boolean {
   return (
     one.x < other.x + other.width &&
     other.x < one.x + one.width &&
