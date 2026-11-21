@@ -313,6 +313,18 @@ function arcMiddle(d: string): Point {
   return { x: before.x + (point.x - before.x) * inside, y: before.y + (point.y - before.y) * inside };
 }
 
+/** How long a path's ink is, walked in fine steps. */
+function inkLength(d: string): number {
+  const points = inkSamples(d, 2000);
+  let length = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    const before = points[index - 1]!;
+    const point = points[index]!;
+    length += Math.hypot(point.x - before.x, point.y - before.y);
+  }
+  return length;
+}
+
 /** One point of a cubic curve at `u`. */
 function curveAt(from: Point, control1: Point, control2: Point, to: Point, u: number): Point {
   const rest = 1 - u;
@@ -361,8 +373,11 @@ test('a round bend point pulls the shaft into a curve through itself', async () 
   );
 
   const shaft = shaftFrom(svg, { x: 0, y: 0 });
-  assert.ok(attribute(shaft, 'd')!.includes('C'), 'the shaft is drawn as a curve');
   assert.ok(inkDistance(shaft, { x: 100, y: 100 }) <= 0.5, 'the curve passes through the bend');
+  assert.ok(
+    inkDistance(shaft, { x: 100, y: 50 }) > 20,
+    'and leaves the line between the ends, which runs 50px below the bend',
+  );
 });
 
 test('a sharp bend point turns at a corner softened by a small fillet', async () => {
@@ -694,6 +709,18 @@ test('a curved shaft draws its dash pattern along an unbroken stroke', async () 
         `${style}: and runs to its end`,
       );
     }
+
+    // The pattern is fitted to the ink's own length, not to the line between
+    // the ends: whole periods of it fit what the stroke draws, and that is a
+    // good deal longer than the chord on this shaft.
+    const [dash = 0, gap = 0] = (attribute(dashed[0]!, 'stroke-dasharray') ?? '').split(' ').map(Number);
+    const length = inkLength(firstPass(d));
+    assert.ok(length > 230, `the ink is longer than the chord between its ends (${length})`);
+    const periods = (length - dash) / (dash + gap);
+    assert.ok(
+      Math.abs(periods - Math.round(periods)) < 0.1,
+      `${style}: whole periods fit the ink, ${periods} did`,
+    );
   }
 });
 
