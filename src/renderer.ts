@@ -225,7 +225,8 @@ export function strokeWidthOf(element: Element): number {
  * How far a hand font's glyphs hang past the advance box Layout measures their
  * words by, as a share of the font size: Kalam's `j`, the widest hang in the
  * bundled font, puts its hook 0.22 em left of the origin. The ink is the ink a
- * person sees, so a press on that hook is a press on the words.
+ * person sees, so a press on that hook is a press on the words, and the paper
+ * behind a shaft Label has to reach it as well.
  */
 const GLYPH_HANG_EM = 0.25;
 
@@ -719,15 +720,18 @@ function arrowOrLineSvg(element: ArrowOrLineElement, shaft: Shaft, words: Block 
  * The paper a shaft's Label sits on, drawn over everything under it: the words
  * stay legible on their own shaft at any `labelAt`, and nothing else shows
  * through them. Paper is the page's own variable, so the same drawing clears
- * the same space in light, dark and the editor.
+ * the same space in light, dark and the editor. It covers the words' ink rather
+ * than the advance box Layout measured, so a glyph that hangs past it has paper
+ * under its overhang too.
  */
 function paperBehind(words: Block | null): string {
   if (words === null) {
     return '';
   }
+  const hang = words.size * GLYPH_HANG_EM;
   return (
-    `<rect x="${formatNumber(words.x)}" y="${formatNumber(words.y)}"` +
-    ` width="${formatNumber(words.width)}" height="${formatNumber(words.height)}"` +
+    `<rect x="${formatNumber(words.x - hang)}" y="${formatNumber(words.y)}"` +
+    ` width="${formatNumber(words.width + hang * 2)}" height="${formatNumber(words.height)}"` +
     ` fill="${PAPER}"/>`
   );
 }

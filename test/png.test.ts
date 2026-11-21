@@ -1082,7 +1082,7 @@ test('a Label placed on its shaft cuts the shaft out, leaving paper under the wo
     const row = shaftRow(png, paper);
 
     assert.ok(
-      row.gap >= 30 && row.gap <= 42,
+      row.gap >= 39 && row.gap <= 51,
       `${theme}: ${row.gap}px of paper where the words sit on the shaft`,
     );
     assert.ok(
@@ -1120,6 +1120,68 @@ test('a Label placed off its shaft leaves the shaft whole and takes its paper wi
   assert.ok(paperRun(png, row.row - 40, LIGHT_PAPER) >= 30, 'the paper went with the words');
 });
 
+/**
+ * One Label on a shaft short enough that the Label's own paper covers the whole
+ * shaft: the words' ink is the only ink near them, so its extent is theirs.
+ */
+const PLACED_LABEL = {
+  id: 'a',
+  type: 'line',
+  points: [
+    { x: 100, y: 100 },
+    { x: 120, y: 100 },
+  ],
+  stroke: { width: 'extra' },
+  fontSize: 'XL',
+  label: 'j',
+  labelAt: { t: 0.5, offset: 0 },
+};
+
+/** Contrasting ink behind that Label, inside the ink the Label alone covers. */
+const BACKING_INK = {
+  id: 'backing',
+  type: 'rectangle',
+  x: 102,
+  y: 78,
+  width: 16,
+  height: 44,
+  fill: { kind: 'solid', grey: 2 },
+};
+
+/** The placed Label, with the contrasting ink painted behind it first or not at all. */
+function placedLabelScene(behind: boolean): unknown {
+  return {
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: behind ? [BACKING_INK, PLACED_LABEL] : [PLACED_LABEL],
+  };
+}
+
+test('the paper behind a placed Label covers its glyph overhang too', async () => {
+  // Kalam's `j` hangs its hook past the advance box Layout measured. With
+  // contrasting ink painted behind the Label, the words have to look exactly as
+  // they look on bare paper: the knockout reaches the glyph's ink, not the box.
+  const words = await sceneFolder(placedLabelScene(false));
+  const backed = await sceneFolder(placedLabelScene(true));
+
+  for (const [theme, paper] of [
+    ['light', LIGHT_PAPER],
+    ['dark', DARK_PAPER],
+  ] as const) {
+    const plain = await pngOne(['png', 'scene.json', '--theme', theme], words);
+    const behind = await pngOne(['png', 'scene.json', '--theme', theme], backed);
+
+    const ink = inkBox(plain.png, paper);
+    assert.ok(ink !== null, `${theme}: the Label is drawn`);
+    const differing = pixelsDiffering(plain.png, behind.png, ink);
+    assert.deepEqual(
+      differing.slice(0, 5),
+      [],
+      `${theme}: ${differing.length} pixels of the ink behind the Label survive inside its own ink`,
+    );
+  }
+});
+
 test('png on an invalid Scene exits 3 and names the Element', async () => {
   const folder = await sceneFolder({
     version: 1,
@@ -1150,6 +1212,54 @@ test('every path and problem is plain text', async () => {
 /** Whether a pixel is the theme's own paper: what a knockout leaves behind. */
 function isPaper(rgba: [number, number, number, number], paper: readonly number[]): boolean {
   return rgba[0] === paper[0] && rgba[1] === paper[1] && rgba[2] === paper[2];
+}
+
+type Color = [number, number, number, number];
+
+/** Where pixels reach on a page: the box around them, in PNG pixels. */
+interface Extent {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/**
+ * The box around every pixel that is not paper, or null when the page holds none:
+ * the ink a Label draws, wherever its glyphs hang past the advance box.
+ */
+function inkBox(png: Png, paper: readonly number[]): Extent | null {
+  let left = Number.POSITIVE_INFINITY;
+  let top = Number.POSITIVE_INFINITY;
+  let right = Number.NEGATIVE_INFINITY;
+  let bottom = Number.NEGATIVE_INFINITY;
+  for (let y = 0; y < png.height; y += 1) {
+    for (let x = 0; x < png.width; x += 1) {
+      if (isPaper(png.pixel(x, y), paper)) {
+        continue;
+      }
+      left = Math.min(left, x);
+      top = Math.min(top, y);
+      right = Math.max(right, x);
+      bottom = Math.max(bottom, y);
+    }
+  }
+  return left === Number.POSITIVE_INFINITY ? null : { left, top, right, bottom };
+}
+
+/** The pixels two pages disagree on inside a box, as `x,y`, in reading order. */
+function pixelsDiffering(one: Png, other: Png, box: Extent): string[] {
+  const found: string[] = [];
+  for (let y = box.top; y <= box.bottom; y += 1) {
+    for (let x = box.left; x <= box.right; x += 1) {
+      const left: Color = one.pixel(x, y);
+      const right: Color = other.pixel(x, y);
+      if (left.some((channel, index) => channel !== right[index])) {
+        found.push(`${x},${y}`);
+      }
+    }
+  }
+  return found;
 }
 
 /** How many pixels in a box are not paper: the ink a drawing put there. */
