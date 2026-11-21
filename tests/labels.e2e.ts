@@ -223,4 +223,84 @@ describe('labels', () => {
 
     expect((await savedScene(ui)).elements[0]?.label).toBe('Orders');
   });
+
+  test('the keys that drive the editor type instead while the words are open', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+    // Every one of these is a tool, a delete, a duplicate or the Grid on the page.
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.pressSequentially('xcv r t 1 2 g');
+    await label.press('Escape');
+
+    const scene = await savedScene(ui);
+    expect(scene.elements.map((element) => element.id)).toEqual(['a', 'b']);
+    expect(scene.elements[0]?.label).toBe('xcv r t 1 2 g');
+  });
+
+  test('the field keeps its own undo: the Scene is not what Cmd+Z takes back inside it', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+    const before = await savedFiles(ui);
+
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.pressSequentially('Orders');
+    // The field's own undo, one typed letter at a time: the Scene's history is
+    // not what Cmd+Z reaches while the words have the focus.
+    for (let letter = 0; letter < 'Orders'.length; letter += 1) {
+      await label.press('ControlOrMeta+z');
+    }
+    await expect(label).toHaveValue('');
+    await label.press('Escape');
+
+    // The field undid the typing, so there is nothing to commit: the Scene on
+    // disk is byte for byte what it was.
+    expect(await savedFiles(ui)).toEqual(before);
+  });
+
+  test('a Label the Scene cannot hold is refused, and the Element is left as it was', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+    const before = await savedFiles(ui);
+
+    // U+0001 cannot go in the SVG, so the Scene's own parser refuses it.
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.fill('above\u0001below');
+    await label.press('Escape');
+
+    await expect(screen.getByRole('status')).toContainText('XML');
+    expect(await savedFiles(ui)).toEqual(before);
+  });
+
+  test('a Label that does not fit its Element is what ez check exits 6 on', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    // The same Scene the model judges the red outline on, below in visual.e2e.ts.
+    const checked = await cliCheck(OVERFLOW_SCENE);
+    expect(checked.code).toBe(6);
+    expect(checked.reported).toContain('box: label does not fit');
+
+    // And the editor's own bytes are the ones the check read: opening it writes
+    // nothing, and the check on the saved Scene is the same verdict.
+    await openEditor(ui, { A: { 'scene.json': OVERFLOW_SOURCE } }, 'scene.json');
+    expect((await cliCheck(await savedScene(ui))).code).toBe(6);
+  });
 });
