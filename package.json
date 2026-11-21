@@ -30,7 +30,8 @@
     "e2e": "pnpm build && e2e run tests/editor.e2e.ts tests/drawing.e2e.ts tests/labels.e2e.ts tests/snap.e2e.ts tests/serve.e2e.ts tests/embed.e2e.ts tests/cdp.e2e.ts tests/svg.e2e.ts",
     "e2e:agent": "pnpm build && e2e run tests/visual.e2e.ts",
     "e2e:shots": "pnpm build && e2e run tests/screenshots.e2e.ts",
-    "serve:editor": "pnpm build && node dist/cli.js serve dist --port 4319"
+    "serve:editor": "pnpm build && node dist/cli.js serve dist --port 4319",
+    "probe": "node scripts/probe-editor.mjs"
   },
   "dependencies": {
     "@resvg/resvg-wasm": "^2.6.2",
