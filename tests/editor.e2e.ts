@@ -1658,6 +1658,28 @@ test('a window blur while Space is held takes the pill with the pan', async ({
   await browser.keyboard.up('Space');
 });
 
+test('another Scene takes the pan word with the Scene it named', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await ui.browser.setViewport({ width: 1366, height: 768 });
+  await openEditor(
+    ui,
+    { A: { 'scene.json': SCENE_SOURCE, 'other.json': THREE_SOURCE } },
+    'scene.json',
+  );
+
+  const pill = ui.screen.getByText('Panning');
+  await ui.browser.keyboard.down('Space');
+  await expect(pill).toBeVisible();
+
+  // Another Scene comes into the page while the key is still held: the pan was
+  // the one the page held before, and neither it nor its word survives the
+  // switch.
+  await ui.screen.getByRole('button', /Open folder/).click();
+  await ui.screen.getByRole('button', 'other.json').click();
+  await expect(pill).toBeHidden();
+  await ui.browser.keyboard.up('Space');
+});
+
 test('the ? button opens the Shortcuts sheet, and Escape shuts it', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');

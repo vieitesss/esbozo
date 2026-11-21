@@ -522,6 +522,10 @@ class EsbozoEditorElement extends HTMLElement {
   /** Let go of every edit in flight: half-typed words, the gesture in hand, and the tool. */
   #endEdits(): void {
     this.#endText();
+    // A Space press holds the page that was in hand. Another Scene, no write
+    // access or no DOM is not that page, so the pan goes with it, and with the
+    // word it was naming in the status bar.
+    this.#gestures.endSpacePan();
     // Write access can end in the middle of a gesture, as a folder that answers a
     // queued save with a 403 does. Half a gesture is not a Scene any more: it is
     // dropped with the preview it painted, rather than left on a page that may
