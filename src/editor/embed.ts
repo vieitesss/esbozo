@@ -52,12 +52,13 @@ function attributeOf(element: Element, name: string): string | null {
 }
 
 /**
- * This element's font: fetched, measured, and given a family of its own so two
- * elements on one page can name two different files without either winning.
- * The face is installed with the measurement, by the element that accepts it,
- * so a font that arrived after a newer one never draws the words it did not
- * measure. A missing attribute or a font that will not load is the plain-text
- * reason the element shows in its status line.
+ * This element's font: fetched once, measured from those same bytes, and given
+ * a family of its own so two elements on one page can name two different files
+ * without either winning. The face is installed with the measurement, by the
+ * element that accepts it, so a font that arrived after a newer one never draws
+ * the words it did not measure — and nothing fetches the file a second time. A
+ * missing attribute or a font that will not load is the plain-text reason the
+ * element shows in its status line.
  */
 async function pageFont(element: HTMLElement): Promise<PageFont> {
   const url = attributeOf(element, 'font');
@@ -69,50 +70,45 @@ async function pageFont(element: HTMLElement): Promise<PageFont> {
     if (!response.ok) {
       return { ok: false, problem: `cannot load ${url}: ${response.status} ${response.statusText}` };
     }
-    const layout = createLayout(measureFontBytes(new Uint8Array(await response.arrayBuffer())));
-    return { ok: true, layout, face: () => useFace(element, url) };
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    // One set of bytes for both: the metrics every word is placed with and the
+    // face it is drawn in are the same file, and neither is fetched again. The
+    // face is loaded before it is offered, so the words are never drawn in a
+    // fallback while the file is still being read.
+    const face = new FontFace(`esbozo-font-${++families}`, bytes);
+    await face.load();
+    return { ok: true, layout: createLayout(measureFontBytes(bytes)), face: () => useFace(element, face) };
   } catch (error) {
     return { ok: false, problem: `cannot load ${url}: ${(error as Error).message}` };
   }
 }
 
-/** The single Scene the element names, read through the URLs its attributes give now. */
+/** The single Scene the element names, read and written through the URLs it has now. */
 async function folderAt(element: HTMLElement): Promise<SceneFolder | null> {
   const scene = attributeOf(element, 'scene');
   if (scene === null) {
     throw new Error('esbozo-editor needs a scene attribute: a URL that answers a Scene');
   }
-  return sceneFolder(() => ({
-    scene: attributeOf(element, 'scene') ?? scene,
-    save: attributeOf(element, 'save'),
-  }));
+  return sceneFolder({ scene, save: attributeOf(element, 'save') });
 }
 
 /** How many faces this page has made: each one is a family of its own. */
-let faces = 0;
-const faceStyles = new WeakMap<Element, HTMLStyleElement>();
+let families = 0;
+const faces = new WeakMap<Element, FontFace>();
 
 /**
- * Give the element the face its `font` attribute names: one family per element,
- * so two elements on one page never draw with each other's file, and the sheet
- * that names it is replaced when the attribute changes.
+ * Give the element the face its request made, and take the one it had away: one
+ * family per request, so two elements on one page never draw with each other's
+ * file, and the element's words name the font they were measured with.
  */
-function useFace(element: HTMLElement, url: string): void {
-  faces += 1;
-  const family = `esbozo-font-${faces}`;
-  const style = document.createElement('style');
-  style.textContent = `@font-face {
-  font-family: "${family}";
-  src: url(${JSON.stringify(url)}) format("truetype");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-esbozo-editor[data-esbozo-font="${family}"] { --font-hand: "${family}", cursive; }`;
-  faceStyles.get(element)?.remove();
-  faceStyles.set(element, style);
-  document.head.append(style);
-  element.setAttribute('data-esbozo-font', family);
+function useFace(element: HTMLElement, face: FontFace): void {
+  const previous = faces.get(element);
+  if (previous !== undefined) {
+    document.fonts.delete(previous);
+  }
+  faces.set(element, face);
+  document.fonts.add(face);
+  element.style.setProperty('--font-hand', face.family);
 }
 
 /**
