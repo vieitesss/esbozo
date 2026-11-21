@@ -1482,6 +1482,46 @@ describe('labels', () => {
     expect((await savedScene(ui)).elements[0]?.label).toBe('abc');
   });
 
+  test("an input method's preedit is underlined where it is typed, not at the value's start", async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+    await stillCaret();
+
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.pressSequentially('prefix old');
+    // The composition takes over the last word, so it begins part way into the
+    // value: a run read from the value's first offset would underline the
+    // letters before it instead of the words being composed.
+    for (let step = 0; step < 3; step += 1) {
+      await label.press('Shift+ArrowLeft');
+    }
+
+    // The caret's own column, in the strip above the glyphs where it stands
+    // alone: the preedit's rule has to start where the caret was.
+    const before = await shot(ui);
+    const caret = before.darkBounds({ x: INSIDE.x, y: 367, width: INSIDE.width, height: 3 }, CARET);
+    expect(caret).not.toBeNull();
+
+    await imeCompose('abc');
+
+    const rule = (await shot(ui)).darkBounds(
+      { x: INSIDE.x, y: 392, width: INSIDE.width, height: 3 },
+      DARK,
+    );
+    expect(rule).not.toBeNull();
+    expect(Math.abs((rule as Rect).x - (caret as Rect).x)).toBeLessThan(3);
+    expect((rule as Rect).width).toBeGreaterThan(8);
+
+    await imeCommit();
+    await label.press('Escape');
+    expect((await savedScene(ui)).elements[0]?.label).toBe('prefix abc');
+  });
+
   test('the canvas shows the words as they will save, on every keystroke', async ({
     app,
     browser,

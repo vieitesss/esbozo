@@ -162,11 +162,18 @@ export class TextSession {
    * that the field held before it, from where the composition began. It is the
    * whole preedit and not the part of it before the input method's caret, which
    * a person reading a candidate can put anywhere in the words.
+   *
+   * What the value holds more than the words outside the run is the preedit's
+   * own length, so its end is that length past where the composition began: a
+   * composition that started at the field's first letter and one that replaced
+   * a word at the end of the value are underlined in the same place they are
+   * drawn, not at the value's first offset.
    */
   #preedit(): { from: number; to: number } {
     const { from, to } = this.#composed;
     const untouched = this.#confirmed.length - (to - from);
-    return { from, to: Math.max(from, this.#input.value.length - untouched) };
+    const length = this.#input.value.length - untouched;
+    return { from, to: Math.max(from, from + length) };
   }
 
   /**
