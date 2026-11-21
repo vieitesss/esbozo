@@ -850,7 +850,6 @@ class EsbozoEditorElement extends HTMLElement {
     // more land before the write is built.
     const scene = this.#scene;
     if (target === null || target.folder.readOnly || this.#refused) {
-      // Nothing is open, or this page may only read: nothing is sent.
       return;
     }
     this.#setSaved('saving');
@@ -2080,6 +2079,11 @@ class EsbozoEditorElement extends HTMLElement {
     });
   }
 
+  /** Whether the open Scene's folder refuses writes, as `ez serve --read-only` does. */
+  #readOnly(): boolean {
+    return this.#target?.folder.readOnly === true;
+  }
+
   /** A Text is placed: the words are typed where the Text will sit. */
   #openTextInput(at: Point): void {
     this.#setTool('select');
@@ -2101,6 +2105,11 @@ class EsbozoEditorElement extends HTMLElement {
    * until the words are committed.
    */
   #openWords(element: SceneElement): void {
+    // A read-only folder has nowhere to put the words, so nothing opens, by
+    // either way in. One gate, on the only mode that says so.
+    if (this.#readOnly()) {
+      return;
+    }
     this.#setTool('select');
     this.#selected = [element.id];
     // The page paints the Element with the room its words need from the first
