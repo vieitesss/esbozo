@@ -33,6 +33,7 @@
  * space or an em space among them, stays on the line it was written on.
  */
 import { parse as parseFont } from 'opentype.js';
+import { shaftSide } from './geometry.js';
 import { glyphsOf } from './glyphs.js';
 import type { Curve, Glyphs } from './glyphs.js';
 import type {
@@ -425,7 +426,7 @@ function labelBlock(
     // there is no box, and off-centre words would read as a mistake. It sits to
     // one side, far enough out that even a corner of the box clears the shaft.
     const middle = midpoint(shaft.start, shaft.end);
-    const side = labelSide(shaft);
+    const side = shaftSide({ x: shaft.end.x - shaft.start.x, y: shaft.end.y - shaft.start.y });
     const reach =
       SHAFT_LABEL_GAP + Math.abs(side.x) * (words.width / 2) + Math.abs(side.y) * (words.height / 2);
     const centre = {
@@ -446,27 +447,6 @@ function labelBlock(
         : area.x + area.width;
   const top = area.y + (area.height - words.height) / 2;
   return placed(words, anchor, alignX, top);
-}
-
-/**
- * Which side of the shaft a Label sits on, as a unit normal: above the shaft
- * where it has an upper side, and to the left where it is vertical. The rule
- * depends on the heading, not on which way the arrow points, so two arrows
- * along one line keep their words on the same side.
- */
-function labelSide(shaft: Shaft): Point {
-  const along = { x: shaft.end.x - shaft.start.x, y: shaft.end.y - shaft.start.y };
-  const length = Math.hypot(along.x, along.y);
-  if (length === 0) {
-    return { x: 0, y: -1 };
-  }
-  // The perpendicular that points up for a level shaft. On a diagonal only one
-  // of the two perpendiculars points up, so take that one; a vertical shaft
-  // points neither up nor down, so it takes the left.
-  const normal = { x: along.y / length, y: -along.x / length };
-  return normal.y > 0 || (normal.y === 0 && normal.x > 0)
-    ? { x: -normal.x, y: -normal.y }
-    : normal;
 }
 
 /** The box an Element's Label may fill: the largest centred box the outline holds, minus padding. */

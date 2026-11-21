@@ -397,11 +397,17 @@ export function arrowHeadTriangle(
  * heading, not on which way the arrow points, so two arrows along one line keep
  * their words on the same side.
  */
-function shaftSide(along: Point): Point {
+export function shaftSide(along: Point): Point {
+  const length = Math.hypot(along.x, along.y);
+  if (length === 0) {
+    // A shaft with no length has no heading, so it keeps the upper side it
+    // would have had: its words stay where a level shaft's do.
+    return { x: 0, y: -1 };
+  }
   // The perpendicular that points up for a level shaft. On a diagonal only one
   // of the two perpendiculars points up, so take that one; a vertical shaft
   // points neither up nor down, so it takes the left.
-  const normal = { x: along.y, y: -along.x };
+  const normal = { x: along.y / length, y: -along.x / length };
   return normal.y > 0 || (normal.y === 0 && normal.x > 0)
     ? { x: -normal.x, y: -normal.y }
     : normal;
