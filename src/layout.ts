@@ -36,7 +36,6 @@ import { parse as parseFont } from 'opentype.js';
 import { glyphsOf } from './glyphs.js';
 import type { Curve, Glyphs } from './glyphs.js';
 import type {
-  ArrowOrLineElement,
   Element,
   FontSize,
   OutlinedElement,
@@ -48,11 +47,6 @@ import type {
 
 /** Font size per named size, in pixels. */
 const FONT_SIZE_PX: Record<FontSize, number> = { S: 14, M: 18, L: 24, XL: 32 };
-
-/** The pixels a named Text or Label size draws at, for anything that has to match it. */
-export function fontSizePx(size: FontSize): number {
-  return FONT_SIZE_PX[size];
-}
 
 /** Stroke width per named width, in pixels. */
 export const STROKE_WIDTH_PX: Record<StrokeWidth, number> = { thin: 1, bold: 2, extra: 4 };
@@ -198,17 +192,8 @@ export interface Layout {
    * ends, and the words belong to the line that is really drawn.
    */
   label(element: Element, shaft?: Shaft): Block | null;
-  /**
-   * The box an Element's Label may fill, or null for an Element with no box: a
-   * Text is only words, and an arrow's or line's Label sits beside the shaft.
-   * The editor sizes the place a person types a Label in with this, so the
-   * words wrap where they will wrap in the Scene.
-   */
-  area(element: Element): Box | null;
   /** The Label that does not fit its Element, or null when it fits or there is none. */
   overflow(element: Element): Overflow | null;
-  /** Baseline-to-baseline distance of words at a named size, in pixels: the line the in-place field types on. */
-  lineHeight(size: FontSize): number;
   /** The Element grown down and right until its Label fits. Elements without one come back unchanged. */
   grow<T extends Element>(element: T): T;
   /**
@@ -225,9 +210,7 @@ export function createLayout(parsed: ParsedFont): Layout {
   const layout: Layout = {
     text: (element) => textBlock(element, metrics),
     label: (element, shaft) => labelBlock(element, metrics, shaft),
-    area: (element) => (isTextOrShaft(element) ? null : labelArea(element)),
     overflow: (element) => labelOverflow(element, metrics),
-    lineHeight: (size) => metrics.lineHeight(FONT_SIZE_PX[size]),
     grow: (element) => grown(element, metrics),
     ...(parsed.glyphs === undefined ? {} : { glyphs: parsed.glyphs }),
   };
@@ -349,11 +332,6 @@ function labelSide(shaft: Shaft): Point {
   return normal.y > 0 || (normal.y === 0 && normal.x > 0)
     ? { x: -normal.x, y: -normal.y }
     : normal;
-}
-
-/** Whether an Element's words sit outside a box: a Text and an arrow's or a line's Label. */
-function isTextOrShaft(element: Element): element is TextElement | ArrowOrLineElement {
-  return element.type === 'text' || element.type === 'arrow' || element.type === 'line';
 }
 
 /** The box an Element's Label may fill: the largest centred box the outline holds, minus padding. */

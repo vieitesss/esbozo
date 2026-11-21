@@ -244,11 +244,6 @@ export function toScene(view: View, screenX: number, screenY: number): Point {
   };
 }
 
-/** A Scene point, as the page shows it: where a pointer aiming at it lands. */
-export function toPage(view: View, point: Point): Point {
-  return { x: point.x * view.zoom + view.panX, y: point.y * view.zoom + view.panY };
-}
-
 /**
  * How far to move a fragment so a paste lands where a person can see it: the
  * usual nudge when the box it would place is on the page, or the middle of the
