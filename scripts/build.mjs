@@ -1,10 +1,13 @@
 /**
- * Build the two artefacts: the `ez` CLI and the editor page.
+ * Build the three artefacts: the `ez` CLI, the editor page, and the bundle that
+ * puts the editor on someone else's page.
  *
- * Both share the Scene and the Renderer, and neither needs a node builtin, so
- * the browser bundle is the same source as the CLI's.
+ * All three share the Scene and the Renderer, and none needs a node builtin, so
+ * the browser bundles are the same source as the CLI's. The page and the bundle
+ * differ in two ways only: the page links its stylesheet and font beside itself,
+ * while the bundle carries the CSS and takes the font URL from its element.
  */
-import { chmod, copyFile, mkdir } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { build } from 'esbuild';
 
 const cliOutfile = 'dist/cli.js';
@@ -33,8 +36,35 @@ await build({
   logLevel: 'info',
 });
 
+/**
+ * `ez bundle` copies this file out; it is not meant to be loaded from `dist`.
+ * Minified because it is inlined into someone else's page, and it carries the
+ * editor's CSS so the page needs no second request.
+ */
+await build({
+  entryPoints: ['src/editor/embed.ts'],
+  outfile: 'dist/embed.js',
+  bundle: true,
+  platform: 'browser',
+  format: 'esm',
+  target: 'es2022',
+  minify: true,
+  loader: { '.css': 'text' },
+  logLevel: 'info',
+});
+
 await mkdir('dist/fonts', { recursive: true });
-await copyFile('src/editor/editor.css', 'dist/editor.css');
+// The served page's stylesheet: the font face, the editor's look (scoped to the
+// element, the same text the bundle carries), and then the page's own chrome,
+// last so it can make the element fill the window.
+await writeFile(
+  'dist/editor.css',
+  [
+    await readFile('src/editor/font-face.css', 'utf8'),
+    await readFile('src/editor/editor.css', 'utf8'),
+    await readFile('src/editor/page.css', 'utf8'),
+  ].join('\n'),
+);
 await copyFile('src/editor/page.html', 'dist/editor.html');
 await copyFile('fonts/Kalam-Regular.ttf', 'dist/fonts/Kalam-Regular.ttf');
 await copyFile('fonts/OFL.txt', 'dist/fonts/OFL.txt');

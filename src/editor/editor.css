@@ -1,16 +1,13 @@
-/* The hand font, served beside the page: no font CDN, nothing in the JS bundle. */
-@font-face {
-  font-family: "Kalam";
-  src: url("fonts/Kalam-Regular.ttf") format("truetype");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
 /* esbozo editor: variant D, "Sketchbook".
-   Paper, ink and the hand font come from the page's variables, so light and
-   dark only swap those. Nothing here spells out a colour. */
-:root {
+   Paper, ink and the hand font are variables, so light and dark only swap
+   those. Nothing here spells out a colour.
+
+   Every rule is rooted at `esbozo-editor`, because this same sheet is what the
+   bundle injects into someone else's page: an embedded editor draws in the host
+   document and may not restyle it — no `html`, no `body`, no scroll lock, no
+   page-wide variables. `page.css` holds the served page's own chrome, which an
+   embedded editor never gets. */
+esbozo-editor {
   --ink: #1b1a17;
   --paper: #fbf8f1;
   --muted: color-mix(in srgb, var(--ink) 52%, var(--paper));
@@ -23,40 +20,33 @@
   --tape: color-mix(in srgb, var(--ink) 8%, transparent);
   --shadow: color-mix(in srgb, var(--ink) 55%, transparent);
   --sel: #3358d8;
+
+  display: block;
+  position: relative;
+  /* A host drops the element into its content, so it is a box with a height of
+     its own, not an overlay. The served page makes it fill the window
+     (`page.css`); a host resizes it with one rule. */
+  width: 100%;
+  height: 480px;
+  background: var(--paper);
+  color: var(--ink);
+  overflow: hidden;
+  /* dragging an Element must never select page text */
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
 }
 
-[data-theme="dark"] {
+[data-theme="dark"] esbozo-editor {
   --ink: #ece7db;
   --paper: #17161a;
   --sel: #93aaff;
   --shadow: rgba(0, 0, 0, 0.72);
 }
 
-* { box-sizing: border-box; }
+esbozo-editor, esbozo-editor * { box-sizing: border-box; }
 
-[hidden] { display: none !important; }
-
-html, body { height: 100%; margin: 0; }
-
-body {
-  background: var(--paper);
-  color: var(--ink);
-  font-family: var(--font-ui);
-  overflow: hidden;
-  -webkit-font-smoothing: antialiased;
-}
-
-esbozo-editor {
-  position: fixed;
-  inset: 0;
-  display: block;
-  background: var(--paper);
-  color: var(--ink);
-  /* dragging an Element must never select page text */
-  user-select: none;
-  -webkit-user-select: none;
-  cursor: default;
-}
+esbozo-editor [hidden] { display: none !important; }
 
 /* paper grain: straight CSS plus an inline SVG, under the dot Grid */
 esbozo-editor::before {
@@ -76,7 +66,7 @@ esbozo-editor::before {
 }
 
 /* canvas */
-.canvas {
+esbozo-editor .canvas {
   position: absolute;
   inset: 0;
   z-index: 1;
@@ -86,14 +76,14 @@ esbozo-editor::before {
   touch-action: none;
 }
 
-.canvas.hand, .canvas.panning { cursor: grab; }
-.canvas.panning { cursor: grabbing; }
+esbozo-editor .canvas.hand, esbozo-editor .canvas.panning { cursor: grab; }
+esbozo-editor .canvas.panning { cursor: grabbing; }
 /* drawing: the pencil is the pointer, so the tool in hand reads on the canvas */
-.canvas.pen { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='26' viewBox='0 0 26 26'%3E%3Cg transform='rotate(42 13 13)'%3E%3Cpath d='M11 5h4v13h-4z' fill='%23e8b23c' stroke='%231b1a17' stroke-width='1.2'/%3E%3Cpath d='M11 18h4l-2 4.5z' fill='%23f6f0e2' stroke='%231b1a17' stroke-width='1.2'/%3E%3C/g%3E%3C/svg%3E") 4 22, crosshair; }
-.grid-rect { fill: url(#esbozo-dots); pointer-events: none; }
-.dot { fill: var(--ink); opacity: 0.22; }
+esbozo-editor .canvas.pen { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='26' viewBox='0 0 26 26'%3E%3Cg transform='rotate(42 13 13)'%3E%3Cpath d='M11 5h4v13h-4z' fill='%23e8b23c' stroke='%231b1a17' stroke-width='1.2'/%3E%3Cpath d='M11 18h4l-2 4.5z' fill='%23f6f0e2' stroke='%231b1a17' stroke-width='1.2'/%3E%3C/g%3E%3C/svg%3E") 4 22, crosshair; }
+esbozo-editor .grid-rect { fill: url(#esbozo-dots); pointer-events: none; }
+esbozo-editor .dot { fill: var(--ink); opacity: 0.22; }
 
-.selection {
+esbozo-editor .selection {
   fill: none;
   stroke: var(--sel);
   stroke-width: 1.25;
@@ -101,18 +91,18 @@ esbozo-editor::before {
   pointer-events: none;
 }
 
-.handle {
+esbozo-editor .handle {
   fill: var(--paper);
   stroke: var(--sel);
   stroke-width: 1.25;
 }
 
-.handle-nw, .handle-se { cursor: nwse-resize; }
-.handle-ne, .handle-sw { cursor: nesw-resize; }
-.handle-n, .handle-s { cursor: ns-resize; }
-.handle-e, .handle-w { cursor: ew-resize; }
+esbozo-editor .handle-nw, esbozo-editor .handle-se { cursor: nwse-resize; }
+esbozo-editor .handle-ne, esbozo-editor .handle-sw { cursor: nesw-resize; }
+esbozo-editor .handle-n, esbozo-editor .handle-s { cursor: ns-resize; }
+esbozo-editor .handle-e, esbozo-editor .handle-w { cursor: ew-resize; }
 
-.sweep {
+esbozo-editor .sweep {
   fill: color-mix(in srgb, var(--sel) 9%, transparent);
   stroke: var(--sel);
   stroke-width: 1;
@@ -121,7 +111,7 @@ esbozo-editor::before {
 }
 
 /* tool rail: a rough, hand-drawn strip */
-.rail {
+esbozo-editor .rail {
   position: absolute;
   left: 15px;
   top: 50%;
@@ -139,9 +129,9 @@ esbozo-editor::before {
   transition: opacity 0.22s ease;
 }
 
-.rail:hover, .rail:focus-within { opacity: 1; }
+esbozo-editor .rail:hover, esbozo-editor .rail:focus-within { opacity: 1; }
 
-.rail-art {
+esbozo-editor .rail-art {
   position: absolute;
   left: -7px;
   top: -7px;
@@ -149,7 +139,7 @@ esbozo-editor::before {
   overflow: visible;
 }
 
-.rail button {
+esbozo-editor .rail button {
   all: unset;
   position: relative;
   width: 30px;
@@ -162,11 +152,11 @@ esbozo-editor::before {
   transition: background 0.12s, color 0.12s, transform 0.12s;
 }
 
-.rail button:hover { color: var(--ink); background: var(--line); transform: rotate(-2deg); }
-.rail button[aria-pressed="true"] { color: var(--paper); background: var(--ink); transform: rotate(-1.5deg); }
+esbozo-editor .rail button:hover { color: var(--ink); background: var(--line); transform: rotate(-2deg); }
+esbozo-editor .rail button[aria-pressed="true"] { color: var(--paper); background: var(--ink); transform: rotate(-1.5deg); }
 
 /* the shortcut, in the corner of the button, faint until the rail is looked at */
-.rail button .key {
+esbozo-editor .rail button .key {
   position: absolute;
   right: 1px;
   bottom: -2px;
@@ -176,9 +166,9 @@ esbozo-editor::before {
   transition: opacity 0.12s;
 }
 
-.rail button:hover .key, .rail button[aria-pressed="true"] .key { opacity: 0.5; }
+esbozo-editor .rail button:hover .key, esbozo-editor .rail button[aria-pressed="true"] .key { opacity: 0.5; }
 
-.rail button svg {
+esbozo-editor .rail button svg {
   width: 21px;
   height: 21px;
   fill: none;
@@ -189,12 +179,12 @@ esbozo-editor::before {
   overflow: visible;
 }
 
-.rail button svg .ghost { opacity: 0.3; transform: translate(0.8px, 0.7px); }
-.rail button[aria-pressed="true"] svg .ghost { opacity: 0.45; }
+esbozo-editor .rail button svg .ghost { opacity: 0.3; transform: translate(0.8px, 0.7px); }
+esbozo-editor .rail button[aria-pressed="true"] svg .ghost { opacity: 0.45; }
 
 /* a new Text is typed where it will sit: the words, in the hand, at the size
    the Text draws, with nothing around them that would not be in the Scene */
-.text-input {
+esbozo-editor .text-input {
   position: absolute;
   z-index: 30;
   margin: 0;
@@ -213,24 +203,8 @@ esbozo-editor::before {
   field-sizing: content;
 }
 
-/* the page's own light/dark switch, in the hand, across from the status */
-.theme {
-  all: unset;
-  position: fixed;
-  right: 20px;
-  bottom: 14px;
-  z-index: 25;
-  cursor: pointer;
-  font-family: var(--font-hand);
-  font-size: 13px;
-  color: var(--muted);
-  border-bottom: 1px solid transparent;
-}
-
-.theme:hover { color: var(--ink); border-bottom-color: var(--line-strong); }
-
 /* corner status, in the hand */
-.status {
+esbozo-editor .status {
   position: absolute;
   left: 17px;
   bottom: 14px;
@@ -238,13 +212,13 @@ esbozo-editor::before {
   display: flex;
   align-items: center;
   gap: 13px;
-  max-width: calc(100vw - 34px);
+  max-width: calc(100% - 34px);
   font-family: var(--font-hand);
   font-size: 13px;
   color: var(--muted);
 }
 
-.status button {
+esbozo-editor .status button {
   all: unset;
   cursor: pointer;
   font-family: var(--font-hand);
@@ -255,25 +229,25 @@ esbozo-editor::before {
   white-space: nowrap;
 }
 
-.status button:hover { color: var(--ink); border-bottom-color: var(--line-strong); }
-.status button[aria-pressed="true"] { color: var(--ink); border-bottom-color: var(--line-strong); }
-.status .zoom { font-family: var(--font-mono); font-size: 10px; color: var(--muted); }
-.status .where { font-size: 11.5px; opacity: 0.85; white-space: nowrap; }
-.status .mode { font-size: 11.5px; opacity: 0.85; white-space: nowrap; border-bottom: 1px dashed var(--line-strong); }
-.status .mode:empty { display: none; }
-.status .saved { font-size: 11.5px; opacity: 0.85; min-width: 1px; }
-.status .saved[data-state="failed"] { color: var(--ink); border-bottom: 1px dashed var(--line-strong); }
-.status .hint { font-size: 11.5px; opacity: 0.7; white-space: nowrap; }
+esbozo-editor .status button:hover { color: var(--ink); border-bottom-color: var(--line-strong); }
+esbozo-editor .status button[aria-pressed="true"] { color: var(--ink); border-bottom-color: var(--line-strong); }
+esbozo-editor .status .zoom { font-family: var(--font-mono); font-size: 10px; color: var(--muted); }
+esbozo-editor .status .where { font-size: 11.5px; opacity: 0.85; white-space: nowrap; }
+esbozo-editor .status .mode { font-size: 11.5px; opacity: 0.85; white-space: nowrap; border-bottom: 1px dashed var(--line-strong); }
+esbozo-editor .status .mode:empty { display: none; }
+esbozo-editor .status .saved { font-size: 11.5px; opacity: 0.85; min-width: 1px; }
+esbozo-editor .status .saved[data-state="failed"] { color: var(--ink); border-bottom: 1px dashed var(--line-strong); }
+esbozo-editor .status .hint { font-size: 11.5px; opacity: 0.7; white-space: nowrap; }
 
 /* Scenes to open: a note taped to the page */
-.note {
+esbozo-editor .note {
   position: absolute;
   z-index: 40;
   left: 50%;
   top: 10vh;
   transform: translateX(-50%) rotate(-0.45deg);
   width: 320px;
-  max-width: calc(100vw - 32px);
+  max-width: calc(100% - 32px);
   padding: 15px 15px 12px;
   background: color-mix(in srgb, var(--paper) 96%, var(--ink));
   border: 1px solid var(--line-strong);
@@ -283,8 +257,8 @@ esbozo-editor::before {
 }
 
 /* a strip of tape across the top of each note */
-.note::before,
-.style-note::before {
+esbozo-editor .note::before,
+esbozo-editor .style-note::before {
   content: "";
   position: absolute;
   left: 50%;
@@ -297,7 +271,7 @@ esbozo-editor::before {
   border-right: 1px dashed color-mix(in srgb, var(--ink) 12%, transparent);
 }
 
-.note-head {
+esbozo-editor .note-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -305,11 +279,11 @@ esbozo-editor::before {
   margin-bottom: 9px;
 }
 
-.note-head b { font-family: var(--font-hand); font-weight: 400; font-size: 15px; }
-.note-head .folder { color: var(--muted); font-family: var(--font-mono); font-size: 9.5px; }
+esbozo-editor .note-head b { font-family: var(--font-hand); font-weight: 400; font-size: 15px; }
+esbozo-editor .note-head .folder { color: var(--muted); font-family: var(--font-mono); font-size: 9.5px; }
 
-.note .files { margin: 0 0 10px; padding: 0; list-style: none; max-height: 40vh; overflow: auto; }
-.note .files button {
+esbozo-editor .note .files { margin: 0 0 10px; padding: 0; list-style: none; max-height: 40vh; overflow: auto; }
+esbozo-editor .note .files button {
   all: unset;
   display: block;
   width: 100%;
@@ -320,17 +294,17 @@ esbozo-editor::before {
   font-size: 11px;
   color: var(--ink);
 }
-.note .files button:hover { background: var(--line); }
-.note .files .empty { padding: 4px 7px; color: var(--muted); font-family: var(--font-hand); font-size: 12px; }
+esbozo-editor .note .files button:hover { background: var(--line); }
+esbozo-editor .note .files .empty { padding: 4px 7px; color: var(--muted); font-family: var(--font-hand); font-size: 12px; }
 
-.note .new {
+esbozo-editor .note .new {
   display: flex;
   gap: 6px;
   padding-top: 9px;
   border-top: 1px dashed var(--line-strong);
 }
 
-.note .new input {
+esbozo-editor .note .new input {
   all: unset;
   flex: 1;
   min-width: 0;
@@ -341,9 +315,9 @@ esbozo-editor::before {
   color: var(--ink);
 }
 
-.note .new input::placeholder { color: var(--muted); }
+esbozo-editor .note .new input::placeholder { color: var(--muted); }
 
-.note .new button {
+esbozo-editor .note .new button {
   all: unset;
   cursor: pointer;
   padding: 3px 8px;
@@ -354,13 +328,13 @@ esbozo-editor::before {
   color: var(--ink);
 }
 
-.note .new button:hover { border-color: var(--line-strong); background: var(--line); }
+esbozo-editor .note .new button:hover { border-color: var(--line-strong); background: var(--line); }
 
 /* Style menu: a note taped to the right edge, and only there with a selection.
    The editor pans or zooms the view to keep it off the selection, so nothing
    here has to follow the pointer. Rows are grouped into look, words and
    arrange, which is what keeps the note inside a 768px-high window. */
-.style-note {
+esbozo-editor .style-note {
   position: absolute;
   z-index: 30;
   right: 16px;
@@ -378,11 +352,11 @@ esbozo-editor::before {
 
 /* scroll rather than overflow a short window, and drop the tape so it is not clipped */
 @media (max-height: 500px) {
-  .style-note { overflow-y: auto; }
-  .style-note::before { display: none; }
+  esbozo-editor .style-note { overflow-y: auto; }
+  esbozo-editor .style-note::before { display: none; }
 }
 
-.style-note .head {
+esbozo-editor .style-note .head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -390,18 +364,18 @@ esbozo-editor::before {
   margin-bottom: 8px;
 }
 
-.style-note .head b { font-family: var(--font-hand); font-weight: 400; font-size: 15px; }
-.style-note .head span { color: var(--muted); font-family: var(--font-mono); font-size: 9.5px; }
+esbozo-editor .style-note .head b { font-family: var(--font-hand); font-weight: 400; font-size: 15px; }
+esbozo-editor .style-note .head span { color: var(--muted); font-family: var(--font-mono); font-size: 9.5px; }
 
-.style-note .group + .group {
+esbozo-editor .style-note .group + .group {
   margin-top: 9px;
   padding-top: 8px;
   border-top: 1px dashed var(--line-strong);
 }
 
-.style-note .row { display: flex; align-items: center; gap: 8px; margin: 5px 0; }
+esbozo-editor .style-note .row { display: flex; align-items: center; gap: 8px; margin: 5px 0; }
 
-.style-note .row-label {
+esbozo-editor .style-note .row-label {
   width: 60px;
   flex: none;
   color: var(--muted);
@@ -411,10 +385,10 @@ esbozo-editor::before {
   white-space: nowrap;
 }
 
-.style-note .seg,
-.style-note .acts { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; flex: 1; }
+esbozo-editor .style-note .seg,
+esbozo-editor .style-note .acts { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; flex: 1; }
 
-.style-note .seg button {
+esbozo-editor .style-note .seg button {
   all: unset;
   cursor: pointer;
   padding: 2px 6px;
@@ -423,10 +397,10 @@ esbozo-editor::before {
   color: var(--muted);
 }
 
-.style-note .seg button:hover { background: var(--line); color: var(--ink); }
-.style-note .seg button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+esbozo-editor .style-note .seg button:hover { background: var(--line); color: var(--ink); }
+esbozo-editor .style-note .seg button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
 
-.style-note .seg.greys button {
+esbozo-editor .style-note .seg.greys button {
   width: 19px;
   height: 17px;
   padding: 0;
@@ -434,11 +408,11 @@ esbozo-editor::before {
   border-radius: 5px;
 }
 
-.style-note .seg.greys button[aria-pressed="true"] { outline: 1.5px solid var(--ink); outline-offset: 1px; }
+esbozo-editor .style-note .seg.greys button[aria-pressed="true"] { outline: 1.5px solid var(--ink); outline-offset: 1px; }
 
-.style-note .mix { font-family: var(--font-hand); font-size: 10.5px; color: var(--muted); }
+esbozo-editor .style-note .mix { font-family: var(--font-hand); font-size: 10.5px; color: var(--muted); }
 
-.style-note .acts button {
+esbozo-editor .style-note .acts button {
   all: unset;
   cursor: pointer;
   padding: 3px 7px;
@@ -448,4 +422,4 @@ esbozo-editor::before {
   color: var(--ink);
 }
 
-.style-note .acts button:hover { border-color: var(--line-strong); background: var(--line); }
+esbozo-editor .style-note .acts button:hover { border-color: var(--line-strong); background: var(--line); }

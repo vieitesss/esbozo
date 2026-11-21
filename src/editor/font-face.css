@@ -1,0 +1,10 @@
+/* The hand font, served beside the page: no font CDN, nothing in the JS bundle.
+   The bundle does not use this file: its element takes the font URL from its
+   `font` attribute and writes its own @font-face for it. */
+@font-face {
+  font-family: "Kalam";
+  src: url("fonts/Kalam-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
