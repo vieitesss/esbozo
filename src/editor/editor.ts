@@ -328,6 +328,12 @@ class EsbozoEditorElement extends HTMLElement {
   #version = 0;
   /** The Scene number the page shows, gesture in flight included. */
   #paintedVersion = -1;
+  /**
+   * The words being typed that the last frame of the page drew. A caret that
+   * moves asks for the words' layer alone, so the Scene is drawn again only when
+   * the words it would draw are not the ones already on it.
+   */
+  #drawnWords: SceneElement | null = null;
   /** What the page shows now: the drawings, and the boxes the pointer reads. */
   #painted: Paint | null = null;
   /** The view the page was last moved to, so a frame that did not move it writes nothing. */
@@ -1597,6 +1603,7 @@ class EsbozoEditorElement extends HTMLElement {
     const paintables = (this.#paintables ??= new PaintCache(this.#layout));
     const paint = paintables.paint(shown);
     this.#painted = paint;
+    this.#drawnWords = this.#editing?.element ?? this.#draft;
     this.#drawnMeasurement = paintables.generation;
     // A group moved by a drag carries a transform the Scene never holds: every
     // group starts a frame where its Element is.
@@ -2385,8 +2392,12 @@ class EsbozoEditorElement extends HTMLElement {
       return null;
     }
     // The frame the words belong to is drawn before they are asked about: the
-    // block is the drawn one, and the drawn Element is the canonical one.
-    this.#drawScene();
+    // block is the drawn one, and the drawn Element is the canonical one. A
+    // frame that already drew these very words is that frame, and a caret that
+    // moved asks for no Scene at all.
+    if (this.#drawnWords !== element) {
+      this.#drawScene();
+    }
     const painted = this.#painted;
     const words = painted?.byId.get(element.id) ?? element;
     const byId = painted?.byId ?? elementsById(this.#shownElements());
