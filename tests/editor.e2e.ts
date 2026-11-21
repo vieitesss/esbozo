@@ -451,18 +451,6 @@ async function press(point: Point): Promise<void> {
   await mouse.up();
 }
 
-/** A middle press carried to another point and released, the way a person pans. */
-async function middleDrag(from: Point, to: Point): Promise<void> {
-  const mouse = livePage().mouse;
-  await mouse.move(from.x, from.y);
-  await mouse.down({ button: 'middle' });
-  for (let step = 1; step <= 5; step += 1) {
-    const share = step / 5;
-    await mouse.move(from.x + (to.x - from.x) * share, from.y + (to.y - from.y) * share);
-  }
-  await mouse.up({ button: 'middle' });
-}
-
 /** The x each Element saves with, so only the pressed Element can have moved. */
 function savedXs(scene: SavedScene): Array<[string, number | undefined]> {
   return scene.elements.map((element) => [element.id, element.x]);
@@ -935,6 +923,27 @@ const LONE = { zoom: 1, panX: 500, panY: 280 };
 /** Where `LONE_SCENE`'s box sits on the page, with room for a 20×30 pan. */
 const LONE_BOX: Rect = { x: 510, y: 300, width: 280, height: 230 };
 
+/** Where a pan presses on bare canvas, and how far it carries the page. */
+const PAN_FROM: Point = { x: 300, y: 650 };
+const PAN_TO: Point = { x: 320, y: 680 };
+const PAN_BY: Point = { x: 20, y: 30 };
+
+/**
+ * A middle press on the bare canvas carried to `PAN_TO` and released, which is
+ * how a person pans: the box moves exactly as far as the pointer did. `whileDown`
+ * runs with the middle button still down and the page already carried.
+ */
+async function panLoneBox(ui: Ui, whileDown?: () => Promise<void>): Promise<void> {
+  const start = (await shot(ui)).darkCentre(LONE_BOX, 0.6);
+  expect(start.count).toBeGreaterThan(0);
+
+  await drag(ui, PAN_FROM, PAN_TO, 'middle', whileDown);
+
+  const panned = (await shot(ui)).darkCentre(LONE_BOX, 0.6);
+  expect(panned.x).toBeCloseTo(start.x + PAN_BY.x, 0);
+  expect(panned.y).toBeCloseTo(start.y + PAN_BY.y, 0);
+}
+
 test('a middle drag pans under the Select tool and keeps the selection it found', async ({
   app,
   browser,
@@ -947,15 +956,7 @@ test('a middle drag pans under the Select tool and keeps the selection it found'
   // page, not sweep a box that would drop the selection.
   await clickScene(ui, { x: 140, y: 120 }, [], LONE);
   await settle(ui);
-  const start = (await shot(ui)).darkCentre(LONE_BOX, 0.6);
-  expect(start.count).toBeGreaterThan(0);
-
-  await middleDrag({ x: 300, y: 650 }, { x: 320, y: 680 });
-
-  // The page moved exactly as far as the pointer did.
-  const panned = (await shot(ui)).darkCentre(LONE_BOX, 0.6);
-  expect(panned.x).toBeCloseTo(start.x + 20, 0);
-  expect(panned.y).toBeCloseTo(start.y + 30, 0);
+  await panLoneBox(ui);
 
   // Nothing was drawn: the Scene the editor holds is the one it opened.
   expect((await savedFiles(ui))['scene.json']).toBe(LONE_SOURCE);
@@ -1037,15 +1038,7 @@ test('a middle drag pans with the Rectangle tool armed and draws nothing', async
   // to pan the page, not sweep a second box into the Scene.
   await browser.keyboard.press('r');
   await settle(ui);
-  const start = (await shot(ui)).darkCentre(LONE_BOX, 0.6);
-  expect(start.count).toBeGreaterThan(0);
-
-  await middleDrag({ x: 300, y: 650 }, { x: 320, y: 680 });
-
-  // The page moved exactly as far as the pointer did.
-  const panned = (await shot(ui)).darkCentre(LONE_BOX, 0.6);
-  expect(panned.x).toBeCloseTo(start.x + 20, 0);
-  expect(panned.y).toBeCloseTo(start.y + 30, 0);
+  await panLoneBox(ui);
 
   // Nothing was drawn: the box is the only Element the Scene holds.
   expect((await savedFiles(ui))['scene.json']).toBe(LONE_SOURCE);
@@ -1090,7 +1083,7 @@ test('a middle press on the canvas never starts the browser autoscroll', async (
   const scrollBefore = await browser.evaluate(() => ({ x: window.scrollX, y: window.scrollY }));
   await watchPresses(ui);
 
-  await middleDrag({ x: 300, y: 650 }, { x: 320, y: 680 });
+  await drag(ui, PAN_FROM, PAN_TO, 'middle');
 
   // Autoscroll is the browser's own answer to a middle press, and it starts on
   // the press: it outlives the drag and keeps the page moving after the pan let
