@@ -1678,12 +1678,14 @@ export class EsbozoEditorElement extends HTMLElement {
   // ------------------------------------------------------------------ pointer
 
   /**
-   * The canvas box on the page, before the view moves anything: the element's
-   * own box is the one the pointer is measured against, because the view is a
-   * transform *inside* it (a transformed box would fold pan and zoom in twice).
+   * The canvas box on the page, before the view moves anything: the paper the
+   * Scene is drawn on — `.board` — and not the element's border box, because a
+   * host may draw its own border and padding around the editor, and the view is
+   * a transform *inside* the element (a transformed or framed box would fold
+   * pan, zoom or the host's frame into the pointer twice).
    */
   #canvasBox(): { left: number; top: number; width: number; height: number } {
-    const rect = this.getBoundingClientRect();
+    const rect = this.#board.getBoundingClientRect();
     return {
       left: rect.left,
       top: rect.top,

@@ -27,7 +27,7 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import { EMPTY, SCENE, VIEW, at, cliRender, clickScene, drag, settle } from './helpers.ts';
+import { EMPTY, SCENE, SNAPPED_SCENE, VIEW, at, cliRender, clickScene, drag, settle } from './helpers.ts';
 import type { Ui, View } from './helpers.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
@@ -53,6 +53,9 @@ const WORDS_SCENE = {
   elements: [...SCENE.elements, { id: 'w', type: 'text', x: 60, y: 200, content: 'hello', fontSize: 'M' }],
 };
 const WORDS_SOURCE = JSON.stringify(WORDS_SCENE, null, 2);
+
+/** The arrow `link` attached at both ends: the ink a click has to reach. */
+const LINK_SOURCE = JSON.stringify(SNAPPED_SCENE, null, 2);
 
 /** The same Scene two ways: one read is answered with each, so a title says which. */
 const FIRST_SOURCE = JSON.stringify({ ...SCENE, title: 'First' }, null, 2);
@@ -1178,6 +1181,45 @@ test('the palette says a PNG cannot be exported here, rather than failing at it'
   }
 });
 
+test('the pointer measures the paper the view draws on, not the host’s border box', async ({ app, browser, screen }) => {
+  const embed = await startEmbed(await bundleFolder(), { link: LINK_SOURCE });
+  try {
+    const ui: Ui = { app, browser, screen };
+    // A host draws its own frame around the editor: a 20px border and its own
+    // padding. The view fits the paper inside the frame, and the pointer works
+    // on that same paper — a click on the ink has to land on the ink.
+    await app.open(`${embed.url}/bordered.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+
+    // Where the arrow's shaft is drawn on the page, read from the drawing.
+    const shaft = (await browser.evaluate(() => {
+      const drawn = document.querySelector('g[data-element="link"]')!.getBoundingClientRect();
+      return { x: drawn.left + drawn.width / 2, y: drawn.top + drawn.height / 2 };
+    })) as { x: number; y: number };
+    // The shaft is there: the click below is a click on visible ink.
+    expect(
+      (await shot(ui)).darkCount({ x: shaft.x - 20, y: shaft.y - 2, width: 40, height: 4 }, 0.6),
+    ).toBeGreaterThan(0);
+
+    await browser.mouse.move(shaft.x, shaft.y);
+    await browser.mouse.down();
+    await browser.mouse.up();
+
+    // The arrow is what the click picked, so the note offers its ends, and a
+    // nudge moves the arrow itself.
+    await expect(screen.getByRole('button', { name: 'Detach: end' })).toBeVisible();
+    await browser.keyboard.press('Shift+ArrowRight');
+    await expect
+      .poll(
+        async () =>
+          (JSON.parse(await embed.saved('link')) as SavedScene).elements[2]?.points?.[0]?.x,
+      )
+      .toBe(170);
+  } finally {
+    await embed.stop();
+  }
+});
+
 test('the element is a box in the host page’s content, and the bundle styles nothing else', async ({ app, browser, screen }) => {
   const embed = await startEmbed(await bundleFolder());
   try {
@@ -1246,7 +1288,7 @@ async function styles(browser: Ui['browser']): Promise<HostStyles> {
 interface SavedScene {
   version: number;
   title: string;
-  elements: Array<{ id: string; x: number }>;
+  elements: Array<{ id: string; x?: number; points?: Array<{ x: number; y: number }> }>;
 }
 
 function xOf(source: string, id: string): number | undefined {
@@ -1334,6 +1376,13 @@ async function writeBundle(): Promise<string> {
       `<h1>Someone else's page</h1>
 <esbozo-editor scene="api/a" save="api/a" font="${FONT}"></esbozo-editor>
 <p class="after">words after the editor, in the host's own font</p>`,
+      bundle,
+    ),
+    // The host frames the editor: a border and padding of its own, so the
+    // element's box is not the paper the Scene is drawn on.
+    'bordered.html': page(
+      `body { margin: 0 } esbozo-editor { height: 100vh; border: 20px solid #333; padding: 12px }`,
+      `<esbozo-editor scene="api/link" save="api/link" font="${FONT}"></esbozo-editor>`,
       bundle,
     ),
   };
