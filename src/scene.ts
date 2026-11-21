@@ -170,7 +170,7 @@ export interface Point {
  * Where a shaft's Label sits instead of the place Layout gives it: a fraction
  * along the drawn shaft, and a signed distance to one side.
  */
-export interface LabelAt {
+interface LabelAt {
   /** Fraction along the shaft: 0 at the start, 1 at the end. Four decimals are kept. */
   t: number;
   /**

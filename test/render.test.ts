@@ -352,11 +352,137 @@ test('a failed write exits 4, which no other failure uses', async () => {
   assert.match(run.stderr, /cannot write SVG .*scene\.svg/);
 });
 
+test('a shaft Label with labelAt sits at the fraction and to the side it names', async () => {
+  // `text-anchor="middle"` puts the text's x on the anchor itself, so the
+  // fraction reads straight off the drawing: 0 is the start, 1 the end.
+  assert.equal((await placedLabel([0, 100], [400, 100], { t: 0, offset: 0 })).x, 0);
+  assert.equal((await placedLabel([0, 100], [400, 100], { t: 0.25, offset: 0 })).x, 100);
+  assert.equal((await placedLabel([0, 100], [400, 100], { t: 1, offset: 0 })).x, 400);
+
+  // An SVG's y grows downward, so the side that points up is negative y, and
+  // the offset is signed: positive is the side the default Label sits on.
+  const middle = (await placedLabel([0, 100], [400, 100], { t: 0.5, offset: 0 })).y;
+  closeTo((await placedLabel([0, 100], [400, 100], { t: 0.5, offset: 40 })).y, middle - 40);
+  closeTo((await placedLabel([0, 100], [400, 100], { t: 0.5, offset: -40 })).y, middle + 40);
+  closeTo((await placedLabel([0, 100], [400, 100], { t: 0.5, offset: 0 })).x, 200);
+
+  // A vertical shaft has no upper side, so its side is the left one, as it is
+  // for the Label Layout places.
+  assert.equal((await placedLabel([200, 0], [200, 400], { t: 0.5, offset: 10 })).x, 190);
+  assert.equal((await placedLabel([200, 0], [200, 400], { t: 0.5, offset: -10 })).x, 210);
+});
+
+test('a placed Label follows the shaft Snap drew, not the point the Scene stores', async () => {
+  const svg = await renderOne({
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [
+      { id: 'box', type: 'rectangle', x: 0, y: 0, width: 80, height: 80 },
+      {
+        id: 'a',
+        type: 'arrow',
+        label: 'words',
+        labelAt: { t: 1, offset: 0 },
+        points: [
+          { x: 200, y: 40 },
+          { x: 40, y: 40, snap: 'box' },
+        ],
+      },
+    ],
+  });
+
+  // The end Snap put on the box is the point where the line from the free end
+  // through the box's centre meets its outline: (80, 40).
+  const words = textOf(svg);
+  assert.equal(words.x, 80);
+  assert.ok(words.y > 40, 'and the words straddle that end rather than sit beside it');
+});
+
+test('a shaft Label without labelAt keeps its place above the middle of the shaft', async () => {
+  const words = textOf(await renderOne(lineScene([0, 100], [400, 100])));
+
+  assert.equal(words.x, 200, 'centred on the middle of the shaft');
+  assert.ok(words.y < 96, 'and clear above it, as Layout has always placed it');
+});
+
+test('every shaft Label has paper behind it, and a Scene with none writes no paper', async () => {
+  const bare = await renderOne(SAMPLE_SCENE);
+  // check-rules: markup of a written SVG file, not the page
+  assert.deepEqual(bare.match(/<rect\b/g) ?? [], [], 'nothing to knock out, nothing knocked out');
+
+  const svg = await renderOne(lineScene([0, 100], [400, 100]));
+  // check-rules: markup of a written SVG file, not the page
+  const rect = /<rect\b[^>]*>/.exec(svg)?.[0] ?? '';
+  assert.match(rect, /fill="var\(--paper\)"/, 'the words sit on paper, not on what runs under them');
+  assert.ok(svg.indexOf(rect) < svg.indexOf('<text'), 'and the paper goes under the words');
+
+  const words = textOf(svg);
+  const [x, y, width, height] = ['x', 'y', 'width', 'height'].map((name) => attributeOf(rect, name));
+  assert.ok(x! <= words.x && words.x <= x! + width!, 'the paper covers the words across');
+  assert.ok(y! <= words.y && words.y <= y! + height!, 'and down');
+});
+
 async function renderOne(scene: unknown): Promise<string> {
   const folder = await sceneFolder(scene);
   const run = await ez(['render', 'scene.json'], folder);
   assert.equal(run.code, 0, run.stderr);
   return readFile(join(folder, 'scene.svg'), 'utf8');
+}
+
+/** One line with a Label, so a test can vary only where the words sit. */
+function lineScene(
+  started: [number, number],
+  ended: [number, number],
+  labelAt?: unknown,
+): unknown {
+  return {
+    version: 1,
+    title: 'One line',
+    defaults: { roughness: 0 },
+    elements: [
+      {
+        id: 'a',
+        type: 'line',
+        points: [
+          { x: started[0], y: started[1] },
+          { x: ended[0], y: ended[1] },
+        ],
+        label: 'words',
+        ...(labelAt === undefined ? {} : { labelAt }),
+      },
+    ],
+  };
+}
+
+/** The one line of `lineScene`, drawn, as the place its `<text>` puts the words. */
+async function placedLabel(
+  started: [number, number],
+  ended: [number, number],
+  labelAt: unknown,
+): Promise<{ x: number; y: number }> {
+  return textOf(await renderOne(lineScene(started, ended, labelAt)));
+}
+
+/** The one `<text>` a drawing wrote, with the place it puts its words. */
+function textOf(svg: string): { x: number; y: number; anchor: string } {
+  // check-rules: markup of a written SVG file, not the page
+  const tag = /<text\b[^>]*>/.exec(svg)?.[0];
+  assert.ok(tag !== undefined, 'the Scene wrote its words');
+  return {
+    x: attributeOf(tag, 'x'),
+    y: attributeOf(tag, 'y'),
+    anchor: /text-anchor="([^"]*)"/.exec(tag)?.[1] ?? '',
+  };
+}
+
+/** One attribute of a written tag, as the number the drawing put there. */
+function attributeOf(tag: string, name: string): number {
+  return Number(new RegExp(`\\b${name}="([^"]*)"`).exec(tag)?.[1]);
+}
+
+/** A position the drawing rounded to two decimals: a hundredth of a pixel of slack either way. */
+function closeTo(actual: number, wanted: number): void {
+  assert.ok(Math.abs(actual - wanted) <= 0.02, `${actual} is not ${wanted}`);
 }
 
 interface BoxOptions {

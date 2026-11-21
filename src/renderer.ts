@@ -31,6 +31,13 @@
  * reads a file, and nothing here grows an Element: a Label that does not fit is
  * drawn where it is and `ez check` reports it.
  *
+ * A shaft's Label sits where the Scene's `labelAt` puts it — a fraction along
+ * the drawn shaft and a signed distance to one side — and Layout's own place
+ * above the middle of the shaft when the Scene writes none. Every shaft Label
+ * has paper drawn behind it, so its own shaft, or anything else under it, is
+ * cut away instead of read through the words; the paper is `var(--paper)`, the
+ * same variable the page paints with, so light, dark and the editor agree.
+ *
  * Each Element is measured once per drawing, and both the box it covers and the
  * SVG that draws it come from that one result. The editor reads the same boxes
  * through `elementBounds` and `pageBounds`, so selection, fitting and the page
@@ -56,6 +63,7 @@ import {
   barThrough,
   fillets,
   shaftEnds,
+  shaftLabelAnchor,
   unit,
 } from './geometry.js';
 
@@ -420,7 +428,7 @@ function placement(
         kind: 'shaft',
         element,
         shaft,
-        words: layout.label(element, shaft),
+        words: shaftWords(element, shaft, layout),
         box: shaftBox(shaft),
       };
     }
@@ -445,6 +453,35 @@ function shaftBox(shaft: Shaft): Box {
     y: Math.min(shaft.start.y, shaft.end.y),
     width: Math.abs(shaft.end.x - shaft.start.x),
     height: Math.abs(shaft.end.y - shaft.start.y),
+  };
+}
+
+/**
+ * A shaft's words: where Layout wrapped them, moved to the `labelAt` the Scene
+ * wrote. A shaft that writes none keeps Layout's own place, so a Scene that
+ * never asks for a position draws exactly what it drew before.
+ */
+function shaftWords(
+  element: ArrowOrLineElement,
+  shaft: Shaft,
+  layout: Layout,
+): Block | null {
+  const words = layout.label(element, shaft);
+  if (words === null || element.labelAt === undefined) {
+    return words;
+  }
+  const anchor = shaftLabelAnchor(shaft, element.labelAt);
+  const dx = anchor.x - (words.x + words.width / 2);
+  const dy = anchor.y - (words.y + words.height / 2);
+  return {
+    ...words,
+    x: words.x + dx,
+    y: words.y + dy,
+    lines: words.lines.map((line) => ({
+      text: line.text,
+      x: line.x + dx,
+      baseline: line.baseline + dy,
+    })),
   };
 }
 
@@ -673,7 +710,25 @@ function arrowOrLineSvg(element: ArrowOrLineElement, shaft: Shaft, words: Block 
 
   return (
     `<g stroke-linecap="round" stroke-linejoin="round">${paths.join('')}</g>` +
+    paperBehind(words) +
     renderBlock(words, colour)
+  );
+}
+
+/**
+ * The paper a shaft's Label sits on, drawn over everything under it: the words
+ * stay legible on their own shaft at any `labelAt`, and nothing else shows
+ * through them. Paper is the page's own variable, so the same drawing clears
+ * the same space in light, dark and the editor.
+ */
+function paperBehind(words: Block | null): string {
+  if (words === null) {
+    return '';
+  }
+  return (
+    `<rect x="${formatNumber(words.x)}" y="${formatNumber(words.y)}"` +
+    ` width="${formatNumber(words.width)}" height="${formatNumber(words.height)}"` +
+    ` fill="${PAPER}"/>`
   );
 }
 

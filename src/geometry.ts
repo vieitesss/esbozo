@@ -11,6 +11,9 @@
  * The arrow head maths is here too: a head is a triangle whose apex is the
  * end and whose base sits behind it along the arrow, so a head points into its
  * target rather than away from it.
+ *
+ * Where a shaft's Label sits is the same kind of pure arithmetic, and it lives
+ * here so the drawing and the editor's drag place the words with one rule.
  */
 export interface Point {
   x: number;
@@ -383,6 +386,43 @@ export function arrowHeadTriangle(
     { x: base.x + normal.x * half, y: base.y + normal.y * half },
     { x: base.x - normal.x * half, y: base.y - normal.y * half },
   ];
+}
+
+/**
+ * The side of the shaft a Label sits on, as a unit normal: up where the shaft
+ * has an upper side, and left where it is vertical. The rule depends on the
+ * heading, not on which way the arrow points, so two arrows along one line keep
+ * their words on the same side.
+ */
+function shaftSide(shaft: { start: Point; end: Point }): Point {
+  const along = { x: shaft.end.x - shaft.start.x, y: shaft.end.y - shaft.start.y };
+  const length = Math.hypot(along.x, along.y);
+  if (length === 0) {
+    return { x: 0, y: -1 };
+  }
+  // The perpendicular that points up for a level shaft. On a diagonal only one
+  // of the two perpendiculars points up, so take that one; a vertical shaft
+  // points neither up nor down, so it takes the left.
+  const normal = { x: along.y / length, y: -along.x / length };
+  return normal.y > 0 || (normal.y === 0 && normal.x > 0)
+    ? { x: -normal.x, y: -normal.y }
+    : normal;
+}
+
+/**
+ * Where a shaft's Label is centred: `t` of the way along the drawn shaft, then
+ * `offset` pixels to its side. The offset is signed, so a positive one is the
+ * side the Label Layout places by default sits on, and 0 is on the shaft.
+ */
+export function shaftLabelAnchor(
+  shaft: { start: Point; end: Point },
+  labelAt: { t: number; offset: number },
+): Point {
+  const side = shaftSide(shaft);
+  return {
+    x: shaft.start.x + (shaft.end.x - shaft.start.x) * labelAt.t + side.x * labelAt.offset,
+    y: shaft.start.y + (shaft.end.y - shaft.start.y) * labelAt.t + side.y * labelAt.offset,
+  };
 }
 
 /** A bar head: a short stroke across the end, perpendicular to the arrow. */

@@ -1049,6 +1049,77 @@ test('--help lists the stylesheet subset', async () => {
   assert.equal(help.stderr, '');
 });
 
+test('a Label placed on its shaft cuts the shaft out, leaving paper under the words', async () => {
+  // One line across the page with a placed Label, drawn with one-em-wide glyphs
+  // a fraction of a line tall: the row through the middle of the words is the
+  // shaft's own, so what is left there is the knockout and nothing else.
+  const folder = await sceneFolder({
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [
+      {
+        id: 'a',
+        type: 'line',
+        points: [
+          { x: 0, y: 100 },
+          { x: 400, y: 100 },
+        ],
+        label: 'aa',
+        labelAt: { t: 0.5, offset: 0 },
+      },
+    ],
+  });
+  await writeFont(folder, 'wide.ttf', { glyphHeight: 100 });
+
+  for (const [theme, paper] of [
+    ['light', LIGHT_PAPER],
+    ['dark', DARK_PAPER],
+  ] as const) {
+    const { png } = await pngOne(
+      ['png', 'scene.json', '--theme', theme, '--font', 'wide.ttf'],
+      folder,
+    );
+    const row = shaftRow(png, paper);
+
+    assert.ok(
+      row.gap >= 30 && row.gap <= 42,
+      `${theme}: ${row.gap}px of paper where the words sit on the shaft`,
+    );
+    assert.ok(
+      inkIn(png, paper, row.gapStart, row.gapStart + row.gap, 0, png.height) > 0,
+      `${theme}: the words are still drawn, on the paper the knockout left`,
+    );
+  }
+});
+
+test('a Label placed off its shaft leaves the shaft whole and takes its paper with it', async () => {
+  const folder = await sceneFolder({
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [
+      {
+        id: 'a',
+        type: 'line',
+        points: [
+          { x: 0, y: 100 },
+          { x: 400, y: 100 },
+        ],
+        label: 'aa',
+        labelAt: { t: 0.25, offset: 40 },
+      },
+    ],
+  });
+  await writeFont(folder, 'wide.ttf', { glyphHeight: 100 });
+
+  const { png } = await pngOne(['png', 'scene.json', '--theme', 'light', '--font', 'wide.ttf'], folder);
+  const row = shaftRow(png, LIGHT_PAPER);
+
+  assert.ok(row.gap < 5, `the shaft runs unbroken: ${row.gap}px of paper in it`);
+  // The offset is 40px above the shaft, so the words' paper sits on the row 40
+  // pixels up from the shaft's.
+  assert.ok(paperRun(png, row.row - 40, LIGHT_PAPER) >= 30, 'the paper went with the words');
+});
+
 test('png on an invalid Scene exits 3 and names the Element', async () => {
   const folder = await sceneFolder({
     version: 1,
@@ -1075,6 +1146,92 @@ test('every path and problem is plain text', async () => {
   assert.equal(ok.stdout.trim(), join(folder, 'scene.dark.png'));
   assert.match(bad.stderr, /^cannot read font nowhere\.ttf: /);
 });
+
+/** Whether a pixel is the theme's own paper: what a knockout leaves behind. */
+function isPaper(rgba: [number, number, number, number], paper: readonly number[]): boolean {
+  return rgba[0] === paper[0] && rgba[1] === paper[1] && rgba[2] === paper[2];
+}
+
+/** How many pixels in a box are not paper: the ink a drawing put there. */
+function inkIn(
+  png: Png,
+  paper: readonly number[],
+  fromX: number,
+  toX: number,
+  fromY: number,
+  toY: number,
+): number {
+  let ink = 0;
+  for (let y = Math.max(0, fromY); y < Math.min(png.height, toY); y += 1) {
+    for (let x = Math.max(0, fromX); x < Math.min(png.width, toX); x += 1) {
+      if (!isPaper(png.pixel(x, y), paper)) {
+        ink += 1;
+      }
+    }
+  }
+  return ink;
+}
+
+/** The widest run of paper on one row, the page's own margins included. */
+function paperRun(png: Png, row: number, paper: readonly number[]): number {
+  let longest = 0;
+  let run = 0;
+  for (let x = 0; x < png.width; x += 1) {
+    run = isPaper(png.pixel(x, row), paper) ? run + 1 : 0;
+    longest = Math.max(longest, run);
+  }
+  return longest;
+}
+
+interface ShaftRow {
+  /** The row the drawing reaches furthest right on. */
+  row: number;
+  /** The widest run of paper between that row's first and last ink, and where it starts. */
+  gap: number;
+  gapStart: number;
+}
+
+/** The ink of the row the drawing reaches furthest right on, and the paper left inside it. */
+function shaftRow(png: Png, paper: readonly number[]): ShaftRow {
+  const bare = (x: number, y: number): boolean => isPaper(png.pixel(x, y), paper);
+  let row = -1;
+  for (let x = png.width - 1; x >= 0 && row < 0; x -= 1) {
+    for (let y = 0; y < png.height; y += 1) {
+      if (!bare(x, y)) {
+        row = y;
+        break;
+      }
+    }
+  }
+  assert.ok(row >= 0, 'the Scene put something on the page');
+
+  let left = 0;
+  while (left < png.width && bare(left, row)) {
+    left += 1;
+  }
+  let right = png.width - 1;
+  while (right > left && bare(right, row)) {
+    right -= 1;
+  }
+
+  let gap = 0;
+  let gapStart = left;
+  let run = 0;
+  for (let x = left; x <= right; x += 1) {
+    if (bare(x, row)) {
+      if (run === 0) {
+        gapStart = x;
+      }
+      run += 1;
+      if (run > gap) {
+        gap = run;
+      }
+    } else {
+      run = 0;
+    }
+  }
+  return { row, gap, gapStart };
+}
 
 test('color-mix takes one weight and one bare colour, per the CSS spec', async () => {
   const folder = await sceneFolder();
