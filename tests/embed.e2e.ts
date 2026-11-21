@@ -24,6 +24,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import { EMPTY, SCENE, VIEW, at, cliRender, clickScene, drag, settle } from './helpers.ts';
@@ -31,11 +32,27 @@ import type { Ui, View } from './helpers.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
 import { ez, tempFolder } from '../test/cli.ts';
+import { fontBytes } from '../test/fonts.ts';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const KALAM = fileURLToPath(new URL('../fonts/Kalam-Regular.ttf', import.meta.url));
 const SCENE_SOURCE = JSON.stringify(SCENE, null, 2);
 const FONT = 'fonts/Kalam-Regular.ttf';
+
+/**
+ * A second font, made for these tests: wider glyphs than Kalam's, so an editor
+ * that measured with the wrong file draws different words. Served at
+ * `fonts/b.ttf`, so `a.ttf` and `b.ttf` are never the same bytes.
+ */
+const OTHER_FONT = Buffer.from(fontBytes({ advance: 1200, family: 'Wide' }));
+const OTHER_FONT_FILE = 'other.ttf';
+
+/** `SCENE` with a Text in it, so a font's metrics are visible in the drawing. */
+const WORDS_SCENE = {
+  ...SCENE,
+  elements: [...SCENE.elements, { id: 'w', type: 'text', x: 60, y: 200, content: 'hello', fontSize: 'M' }],
+};
+const WORDS_SOURCE = JSON.stringify(WORDS_SCENE, null, 2);
 
 /** The page fills the window with the editor, so `VIEW`'s page points hold. */
 const FULL = 'body { margin: 0 } esbozo-editor { height: 100vh }';
@@ -67,10 +84,16 @@ interface Embed {
   writes(name: string): number;
   /** Requests the API answered on this path, by pathname. */
   requests(path: string): number;
+  /** `PUT`s sent to this path, refused or not. */
+  puts(path: string): number;
   /** Answer this Scene's reads with a fault. */
   failRead(name: string, status: number, problem: string): void;
   /** Refuse this Scene's writes with a fault. */
   refuseSave(name: string, status: number, problem: string): void;
+  /** Hold every answer on this path back, so a test can overtake a slow server. */
+  hold(path: string): void;
+  /** Let the answers held on this path go, and answer the next ones at once. */
+  release(path: string): void;
   /** The bytes saved beside a Scene name. */
   saved(name: string, extension?: string): Promise<string>;
   stop(): Promise<void>;
@@ -120,6 +143,7 @@ test('a Scene that is not there opens empty, says so, and is written by the firs
     expect((await readdir(join(embed.folder, 'saved'))).sort()).toEqual(['a', 'b']);
 
     // The first edit is what makes it a Scene, with its SVG beside it.
+    await clickScene(ui, { x: PAPER.x, y: PAPER.y }, [], EMPTY);
     await browser.keyboard.press('r');
     await drag(ui, at({ x: 420, y: 40 }, EMPTY), at({ x: 540, y: 140 }, EMPTY));
 
@@ -143,6 +167,7 @@ test('a Scene the API cannot read is the server’s words, and nothing is ever w
     await expect(screen.getByRole('status')).toContainText('the drawer is jammed');
     // The canvas is empty, and a would-be draw changes neither it nor the disk.
     expect((await shot(ui)).meanLuminance(PAPER)).toBeGreaterThan(0.85);
+    await clickScene(ui, { x: PAPER.x, y: PAPER.y }, [], EMPTY);
     await browser.keyboard.press('r');
     await drag(ui, { x: PAPER.x, y: PAPER.y }, { x: PAPER.x + 120, y: PAPER.y + 80 });
     await settle(ui);
@@ -168,6 +193,7 @@ test('an element with no save attribute is read-only: it says so and refuses eve
 
     // A drawing tool and a Text: both are refused, so the page paints exactly
     // the drawing it started on, pixel for pixel.
+    await clickScene(ui, { x: 340, y: 40 }, [], VIEW);
     await browser.keyboard.press('t');
     await clickScene(ui, { x: 340, y: 40 }, [], { zoom: 1, panX: 470, panY: 300 });
     await browser.keyboard.press('Escape');
@@ -253,32 +279,387 @@ test('a save refused with 403 makes the page read-only, and it stops trying', as
   }
 });
 
-test('two elements on one page share no font, no Scene and no keystroke', async ({ app, browser, screen }) => {
+test('a Scene read answered late never replaces the Scene the page names now', async ({ app, browser, screen }) => {
+  const embed = await startEmbed(await bundleFolder(), {
+    a: JSON.stringify({ ...SCENE, title: 'First' }, null, 2),
+    b: JSON.stringify({ ...SCENE, title: 'Second' }, null, 2),
+  });
+  try {
+    const ui: Ui = { app, browser, screen };
+    // The first Scene's read is held, so the page can move on before it answers.
+    embed.hold('/api/a');
+    await app.open(`${embed.url}/live.html`);
+    await browser.evaluate(() => {
+      const element = (window as unknown as { live: Element }).live;
+      element.setAttribute('scene', 'api/b');
+      element.setAttribute('save', 'api/b');
+      return true;
+    });
+    await expect(screen.getByRole('status')).toHaveText('saved');
+
+    // The old answer lands now. It is not the Scene in hand: the edit below
+    // saves the Scene the page names, not the one that arrived late.
+    embed.release('/api/a');
+    await settle(ui);
+    await clickScene(ui, { x: 100, y: 80 }, [], VIEW);
+    await browser.keyboard.press('Shift+ArrowRight');
+
+    await expect.poll(async () => xOf(await embed.saved('b'), 'a')).toBe(50);
+    expect((JSON.parse(await embed.saved('b')) as { title: string }).title).toBe('Second');
+    expect(embed.requests('/api/a')).toBe(1);
+    expect(embed.writes('a')).toBe(0);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('removing save while the Scene is on its way leaves nothing to write', async ({ app, browser, screen }) => {
   const embed = await startEmbed(await bundleFolder());
+  try {
+    const ui: Ui = { app, browser, screen };
+    embed.hold('/api/a');
+    await app.open(`${embed.url}/live.html`);
+    await browser.evaluate(() => {
+      (window as unknown as { live: Element }).live.removeAttribute('save');
+      return true;
+    });
+    await expect(screen.getByText('read-only')).toBeVisible();
+
+    // The Scene still arrives and draws: a page that may only read is a reader.
+    embed.release('/api/a');
+    await expect.poll(async () => (await shot(ui)).darkCount(BOX_A, 0.6)).toBeGreaterThan(0);
+
+    // And it writes nothing, whatever a person asks it to draw.
+    await clickScene(ui, { x: 100, y: 80 }, [], VIEW);
+    await browser.keyboard.press('r');
+    await drag(ui, { x: PAPER.x, y: PAPER.y }, { x: PAPER.x + 120, y: PAPER.y + 80 });
+    await settle(ui);
+    expect(embed.puts('/api/a')).toBe(0);
+    expect(embed.writes('a')).toBe(0);
+    expect(await embed.saved('a')).toBe(SCENE_SOURCE);
+    expect((await shot(ui)).meanLuminance(PAPER)).toBeGreaterThan(0.85);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('words half-typed into a Scene do not land in the next one', async ({ app, browser, screen }) => {
+  const embed = await startEmbed(await bundleFolder());
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/live.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+
+    // A Text opened and typed into, never committed.
+    await clickScene(ui, { x: 300, y: 260 }, [], VIEW);
+    await browser.keyboard.press('t');
+    await clickScene(ui, { x: 300, y: 260 }, [], VIEW);
+    await browser.keyboard.type('half typed');
+
+    // The page names another Scene while the words are still in the input.
+    await browser.evaluate(() => {
+      const element = (window as unknown as { live: Element }).live;
+      element.setAttribute('scene', 'api/b');
+      element.setAttribute('save', 'api/b');
+      return true;
+    });
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    expect(await browser.evaluate(() => document.querySelector('textarea') === null)).toBe(true);
+
+    await clickScene(ui, { x: 100, y: 80 }, [], VIEW);
+    await browser.keyboard.press('Shift+ArrowRight');
+    await expect.poll(async () => xOf(await embed.saved('b'), 'a')).toBe(50);
+
+    const saved = JSON.parse(await embed.saved('b')) as { elements: Array<{ type: string }> };
+    expect(saved.elements.filter((element) => element.type === 'text')).toHaveLength(0);
+    expect(embed.writes('a')).toBe(0);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('a 403 stops the writes queued behind it', async ({ app, browser, screen }) => {
+  const embed = await startEmbed(await bundleFolder());
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/embedded.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+
+    // The first write's answer is held, so the next two are already queued
+    // when the server refuses the first.
+    embed.hold('/api/a');
+    embed.refuseSave('a', 403, 'this folder is served read-only');
+    await clickScene(ui, { x: 100, y: 80 }, [], VIEW);
+    await browser.keyboard.press('Shift+ArrowRight');
+    await browser.keyboard.press('Shift+ArrowRight');
+    await browser.keyboard.press('Shift+ArrowRight');
+    await expect.poll(() => embed.puts('/api/a')).toBe(1);
+    embed.release('/api/a');
+
+    await expect(screen.getByRole('status')).toContainText('this folder is served read-only');
+    await expect(screen.getByText('read-only')).toBeVisible();
+    await settle(ui);
+
+    // One `PUT`, not three: the refusal is about every write behind it.
+    expect(embed.puts('/api/a')).toBe(1);
+    expect(embed.writes('a')).toBe(0);
+    expect(await embed.saved('a')).toBe(SCENE_SOURCE);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('a refusal for the save URL the page moved away from is not its own', async ({ app, browser, screen }) => {
+  const embed = await startEmbed(await bundleFolder());
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/embedded.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+
+    // The first write goes to `a`, and its answer is held back.
+    embed.hold('/api/a');
+    embed.refuseSave('a', 403, 'this folder is served read-only');
+    await clickScene(ui, { x: 100, y: 80 }, [], VIEW);
+    await browser.keyboard.press('Shift+ArrowRight');
+    await expect.poll(() => embed.puts('/api/a')).toBe(1);
+
+    // The page points its writes at `b`, and only then does `a` refuse.
+    await browser.evaluate(() => {
+      document.querySelector('esbozo-editor')!.setAttribute('save', 'api/b');
+      return true;
+    });
+    embed.release('/api/a');
+    await settle(ui);
+
+    // A refusal for a destination the page no longer writes to says nothing
+    // about this one: the next edit is sent, with no holding back.
+    expect(embed.writes('a')).toBe(0);
+    await browser.keyboard.press('Shift+ArrowRight');
+    await expect.poll(() => embed.writes('b')).toBe(1);
+    expect(xOf(await embed.saved('b'), 'a')).toBe(60);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('write access ending lets go of the tool in hand', async ({ app, browser, screen }) => {
+  const embed = await startEmbed(await bundleFolder());
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/embedded.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+
+    await screen.getByRole('button', 'Rectangle').click();
+    await expect(screen.getByRole('button', 'Rectangle')).toHaveAttribute('aria-pressed', 'true');
+
+    await browser.evaluate(() => {
+      document.querySelector('esbozo-editor')!.removeAttribute('save');
+      return true;
+    });
+    await expect(screen.getByText('read-only')).toBeVisible();
+    await expect(screen.getByRole('button', 'Select')).toHaveAttribute('aria-pressed', 'true');
+
+    // The drag that would have drawn a box under the tool in hand draws nothing.
+    await drag(ui, { x: PAPER.x, y: PAPER.y }, { x: PAPER.x + 120, y: PAPER.y + 80 });
+    await settle(ui);
+    expect(embed.puts('/api/a')).toBe(0);
+    expect((await shot(ui)).meanLuminance(PAPER)).toBeGreaterThan(0.85);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('a read-only page takes no undo step it cannot show', async ({ app, browser, screen }) => {
+  const embed = await startEmbed(await bundleFolder());
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/embedded.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+
+    // Two nudges far enough apart to be two steps.
+    await clickScene(ui, { x: 100, y: 80 }, [], VIEW);
+    await browser.keyboard.press('Shift+ArrowRight');
+    await expect.poll(async () => xOf(await embed.saved('a'), 'a')).toBe(50);
+    await sleep(900);
+    await browser.keyboard.press('Shift+ArrowRight');
+    await expect.poll(async () => xOf(await embed.saved('a'), 'a')).toBe(60);
+
+    // Read-only: undo changes nothing, and spends nothing either.
+    await browser.evaluate(() => {
+      document.querySelector('esbozo-editor')!.removeAttribute('save');
+      return true;
+    });
+    await expect(screen.getByText('read-only')).toBeVisible();
+    await browser.keyboard.press('Control+z');
+    await browser.keyboard.press('Control+z');
+    await settle(ui);
+    expect(xOf(await embed.saved('a'), 'a')).toBe(60);
+
+    // Writing again, one undo takes the newest edit back: 60, not 40.
+    await browser.evaluate(() => {
+      document.querySelector('esbozo-editor')!.setAttribute('save', 'api/a');
+      return true;
+    });
+    await browser.keyboard.press('Control+z');
+    await expect.poll(async () => xOf(await embed.saved('a'), 'a')).toBe(50);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('a font that is not there is measured again when the page names another', async ({ app, browser, screen }) => {
+  const embed = await startEmbed(await bundleFolder());
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/font-fail.html`);
+    await expect(screen.getByRole('status')).toContainText('cannot load fonts/none.ttf');
+
+    // The page fixes the attribute and the same element comes back to life.
+    await browser.evaluate(() => {
+      document.querySelector('esbozo-editor')!.setAttribute('font', 'fonts/Kalam-Regular.ttf');
+      return true;
+    });
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    expect((await shot(ui)).darkCount(BOX_A, 0.6)).toBeGreaterThan(0);
+    expect(await faceOf(browser)).toBe('fonts/Kalam-Regular.ttf');
+
+    await clickScene(ui, { x: 100, y: 80 }, [], VIEW);
+    await browser.keyboard.press('Shift+ArrowRight');
+    await expect.poll(async () => xOf(await embed.saved('a'), 'a')).toBe(50);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('a slow font cannot put its face under a newer measurement', async ({ app, browser, screen }) => {
+  const embed = await startEmbed(await bundleFolder(), { a: SCENE_SOURCE, b: WORDS_SOURCE });
+  try {
+    const ui: Ui = { app, browser, screen };
+    embed.hold('/fonts/a.ttf');
+    await app.open(`${embed.url}/font-swap.html`);
+
+    // The page names another font while the first is still on its way.
+    await browser.evaluate(() => {
+      document.querySelector('esbozo-editor')!.setAttribute('font', 'fonts/b.ttf');
+      return true;
+    });
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    embed.release('/fonts/a.ttf');
+    await settle(ui);
+
+    // The words are drawn with the font the page names now: the face and the
+    // metrics are the same file, whichever arrived first.
+    await clickScene(ui, { x: 100, y: 80 }, [], VIEW);
+    await browser.keyboard.press('Shift+ArrowRight');
+    await expect.poll(() => embed.writes('a')).toBe(1);
+    const scene = JSON.parse(await embed.saved('a'));
+    expect(await embed.saved('a', 'svg')).toBe(await cliRender(scene, join(embed.folder, OTHER_FONT_FILE)));
+    expect(await faceOf(browser)).toBe('fonts/b.ttf');
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('the host page keeps Space and the arrows until the editor has the focus', async ({ app, browser, screen }) => {
+  const embed = await startEmbed(await bundleFolder());
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/scroll.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    const scrolled = (): Promise<number> => browser.evaluate(() => window.scrollY);
+    /**
+     * Back to the top. Chrome animates the scroll a key asks for, so the top is
+     * only really the top once a moment later it is still the top.
+     */
+    const top = async (): Promise<void> => {
+      await expect
+        .poll(() =>
+          browser.evaluate(async () => {
+            window.scrollTo(0, 0);
+            await new Promise((resolve) => setTimeout(resolve, 80));
+            return window.scrollY;
+          }),
+        )
+        .toBe(0);
+    };
+
+    // Nobody has clicked into the editor: Space and the arrows are the page's.
+    await browser.keyboard.press('ArrowDown');
+    await expect.poll(scrolled).toBeGreaterThan(0);
+    await top();
+    await browser.keyboard.press('Space');
+    await expect.poll(scrolled).toBeGreaterThan(0);
+    await top();
+
+    // A click into the editor hands it the keys, and the focus with them.
+    await clickScene(ui, { x: 100, y: 80 }, [], VIEW);
+    const active = await browser.evaluate(() => document.activeElement?.tagName ?? '');
+    expect(active).toBe('ESBOZO-EDITOR');
+    // Space pans and the arrow nudges now, so the page does not scroll: a
+    // scroll step is tens of pixels, the browser's focus nudge is a few.
+    const steady = await scrolled();
+    await browser.keyboard.press('Space');
+    await browser.keyboard.press('ArrowDown');
+    await settle(ui);
+    expect((await scrolled()) - steady).toBeLessThan(10);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+
+    // Clicking the host's own words takes them back.
+    await screen.getByText('words after the editor').click();
+    await browser.keyboard.press('ArrowDown');
+    await expect.poll(scrolled).toBeGreaterThan(0);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('two elements on one page share no font, no Scene, no Grid and no keystroke', async ({ app, browser, screen }) => {
+  const embed = await startEmbed(await bundleFolder(), { a: WORDS_SOURCE, b: WORDS_SOURCE });
   try {
     const ui: Ui = { app, browser, screen };
     await app.open(`${embed.url}/two.html`);
 
-    // Each element measured the font its own attribute names.
+    // Each element measured the font its own attribute names, and drew with
+    // that face: the two files hold different bytes, so the two drawings differ.
     await expect(screen.getByRole('status').first()).toHaveText('saved');
     await expect(screen.getByRole('status').nth(1)).toHaveText('saved');
-    // Both files were asked for: the second element is not excused by the first
-    // having already measured a font.
     expect(embed.requests('/fonts/a.ttf')).toBeGreaterThanOrEqual(1);
     expect(embed.requests('/fonts/b.ttf')).toBeGreaterThanOrEqual(1);
+    expect(await faceOf(browser, 0)).toBe('fonts/a.ttf');
+    expect(await faceOf(browser, 1)).toBe('fonts/b.ttf');
 
-    // A nudge in the first element saves the first Scene and nothing else.
+    // Each element's Grid is a pattern of its own: the second editor does not
+    // fill its dots from the first one's.
+    const grids = await browser.evaluate(() =>
+      [...document.querySelectorAll('esbozo-editor')].map((element) => ({
+        id: element.querySelector('pattern')?.id ?? '',
+        fill: element.querySelector('.grid-rect')?.getAttribute('fill') ?? '',
+      })),
+    );
+    expect(grids[0]?.id).not.toBe(grids[1]?.id);
+    expect(grids[0]?.fill).toBe(`url(#${grids[0]?.id})`);
+    expect(grids[1]?.fill).toBe(`url(#${grids[1]?.id})`);
+
+    // A nudge in the first element saves the first Scene and nothing else, and
+    // the words in it are the CLI's drawing of them with the first element's
+    // own font.
     await clickScene(ui, { x: 100, y: 80 }, [], HALF);
     await browser.keyboard.press('Shift+ArrowRight');
     await expect.poll(async () => xOf(await embed.saved('a'), 'a')).toBe(50);
-    expect(await embed.saved('b')).toBe(SCENE_SOURCE);
+    expect(await embed.saved('b')).toBe(WORDS_SOURCE);
+    const first = JSON.parse(await embed.saved('a'));
+    expect(await embed.saved('a', 'svg')).toBe(await cliRender(first, KALAM));
 
     // And a nudge in the second reaches only the second: the half below is the
-    // same Scene at the same view, 400px down the page.
+    // same Scene at the same view, 400px down the page, drawn with b's font.
     await clickScene(ui, { x: 100, y: 80 }, [], { ...HALF, panY: HALF.panY + 400 });
     await browser.keyboard.press('Shift+ArrowRight');
     await expect.poll(async () => xOf(await embed.saved('b'), 'a')).toBe(50);
     expect(xOf(await embed.saved('a'), 'a')).toBe(50);
+    const second = JSON.parse(await embed.saved('b'));
+    expect(await embed.saved('b', 'svg')).toBe(
+      await cliRender(second, join(embed.folder, OTHER_FONT_FILE)),
+    );
   } finally {
     await embed.stop();
   }
@@ -351,6 +732,24 @@ test('the element is a box in the host page’s content, and the bundle styles n
   }
 });
 
+/**
+ * The file the element draws its words with: the family the element names, and
+ * the URL that family's `@font-face` rule loads. A face installed without its
+ * metrics — or metrics installed without their face — shows up here.
+ */
+async function faceOf(browser: Ui['browser'], index = 0): Promise<string> {
+  return browser.evaluate((which) => {
+    const element = document.querySelectorAll('esbozo-editor')[which]!;
+    const family = getComputedStyle(element).getPropertyValue('--font-hand').trim();
+    const name = /"([^"]+)"/.exec(family)?.[1] ?? '';
+    const rules = [...document.querySelectorAll('style')]
+      .map((style) => style.textContent ?? '')
+      .join('\n');
+    const block = new RegExp(`@font-face \\{[^}]*font-family: "${name}"[^}]*\\}`).exec(rules)?.[0] ?? '';
+    return /url\("([^"]+)"\)/.exec(block)?.[1] ?? '';
+  }, index);
+}
+
 interface HostStyles {
   [key: string]: string | number;
   margin: string;
@@ -417,23 +816,29 @@ async function writeBundle(): Promise<string> {
     throw new Error(`ez bundle exited ${run.code}: ${run.stderr}`);
   }
   const bundle = run.stdout.trim().split('/').pop() ?? '';
-  await mkdir(join(folder, 'fonts'), { recursive: true });
-  const kalam = await readFile(KALAM);
-  // Two copies of the same file at two URLs: one element cannot be excused from
-  // asking for its own when the bytes are identical.
-  for (const name of ['Kalam-Regular.ttf', 'a.ttf', 'b.ttf']) {
-    await writeFile(join(folder, 'fonts', name), kalam);
-  }
+  // The second font on disk too, so a test can hand it to `ez render`.
+  await writeFile(join(folder, OTHER_FONT_FILE), OTHER_FONT);
 
   const pages: Record<string, string> = {
     'embedded.html': page(FULL, `<esbozo-editor scene="api/a" save="api/a" font="${FONT}"></esbozo-editor>`, bundle),
     'read-only.html': page(FULL, `<esbozo-editor scene="api/a" font="${FONT}"></esbozo-editor>`, bundle),
     'missing.html': page(FULL, `<esbozo-editor scene="api/missing" save="api/missing" font="${FONT}"></esbozo-editor>`, bundle),
     'failing.html': page(FULL, `<esbozo-editor scene="api/broken" save="api/broken" font="${FONT}"></esbozo-editor>`, bundle),
+    'font-fail.html': page(FULL, `<esbozo-editor scene="api/a" save="api/a" font="fonts/none.ttf"></esbozo-editor>`, bundle),
+    'font-swap.html': page(FULL, `<esbozo-editor scene="api/a" save="api/a" font="fonts/a.ttf"></esbozo-editor>`, bundle),
     'two.html': page(
       HALVES,
       `<esbozo-editor scene="api/a" save="api/a" font="fonts/a.ttf"></esbozo-editor>
 <esbozo-editor scene="api/b" save="api/b" font="fonts/b.ttf"></esbozo-editor>`,
+      bundle,
+    ),
+    'scroll.html': page(
+      // A page of its own words, taller than the window: Space and the arrows
+      // have somewhere to scroll to.
+      'body { margin: 24px } .tall { height: 900px }',
+      `<esbozo-editor scene="api/a" save="api/a" font="${FONT}"></esbozo-editor>
+<p class="after">words after the editor</p>
+<div class="tall"></div>`,
       bundle,
     ),
     'live.html': page(
@@ -452,8 +857,7 @@ async function writeBundle(): Promise<string> {
       null,
     ),
     'host.html': page(
-      `body { margin: 24px; font-family: Georgia, serif; overflow: visible; color: #333 }
-esbozo-editor { height: 480px }`,
+      `body { margin: 24px; font-family: Georgia, serif; overflow: visible; color: #333 }`,
       `<h1>Someone else's page</h1>
 <esbozo-editor scene="api/a" save="api/a" font="${FONT}"></esbozo-editor>
 <p class="after">words after the editor, in the host's own font</p>`,
@@ -480,19 +884,38 @@ ${bundle === null ? '' : `<script type="module" src="${bundle}"></script>`}
 }
 
 /** The bundle's folder, served on a port the operating system picks. */
-async function startEmbed(folder: string): Promise<Embed> {
+async function startEmbed(
+  folder: string,
+  scenes: Record<string, string> = { a: SCENE_SOURCE, b: SCENE_SOURCE },
+): Promise<Embed> {
   const saved = join(folder, 'saved');
-  // Every test starts on the same two Scenes, from before any edit.
+  // Every test starts on the Scenes it names, from before any edit.
   await rm(saved, { recursive: true, force: true });
   await mkdir(saved, { recursive: true });
-  await writeFile(join(saved, 'a'), SCENE_SOURCE, 'utf8');
-  await writeFile(join(saved, 'b'), SCENE_SOURCE, 'utf8');
+  for (const [name, source] of Object.entries(scenes)) {
+    await writeFile(join(saved, name), source, 'utf8');
+  }
 
   const writes = new Map<string, number>();
   const requests = new Map<string, number>();
+  const puts = new Map<string, number>();
   const faults = new Map<string, { read?: Fault; save?: Fault }>();
   const faultFor = (name: string, kind: 'read' | 'save'): Fault | undefined =>
     faults.get(name)?.[kind];
+  // Paths whose answers wait for the test, and the answers waiting on each.
+  const holding = new Set<string>();
+  const waiting = new Map<string, Array<() => void>>();
+
+  /** The answer to this path is held back until the test lets it go. */
+  async function waitOn(path: string): Promise<void> {
+    if (holding.has(path)) {
+      await new Promise<void>((resolve) => {
+        const queue = waiting.get(path) ?? [];
+        queue.push(resolve);
+        waiting.set(path, queue);
+      });
+    }
+  }
 
   const server = createServer((request, response) => {
     handle(request, response).catch((error: unknown) => {
@@ -504,6 +927,10 @@ async function startEmbed(folder: string): Promise<Embed> {
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const path = new URL(request.url ?? '/', 'http://localhost').pathname;
     requests.set(path, (requests.get(path) ?? 0) + 1);
+    if (request.method === 'PUT') {
+      puts.set(path, (puts.get(path) ?? 0) + 1);
+    }
+    await waitOn(path);
 
     const scene = /^\/api\/([\w-]+)$/.exec(path)?.[1];
     if (scene !== undefined) {
@@ -511,7 +938,19 @@ async function startEmbed(folder: string): Promise<Embed> {
       return;
     }
     if (path.startsWith('/fonts/')) {
-      await send(response, 200, 'font/ttf', await readFile(KALAM));
+      // One file per URL, so two elements that asked for two files can be seen
+      // to have drawn with the one each asked for.
+      const bytes =
+        path === '/fonts/b.ttf'
+          ? OTHER_FONT
+          : path === '/fonts/a.ttf' || path === '/fonts/Kalam-Regular.ttf'
+            ? await readFile(KALAM)
+            : null;
+      if (bytes === null) {
+        await send(response, 404, 'text/plain; charset=utf-8', 'not found');
+        return;
+      }
+      await send(response, 200, 'font/ttf', bytes);
       return;
     }
     const file = path === '/' ? 'index.html' : path.slice(1);
@@ -569,11 +1008,22 @@ async function startEmbed(folder: string): Promise<Embed> {
     folder,
     writes: (name) => writes.get(name) ?? 0,
     requests: (path) => requests.get(path) ?? 0,
+    puts: (path) => puts.get(path) ?? 0,
     failRead(name, status, problem) {
       faults.set(name, { ...faults.get(name), read: { status, problem } });
     },
     refuseSave(name, status, problem) {
       faults.set(name, { ...faults.get(name), save: { status, problem } });
+    },
+    hold(path) {
+      holding.add(path);
+    },
+    release(path) {
+      holding.delete(path);
+      for (const resolve of waiting.get(path) ?? []) {
+        resolve();
+      }
+      waiting.delete(path);
     },
     async saved(name, extension = 'json') {
       return readFile(join(saved, extension === 'json' ? name : `${name}.${extension}`), 'utf8');

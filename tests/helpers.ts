@@ -653,12 +653,14 @@ export async function dragBy(
 /**
  * `ez render` on the Scene the editor saved, in a temp folder: the editor's SVG
  * has to be the CLI's SVG, byte for byte, or the browser is not drawing with the
- * same Renderer.
+ * same Renderer. `font` measures the words with that file, so an editor that
+ * measured with a different one is caught here rather than in a screenshot.
  */
-export async function cliRender(scene: unknown): Promise<string> {
+export async function cliRender(scene: unknown, font?: string): Promise<string> {
   const folder = await mkdtemp(join(tmpdir(), 'esbozo-e2e-'));
   await writeFile(join(folder, 'scene.json'), JSON.stringify(scene, null, 2), 'utf8');
-  await run(process.execPath, [CLI, 'render', 'scene.json'], { cwd: folder });
+  const args = [CLI, 'render', 'scene.json', ...(font === undefined ? [] : ['--font', font])];
+  await run(process.execPath, args, { cwd: folder });
   return readFile(join(folder, 'scene.svg'), 'utf8');
 }
 
