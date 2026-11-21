@@ -131,6 +131,14 @@ test('a dynamic import of a builtin is the same finding as a static one', async 
   assert.match(line, /^src\/scene\.ts:1: node import "node:crypto" in a browser-safe module$/);
 });
 
+test('an import written as an alias of a required builtin is the same finding', async () => {
+  const line = await finding({
+    'src/scene.ts': ["import crypto = require('node:crypto');", '', 'export const id = crypto.randomUUID();'].join('\n'),
+  });
+
+  assert.match(line, /^src\/scene\.ts:1: node import "node:crypto" in a browser-safe module$/);
+});
+
 test('a comment between import and its specifier does not hide the builtin', async () => {
   const line = await finding({
     'src/renderer.ts': ["import /* the digest is the browser's own */ 'node:crypto';", ''].join('\n'),

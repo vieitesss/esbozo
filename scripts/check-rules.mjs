@@ -495,6 +495,15 @@ function specifiers(source) {
       if (specifier !== undefined) add(specifier);
       return;
     }
+    if (ts.isImportEqualsDeclaration(node)) {
+      // `import crypto = require('node:crypto')` is the alias form of the same
+      // import, and imports the same builtin.
+      const reference = node.moduleReference;
+      if (ts.isExternalModuleReference(reference) && reference.expression !== undefined) {
+        add(reference.expression);
+      }
+      return;
+    }
     if (ts.isImportTypeNode(node)) {
       if (ts.isLiteralTypeNode(node.argument)) add(node.argument.literal);
       return;
