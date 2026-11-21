@@ -1730,10 +1730,54 @@ test('another Scene takes the pan word with the Scene it named', async ({ app, b
   await ui.browser.keyboard.up('Space');
 });
 
+/**
+ * The page this file's own host tests own: it holds the element and keeps its
+ * own hands on it, so handing it back — and naming another Scene to it — is the
+ * host's doing and no test reads where the page put it.
+ */
+const CONTROLLED_HOST = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<style>html, body { height: 100%; margin: 0 } esbozo-editor { display: block; height: 100vh }</style>
+<link rel="stylesheet" href="editor.css" />
+</head>
+<body>
+<div class="slot"><esbozo-editor></esbozo-editor></div>
+<script type="module">
+  const slot = document.querySelector('.slot');
+  const editor = slot.querySelector('esbozo-editor');
+  window.editor = editor;
+  // The host takes the element out of the page and puts it back where it had it.
+  window.unplug = () => {
+    editor.remove();
+    slot.append(editor);
+  };
+</script>
+<script type="module" src="editor.js"></script>
+</body>
+</html>`;
+
+/** What the controlled host page keeps for a test that holds it. */
+interface ControlledHost {
+  /** The page's own handle on the element it holds. */
+  readonly editor: Element;
+  /** The page takes the element out of itself and puts it back. */
+  readonly unplug: () => void;
+}
+
+/** Open the editor on the page this file owns, holding a Scene it can draw. */
+async function openControlledHost(ui: Ui): Promise<void> {
+  await ui.browser.route('**/editor.html', (route) =>
+    route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: CONTROLLED_HOST }),
+  );
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+}
+
 for (const hostChange of ['disconnect', 'reset'] as const) {
   test(`a pan ends on a host ${hostChange}`, async ({ app, browser, screen }) => {
     const ui = { app, browser, screen };
-    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+    await openControlledHost(ui);
     const pill = screen.getByText('Panning');
     const mouse = livePage().mouse;
 
@@ -1743,13 +1787,13 @@ for (const hostChange of ['disconnect', 'reset'] as const) {
     await expect(pill).toBeVisible();
 
     await browser.evaluate((change) => {
-      const editor = document.querySelector('esbozo-editor')!;
+      const host = window as unknown as ControlledHost;
       if (change === 'disconnect') {
-        const { parentElement, nextSibling } = editor;
-        editor.remove();
-        parentElement!.insertBefore(editor, nextSibling);
+        // The page the pan was taken on hands the element back, and the element
+        // comes back with the key still held.
+        host.unplug();
       } else {
-        editor.setAttribute('scene', 'another-scene.json');
+        host.editor.setAttribute('scene', 'another-scene.json');
       }
       return true;
     }, hostChange);
