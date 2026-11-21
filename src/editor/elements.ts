@@ -8,7 +8,8 @@
  * values that already obey it, and the editor decides when to call them.
  */
 import { MIN_SIZE, seedForId } from '../scene.js';
-import type { Element, FontSize, Point, SceneStyle, TextElement } from '../scene.js';
+import { unwrittenTextAlign } from '../scene.js';
+import type { Element, ElementStyle, FontSize, Point, SceneStyle, TextElement } from '../scene.js';
 import { boxBetween } from './geometry.js';
 import type { DrawableType, ToolId } from './tools.js';
 
@@ -47,8 +48,12 @@ function free(point: Point): Point {
   return { x: point.x, y: point.y };
 }
 
-/** A copy of the Scene's style, so a drawn Element never shares the defaults object. */
-function styleFrom(defaults: SceneStyle): SceneStyle {
+/**
+ * A copy of the Scene's style, so a drawn Element never shares the defaults
+ * object. A Scene may write no alignment; the Element still carries the one its
+ * words would take, so it is a complete Element the moment it is made.
+ */
+function styleFrom(defaults: SceneStyle, type: Element['type']): ElementStyle {
   return {
     roughness: defaults.roughness,
     stroke: { ...defaults.stroke },
@@ -56,7 +61,7 @@ function styleFrom(defaults: SceneStyle): SceneStyle {
     tone: defaults.tone,
     corners: defaults.corners,
     fontSize: defaults.fontSize,
-    textAlign: defaults.textAlign,
+    textAlign: defaults.textAlign ?? unwrittenTextAlign(type),
   };
 }
 
@@ -71,7 +76,7 @@ export function drawn(
   id: string,
   defaults: SceneStyle,
 ): Element {
-  const base = { id, seed: seedForId(id), ...styleFrom(defaults) };
+  const base = { id, seed: seedForId(id), ...styleFrom(defaults, tool) };
   if (!drawsBox(tool)) {
     return {
       ...base,
@@ -120,7 +125,15 @@ export function newText(
   id: string,
   defaults: SceneStyle,
 ): TextElement {
-  return { id, type: 'text', x: at.x, y: at.y, content, seed: seedForId(id), ...styleFrom(defaults) };
+  return {
+    id,
+    type: 'text',
+    x: at.x,
+    y: at.y,
+    content,
+    seed: seedForId(id),
+    ...styleFrom(defaults, 'text'),
+  };
 }
 
 /**

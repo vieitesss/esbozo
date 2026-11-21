@@ -862,7 +862,12 @@ function parseTextAlign(
 }
 
 /** What an unwritten alignment means for this Element: a Label centres, a Text stays left. */
-function unwrittenTextAlign(type: Element['type'] | null): TextAlign {
+/**
+ * The alignment an Element's words take when neither it nor the Scene writes
+ * one: what a scene file and the editor both resolve by, so a drawn Element is
+ * the Element that would reopen.
+ */
+export function unwrittenTextAlign(type: Element['type'] | null): TextAlign {
   return type === 'text' ? UNWRITTEN_TEXT_ALIGN.text : UNWRITTEN_TEXT_ALIGN.label;
 }
 
