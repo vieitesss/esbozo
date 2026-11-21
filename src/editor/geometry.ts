@@ -10,19 +10,22 @@
  * because a box sweeps up only what it encloses.
  */
 import { alongSegment } from '../geometry.js';
+import type { ShaftPath } from '../geometry.js';
 import {
-  drawnShaft,
   elementBounds,
   elementsById,
   inkBounds,
   labelInkBounds,
   pageBounds,
+  shaftInk,
   shaftLabel,
   strokeWidthOf,
 } from '../renderer.js';
+import type { HeadInk, ShaftInk } from '../renderer.js';
 import type { Layout } from '../layout.js';
 import { MIN_SIZE, isOutlined } from '../scene.js';
 import type { Element, Scene } from '../scene.js';
+import { isShaft } from './snap.js';
 
 export interface Point {
   x: number;
@@ -80,10 +83,11 @@ export function unionOf(boxes: readonly Box[]): Box | null {
  * before the shaft it is written about — its words are words a person can press
  * wherever they sit, over their own shaft included.
  *
- * An arrow or line is picked by its drawn shaft, `tolerance` Scene units off it;
- * a Label by the box its paper paints, glyph overhang included; every other
- * Element by its box, grown by the ink a rough outline draws outside it, and
- * then by `tolerance` too.
+ * An arrow or line is picked by the ink it draws — every straight run and every
+ * curve of its shaft, and each head on its ends — `tolerance` Scene units off
+ * it, so the empty chord between two ends is bare canvas; a Label by the box its
+ * paper paints, glyph overhang included; every other Element by its box, grown
+ * by the ink a rough outline draws outside it, and then by `tolerance` too.
  *
  * Ink answers before the tolerance does. A press on the border an Element draws
  * is that Element's, even when a higher layer's empty halo reaches it; the halo
@@ -108,9 +112,8 @@ export function pickAt(
           return { element, label: box };
         }
       }
-      const [start, end] = drawnShaft(element, byId);
       const reach = Math.max(tolerance, strokeWidthOf(element) / 2);
-      if (distanceToSegment(point, start, end) <= reach) {
+      if (holdsInk(shaftInk(element, byId), point, reach)) {
         return { element, label: null };
       }
       continue;
@@ -168,6 +171,127 @@ function distanceToSegment(point: Point, from: Point, to: Point): number {
   return Math.hypot(point.x - nearest.x, point.y - nearest.y);
 }
 
+/** The four control points of a cubic curve: the ink lies inside the box they make. */
+type Cubic = readonly [Point, Point, Point, Point];
+
+/**
+ * The box a curve is halved down to before a press is read as landing on its
+ * ink, in Scene units. Small enough that a hand's own tolerance never notices,
+ * and large enough that a long curve is walked in a few dozen boxes.
+ */
+const CURVE_CELL = 0.5;
+
+/**
+ * Whether a point lands on the ink a shaft draws, within `reach` of it: along
+ * every straight run and every curve of the shaft, or on a head drawn at one of
+ * its ends. The chord between two ends is no part of it — a bent shaft leaves
+ * the space under its bend bare.
+ */
+function holdsInk(ink: ShaftInk, point: Point, reach: number): boolean {
+  return (
+    ink.path.pieces.some((piece) => pieceIsNear(piece, point, reach)) ||
+    ink.heads.some((head) => distanceToHead(head, point) <= reach)
+  );
+}
+
+/** Whether one piece of a drawn shaft passes within `reach` of a point. */
+function pieceIsNear(
+  piece: ShaftPath['pieces'][number],
+  point: Point,
+  reach: number,
+): boolean {
+  if (piece.kind === 'straight') {
+    return distanceToSegment(point, piece.from, piece.to) <= reach;
+  }
+  return curveIsNear([piece.from, piece.control1, piece.control2, piece.to], point, reach);
+}
+
+/**
+ * Whether a curve passes within `reach` of a point. The ink stays inside the box
+ * its control points make, so a box further off than the reach holds nothing a
+ * press could take and is dropped whole; what is left is halved until a box
+ * small enough to read as the ink itself passes.
+ */
+function curveIsNear(curve: Cubic, point: Point, reach: number): boolean {
+  const box = controlBox(curve);
+  if (boxDistance(box, point) > reach) {
+    return false;
+  }
+  if (box.width <= CURVE_CELL && box.height <= CURVE_CELL) {
+    return true;
+  }
+  const [left, right] = halvesOf(curve);
+  return curveIsNear(left, point, reach) || curveIsNear(right, point, reach);
+}
+
+/** The box around a curve's control points: every point of its ink is inside it. */
+function controlBox([from, control1, control2, to]: Cubic): Box {
+  const left = Math.min(from.x, control1.x, control2.x, to.x);
+  const top = Math.min(from.y, control1.y, control2.y, to.y);
+  const right = Math.max(from.x, control1.x, control2.x, to.x);
+  const bottom = Math.max(from.y, control1.y, control2.y, to.y);
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+/** How far a box sits from a point, or 0 when the point is inside it. */
+function boxDistance(box: Box, point: Point): number {
+  const across = Math.max(box.x - point.x, 0, point.x - (box.x + box.width));
+  const down = Math.max(box.y - point.y, 0, point.y - (box.y + box.height));
+  return Math.hypot(across, down);
+}
+
+/** The two halves of a curve, split at its own middle. */
+function halvesOf([from, control1, control2, to]: Cubic): [Cubic, Cubic] {
+  const first = middleOf(from, control1);
+  const second = middleOf(control1, control2);
+  const third = middleOf(control2, to);
+  const before = middleOf(first, second);
+  const after = middleOf(second, third);
+  const middle = middleOf(before, after);
+  return [
+    [from, first, before, middle],
+    [middle, after, third, to],
+  ];
+}
+
+/** The point half way between two. */
+function middleOf(from: Point, to: Point): Point {
+  return { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
+}
+
+/** How far a point sits from one head's ink: nothing inside a filled head. */
+function distanceToHead(head: HeadInk, point: Point): number {
+  if (head.kind === 'arrow') {
+    const [a, b, c] = head.triangle;
+    if (insideTriangle([a, b, c], point)) {
+      return 0;
+    }
+    return Math.min(
+      distanceToSegment(point, a, b),
+      distanceToSegment(point, b, c),
+      distanceToSegment(point, c, a),
+    );
+  }
+  if (head.kind === 'dot') {
+    const { centre, radius } = head;
+    return Math.max(0, Math.hypot(point.x - centre.x, point.y - centre.y) - radius);
+  }
+  const [from, to] = head.through;
+  return distanceToSegment(point, from, to);
+}
+
+/** Whether a point is inside a triangle, whichever way its corners run. */
+function insideTriangle([a, b, c]: readonly [Point, Point, Point], point: Point): boolean {
+  const side = (from: Point, to: Point): number =>
+    (to.x - from.x) * (point.y - from.y) - (to.y - from.y) * (point.x - from.x);
+  const first = side(a, b);
+  const second = side(b, c);
+  const third = side(c, a);
+  return (
+    (first >= 0 && second >= 0 && third >= 0) || (first <= 0 && second <= 0 && third <= 0)
+  );
+}
+
 /** Every Element the box fully encloses: a box sweeps up only what is inside it. */
 export function elementsInBox(
   elements: readonly Element[],
@@ -188,20 +312,21 @@ export function elementsInBox(
 
 /**
  * An Element moved by a delta: box-like ones by their origin, arrows and lines
- * by both ends. An end attached to an Element follows that Element, so a move
- * frees it first (`released`, `snap.ts`) and the end carries on from where it
- * drew; what is left for this function is translation.
+ * by every point they draw through — both ends and each bend between them, so a
+ * bent shaft keeps its shape rather than being straightened. An end attached to
+ * an Element follows that Element, so a move frees it first (`released`,
+ * `snap.ts`) and the end carries on from where it drew; what is left for this
+ * function is translation.
  */
 export function moved(element: Element, dx: number, dy: number): Element {
-  if (element.type === 'arrow' || element.type === 'line') {
-    const [start, end] = element.points;
-    return {
-      ...element,
-      points: [
-        { ...start, x: start.x + dx, y: start.y + dy },
-        { ...end, x: end.x + dx, y: end.y + dy },
-      ],
-    };
+  if (isShaft(element)) {
+    const [start, second, ...bends] = element.points;
+    const along = (point: (typeof element.points)[number]): Point => ({
+      ...point,
+      x: point.x + dx,
+      y: point.y + dy,
+    });
+    return { ...element, points: [along(start), along(second), ...bends.map(along)] };
   }
   return { ...element, x: element.x + dx, y: element.y + dy };
 }

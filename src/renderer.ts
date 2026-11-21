@@ -258,6 +258,23 @@ export function drawnShaft(
 }
 
 /**
+ * An arrow or line as the page inks it: the shaft it draws, every bend and curve
+ * of it, and the heads on its ends. What a press on the Element lands on, so the
+ * editor picks the ink a person can see rather than the chord between two ends.
+ */
+export interface ShaftInk {
+  readonly path: ShaftPath;
+  readonly heads: readonly HeadInk[];
+}
+
+/** The ink one arrow or line draws, measured from the Scene as the SVG is. */
+export function shaftInk(element: ArrowOrLineElement, byId: ReadonlyMap<string, Element>): ShaftInk {
+  const canonical = canonicalElement(element);
+  const path = shaftPathOf(canonical, byId);
+  return { path, heads: headsOf(canonical, path) };
+}
+
+/**
  * Where a shaft's Label is drawn, or null when the shaft has none: Layout's own
  * place, moved to the `labelAt` the Scene wrote. These are the words themselves;
  * what they paint, and what a press on them covers, is `labelInkBounds`.
@@ -508,7 +525,7 @@ function placement(
  * the page it always had.
  */
 function shaftBox(element: ArrowOrLineElement, path: ShaftPath): Box {
-  const ink = element.points.length > 2 ? shaftInk(element, path) : null;
+  const ink = element.points.length > 2 ? roughenedInk(element, path) : null;
   if (ink === null) {
     return path.bounds;
   }
@@ -520,7 +537,7 @@ function shaftBox(element: ArrowOrLineElement, path: ShaftPath): Box {
 }
 
 /** Where the ink of a shaft's stroke passes reaches, as Rough.js draws it. */
-function shaftInk(element: ArrowOrLineElement, path: ShaftPath): Extent | null {
+function roughenedInk(element: ArrowOrLineElement, path: ShaftPath): Extent | null {
   const generator = new RoughGenerator();
   const drawable = generator.path(shaftData(path), lineOptions(element));
   let ink: Extent | null = null;
@@ -770,21 +787,8 @@ function arrowOrLineSvg(
       ` stroke-width="${formatNumber(width)}"${dash}/>`,
   );
 
-  const headLength = HEAD_LENGTH_PX[element.stroke.width];
-  const arriving = shaftTangentAt(path, 1);
-  const leaving = shaftTangentAt(path, 0);
-  // A start head points back along the shaft. One with no length at all has no
-  // direction to point back along, so it keeps the way a zero-length shaft has
-  // always drawn: rightwards.
-  const direction = {
-    start: path.length === 0 ? { x: 1, y: 0 } : { x: -leaving.x, y: -leaving.y },
-    end: arriving,
-  };
-  for (const [kind, apex, along] of [
-    [element.heads.start, path.start, direction.start],
-    [element.heads.end, path.end, direction.end],
-  ] as const) {
-    paths.push(...headPaths(generator, element, kind, apex, along, headLength, colour));
+  for (const head of headsOf(element, path)) {
+    paths.push(...headPaths(generator, element, head, colour));
   }
 
   return (
@@ -862,40 +866,91 @@ function strokePasses(drawable: Drawable): OpSet['ops'][] {
   return passes.filter((ops) => ops.length > 0);
 }
 
-/** One arrow head, pointing along the arrow with its apex on the end. */
-function headPaths(
-  generator: RoughGenerator,
-  element: ArrowOrLineElement,
+/**
+ * A head as the page draws it, in Scene units: the ink a press on that head
+ * lands on. Picking reads the same shapes the drawing fills, so a head a person
+ * can see is a head a press can take.
+ */
+export type HeadInk =
+  | { readonly kind: 'arrow'; readonly triangle: readonly [Point, Point, Point] }
+  | { readonly kind: 'dot'; readonly centre: Point; readonly radius: number }
+  | { readonly kind: 'bar'; readonly through: readonly [Point, Point] };
+
+/** The ink one head draws, or null for a head that draws nothing. */
+function inkOfHead(
   kind: Head,
   apex: Point,
   direction: Point,
   length: number,
+): HeadInk | null {
+  if (kind === 'none') {
+    return null;
+  }
+  if (kind === 'arrow') {
+    return { kind, triangle: arrowHeadTriangle(apex, direction, length) };
+  }
+  if (kind === 'dot') {
+    return { kind, centre: apex, radius: length * 0.75 };
+  }
+  return { kind, through: barThrough(apex, direction, length * 0.6) };
+}
+
+/**
+ * The heads an arrow or line draws, each pointing along the curve that arrives
+ * at it, in drawing order: the start's when it has one, then the end's.
+ */
+function headsOf(element: ArrowOrLineElement, path: ShaftPath): HeadInk[] {
+  const headLength = HEAD_LENGTH_PX[element.stroke.width];
+  const arriving = shaftTangentAt(path, 1);
+  const leaving = shaftTangentAt(path, 0);
+  // A start head points back along the shaft. One with no length at all has no
+  // direction to point back along, so it keeps the way a zero-length shaft has
+  // always drawn: rightwards.
+  const direction = {
+    start: path.length === 0 ? { x: 1, y: 0 } : { x: -leaving.x, y: -leaving.y },
+    end: arriving,
+  };
+  const heads: HeadInk[] = [];
+  for (const [kind, apex, along] of [
+    [element.heads.start, path.start, direction.start],
+    [element.heads.end, path.end, direction.end],
+  ] as const) {
+    const head = inkOfHead(kind, apex, along, headLength);
+    if (head !== null) {
+      heads.push(head);
+    }
+  }
+  return heads;
+}
+
+/** One arrow head, drawn from the ink the picking answers to. */
+function headPaths(
+  generator: RoughGenerator,
+  element: ArrowOrLineElement,
+  head: HeadInk,
   colour: string,
 ): string[] {
-  if (kind === 'none') {
-    return [];
-  }
   const headOptions: Options = {
     seed: element.seed,
     roughness: element.roughness,
     strokeWidth: STROKE_WIDTH_PX[element.stroke.width],
     stroke: colour,
   };
-  if (kind === 'arrow') {
-    const triangle = arrowHeadTriangle(apex, direction, length);
+  if (head.kind === 'arrow') {
     return generator
       .toPaths(
         generator.polygon(
-          triangle.map((point) => [point.x, point.y]),
+          head.triangle.map((point) => [point.x, point.y]),
           { ...headOptions, stroke: 'none', fill: colour, fillStyle: 'solid' },
         ),
       )
       .map((path) => `<path d="${pathData(path.d)}" fill="${colour}"/>`);
   }
-  if (kind === 'dot') {
+  if (head.kind === 'dot') {
+    const { centre, radius } = head;
     return generator
       .toPaths(
-        generator.circle(apex.x, apex.y, length * 0.75, {
+        generator.circle(centre.x, centre.y, radius, {
           ...headOptions,
           stroke: 'none',
           fill: colour,
@@ -904,7 +959,7 @@ function headPaths(
       )
       .map((path) => `<path d="${pathData(path.d)}" fill="${colour}"/>`);
   }
-  const [from, to] = barThrough(apex, direction, length * 0.6);
+  const [from, to] = head.through;
   return generator.toPaths(generator.line(from.x, from.y, to.x, to.y, headOptions)).map(
     (path) =>
       `<path d="${pathData(path.d)}" fill="none" stroke="${path.stroke}"` +

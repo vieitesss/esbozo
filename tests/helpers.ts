@@ -308,6 +308,83 @@ export const OVERLAP_SCENE = {
 export const OVERLAP: View = { zoom: 1, panX: 390, panY: 100 };
 
 /**
+ * An arrow whose Label sits above its middle, and a heavier arrow arriving from
+ * below with its head drawn through the words: the head is ink on top of the
+ * Label, while the chord between that arrow's two ends never reaches it. Scene
+ * (243, 252.5) is the ink of the head, 7px off its shaft, inside the words.
+ */
+export const HEAD_OVER_SCENE = {
+  version: 1,
+  title: 'Head over',
+  defaults: { roughness: 1 },
+  elements: [
+    {
+      id: 'under',
+      type: 'arrow',
+      points: [
+        { x: 100, y: 300 },
+        { x: 400, y: 300 },
+      ],
+      heads: { start: 'none', end: 'none' },
+      label: 'under',
+      labelAt: { t: 0.5, offset: 60 },
+    },
+    {
+      id: 'spike',
+      type: 'arrow',
+      points: [
+        { x: 250, y: 340 },
+        { x: 250, y: 235 },
+      ],
+      heads: { start: 'none', end: 'arrow' },
+      stroke: { width: 'extra' },
+    },
+  ],
+};
+
+/** The view `HEAD_OVER_SCENE` lands in, worked out the same way as `VIEW`. */
+export const HEAD_OVER: View = { zoom: 1, panX: 390, panY: 117.5 };
+
+/**
+ * A Label sitting above its own shaft, and a bent line drawn over it whose two
+ * ends lie either side of the words: the chord between those ends runs through
+ * the words' middle, Scene (300, 300), and the ink the page draws runs 150px
+ * above it. The bend point is where the line is pressed by its own test.
+ */
+export const CHORD_SCENE = {
+  version: 1,
+  title: 'Chord',
+  defaults: { roughness: 1 },
+  elements: [
+    {
+      id: 'rear',
+      type: 'arrow',
+      points: [
+        { x: 100, y: 340 },
+        { x: 500, y: 340 },
+      ],
+      heads: { start: 'none', end: 'none' },
+      label: 'under',
+      labelAt: { t: 0.5, offset: 40 },
+    },
+    {
+      id: 'bent',
+      type: 'line',
+      corners: 'round',
+      points: [
+        { x: 100, y: 300 },
+        { x: 300, y: 150 },
+        { x: 500, y: 300 },
+      ],
+      heads: { start: 'none', end: 'none' },
+    },
+  ],
+};
+
+/** The view `CHORD_SCENE` lands in, worked out the same way as `VIEW`. */
+export const CHORD: View = { zoom: 1, panX: 340, panY: 155.5 };
+
+/**
  * An upright arrow whose Label sits left of its shaft. An ordinary move keeps
  * the fraction of a pixel the pointer carried, and a reshape rounds only the end
  * it takes, so a move and a reshape can leave the ends a fifth of a pixel apart:

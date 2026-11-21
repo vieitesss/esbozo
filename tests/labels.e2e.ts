@@ -12,8 +12,12 @@ import {
   BESIDE,
   BESIDE_SCENE,
   BLANK_SCENE,
+  CHORD,
+  CHORD_SCENE,
   FOLLOW,
   FOLLOW_SCENE,
+  HEAD_OVER,
+  HEAD_OVER_SCENE,
   LABELLED,
   LABELLED_SCENE,
   MIXED,
@@ -73,6 +77,8 @@ const OVERLAP_SOURCE = JSON.stringify(OVERLAP_SCENE, null, 2);
 const TILTED_SOURCE = JSON.stringify(TILTED_SCENE, null, 2);
 const UNPLACED_SOURCE = JSON.stringify(UNPLACED_SCENE, null, 2);
 const FOLLOW_SOURCE = JSON.stringify(FOLLOW_SCENE, null, 2);
+const HEAD_OVER_SOURCE = JSON.stringify(HEAD_OVER_SCENE, null, 2);
+const CHORD_SOURCE = JSON.stringify(CHORD_SCENE, null, 2);
 
 /**
  * The paper a saved shaft Label paints, in page pixels: the one rectangle the
@@ -2342,6 +2348,77 @@ describe('labels', () => {
       { x: 100, y: 300 },
       { x: 400, y: 300 },
     ]);
+  });
+
+  test('a press on the head a higher arrow draws through a Label takes that arrow, not the words', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'head.json': HEAD_OVER_SOURCE } }, 'head.json');
+
+    // The heavier arrow arrives from below and its head is drawn through the
+    // narrower one's words. Pressed 7px off that arrow's shaft, on the ink of the
+    // head alone: nothing of the chord between its two ends reaches there.
+    await dragBy(ui, { x: 243, y: 252.5 }, 40, 0, HEAD_OVER);
+    const scene = await savedScene(ui, 'head.json');
+    // The arrow whose head was pressed came with it, both of its ends.
+    expect(scene.elements[1]?.points).toEqual([
+      { x: 290, y: 340 },
+      { x: 290, y: 235 },
+    ]);
+    // The words under the head kept their place, and the shaft they belong to its own.
+    expect(scene.elements[0]?.labelAt).toEqual({ t: 0.5, offset: 60 });
+    expect(scene.elements[0]?.points).toEqual([
+      { x: 100, y: 300 },
+      { x: 400, y: 300 },
+    ]);
+  });
+
+  test('a press on a rear Label under the empty chord of a bent shaft takes the words', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'chord.json': CHORD_SOURCE } }, 'chord.json');
+
+    // The bent line's ends lie either side of the words and its one bend is 150px
+    // above them: the chord between the ends runs through the words' middle, and
+    // the ink the page draws is nowhere near it.
+    await dragBy(ui, { x: 300, y: 300 }, 60, 0, CHORD);
+    const scene = await savedScene(ui, 'chord.json');
+    // The words went with the press, 60px along the shaft they belong to.
+    expect(scene.elements[0]?.labelAt).toEqual({ t: 0.65, offset: 40 });
+    // The bent line kept every point it draws through, the bend between its ends included.
+    expect(scene.elements[1]?.points).toEqual([
+      { x: 100, y: 300 },
+      { x: 300, y: 150 },
+      { x: 500, y: 300 },
+    ]);
+  });
+
+  test('dragging a bent shaft carries every point it draws through, not just its ends', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'chord.json': CHORD_SOURCE } }, 'chord.json');
+
+    // Pressed on the ink at the bend, 150px clear of the words below it.
+    await dragBy(ui, { x: 300, y: 150 }, 40, 20, CHORD);
+    const scene = await savedScene(ui, 'chord.json');
+    // The bend came with the move: a straight line between the ends would have
+    // dropped it, and the Scene would keep a shape the press never took.
+    expect(scene.elements[1]?.points).toEqual([
+      { x: 140, y: 320 },
+      { x: 340, y: 170 },
+      { x: 540, y: 320 },
+    ]);
+    // The words keep the place on their own shaft that they had.
+    expect(scene.elements[0]?.labelAt).toEqual({ t: 0.5, offset: 40 });
   });
 
   test('a Label dragged after the shaft moved and reshaped keeps to the side the page draws', async ({
