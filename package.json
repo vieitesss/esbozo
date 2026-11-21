@@ -22,7 +22,7 @@
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.browser.json && tsc -p tsconfig.test.json",
     "test": "pnpm build && node --test test/*.test.ts",
     "test:docker": "node --test test/docker.ts",
-    "e2e": "pnpm build && e2e run tests/editor.e2e.ts tests/drawing.e2e.ts tests/snap.e2e.ts tests/serve.e2e.ts tests/embed.e2e.ts",
+    "e2e": "pnpm build && e2e run tests/editor.e2e.ts tests/drawing.e2e.ts tests/snap.e2e.ts tests/serve.e2e.ts tests/embed.e2e.ts tests/cdp.e2e.ts",
     "e2e:agent": "pnpm build && e2e run tests/visual.e2e.ts",
     "e2e:shots": "pnpm build && e2e run tests/screenshots.e2e.ts",
     "serve:editor": "pnpm build && node dist/cli.js serve dist --port 4319"
