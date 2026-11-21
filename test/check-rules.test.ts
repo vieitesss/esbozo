@@ -195,6 +195,32 @@ test('an Avoid term in a test name is a finding too', async () => {
   assert.match(line, /^test\/render\.test\.ts:1: avoid term "connector" in test name "a connector follows its Element"$/);
 });
 
+test('an Avoid term in a test name written through a member call is a finding', async () => {
+  const line = await finding({
+    'test/render.test.ts': "t.test('a connector follows its Element', () => {});\n",
+  });
+
+  assert.match(
+    line,
+    /^test\/render\.test\.ts:1: avoid term "connector" in test name "a connector follows its Element"$/,
+  );
+});
+
+test('the aliases a runner puts on the front of a test call do not hide the name', async () => {
+  const run = await check({
+    'test/render.test.ts': [
+      "describe.skip('the drawing', () => {});",
+      "it.only('a drawing', () => {});",
+    ].join('\n'),
+  });
+
+  assert.equal(run.code, 1, run.all);
+  assert.deepEqual(run.found, [
+    'test/render.test.ts:1: avoid term "drawing" in test name "the drawing"',
+    'test/render.test.ts:2: avoid term "drawing" in test name "a drawing"',
+  ]);
+});
+
 test('an Avoid term in the copy a person reads is a finding', async () => {
   const line = await finding({
     'src/editor/menu.ts': 'export const title = "Export Drawing";\n',

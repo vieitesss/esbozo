@@ -467,10 +467,17 @@ function testNameNodes(source) {
   return found;
 }
 
-/** Whether a callee is `test`, `it`, `describe` or one of their `.only` forms. */
+/**
+ * Whether a callee is `test`, `it`, `describe` or one of their forms. A runner
+ * hangs the same call off its own handle — `t.test`, `describe.skip`, `it.only`
+ * — so every name in the chain is read, not only the leftmost one.
+ */
 function isTestCall(expression) {
   let callee = expression;
-  while (ts.isPropertyAccessExpression(callee)) callee = callee.expression;
+  while (ts.isPropertyAccessExpression(callee)) {
+    if (TEST_CALLS.has(callee.name.text)) return true;
+    callee = callee.expression;
+  }
   return ts.isIdentifier(callee) && TEST_CALLS.has(callee.text);
 }
 
