@@ -23,6 +23,8 @@ model-free files run under `pnpm e2e`.
 
 For fast inner-loop runs without creating scratch files or running an entire suite, filter to one test with `npx e2e run tests/<file>.e2e.ts:<line>`, `--grep <pattern>`, or `--last-failed` (after `pnpm build`).
 
+For one look at the live editor with no e2e file at all, write a probe whose default export takes `{ page, url, cdp }` and run `pnpm probe <probe.mjs>`: it serves the built editor on an ephemeral port, opens Chromium, prints what the probe returned as JSON, and closes both however the probe ends. It does not build, so `pnpm build` first.
+
 ## Real browser input: `tests/cdp.ts`
 
 e2e's `browser` fixture drives the page through roles, pointer and keys, and
