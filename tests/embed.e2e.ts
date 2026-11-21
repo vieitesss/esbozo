@@ -187,6 +187,12 @@ test('an element with no save attribute is read-only: it says so and refuses eve
     await settle(ui);
     expect((await shot(ui)).meanLuminance(PAGE)).toBe(selected.meanLuminance(PAGE));
 
+    // The Style menu is a door into the Scene as well: its controls are refused
+    // the same way, with the selection left exactly as it was.
+    await screen.getByRole('button', { name: 'Corners: sharp' }).click();
+    await settle(ui);
+    expect((await shot(ui)).meanLuminance(PAGE)).toBe(selected.meanLuminance(PAGE));
+
     expect(embed.writes('a')).toBe(0);
     expect(await embed.saved('a')).toBe(SCENE_SOURCE);
 
