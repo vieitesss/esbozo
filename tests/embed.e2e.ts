@@ -58,6 +58,12 @@ const WORDS_SOURCE = JSON.stringify(WORDS_SCENE, null, 2);
 const FIRST_SOURCE = JSON.stringify({ ...SCENE, title: 'First' }, null, 2);
 const SECOND_SOURCE = JSON.stringify({ ...SCENE, title: 'Second' }, null, 2);
 
+/** A clipboard fragment, as a Copy in another window leaves one. */
+const FRAGMENT = JSON.stringify({
+  version: 1,
+  elements: [{ id: 'pasted', type: 'rectangle', x: 300, y: 380, width: 80, height: 60 }],
+});
+
 /** The page fills the window with the editor, so `VIEW`'s page points hold. */
 const FULL = 'body { margin: 0 } esbozo-editor { height: 100vh }';
 
@@ -404,6 +410,60 @@ test('words half-typed into a Scene do not land in the next one', async ({ app, 
   }
 });
 
+test('a paste the clipboard answers late lands in no Scene at all', async ({ app, browser, screen }) => {
+  const embed = await startEmbed(await bundleFolder(), { a: FIRST_SOURCE, b: SECOND_SOURCE });
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/embedded.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+
+    // The clipboard takes its time: the palette's Paste asks it, and waits.
+    await browser.evaluate(() => {
+      const held: { answer?: (text: string) => void } = {};
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          readText: () =>
+            new Promise<string>((resolve) => {
+              held.answer = resolve;
+            }),
+          writeText: async () => undefined,
+        },
+      });
+      (window as unknown as { held: typeof held }).held = held;
+      return true;
+    });
+    await clickScene(ui, { x: 100, y: 80 }, [], VIEW);
+    await browser.keyboard.press('q');
+    await browser.keyboard.type('paste');
+    await browser.keyboard.press('Enter');
+    await settle(ui);
+
+    // The page names another Scene while the clipboard is still answering.
+    await browser.evaluate(() => {
+      document.querySelector('esbozo-editor')!.setAttribute('scene', 'api/b');
+      return true;
+    });
+    await expect(screen.getByRole('status')).toHaveText('saved');
+
+    // The answer arrives now. It is a fragment of the Scene the page left, so it
+    // lands nowhere: no Element, no write, and no word about it either.
+    await browser.evaluate((text) => {
+      const held = (window as unknown as { held: { answer?: (text: string) => void } }).held;
+      held.answer?.(text);
+      return true;
+    }, FRAGMENT);
+    await settle(ui);
+    expect(embed.puts('/api/a')).toBe(0);
+    expect(embed.puts('/api/b')).toBe(0);
+    expect(await embed.saved('a')).toBe(FIRST_SOURCE);
+    expect(await embed.saved('b')).toBe(SECOND_SOURCE);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+  } finally {
+    await embed.stop();
+  }
+});
+
 test('the same file name in another folder is another Scene', async ({ app, browser, screen }) => {
   const embed = await startEmbed(await bundleFolder(), {
     'first.json': FIRST_SOURCE,
@@ -599,6 +659,76 @@ test('a refusal for the save URL the page moved away from is not its own', async
   }
 });
 
+test('a write keeps the URL it was queued for when the page moves its base', async ({ app, browser, screen }) => {
+  const embed = await startEmbed(await bundleFolder());
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/embedded.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+
+    // The host page moves its base, as a router or a re-render may: from here on
+    // every relative URL the page resolves means somewhere else.
+    await browser.evaluate(() => {
+      const base = document.createElement('base');
+      base.href = '/elsewhere/';
+      document.head.prepend(base);
+      return true;
+    });
+
+    // The edit is still written to the URL the element was given, not to the
+    // one its attributes would name now.
+    await clickScene(ui, { x: 100, y: 80 }, [], VIEW);
+    await browser.keyboard.press('Shift+ArrowRight');
+    await expect.poll(async () => xOf(await embed.saved('a'), 'a')).toBe(50);
+    expect(embed.puts('/api/a')).toBe(1);
+    expect(embed.requests('/elsewhere/api/a')).toBe(0);
+    expect(embed.puts('/elsewhere/api/a')).toBe(0);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('a write still on its way is answered before the next one to that URL is sent', async ({ app, browser, screen }) => {
+  const embed = await startEmbed(await bundleFolder(), { a: FIRST_SOURCE, b: SECOND_SOURCE });
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/embedded.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+
+    // The first write is on its way and its answer is held back.
+    embed.hold('/api/a');
+    await clickScene(ui, { x: 100, y: 80 }, [], VIEW);
+    await browser.keyboard.press('Shift+ArrowRight');
+    await expect.poll(() => embed.puts('/api/a')).toBe(1);
+
+    // The page names another Scene and keeps the same save URL: another
+    // instance of the element, writing to the same destination.
+    await browser.evaluate(() => {
+      document.querySelector('esbozo-editor')!.setAttribute('scene', 'api/b');
+      return true;
+    });
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    await clickScene(ui, { x: 100, y: 80 }, [], VIEW);
+    await browser.keyboard.press('Shift+ArrowRight');
+    await settle(ui);
+
+    // It waits. The write the old instance sent is still unanswered, so this one
+    // is not sent at all, and nothing newer can be buried by something older.
+    await sleep(400);
+    expect(embed.puts('/api/a')).toBe(1);
+
+    // Released, the old write lands first and this one after it: the newest edit
+    // is what is on disk, which is what the page says.
+    embed.release('/api/a');
+    await expect.poll(() => embed.puts('/api/a')).toBe(2);
+    await expect.poll(async () => xOf(await embed.saved('a'), 'a')).toBe(50);
+    expect((JSON.parse(await embed.saved('a')) as { title: string }).title).toBe('Second');
+    await expect(screen.getByRole('status')).toHaveText('saved');
+  } finally {
+    await embed.stop();
+  }
+});
+
 test('write access ending lets go of the tool in hand', async ({ app, browser, screen }) => {
   const embed = await startEmbed(await bundleFolder());
   try {
@@ -738,6 +868,37 @@ test('a slow font cannot put its face under a newer measurement', async ({ app, 
     const reference = (await shot(ui)).darkCount(WORDS, 0.6);
     expect(swapped).toBeGreaterThan(reference * 0.9);
     expect(swapped).toBeLessThan(reference * 1.1);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('a font that will not load does not cancel the Scene on its way', async ({ app, browser, screen }) => {
+  const embed = await startEmbed(await bundleFolder());
+  try {
+    const ui: Ui = { app, browser, screen };
+    // The Scene's read is held, so the page can name another font while its
+    // answer is still on its way.
+    embed.hold('/api/a');
+    await app.open(`${embed.url}/embedded.html`);
+    await browser.evaluate(() => {
+      document.querySelector('esbozo-editor')!.setAttribute('font', 'fonts/none.ttf');
+      return true;
+    });
+
+    // The font is the problem, and it is said: the editor keeps the face it had.
+    await expect(screen.getByRole('status')).toContainText('cannot load fonts/none.ttf');
+
+    // The Scene still arrives and is the Scene in hand: a font said nothing
+    // about the read that was already asked for.
+    embed.release('/api/a');
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    expect((await shot(ui)).darkCount(BOX_A, 0.6)).toBeGreaterThan(0);
+
+    // And it is writable: the edit is saved where the page names it.
+    await clickScene(ui, { x: 100, y: 80 }, [], VIEW);
+    await browser.keyboard.press('Shift+ArrowRight');
+    await expect.poll(async () => xOf(await embed.saved('a'), 'a')).toBe(50);
   } finally {
     await embed.stop();
   }
@@ -988,6 +1149,30 @@ test('attributes are live: a late element works, and a change reloads, retargets
     await settle(ui);
     expect(embed.writes('b')).toBe(1);
     expect(xOf(await embed.saved('b'), 'a')).toBe(50);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('the palette says a PNG cannot be exported here, rather than failing at it', async ({ app, browser, screen }) => {
+  const embed = await startEmbed(await bundleFolder());
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/embedded.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+
+    // Both Export rows are there, greyed out, each saying why: the bundle reads
+    // the font's metrics and not its outlines, and the embedding page owns the
+    // palette a PNG is drawn in.
+    await clickScene(ui, { x: 100, y: 80 }, [], VIEW);
+    await browser.keyboard.press('q');
+    await browser.keyboard.type('png');
+    for (const name of ['Export PNG (light)', 'Export PNG (dark)']) {
+      const row = screen.getByRole('option', { name });
+      await expect(row).toBeVisible();
+      await expect(row).toHaveAttribute('aria-disabled', 'true');
+      await expect(row).toContainText('not available in the embedded editor');
+    }
   } finally {
     await embed.stop();
   }
