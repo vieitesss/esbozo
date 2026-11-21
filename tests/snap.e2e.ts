@@ -30,6 +30,7 @@ import {
   openEditor,
   savedFiles,
   savedScene,
+  settle,
 } from './helpers.ts';
 import type { Point, Ui } from './helpers.ts';
 import { shot } from './pixels.ts';
@@ -388,6 +389,47 @@ describe('an attached end follows its Element', () => {
     expect(freed.elements[1]?.points).toEqual([
       { x: 60, y: 80 },
       { x: 360, y: 80 },
+    ]);
+  });
+
+  test('the end follows the box under the pointer, before the release', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'snapped.json');
+
+    // The press selects `from`, and the moves carry it down and right. The
+    // release has not happened: this is the frame a person is looking at.
+    const centre = at({ x: 100, y: 80 }, SNAPPED);
+    const landing = at({ x: 160, y: 200 }, SNAPPED);
+    await browser.mouse.move(centre.x, centre.y);
+    await browser.mouse.down();
+    for (let step = 1; step <= 6; step += 1) {
+      await browser.mouse.move(
+        centre.x + ((landing.x - centre.x) * step) / 6,
+        centre.y + ((landing.y - centre.y) * step) / 6,
+      );
+    }
+    await settle(ui);
+
+    // `link` still runs out of `from` and into `to`. With the box at 100,160 the
+    // shaft leaves the box's right edge at about (220,164) and reaches `to` at
+    // (300,116), so its middle is at (260,140) — the page's (670,460) — and the
+    // shaft's old place, level with the box's stored end, is bare paper.
+    const drawn = await shot(ui);
+    expect(drawn.darkCount({ x: 655, y: 448, width: 30, height: 22 }, 0.6)).toBeGreaterThan(0);
+    expect(drawn.darkCount({ x: 610, y: 392, width: 20, height: 16 }, 0.6)).toBe(0);
+
+    // The release writes the box where it landed, and the ends it carries are
+    // still the ones the Scene stored: the drawing followed, the Scene did not.
+    await browser.mouse.up();
+    const scene = await savedScene(ui, 'snapped.json');
+    expect({ x: scene.elements[0]?.x, y: scene.elements[0]?.y }).toEqual({ x: 100, y: 160 });
+    expect(scene.elements[2]?.points).toEqual([
+      { x: 160, y: 80, snap: 'from' },
+      { x: 300, y: 80, snap: 'to' },
     ]);
   });
 

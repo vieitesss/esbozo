@@ -1384,6 +1384,13 @@ export class EsbozoEditorElement extends HTMLElement {
     const drag = this.#drag;
     if (drag !== null && drag.kind === 'move') {
       this.#moveGroups(drag);
+      this.#followSnaps(drag);
+      if (drag.shown.size > 0) {
+        // A preview is not the Scene: the frame after the gesture has to draw
+        // what the Scene holds, however the gesture ended — a release that
+        // changed nothing, a cancelled pointer or a lost focus included.
+        this.#paintedVersion = -1;
+      }
       return;
     }
     const shown = this.#shownElements();
@@ -1473,6 +1480,47 @@ export class EsbozoEditorElement extends HTMLElement {
       }
     }
     this.#moved = moved;
+  }
+
+  /**
+   * The ends that ride what a move carries: an arrow or line the drag does not
+   * hold, but whose end is Snapped to an Element it does, is drawn again against
+   * the Scene as the drag shows it. So a shaft follows its target under the
+   * pointer instead of waiting for the release, and only those shafts are drawn:
+   * everything else keeps the drawing it already had.
+   *
+   * The drawing it makes is keyed on the preview geometry, so the frame the
+   * gesture ends on draws it again — or keeps it, when the release left the
+   * Scene exactly as it was.
+   */
+  #followSnaps(drag: Extract<Drag, { kind: 'move' }>): void {
+    if (drag.shown.size === 0) {
+      return;
+    }
+    const byId = new Map<string, SceneElement>();
+    for (const element of this.#scene.elements) {
+      byId.set(element.id, drag.shown.get(element.id) ?? element);
+    }
+    const paintables = (this.#paintables ??= new PaintCache(this.#layout));
+    for (const element of this.#scene.elements) {
+      if (drag.shown.has(element.id) || !isShaft(element)) {
+        continue;
+      }
+      if (!element.points.some((point) => point.snap !== undefined && drag.shown.has(point.snap))) {
+        continue;
+      }
+      const held = this.#groups.get(element.id);
+      if (held === undefined) {
+        continue;
+      }
+      const painted = paintables.element(element, byId);
+      if (painted.key === held.key) {
+        continue;
+      }
+      const node = groupOf(element.id, painted.svg);
+      held.node.replaceWith(node);
+      this.#groups.set(element.id, { key: painted.key, node });
+    }
   }
 
   /**
