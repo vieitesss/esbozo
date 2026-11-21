@@ -9,6 +9,7 @@
  *                  [--ink <colour>] [--paper <colour>] [--muted <colour>]
  *                  [--font <file>]
  *   ez serve <dir> [--host 127.0.0.1] [--port N] [--read-only]
+ *   ez bundle <dir>
  *
  * `render` writes `<name>.svg` beside the Scene and prints that path.
  * `check` reports what is wrong with a Scene and prints nothing when it is
@@ -33,11 +34,20 @@
  * `src/serve.ts` reads and writes the Scenes. It binds to 127.0.0.1 unless
  * `--host` says otherwise, and `--read-only` refuses every write.
  *
+ * `bundle` writes the editor as one ES module into a folder of someone else's
+ * page: `<dir>/esbozo-<version>.js` defines `<esbozo-editor>`, configured by its
+ * `scene`, `save` and `font` attributes and carrying the editor's stylesheet. An
+ * existing file of that name is replaced, so a page's diff is one file. The
+ * version is the one in `package.json`, and the bytes are the ones `pnpm build`
+ * made — the same editor the served page shows, not a second copy of it.
+ *
  * Exit codes — the one place they are defined, `EXIT`:
- *   0  the Scene is clean, was rendered, the PNG was written, or the server stopped
+ *   0  the Scene is clean, was rendered, the PNG was written, the bundle was
+ *      written, or the server stopped
  *   2  wrong arguments (unknown command, missing or extra arguments, bad flag)
  *   3  the Scene could not be read or parsed
- *   4  the output could not be written, or the server could not start
+ *   4  the output could not be written, the server could not start, or the
+ *      editor is not built
  *   5  missing theme values, or a missing or unreadable font
  *   6  a Label that does not fit its Element (see `ez check`)
  *
@@ -45,7 +55,8 @@
  * belong to: `a: width must be at least 1 pixel, got 0`.
  */
 import { readdir, readFile, writeFile } from 'node:fs/promises';
-import { basename, dirname, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { sceneStem, svgFileName } from './paths.js';
 import { parseScene } from './scene.js';
 import { renderScene } from './renderer.js';
@@ -72,16 +83,20 @@ const PNG_USAGE =
   'usage: ez png <scene> --theme light|dark [--css <stylesheet>]' +
   ' [--ink <colour>] [--paper <colour>] [--muted <colour>] [--font <file>]';
 const SERVE_USAGE = 'usage: ez serve <dir> [--host 127.0.0.1] [--port N] [--read-only]';
+const BUNDLE_USAGE = 'usage: ez bundle <dir>';
 /** The port `ez serve` takes when nothing says otherwise. */
 const DEFAULT_PORT = 4320;
+
+/** The built page's files and the bundle, beside the bundled CLI. */
+const BUILT = fileURLToPath(new URL('.', import.meta.url));
 
 /** Every exit code `ez` returns, so a caller can tell the failures apart. */
 const EXIT_CODES = [
   'exit codes:',
-  '  0  the Scene is clean, was rendered, or the PNG was written',
+  '  0  the Scene is clean, was rendered, the PNG or the bundle was written, or the server stopped',
   '  2  wrong arguments (unknown command, missing or extra arguments, bad flag)',
   '  3  the Scene could not be read or parsed',
-  '  4  the output could not be written, or the server could not start',
+  '  4  the output could not be written, the server could not start, or the editor is not built',
   '  5  missing theme values, or a missing or unreadable font',
   '  6  a Label that does not fit its Element (see `ez check`)',
 ].join('\n');
@@ -96,7 +111,7 @@ const CSS_SUBSET = [
   'Palette colours must be opaque.',
 ].join('\n');
 
-const USAGE = `${RENDER_USAGE}\n${CHECK_USAGE}\n${PNG_USAGE}\n${SERVE_USAGE}\n${CSS_SUBSET}\n${EXIT_CODES}\n`;
+const USAGE = `${RENDER_USAGE}\n${CHECK_USAGE}\n${PNG_USAGE}\n${SERVE_USAGE}\n${BUNDLE_USAGE}\n${CSS_SUBSET}\n${EXIT_CODES}\n`;
 
 export async function main(argv: readonly string[]): Promise<number> {
   const [command, ...rest] = argv;
@@ -111,6 +126,9 @@ export async function main(argv: readonly string[]): Promise<number> {
   }
   if (command === 'serve') {
     return runServe(rest);
+  }
+  if (command === 'bundle') {
+    return runBundle(rest);
   }
   if (command === '--help' || command === 'help') {
     process.stdout.write(USAGE);
@@ -374,6 +392,66 @@ function parseServeArguments(argv: readonly string[]): ServeOptions | null {
     return null;
   }
   return { folder, host, port, readOnly };
+}
+
+/**
+ * Write the editor as one versioned ES module into `folder`: the file a page
+ * pins with a single script tag. The bytes are the ones `pnpm build` made, so a
+ * bundle is the editor this CLI was built with, and a second run replaces the
+ * file rather than adding another.
+ */
+async function runBundle(argv: readonly string[]): Promise<number> {
+  const folder = argv.length === 1 ? argv[0] : undefined;
+  if (folder === undefined || folder === '' || folder.startsWith('--')) {
+    process.stderr.write(`${BUNDLE_USAGE}\n`);
+    return EXIT.usage;
+  }
+
+  let source: Buffer;
+  try {
+    source = await readFile(join(BUILT, 'embed.js'));
+  } catch {
+    process.stderr.write(
+      `the editor is not built: missing ${join(BUILT, 'embed.js')} (run pnpm build)\n`,
+    );
+    return EXIT.writeFailed;
+  }
+
+  let version: string;
+  try {
+    version = await packageVersion();
+  } catch (error) {
+    process.stderr.write(`${(error as Error).message}\n`);
+    return EXIT.writeFailed;
+  }
+
+  const outputPath = resolve(folder, `esbozo-${version}.js`);
+  try {
+    await writeFile(outputPath, source);
+  } catch (error) {
+    process.stderr.write(`cannot write ${outputPath}: ${(error as NodeJS.ErrnoException).message}\n`);
+    return EXIT.writeFailed;
+  }
+  process.stdout.write(`${outputPath}\n`);
+  return EXIT.ok;
+}
+
+/**
+ * The version a bundle is named after: the one in the package the CLI was
+ * installed from, so `esbozo-0.3.0.js` says which editor a page pinned.
+ */
+async function packageVersion(): Promise<string> {
+  const path = fileURLToPath(new URL('../package.json', import.meta.url));
+  let parsed: { version?: unknown };
+  try {
+    parsed = JSON.parse(await readFile(path, 'utf8')) as { version?: unknown };
+  } catch (error) {
+    throw new Error(`cannot read ${path}: ${(error as NodeJS.ErrnoException).message}`);
+  }
+  if (typeof parsed.version !== 'string' || parsed.version === '') {
+    throw new Error(`${path} gives no version`);
+  }
+  return parsed.version;
 }
 
 /** Every `png` flag and the option it sets: one table for both jobs. */
