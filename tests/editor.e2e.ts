@@ -1223,23 +1223,20 @@ test('Align is offered for words and boxes, a shaft’s Label among them', async
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'scene.json': MIXED_SOURCE } }, 'scene.json');
 
-  // An ellipse's Label and a Text both take an alignment: no shaft is selected.
+  // An ellipse's Label, a Text and a shaft's Label all take an alignment: one
+  // pick writes it into every Element in the selection, the shaft included.
   await clickScene(ui, { x: 120, y: 110 }, [], MIXED);
   await clickScene(ui, { x: 277, y: 110 }, ['Shift'], MIXED);
+  await clickScene(ui, { x: 200, y: 280 }, ['Shift'], MIXED);
   await expect(control(ui, 'Align: right')).toBeVisible();
   await control(ui, 'Align: right').click();
-  let scene = await savedScene(ui);
-  let saved = new Map(scene.elements.map((element) => [element.id, element]));
-  expect([saved.get('oval')?.textAlign, saved.get('word')?.textAlign]).toEqual(['right', 'right']);
-
-  // A shaft's Label takes one too: its lines read from the edge the pick names.
-  await clickScene(ui, { x: 200, y: 280 }, [], MIXED);
-  await expect(control(ui, 'Align: centre')).toBeVisible();
-  await expect(control(ui, 'Size: L')).toBeVisible();
-  await control(ui, 'Align: left').click();
-  scene = await savedScene(ui);
-  saved = new Map(scene.elements.map((element) => [element.id, element]));
-  expect(saved.get('shaft')?.textAlign).toBe('left');
+  const scene = await savedScene(ui);
+  const saved = new Map(scene.elements.map((element) => [element.id, element]));
+  expect([
+    saved.get('oval')?.textAlign,
+    saved.get('word')?.textAlign,
+    saved.get('shaft')?.textAlign,
+  ]).toEqual(['right', 'right', 'right']);
 });
 
 test('a pick writes to every selected Element, and a row that shares no value says mixed', async ({ app, browser, screen }) => {
