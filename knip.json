@@ -1,0 +1,21 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/cli.ts",
+    "src/editor/main.ts",
+    "src/editor/embed.ts",
+    "scripts/*.mjs",
+    "e2e.config.ts",
+    "tests/fake-file-system.js",
+    "test/*.test.ts",
+    "tests/*.e2e.ts",
+    "tests/helpers.ts",
+    "tests/pixels.ts"
+  ],
+  "project": [
+    "src/**/*.ts",
+    "scripts/*.mjs",
+    "test/**/*.ts",
+    "tests/**/*.{ts,js}"
+  ]
+}
