@@ -16,11 +16,16 @@ import {
   OVERFLOW,
   OVERFLOW_SCENE,
   SCENE,
+  SPACED_SCENE,
   WORDS,
   WORDS_SCENE,
+  cancelComposition,
   clickScene,
   cliCheck,
+  composing,
+  confirmComposition,
   doubleClickScene,
+  dragBy,
   openEditor,
   savedFiles,
   savedScene,
@@ -32,6 +37,7 @@ const SCENE_SOURCE = JSON.stringify(SCENE, null, 2);
 const MIXED_SOURCE = JSON.stringify(MIXED_SCENE, null, 2);
 const OVERFLOW_SOURCE = JSON.stringify(OVERFLOW_SCENE, null, 2);
 const WORDS_SOURCE = JSON.stringify(WORDS_SCENE, null, 2);
+const SPACED_SOURCE = JSON.stringify(SPACED_SCENE, null, 2);
 const BESIDE_SOURCE = JSON.stringify(BESIDE_SCENE, null, 2);
 
 /** A Label long enough that the box it is typed into has to grow downwards. */
@@ -307,16 +313,73 @@ describe('labels', () => {
     screen,
   }) => {
     const ui = { app, browser, screen };
-    // The same Scene the model judges the red outline on, below in visual.e2e.ts.
-    const checked = await cliCheck(OVERFLOW_SCENE);
+    await openEditor(ui, { A: { 'overflow.json': OVERFLOW_SOURCE } }, 'overflow.json');
+
+    // The editor shrinks the box through its east handle, so the words that
+    // already did not fit fit even less: the bytes the check reads are the ones
+    // the editor saved, not the fixture it opened.
+    await clickScene(ui, { x: 60, y: 60 }, [], OVERFLOW);
+    await dragBy(ui, { x: 140, y: 60 }, -40, 0, OVERFLOW);
+    const scene = await savedScene(ui, 'overflow.json');
+    expect(scene.elements[0]?.width).toBe(60);
+
+    const checked = await cliCheck(scene);
     expect(checked.code).toBe(6);
     expect(checked.reported).toContain('box: label does not fit');
-
-    // And the editor's own bytes are the ones the check read: opening it writes
-    // nothing, and the check on the saved Scene is the same verdict.
-    await openEditor(ui, { A: { 'scene.json': OVERFLOW_SOURCE } }, 'scene.json');
-    expect((await cliCheck(await savedScene(ui))).code).toBe(6);
   });
+
+  test('an unconfirmed preedit never reaches the Scene', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+    const before = await savedFiles(ui);
+
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await composing(ui, 'にほん');
+    await expect(label).toHaveValue('にほん');
+
+    // A key is not the end of a composition: Escape waits for the IME.
+    await label.press('Escape');
+    await expect(label).toHaveValue('にほん');
+    expect(await savedFiles(ui)).toEqual(before);
+
+    // Finishing the session drops the preedit: only confirmed words are words.
+    await clickScene(ui, { x: 700, y: 600 });
+    await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveCount(0);
+    expect(await savedFiles(ui)).toEqual(before);
+  });
+
+  test('what an input method confirms is what the Scene keeps', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await composing(ui, 'にほん');
+    await confirmComposition(ui, '日本');
+    await expect(label).toHaveValue('日本');
+    await label.press('Escape');
+
+    expect((await savedScene(ui)).elements[0]?.label).toBe('日本');
+  });
+
+  test('a cancelled composition leaves the words as they were', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+    const before = await savedFiles(ui);
+
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await composing(ui, 'にほん');
+    await cancelComposition(ui);
+    await expect(label).toHaveValue('');
+    await label.press('Escape');
+
+    expect(await savedFiles(ui)).toEqual(before);
+  });
+
+
+
   test('the field writes the words exactly where the Scene draws them', async ({
     app,
     browser,
@@ -371,4 +434,37 @@ describe('labels', () => {
     expect(typing.bands(interior, DARK)).toBe(1);
   });
 
+
+  test('words nobody touched keep the spaces the author wrote', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'spaced.json': SPACED_SOURCE } }, 'spaced.json');
+    const before = await savedFiles(ui);
+
+    await doubleClickScene(ui, { x: 100, y: 80 }, WORDS);
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.press('Escape');
+
+    // Unchanged is unchanged: no trim, no write, the same bytes on disk.
+    expect(await savedFiles(ui)).toEqual(before);
+  });
+
+  test('a control character before the words is refused, not trimmed away', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+    const before = await savedFiles(ui);
+
+    // U+000B is whitespace to a trim and unrepresentable to XML, so the Scene
+    // has to be the one to refuse the words as they were typed.
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.fill('\u000BHello');
+    await label.press('Escape');
+
+    await expect(screen.getByRole('status')).toContainText('XML');
+    expect(await savedFiles(ui)).toEqual(before);
+  });
 });

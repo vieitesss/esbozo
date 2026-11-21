@@ -12,10 +12,13 @@
  * saved are the same block of words in the same place.
  *
  * A newline the person types is a line break the Scene keeps. Enter on an empty
- * line, Escape and a click away end the session; what it holds is handed to the
- * caller exactly once, trimmed, or empty when nothing was typed. Every keystroke
- * is also handed over as it happens, so what holds the words can grow with them.
- * While it is open its keys are the input's, not the editor's.
+ * line, Escape and a click away end the session; the raw value is handed to the
+ * caller exactly once, untrimmed, so it can decide what an unchanged field
+ * means and what the Scene will accept. Every keystroke is also handed over as
+ * it happens, so what holds the words can grow with them. While it is open its
+ * keys are the input's, not the editor's, and an input method's preedit is not
+ * words until it is confirmed: keys do not end a composition, and finishing
+ * mid-composition keeps only what was confirmed.
  */
 import type { Point } from './geometry.js';
 
@@ -45,7 +48,7 @@ interface TextSessionOptions {
   readonly words: string;
   /** Called with the words as typed, on every keystroke, so they can grow what holds them. */
   readonly typed?: (words: string) => void;
-  /** Called once, with the words trimmed, or '' when a person typed none. */
+  /** Called once, with the field's value as it stands, untrimmed. */
   readonly commit: (words: string) => void;
 }
 
@@ -53,6 +56,10 @@ export class TextSession {
   readonly #input: HTMLTextAreaElement;
   readonly #commit: (words: string) => void;
   #open = true;
+  /** True while an input method is composing: the value holds a preedit, not words yet. */
+  #composing = false;
+  /** What the field held before the composition started: the words a finish would keep. */
+  #confirmed = '';
 
   constructor(options: TextSessionOptions) {
     const { host, name, place, words, typed, commit } = options;
@@ -65,6 +72,8 @@ export class TextSession {
     input.value = words;
     input.addEventListener('keydown', this.#onKeyDown);
     input.addEventListener('blur', this.#onBlur);
+    input.addEventListener('compositionstart', this.#onCompositionStart);
+    input.addEventListener('compositionend', this.#onCompositionEnd);
     if (typed !== undefined) {
       input.addEventListener('input', () => {
         this.#fit();
@@ -129,7 +138,9 @@ export class TextSession {
   /** The input goes, and is read once: whatever asked for the end gets the words. */
   #close(): string {
     this.#open = false;
-    const words = this.#input.value.trim();
+    // A composition still open has not been confirmed: its preedit is not words
+    // a person wrote yet, so what the field held before it is what is kept.
+    const words = this.#composing ? this.#confirmed : this.#input.value;
     this.#input.remove();
     return words;
   }
@@ -145,7 +156,22 @@ export class TextSession {
     this.#input.style.height = `${this.#input.scrollHeight}px`;
   }
 
+  #onCompositionStart = (): void => {
+    this.#composing = true;
+    this.#confirmed = this.#input.value;
+  };
+
+  #onCompositionEnd = (): void => {
+    this.#composing = false;
+  };
+
   #onKeyDown = (event: KeyboardEvent): void => {
+    // An input method owns the keys while it composes: Escape and Enter belong
+    // to the candidate list, and ending the session on them would take the
+    // words away from under the person still choosing them.
+    if (event.isComposing || this.#composing) {
+      return;
+    }
     if (event.key === 'Escape') {
       event.preventDefault();
       this.finish();

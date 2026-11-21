@@ -2126,62 +2126,96 @@ class EsbozoEditorElement extends HTMLElement {
    * nothing; an emptied Label stops being one, and an emptied Text goes; words a
    * Scene could not hold are refused in the status line and leave it as it was.
    */
-  #commitWords(element: SceneElement, words: string): void {
+  #commitWords(element: SceneElement, raw: string): void {
     this.#text = null;
     this.#editing = null;
-    if (words === wordsOf(element)) {
+    // The comparison is the raw value against the words the Element held before
+    // anything is trimmed: words nobody touched are the same words, whatever
+    // spaces the author wrote them with.
+    if (raw === wordsOf(element)) {
       this.#paint();
       return;
     }
-    const elements =
-      words === '' && element.type === 'text'
-        ? without(this.#scene.elements, new Set([element.id]))
-        : this.#scene.elements.map((candidate) =>
-            candidate.id === element.id
-              ? withWords(candidate, words, this.#layout)
-              : candidate,
-          );
-    const parsed = parseScene(serialiseScene({ ...this.#scene, elements }));
-    if (!parsed.ok) {
-      const problem = parsed.problems[0];
-      this.#setSaved(
-        'failed',
-        problem === undefined ? 'the Scene cannot hold these words' : problem.message,
-      );
+    // What the person typed is what the Scene checks, so a control character is
+    // refused for being one rather than quietly trimmed out of the words. A
+    // field holding nothing but spaces is the words cleared out.
+    const typed = raw.trim() === '' ? '' : raw;
+    const problem = this.#problem(this.#wordsScene(element, typed));
+    if (problem !== null) {
+      this.#setSaved('failed', problem);
       this.#paint();
       return;
     }
-    this.#applyScene(parsed.scene, {
-      select: parsed.scene.elements.some((candidate) => candidate.id === element.id)
-        ? [element.id]
-        : [],
-    });
+    const words = raw.trim();
+    this.#land(this.#wordsScene(element, words), words === '' && element.type === 'text' ? [] : [element.id]);
   }
 
   /**
    * Commit the in-place input's words: a Text with words in them, or nothing.
    *
-   * The Text goes through the Scene module's own validation before it is
-   * recorded, so words a Scene file could not hold never reach disk. A refusal
-   * says why in the status line and leaves the Scene exactly as it was.
+   * The raw value is checked first, as typed, for the same reason a Label's is:
+   * a control character a person typed is refused rather than trimmed away.
    */
-  #commitText(at: Point, content: string): void {
+  #commitText(at: Point, raw: string): void {
     this.#text = null;
-    if (content === '') {
+    const words = raw.trim();
+    if (words === '') {
       return;
     }
-    const element = newText(at, content, freshId('text', idsOf(this.#scene.elements)), this.#scene.defaults);
-    const parsed = parseScene(
-      serialiseScene({ ...this.#scene, elements: [...this.#scene.elements, element] }),
-    );
-    if (!parsed.ok) {
-      const problem = parsed.problems[0];
-      this.#setSaved('failed', problem === undefined ? 'the Scene cannot hold this Text' : problem.message);
+    const id = freshId('text', idsOf(this.#scene.elements));
+    const defaults = this.#scene.defaults;
+    const problem = this.#problem([...this.#scene.elements, newText(at, raw, id, defaults)]);
+    if (problem !== null) {
+      this.#setSaved('failed', problem);
       return;
     }
-    this.#applyScene(parsed.scene, { select: [element.id] });
+    this.#land([...this.#scene.elements, newText(at, words, id, defaults)], [id]);
   }
 
+  /** The Scene these words would make, with this Element's words replaced. */
+  #wordsScene(element: SceneElement, words: string): SceneElement[] {
+    if (words === '' && element.type === 'text') {
+      return without(this.#scene.elements, new Set([element.id]));
+    }
+    return this.#scene.elements.map((candidate) =>
+      candidate.id === element.id ? withWords(candidate, words, this.#layout) : candidate,
+    );
+  }
+
+  /**
+   * The Scene's own verdict on a Scene holding these Elements: the Scene its
+   * parser reads back, or the first thing it cannot hold. Nothing is applied:
+   * the caller decides whether the edit lands.
+   */
+  #verdict(elements: readonly SceneElement[]): { scene: Scene } | { problem: string } {
+    const parsed = parseScene(serialiseScene({ ...this.#scene, elements: [...elements] }));
+    if (parsed.ok) {
+      return { scene: parsed.scene };
+    }
+    const first = parsed.problems[0];
+    return { problem: first === undefined ? 'the Scene cannot hold these words' : first.message };
+  }
+
+  /** What the Scene says about these Elements: its first problem, or null when it can hold them. */
+  #problem(elements: readonly SceneElement[]): string | null {
+    const verdict = this.#verdict(elements);
+    return 'problem' in verdict ? verdict.problem : null;
+  }
+
+  /**
+   * The one way typed words land: the Scene's own verdict first, then one step
+   * and one write. A refusal says why in the status line and leaves the Scene
+   * exactly as it was, on the page and on disk.
+   */
+  #land(elements: readonly SceneElement[], selected: string[]): void {
+    const verdict = this.#verdict(elements);
+    if ('problem' in verdict) {
+      this.#setSaved('failed', verdict.problem);
+      this.#paint();
+      return;
+    }
+    this.#applyScene(verdict.scene, { select: selected });
+  }
 
   #onPointerMove = (event: PointerEvent): void => {
     const drag = this.#drag;
