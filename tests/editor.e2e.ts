@@ -76,7 +76,7 @@ import {
   savedScene,
 } from './helpers.ts';
 import type { Point, SavedScene, Ui } from './helpers.ts';
-import { livePage } from './cdp.ts';
+import { blurPage, livePage } from './cdp.ts';
 import { decodePng, difference, shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
 
@@ -1699,13 +1699,10 @@ test('a window blur while Space is held takes the pill with the pan', async ({
   await ui.browser.keyboard.down('Space');
   await expect(pill).toBeVisible();
 
-  // The focus leaves the page while the key is still held: no release ever comes
-  // here, so the page lets the pan go rather than keep the word for a hold it no
-  // longer has.
-  await browser.evaluate(() => {
-    window.dispatchEvent(new Event('blur'));
-    return true;
-  });
+  // The focus really leaves the page while the key is still held: the window
+  // takes it for another one of its own, so no release ever comes here, and the
+  // page lets the pan go rather than keep the word for a hold it no longer has.
+  await blurPage();
   await expect(pill).toBeHidden();
   expect((await shot(ui)).darkCount(MODE_PILL_BAND, 0.6)).toBe(0);
   await browser.keyboard.up('Space');
