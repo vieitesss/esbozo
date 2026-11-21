@@ -70,29 +70,56 @@ esbozo-editor::before {
   opacity: 0.07;
 }
 
+/* The painted Scene: one layer the view moves with a CSS transform, so a zoom
+   moves what is already painted instead of laying out every `<text>` again. */
+/* The paper the pointer works on: the whole element, unmoved. The painted
+   Scene above moves inside it, so a press anywhere on the paper is the Scene's
+   even when the view has scaled the drawing away from that corner. */
+esbozo-editor .board {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  touch-action: none;
+}
+
+esbozo-editor .surface {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+}
+
 /* canvas */
 esbozo-editor .canvas {
   position: absolute;
   inset: 0;
-  z-index: 1;
   display: block;
   width: 100%;
   height: 100%;
   touch-action: none;
+  /* The view scales this drawing, so what is outside its own box is still the
+     Scene: the element's edges are what shows the page, not the canvas box. */
+  overflow: visible;
 }
 
 /* The canvas takes the focus when the palette shuts, so focus is visible there
    and nowhere else: a ring around the paper, inside the window's edge. */
 esbozo-editor .canvas:focus { outline: none; }
-esbozo-editor .canvas:focus-visible {
+/* The ring is drawn on the element and not on the canvas, because the canvas is
+   the layer the view scales: a ring on it would shrink with a zoom. */
+esbozo-editor:has(.canvas:focus-visible)::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
   outline: 2px solid var(--sel);
   outline-offset: -4px;
 }
 
-esbozo-editor .canvas.hand, esbozo-editor .canvas.panning { cursor: grab; }
-esbozo-editor .canvas.panning { cursor: grabbing; }
+esbozo-editor .board.hand, esbozo-editor .board.panning { cursor: grab; }
+esbozo-editor .board.panning { cursor: grabbing; }
 /* drawing: the pencil is the pointer, so the tool in hand reads on the canvas */
-esbozo-editor .canvas.pen { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='26' viewBox='0 0 26 26'%3E%3Cg transform='rotate(42 13 13)'%3E%3Cpath d='M11 5h4v13h-4z' fill='%23e8b23c' stroke='%231b1a17' stroke-width='1.2'/%3E%3Cpath d='M11 18h4l-2 4.5z' fill='%23f6f0e2' stroke='%231b1a17' stroke-width='1.2'/%3E%3C/g%3E%3C/svg%3E") 4 22, crosshair; }
+esbozo-editor .board.pen { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='26' viewBox='0 0 26 26'%3E%3Cg transform='rotate(42 13 13)'%3E%3Cpath d='M11 5h4v13h-4z' fill='%23e8b23c' stroke='%231b1a17' stroke-width='1.2'/%3E%3Cpath d='M11 18h4l-2 4.5z' fill='%23f6f0e2' stroke='%231b1a17' stroke-width='1.2'/%3E%3C/g%3E%3C/svg%3E") 4 22, crosshair; }
 esbozo-editor .grid-rect { pointer-events: none; }
 esbozo-editor .dot { fill: var(--ink); opacity: 0.22; }
 

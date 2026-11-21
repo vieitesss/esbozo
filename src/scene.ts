@@ -354,7 +354,8 @@ export function canonicalScene(scene: Scene): Scene {
   };
 }
 
-function canonicalElement(element: Element): Element {
+/** One Element as it is drawn: whole pixels, so no two roundings draw it twice. */
+export function canonicalElement(element: Element): Element {
   if (element.type === 'arrow' || element.type === 'line') {
     const [start, end] = element.points;
     return { ...element, points: [wholePoint(start), wholePoint(end)] };

@@ -9,13 +9,7 @@
  */
 import { createLayout, fontSizePx } from '../layout.js';
 import type { Layout, Metrics } from '../layout.js';
-import {
-  drawnShaft,
-  elementBounds,
-  elementsById,
-  outlineBox,
-  renderScene,
-} from '../renderer.js';
+import { drawnShaft, elementBounds, elementsById, outlineBox } from '../renderer.js';
 import {
   emptyScene,
   isOutlined,
@@ -64,6 +58,7 @@ import {
   resizedBox,
   toPage,
   toScene,
+  unionOf,
   zoomedAt,
 } from './geometry.js';
 import type { Box, Handle, Point, View } from './geometry.js';
@@ -72,6 +67,8 @@ import { railArt, railMarkup } from './rail.js';
 import { attachedTo, endPoint, freedEnd, isShaft, otherEnd, released, targetAt, withEnd } from './snap.js';
 import type { End } from './snap.js';
 import { TextSession } from './text-session.js';
+import { PaintCache } from './paint.js';
+import type { Paint } from './paint.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const DOT_SPACING = 22;
@@ -121,6 +118,8 @@ type Drag =
       origins: Map<string, SceneElement>;
       /** The Elements as the pointer has moved them, by id. */
       shown: Map<string, SceneElement>;
+      /** How far the pointer has carried them: what the painted groups are moved by. */
+      by: Point;
     }
   | { kind: 'resize'; id: string; handle: Handle; origin: Box; from: Point; shown: SceneElement }
   | {
@@ -150,20 +149,24 @@ type Drag =
   | { kind: 'box'; from: Point; to: Point; additive: boolean };
 
 const SHELL = `
-<svg class="canvas" xmlns="${SVG_NS}" aria-label="Scene canvas" tabindex="0">
-  <defs>
-    <pattern width="${DOT_SPACING}" height="${DOT_SPACING}" patternUnits="userSpaceOnUse">
-      <circle class="dot" cx="1" cy="1" r="${DOT_RADIUS}"></circle>
-    </pattern>
-  </defs>
-  <g class="grid" aria-hidden="true">
-    <rect class="grid-rect" x="-100000" y="-100000" width="200000" height="200000"></rect>
-  </g>
-  <g class="viewport">
-    <g class="painted"></g>
+<div class="board">
+<div class="surface">
+  <svg class="canvas" xmlns="${SVG_NS}" aria-label="Scene canvas" tabindex="0">
+    <defs>
+      <pattern width="${DOT_SPACING}" height="${DOT_SPACING}" patternUnits="userSpaceOnUse">
+        <circle class="dot" cx="1" cy="1" r="${DOT_RADIUS}"></circle>
+      </pattern>
+    </defs>
+    <g class="grid" aria-hidden="true">
+      <rect class="grid-rect" x="-100000" y="-100000" width="200000" height="200000"></rect>
+    </g>
+    <g class="viewport">
+      <g class="painted"></g>
+    </g>
     <g class="overlay"></g>
-  </g>
-</svg>
+  </svg>
+</div>
+</div>
 <nav class="rail" aria-label="Tools"><svg class="rail-art" aria-hidden="true"></svg>${railMarkup()}</nav>
 <footer class="status">
   <button type="button" data-act="open">Open folder…</button>
@@ -257,15 +260,39 @@ export class EsbozoEditorElement extends HTMLElement {
   /** The writes in order; the number each answers with is whether it landed. */
   #saveQueue: Promise<unknown> = Promise.resolve();
   #paintQueued = false;
-  #paintedFor: string | null = null;
+  /**
+   * Counts the Scene: every replacement of `#scene` makes a new number, and the
+   * page repaints only when the number it painted is not this one. A pan, a
+   * zoom or a new selection leaves the number alone, so a frame that only moved
+   * the view costs no serialise at all.
+   */
+  #version = 0;
+  /** The Scene number the page shows, gesture in flight included. */
+  #paintedVersion = -1;
+  /** What the page shows now: the drawings, and the boxes the pointer reads. */
+  #painted: Paint | null = null;
+  /** The view the page was last moved to, so a frame that did not move it writes nothing. */
+  #applied: View | null = null;
+  /** The Element groups on the page, by id, with the key each was drawn from. */
+  #groups = new Map<string, { key: string; node: SVGGElement }>();
+  /** The id order the Element groups are in, so a reorder is one write. */
+  #order: readonly string[] = [];
+  /** The Elements a move has moved with a transform, so they can be put back. */
+  #moved = new Set<string>();
+  /** The Scene's own `svg`, inside `.painted`; every Element is one group under it. */
+  #layer: SVGSVGElement | null = null;
+  /** The drawings and the drawing of one Element at a time, kept between frames. */
+  #paintables: PaintCache | null = null;
   /** The selection the Style menu was built for, so a rebuild only happens on a change. */
   #menuFor: string | null = null;
 
+  #board!: HTMLElement;
+  #surface!: HTMLElement;
   #canvas!: SVGSVGElement;
-  #viewport!: SVGGElement;
-  #painted!: SVGGElement;
+  #paintedLayer!: SVGGElement;
   #overlay!: SVGGElement;
   #gridRect!: SVGRectElement;
+  #gridLayer!: SVGGElement;
   #dots!: SVGPatternElement;
   #rail!: HTMLElement;
   #railArt!: SVGSVGElement;
@@ -333,11 +360,13 @@ export class EsbozoEditorElement extends HTMLElement {
       return;
     }
     this.innerHTML = SHELL;
+    this.#board = this.querySelector('.board')!;
+    this.#surface = this.querySelector('.surface')!;
     this.#canvas = this.querySelector('.canvas')!;
-    this.#viewport = this.querySelector('.viewport')!;
-    this.#painted = this.querySelector('.painted')!;
+    this.#paintedLayer = this.querySelector('.painted')!;
     this.#overlay = this.querySelector('.overlay')!;
     this.#gridRect = this.querySelector('.grid-rect')!;
+    this.#gridLayer = this.querySelector('.grid')!;
     this.#dots = this.querySelector('.canvas pattern')!;
     this.#rail = this.querySelector('.rail')!;
     this.#railArt = this.querySelector('.rail-art')!;
@@ -364,6 +393,7 @@ export class EsbozoEditorElement extends HTMLElement {
     const dots = `esbozo-dots-${++instances}`;
     this.#dots.id = dots;
     this.#gridRect.setAttribute('fill', `url(#${dots})`);
+    this.#showGrid();
 
     if (this.#ownsKeysWhenFocused) {
       // An embedded editor is one box on someone else's page: a click into it
@@ -391,11 +421,11 @@ export class EsbozoEditorElement extends HTMLElement {
     this.addEventListener('pointerdown', this.#takeFocus);
     this.addEventListener('focusin', this.#onFocusIn);
     this.addEventListener('focusout', this.#onFocusOut);
-    this.#canvas.addEventListener('pointerdown', this.#onPointerDown);
-    this.#canvas.addEventListener('pointermove', this.#onPointerMove);
-    this.#canvas.addEventListener('pointerup', this.#onPointerUp);
-    this.#canvas.addEventListener('pointercancel', this.#onPointerCancel);
-    this.#canvas.addEventListener('wheel', this.#onWheel, { passive: false });
+    this.#board.addEventListener('pointerdown', this.#onPointerDown);
+    this.#board.addEventListener('pointermove', this.#onPointerMove);
+    this.#board.addEventListener('pointerup', this.#onPointerUp);
+    this.#board.addEventListener('pointercancel', this.#onPointerCancel);
+    this.#board.addEventListener('wheel', this.#onWheel, { passive: false });
     this.#canvas.addEventListener('contextmenu', (event) => event.preventDefault());
     this.#rail.addEventListener('click', this.#onRailClick);
     this.querySelector('.status')!.addEventListener('click', this.#onStatusClick);
@@ -417,11 +447,11 @@ export class EsbozoEditorElement extends HTMLElement {
   }
 
   disconnectedCallback(): void {
-    this.#canvas?.removeEventListener('pointerdown', this.#onPointerDown);
-    this.#canvas?.removeEventListener('pointermove', this.#onPointerMove);
-    this.#canvas?.removeEventListener('pointerup', this.#onPointerUp);
-    this.#canvas?.removeEventListener('pointercancel', this.#onPointerCancel);
-    this.#canvas?.removeEventListener('wheel', this.#onWheel);
+    this.#board?.removeEventListener('pointerdown', this.#onPointerDown);
+    this.#board?.removeEventListener('pointermove', this.#onPointerMove);
+    this.#board?.removeEventListener('pointerup', this.#onPointerUp);
+    this.#board?.removeEventListener('pointercancel', this.#onPointerCancel);
+    this.#board?.removeEventListener('wheel', this.#onWheel);
     document.removeEventListener('copy', this.#onCopy);
     document.removeEventListener('cut', this.#onCut);
     document.removeEventListener('paste', this.#onPaste);
@@ -458,7 +488,6 @@ export class EsbozoEditorElement extends HTMLElement {
       return;
     }
     this.#showDefaultRoughness();
-    this.#paintedFor = null;
     this.#view = fittedView(this.#scene, this.#viewportSize(), this.#layout);
     this.#paint();
     await this.#joinFolder(connection);
@@ -493,7 +522,10 @@ export class EsbozoEditorElement extends HTMLElement {
     font.face?.();
     this.#layout = font.layout;
     this.#ready = true;
-    this.#paintedFor = null;
+    // Labels break with the measurement: what was drawn with the old one is not
+    // the same drawing any more.
+    this.#paintables?.measure(font.layout);
+    this.#invalidate();
     this.#listen();
   }
 
@@ -764,13 +796,24 @@ export class EsbozoEditorElement extends HTMLElement {
       return;
     }
     const sceneSource = serialiseScene(this.#scene);
-    const svgSource = renderScene(this.#scene, this.#layout);
+    const svgSource = this.#svgSource();
     this.#setSaved('saving');
     const writing = this.#saveQueue.then(() => this.#write(target, sceneSource, svgSource));
     this.#saveQueue = writing;
     if (await writing && this.#saveQueue === writing) {
       this.#setSaved('saved');
     }
+  }
+
+  /**
+   * The SVG the Scene saves, out of the drawings the page already shows. The
+   * paint in flight is settled first — the frame that was about to run is this
+   * one — so an edit draws each Element once and writes the same bytes
+   * `ez render` writes.
+   */
+  #svgSource(): string {
+    this.#drawScene();
+    return (this.#paintables ??= new PaintCache(this.#layout)).svg(this.#scene);
   }
 
   /**
@@ -807,14 +850,20 @@ export class EsbozoEditorElement extends HTMLElement {
   #toggleGrid(): void {
     this.#grid = !this.#grid;
     this.querySelector('[data-act="grid"]')!.setAttribute('aria-pressed', String(this.#grid));
+    this.#showGrid();
     this.#paint();
+  }
+
+  /** The dot Grid, on or off. Its spacing is the screen's own: the view scales the paper, not the dots. */
+  #showGrid(): void {
+    this.#gridRect.style.display = this.#grid ? '' : 'none';
   }
 
   #load(scene: Scene, target: SaveTarget): void {
     this.#scene = scene;
     this.#target = target;
     this.#selected = [];
-    this.#paintedFor = null;
+    this.#version++;
     this.#history.reset(serialiseScene(scene));
     this.#menuFor = null;
     this.#view = fittedView(scene, this.#viewportSize(), this.#layout);
@@ -908,7 +957,7 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#selected = this.#selected.filter((id) =>
       this.#scene.elements.some((element) => element.id === id),
     );
-    this.#paintedFor = null;
+    this.#version++;
     this.#nudgedAt = 0;
     // An undone edit may have changed a default or a Snap, so the status bar and
     // the note follow the restored Scene: a Snap the undo put back offers its
@@ -1170,7 +1219,7 @@ export class EsbozoEditorElement extends HTMLElement {
       return;
     }
     this.#tool = tool;
-    this.#canvas.classList.toggle('pen', tool !== 'select' && !this.#spaceDown);
+    this.#board.classList.toggle('pen', tool !== 'select' && !this.#spaceDown);
     for (const button of this.#rail.querySelectorAll('[data-tool]')) {
       button.setAttribute('aria-pressed', String(button.getAttribute('data-tool') === tool));
     }
@@ -1204,6 +1253,7 @@ export class EsbozoEditorElement extends HTMLElement {
     const { select } = options;
     if (changed) {
       this.#scene = next;
+      this.#version++;
     }
     if (select !== undefined) {
       this.#selected = [...select];
@@ -1263,7 +1313,7 @@ export class EsbozoEditorElement extends HTMLElement {
 
   /**
    * Pan, zoom and the Grid follow the pointer at once, because they are only
-   * numbers the view group already carries. Repainting the Scene is what costs,
+   * numbers the view layer already carries. Repainting the Scene is what costs,
    * so that waits for the next frame.
    */
   #paint(): void {
@@ -1279,6 +1329,11 @@ export class EsbozoEditorElement extends HTMLElement {
     });
   }
 
+  /** The page has to draw the Scene again: a new measurement, or a Scene to show. */
+  #invalidate(): void {
+    this.#paintedVersion = -1;
+  }
+
   /**
    * A view change the person asked for — a wheel, a key zoom or a fit. It still
    * has to leave the selection clear of the note, and any zoom can put it back
@@ -1290,89 +1345,226 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#paint();
   }
 
+  /**
+   * Move the painted Scene: one CSS transform on the wrapper, so the drawing is
+   * laid out once and a zoom is a composite. The Grid and the overlay stand in
+   * screen space, counter-moved, so dots keep their size and a handle its width.
+   */
   #applyView(): void {
     const { zoom, panX, panY } = this.#view;
-    this.#viewport.setAttribute('transform', `translate(${panX} ${panY}) scale(${zoom})`);
-    this.#zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
-    this.#drawGrid();
-  }
-
-  /** The dot Grid stays the same size on screen at every zoom. */
-  #drawGrid(): void {
-    this.#gridRect.style.display = this.#grid ? '' : 'none';
-    this.#dots.setAttribute('width', String(DOT_SPACING / this.#view.zoom));
-    this.#dots.setAttribute('height', String(DOT_SPACING / this.#view.zoom));
-    this.#dots.firstElementChild?.setAttribute('r', String(DOT_RADIUS / this.#view.zoom));
+    const applied = this.#applied;
+    if (
+      applied !== null &&
+      applied.zoom === zoom &&
+      applied.panX === panX &&
+      applied.panY === panY
+    ) {
+      return;
+    }
+    this.#applied = { zoom, panX, panY };
+    this.#surface.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+    const screen = `scale(${1 / zoom}) translate(${-panX} ${-panY})`;
+    this.#gridLayer.setAttribute('transform', screen);
+    this.#overlay.setAttribute('transform', screen);
+    const label = `${Math.round(zoom * 100)}%`;
+    if (this.#zoomLabel.textContent !== label) {
+      this.#zoomLabel.textContent = label;
+    }
   }
 
   /**
-   * Paint the Scene with the Renderer. Its SVG nests inside the viewport, so the
-   * Scene keeps the exact look `ez render` gives it, and the elements stay in
-   * Scene coordinates while the viewport pans and zooms.
+   * Paint what the Scene shows now.
+   *
+   * Each Element keeps the drawing it already had while the canonical JSON it
+   * was drawn from is unchanged, so a frame costs what the gesture changes: a
+   * resize or a dragged end draws one Element, a move moves the groups it
+   * carries, and a pan or a zoom draws nothing at all.
    */
   #drawScene(): void {
-    const shown = this.#shownScene();
-    const key = serialiseScene(shown);
-    if (key === this.#paintedFor) {
+    const drag = this.#drag;
+    if (drag !== null && drag.kind === 'move') {
+      this.#moveGroups(drag);
       return;
     }
-    this.#paintedFor = key;
-    const document_ = new DOMParser().parseFromString(
-      renderScene(shown, this.#layout),
-      'image/svg+xml',
-    );
-    const root = document_.documentElement;
-    if (root.nodeName !== 'svg') {
-      throw new Error('the Renderer did not return an SVG document');
+    const shown = this.#shownElements();
+    const settled = shown === this.#scene.elements;
+    if (settled && this.#paintedVersion === this.#version) {
+      return;
     }
-    const page = viewBoxOf(root);
-    root.setAttribute('x', String(page.x));
-    root.setAttribute('y', String(page.y));
-    root.setAttribute('width', String(page.width));
-    root.setAttribute('height', String(page.height));
-    root.setAttribute('overflow', 'visible');
-    this.#painted.replaceChildren(document.importNode(root, true));
+    this.#drawElements(shown);
+    this.#paintedVersion = settled ? this.#version : -1;
   }
 
+  /** One frame of the page: a group redrawn for each Element whose drawing changed. */
+  #drawElements(shown: readonly SceneElement[]): void {
+    const paintables = (this.#paintables ??= new PaintCache(this.#layout));
+    const paint = paintables.paint(shown);
+    this.#painted = paint;
+    // A group moved by a drag carries a transform the Scene never holds: every
+    // group starts a frame where its Element is.
+    for (const id of this.#moved) {
+      this.#groups.get(id)?.node.removeAttribute('transform');
+    }
+    this.#moved.clear();
+
+    const layer = this.#layerOf();
+    const groups = new Map<string, { key: string; node: SVGGElement }>();
+    let reorder = paint.order.length !== this.#order.length;
+    for (const [index, id] of paint.order.entries()) {
+      const painted = paint.elements.get(id)!;
+      const held = this.#groups.get(id);
+      if (held !== undefined && held.key === painted.key) {
+        groups.set(id, held);
+        if (!reorder && this.#order[index] !== id) {
+          reorder = true;
+        }
+        continue;
+      }
+      // New or changed: one Element's SVG, parsed on its own, in the group the
+      // pointer moves and the overlay measures.
+      const node = groupOf(id, painted.svg);
+      if (held === undefined) {
+        layer.append(node);
+        reorder = true;
+      } else {
+        held.node.replaceWith(node);
+      }
+      groups.set(id, { key: painted.key, node });
+    }
+    this.#groups = groups;
+    this.#order = paint.order;
+    if (reorder) {
+      layer.replaceChildren(...paint.order.map((id) => groups.get(id)!.node));
+    }
+  }
+
+  /** The Scene's own `svg` inside `.painted`, made once, so each Element is one group under it. */
+  #layerOf(): SVGSVGElement {
+    if (this.#layer === null) {
+      const layer = document.createElementNS(SVG_NS, 'svg');
+      layer.setAttribute('overflow', 'visible');
+      // The drawing's colours and face are CSS variables, as in the saved SVG:
+      // a theme change is a repaint the page already knows how to do.
+      layer.setAttribute('font-family', 'var(--font-hand)');
+      this.#paintedLayer.append(layer);
+      this.#layer = layer;
+    }
+    return this.#layer;
+  }
+
+  /**
+   * A move in flight: the groups the pointer carries are moved by a transform,
+   * so the gesture draws nothing at all. The release settles the Scene, and the
+   * painting that follows draws the moved Elements where they landed.
+   */
+  #moveGroups(drag: Extract<Drag, { kind: 'move' }>): void {
+    const moved = new Set<string>();
+    for (const id of drag.shown.keys()) {
+      const group = this.#groups.get(id);
+      if (group === undefined) {
+        continue;
+      }
+      group.node.setAttribute('transform', `translate(${drag.by.x} ${drag.by.y})`);
+      moved.add(id);
+    }
+    for (const id of this.#moved) {
+      if (!moved.has(id)) {
+        this.#groups.get(id)?.node.removeAttribute('transform');
+      }
+    }
+    this.#moved = moved;
+  }
+
+  /**
+   * The overlay draws in screen pixels, on a group counter-moved against the
+   * view: a handle stays eight pixels at every zoom, and the boxes it marks are
+   * read from what the page painted rather than measured again.
+   */
   #drawOverlay(): void {
     const overlay = this.#overlay;
     overlay.replaceChildren();
-    const selected = this.#selectedElements();
-    const first = selected[0];
-    const box = boxOf(selected, elementsById(this.#shownElements()), this.#layout);
+    const drag = this.#drag;
+    const boxes: Box[] = [];
+    for (const id of this.#selected) {
+      const box = this.#shownBounds(id);
+      if (box !== null) {
+        boxes.push(this.#pageBox(box));
+      }
+    }
+    const box = unionOf(boxes);
+    const first = this.#selected[0];
     if (box !== null) {
-      const padding = SELECTION_PADDING / this.#view.zoom;
       this.#appendRect(overlay, {
-        x: box.x - padding,
-        y: box.y - padding,
-        width: box.width + padding * 2,
-        height: box.height + padding * 2,
+        x: box.x - SELECTION_PADDING,
+        y: box.y - SELECTION_PADDING,
+        width: box.width + SELECTION_PADDING * 2,
+        height: box.height + SELECTION_PADDING * 2,
         class: 'selection',
       });
-      if (selected.length === 1 && first !== undefined) {
+      if (this.#selected.length === 1 && first !== undefined) {
         this.#drawHandles(overlay, first);
       }
     }
-    const drag = this.#drag;
     if (drag !== null && drag.kind === 'box') {
-      const swept = boxBetween(drag.from, drag.to);
-      this.#appendRect(overlay, { ...swept, class: 'sweep' });
+      this.#appendRect(overlay, { ...this.#pageBox(boxBetween(drag.from, drag.to)), class: 'sweep' });
     }
     if (drag !== null && (drag.kind === 'draw' || drag.kind === 'end') && drag.target !== null) {
       const target = this.#scene.elements.find((element) => element.id === drag.target);
       if (target !== undefined && isOutlined(target)) {
         // The Element the dragged end would attach to, so a drop is no surprise.
-        const outline = outlineBox(target);
-        const grow = SNAP_GROW / this.#view.zoom;
+        const outline = this.#pageBox(outlineBox(target));
         this.#appendRect(overlay, {
-          x: outline.x - grow,
-          y: outline.y - grow,
-          width: outline.width + grow * 2,
-          height: outline.height + grow * 2,
+          x: outline.x - SNAP_GROW,
+          y: outline.y - SNAP_GROW,
+          width: outline.width + SNAP_GROW * 2,
+          height: outline.height + SNAP_GROW * 2,
           class: 'snap',
         });
       }
     }
+  }
+
+  /** Where an Element draws on the page now: what was painted for it, moved by a drag in flight. */
+  #shownBounds(id: string): Box | null {
+    const painted = this.#painted?.elements.get(id);
+    if (painted === undefined) {
+      return null;
+    }
+    const drag = this.#drag;
+    if (drag !== null && drag.kind === 'move' && drag.shown.has(id)) {
+      return {
+        ...painted.bounds,
+        x: painted.bounds.x + drag.by.x,
+        y: painted.bounds.y + drag.by.y,
+      };
+    }
+    return painted.bounds;
+  }
+
+  /** The Element as the page shows it: the gesture's own version while one is in flight. */
+  #shownElement(id: string): SceneElement | undefined {
+    const drag = this.#drag;
+    if (drag !== null && drag.kind === 'move') {
+      return drag.shown.get(id) ?? this.#painted?.byId.get(id);
+    }
+    return this.#painted?.byId.get(id);
+  }
+
+  /** A Scene box, in the pixels the overlay draws in. */
+  #pageBox(box: Box): Box {
+    const { zoom, panX, panY } = this.#view;
+    return {
+      x: box.x * zoom + panX,
+      y: box.y * zoom + panY,
+      width: box.width * zoom,
+      height: box.height * zoom,
+    };
+  }
+
+  /** A Scene point, in the pixels the overlay draws in. */
+  #pagePoint(point: Point): Point {
+    const { zoom, panX, panY } = this.#view;
+    return { x: point.x * zoom + panX, y: point.y * zoom + panY };
   }
 
   /**
@@ -1380,28 +1572,32 @@ export class EsbozoEditorElement extends HTMLElement {
    * two ends of an arrow or line, where they draw — a Snapped end rides its
    * target's outline, so its handle is there too.
    */
-  #drawHandles(overlay: SVGGElement, element: SceneElement): void {
+  #drawHandles(overlay: SVGGElement, id: string): void {
+    const element = this.#shownElement(id);
+    if (element === undefined) {
+      return;
+    }
     const handles: Array<{ at: Point; name: string }> = [];
     if (isOutlined(element)) {
-      const outline = outlineBox(element);
+      const outline = this.#pageBox(outlineBox(element));
       for (const handle of HANDLES) {
         handles.push({ at: handlePoint(outline, handle), name: handle });
       }
     } else if (isShaft(element)) {
-      const [start, end] = drawnShaft(element, elementsById(this.#shownElements()));
-      handles.push({ at: start, name: 'start' }, { at: end, name: 'end' });
+      const byId = this.#painted?.byId ?? elementsById(this.#scene.elements);
+      const [start, end] = drawnShaft(element, byId);
+      handles.push({ at: this.#pagePoint(start), name: 'start' }, { at: this.#pagePoint(end), name: 'end' });
     }
-    const size = HANDLE_SIZE / this.#view.zoom;
     for (const handle of handles) {
       const node = this.#appendRect(overlay, {
-        x: handle.at.x - size / 2,
-        y: handle.at.y - size / 2,
-        width: size,
-        height: size,
+        x: handle.at.x - HANDLE_SIZE / 2,
+        y: handle.at.y - HANDLE_SIZE / 2,
+        width: HANDLE_SIZE,
+        height: HANDLE_SIZE,
         class: `handle handle-${handle.name}`,
       });
       node.setAttribute('data-handle', handle.name);
-      node.setAttribute('data-element', element.id);
+      node.setAttribute('data-element', id);
     }
   }
 
@@ -1415,7 +1611,6 @@ export class EsbozoEditorElement extends HTMLElement {
     node.setAttribute('width', String(Math.max(attributes.width, 0)));
     node.setAttribute('height', String(Math.max(attributes.height, 0)));
     node.setAttribute('class', attributes.class);
-    node.setAttribute('vector-effect', 'non-scaling-stroke');
     parent.append(node);
     return node;
   }
@@ -1464,7 +1659,7 @@ export class EsbozoEditorElement extends HTMLElement {
     if (this.#drag !== null || this.#menu.hidden) {
       return;
     }
-    const canvas = this.#canvas.getBoundingClientRect();
+    const canvas = this.#canvasBox();
     const note = this.#menu.getBoundingClientRect();
     const selected = this.#selectedElements();
     this.#view = clearedView(this.#view, {
@@ -1482,19 +1677,34 @@ export class EsbozoEditorElement extends HTMLElement {
 
   // ------------------------------------------------------------------ pointer
 
+  /**
+   * The canvas box on the page, before the view moves anything: the element's
+   * own box is the one the pointer is measured against, because the view is a
+   * transform *inside* it (a transformed box would fold pan and zoom in twice).
+   */
+  #canvasBox(): { left: number; top: number; width: number; height: number } {
+    const rect = this.getBoundingClientRect();
+    return {
+      left: rect.left,
+      top: rect.top,
+      width: rect.width || window.innerWidth,
+      height: rect.height || window.innerHeight,
+    };
+  }
+
   #viewportSize(): { width: number; height: number } {
-    const rect = this.#canvas.getBoundingClientRect();
-    return { width: rect.width || window.innerWidth, height: rect.height || window.innerHeight };
+    const box = this.#canvasBox();
+    return { width: box.width, height: box.height };
   }
 
   #scenePoint(event: { clientX: number; clientY: number }): Point {
-    const rect = this.#canvas.getBoundingClientRect();
-    return toScene(this.#view, event.clientX - rect.left, event.clientY - rect.top);
+    const box = this.#canvasBox();
+    return toScene(this.#view, event.clientX - box.left, event.clientY - box.top);
   }
 
   #screenPoint(event: { clientX: number; clientY: number }): Point {
-    const rect = this.#canvas.getBoundingClientRect();
-    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    const box = this.#canvasBox();
+    return { x: event.clientX - box.left, y: event.clientY - box.top };
   }
 
   #onPointerDown = (event: PointerEvent): void => {
@@ -1507,11 +1717,11 @@ export class EsbozoEditorElement extends HTMLElement {
       this.#text.finish();
       return;
     }
-    this.#canvas.setPointerCapture(event.pointerId);
+    this.#board.setPointerCapture(event.pointerId);
     const target = event.target as Element | null;
     if (this.#spaceDown || event.button === 1) {
       this.#drag = { kind: 'pan', fromScreen: this.#screenPoint(event), start: { ...this.#view } };
-      this.#canvas.classList.add('panning');
+      this.#board.classList.add('panning');
       return;
     }
     const tool = this.#tool;
@@ -1577,7 +1787,7 @@ export class EsbozoEditorElement extends HTMLElement {
         const origins = new Map(
           this.#selectedElements().map((element) => [element.id, released(element, byId)]),
         );
-        this.#drag = { kind: 'move', from: point, origins, shown: new Map() };
+        this.#drag = { kind: 'move', from: point, origins, shown: new Map(), by: { x: 0, y: 0 } };
       }
       this.#refresh();
       return;
@@ -1797,6 +2007,7 @@ export class EsbozoEditorElement extends HTMLElement {
         // arrow must not free the ends it is attached by.
         return;
       }
+      drag.by = { x: dx, y: dy };
       const shown = new Map<string, SceneElement>();
       for (const element of this.#scene.elements) {
         const origin = drag.origins.get(element.id);
@@ -1817,12 +2028,12 @@ export class EsbozoEditorElement extends HTMLElement {
 
   #onPointerUp = (event: PointerEvent): void => {
     const drag = this.#drag;
-    this.#canvas.classList.remove('panning');
+    this.#board.classList.remove('panning');
     if (drag === null) {
       return;
     }
-    if (this.#canvas.hasPointerCapture(event.pointerId)) {
-      this.#canvas.releasePointerCapture(event.pointerId);
+    if (this.#board.hasPointerCapture(event.pointerId)) {
+      this.#board.releasePointerCapture(event.pointerId);
     }
 
     if (drag.kind === 'text') {
@@ -1872,9 +2083,9 @@ export class EsbozoEditorElement extends HTMLElement {
   #onPointerCancel = (event: PointerEvent): void => {
     const drag = this.#drag;
     this.#drag = null;
-    this.#canvas.classList.remove('panning');
-    if (this.#canvas.hasPointerCapture(event.pointerId)) {
-      this.#canvas.releasePointerCapture(event.pointerId);
+    this.#board.classList.remove('panning');
+    if (this.#board.hasPointerCapture(event.pointerId)) {
+      this.#board.releasePointerCapture(event.pointerId);
     }
     if (drag !== null && drag.kind === 'draw') {
       // The preview drew under an id the Scene never took.
@@ -1901,8 +2112,8 @@ export class EsbozoEditorElement extends HTMLElement {
     if (event.key === ' ' || event.code === 'Space') {
       if (!this.#spaceDown) {
         this.#spaceDown = true;
-        this.#canvas.classList.add('hand');
-        this.#canvas.classList.remove('pen');
+        this.#board.classList.add('hand');
+        this.#board.classList.remove('pen');
       }
       event.preventDefault();
       return;
@@ -1964,14 +2175,14 @@ export class EsbozoEditorElement extends HTMLElement {
   #endSpacePan = (): void => {
     if (this.#drag !== null && this.#drag.kind === 'pan') {
       this.#drag = null;
-      this.#canvas.classList.remove('panning');
+      this.#board.classList.remove('panning');
     }
     if (!this.#spaceDown) {
       return;
     }
     this.#spaceDown = false;
-    this.#canvas.classList.remove('hand');
-    this.#canvas.classList.toggle('pen', this.#tool !== 'select');
+    this.#board.classList.remove('hand');
+    this.#board.classList.toggle('pen', this.#tool !== 'select');
   };
 
   #onResize = (): void => {
@@ -2193,23 +2404,21 @@ function clipboardApi(): Clipboard | null {
 }
 
 /**
- * The page box the Renderer wrote into its SVG. Its `viewBox` is the only place
- * the page's size comes from: nothing here guesses one.
+ * One Element's drawing as the group the page holds: the unit a move moves with
+ * a transform, and the unit a redraw replaces. The Renderer writes the same
+ * nodes into the saved SVG, so what the page shows is the file it saves.
  */
-function viewBoxOf(root: Element): { x: number; y: number; width: number; height: number } {
-  const numbers = (root.getAttribute('viewBox') ?? '').trim().split(/[\s,]+/).map(Number);
-  const [x, y, width, height] = numbers;
-  if (
-    numbers.length !== 4 ||
-    x === undefined ||
-    y === undefined ||
-    width === undefined ||
-    height === undefined ||
-    !numbers.every(Number.isFinite)
-  ) {
-    throw new Error(`the Renderer's SVG has no usable viewBox: ${JSON.stringify(root.getAttribute('viewBox'))}`);
+function groupOf(id: string, svg: string): SVGGElement {
+  const group = document.createElementNS(SVG_NS, 'g');
+  group.setAttribute('data-element', id);
+  const parsed = new DOMParser().parseFromString(
+    `<svg xmlns="${SVG_NS}">${svg}</svg>`,
+    'image/svg+xml',
+  );
+  for (const child of Array.from(parsed.documentElement.childNodes)) {
+    group.append(document.importNode(child, true));
   }
-  return { x, y, width, height };
+  return group;
 }
 
 /** A new Scene takes its title from the file name: `flow.json` opens as "flow". */
