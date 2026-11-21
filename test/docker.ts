@@ -22,6 +22,16 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const IMAGE = 'esbozo:test';
 /** The port the image serves on, so a published port maps this one. */
 const PORT = 4320;
+/**
+ * The host's own user and group, so the container writes as the folder's owner.
+ * A `mkdtemp` folder is mode 0700 and belongs to the host user; the image's own
+ * user is uid 1000. Docker Desktop maps the two, a native Linux host does not,
+ * and there the mount would be unreadable without `--user`. Windows has no
+ * ids to pass, and Docker Desktop decides ownership there.
+ */
+const uid = process.getuid?.();
+const gid = process.getgid?.();
+const HOST_USER = uid === undefined || gid === undefined ? null : `${uid}:${gid}`;
 
 const SCENE = {
   version: 1,
@@ -47,8 +57,13 @@ before(async () => {
 async function unusableReason(): Promise<string | null> {
   try {
     await run('docker', ['version', '--format', '{{.Server.Version}}']);
-  } catch {
-    return 'docker is not available: start Docker to run pnpm test:docker';
+  } catch (error) {
+    const failure = error as { code?: string | number; stderr?: string };
+    if (failure.code === 'ENOENT') {
+      return 'the docker command is not on PATH: install Docker to run pnpm test:docker';
+    }
+    const said = (failure.stderr ?? '').trim().split('\n')[0];
+    return `the Docker daemon does not answer${said === '' ? '' : `: ${said}`} (start Docker to run pnpm test:docker)`;
   }
   return null;
 }
@@ -57,14 +72,13 @@ interface Container {
   readonly id: string;
   /** `http://127.0.0.1:<host port>`, as the published port maps it. */
   readonly url: string;
-  stop(): Promise<void>;
 }
 
 /** The containers and folders these tests made, removed whatever they asserted. */
-const running: Container[] = [];
+const containers: string[] = [];
 const folders: string[] = [];
 after(async () => {
-  await Promise.all(running.map((container) => container.stop()));
+  await Promise.all(containers.map((id) => run('docker', ['rm', '--force', id]).catch(() => {})));
   await Promise.all(folders.map((folder) => rm(folder, { recursive: true, force: true })));
 });
 
@@ -94,6 +108,7 @@ async function start(folder: string, options: StartOptions = {}): Promise<Contai
   const { stdout } = await run('docker', [
     'run',
     '--detach',
+    ...(HOST_USER === null ? [] : ['--user', HOST_USER]),
     '--volume',
     `${folder}:/scenes`,
     '--publish',
@@ -102,27 +117,35 @@ async function start(folder: string, options: StartOptions = {}): Promise<Contai
     ...(options.args ?? []),
   ]);
   const id = stdout.trim();
-  const container = await published(id, options.reachable ?? true);
-  running.push(container);
-  return container;
-}
+  // Registered before it is waited for: a container that never answers, or a
+  // failed `docker port`, still gets removed.
+  containers.push(id);
 
-async function published(id: string, reachable: boolean): Promise<Container> {
-  const { stdout } = await run('docker', ['port', id, String(PORT)]);
-  const mapped = /127\.0\.0\.1:(\d+)/.exec(stdout)?.[1];
-  assert.ok(mapped !== undefined, `the published port is not on 127.0.0.1: ${stdout}`);
-
-  const container: Container = {
-    id,
-    url: `http://127.0.0.1:${mapped}`,
-    async stop(): Promise<void> {
-      await run('docker', ['rm', '--force', id]).catch(() => {});
-    },
-  };
-  if (reachable) {
+  const url = await published(id);
+  const container: Container = { id, url };
+  if (options.reachable ?? true) {
     await ready(container);
   }
   return container;
+}
+
+/** The URL the published port answers on, as the daemon mapped it. */
+async function published(id: string): Promise<string> {
+  const { stdout } = await run('docker', ['port', id, String(PORT)]);
+  const mapped = /127\.0\.0\.1:(\d+)/.exec(stdout)?.[1];
+  assert.ok(mapped !== undefined, `the published port is not on 127.0.0.1: ${stdout}`);
+  return `http://127.0.0.1:${mapped}`;
+}
+
+/** Everything the container printed, both streams, or why docker withheld it. */
+async function logs(id: string): Promise<string> {
+  try {
+    const { stdout, stderr } = await run('docker', ['logs', id]);
+    return `${stdout}${stderr}`;
+  } catch (error) {
+    const failure = error as { stdout?: string; stderr?: string; message: string };
+    return `${failure.stdout ?? ''}${failure.stderr ?? ''}${failure.message}`;
+  }
 }
 
 /** Wait for the server to answer, and fail with the container's own log if it does not. */
@@ -138,8 +161,7 @@ async function ready(container: Container): Promise<void> {
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  const { stdout } = await run('docker', ['logs', container.id]).catch(() => ({ stdout: '' }));
-  assert.fail(`the container never answered on ${container.url}: ${stdout}`);
+  assert.fail(`the container never answered on ${container.url}:\n${await logs(container.id)}`);
 }
 
 interface Answer {
@@ -159,8 +181,7 @@ async function put(container: Container, name: string, scene: string, svg: strin
 /** The container's log once it is serving, so the arguments it read are visible. */
 async function servedOn(container: Container): Promise<string> {
   for (let attempt = 0; attempt < 60; attempt += 1) {
-    const { stdout } = await run('docker', ['logs', container.id]).catch(() => ({ stdout: '' }));
-    const line = /serving [^\n]*\n/.exec(stdout)?.[0];
+    const line = /serving [^\n]*\n/.exec(await logs(container.id))?.[0];
     if (line !== undefined) {
       return line.trim();
     }
