@@ -172,8 +172,9 @@ export class TextSession {
 
   /**
    * Select a run of the field's words, as a press or a drag inside the drawn
-   * words places it. The field keeps the focus: a press on the canvas is
-   * cancelled before it can take the focus off, so nothing here is a blur.
+   * words places it: from one end to the other, in either order. The field
+   * keeps the focus: a press on the canvas is cancelled before it can take the
+   * focus off, so nothing here is a blur.
    */
   select(from: number, to: number): void {
     if (!this.#open) {
@@ -181,7 +182,14 @@ export class TextSession {
     }
     const input = this.#input;
     input.focus({ preventScroll: true });
-    input.setSelectionRange(from, to, to < from ? 'backward' : 'forward');
+    // A field keeps a run the way the browser does: the lower offset first, and
+    // the direction saying which end the caret is on. Handed the two ends the
+    // other way round, it collapses the run to nothing.
+    input.setSelectionRange(
+      Math.min(from, to),
+      Math.max(from, to),
+      to < from ? 'backward' : 'forward',
+    );
     this.#moved();
   }
 

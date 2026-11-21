@@ -167,7 +167,7 @@ type Drag =
   | { kind: 'text'; at: Point }
   | {
       kind: 'words';
-      /** Where the selection is anchored, as an offset into the words the page draws. */
+      /** Where the selection is anchored, as an offset into the field's words. */
       from: number;
     }
   | { kind: 'box'; from: Point; to: Point; additive: boolean };
@@ -2408,7 +2408,7 @@ class EsbozoEditorElement extends HTMLElement {
     // to the words already chosen instead of throwing them away.
     const from = event.shiftKey ? (state.caret === state.end ? state.start : state.end) : at;
     text.select(from, at);
-    this.#drag = { kind: 'words', from: offset };
+    this.#drag = { kind: 'words', from };
   }
 
   /**
@@ -2548,11 +2548,18 @@ class EsbozoEditorElement extends HTMLElement {
 
     const point = this.#scenePoint(event);
     if (drag.kind === 'words') {
+      // A press that carries the pointer somewhere is a drag, not the first half
+      // of a double-click: the next click starts a new sequence, wherever it
+      // lands.
+      const press = this.#wordsClick;
+      if (press !== null && !this.#near(press, event)) {
+        this.#wordsClick = null;
+      }
       // A drag inside the words takes the caret with it: the other end of the
       // selection stays where the press put it, and the pointer may leave them.
       const offset = this.#wordsNearest(point);
       if (offset !== null) {
-        this.#text?.select(this.#typedOffset(drag.from), this.#typedOffset(offset));
+        this.#text?.select(drag.from, this.#typedOffset(offset));
       }
       return;
     }

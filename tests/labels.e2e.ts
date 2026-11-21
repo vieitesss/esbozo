@@ -35,6 +35,7 @@ import {
   openEditor,
   savedFiles,
   savedScene,
+  settle,
 } from './helpers.ts';
 import { imeCommit, imeCompose, livePage, stillCaret } from './cdp.ts';
 import { shot } from './pixels.ts';
@@ -1056,6 +1057,92 @@ describe('labels', () => {
     // The letter lands at the end of the first drawn line, before the space the
     // wrap broke on — not a letter back inside the last word.
     expect((await savedScene(ui)).elements[0]?.label).toBe('waxwaxwaxX waxwaxwax');
+  });
+
+  test('a drag right to left selects the words it crosses, and a letter replaces them', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.pressSequentially('abc def ghi');
+    await settle(ui);
+    const ink = (await shot(ui)).darkBounds(INSIDE, DARK) as Rect;
+
+    // The drag starts after the last glyph and ends before the first one, so the
+    // selection it makes runs backwards through the words.
+    await browser.mouse.move(ink.x + ink.width + 2, ink.y + ink.height / 2);
+    await browser.mouse.down();
+    await browser.mouse.move(ink.x - 3, ink.y + ink.height / 2);
+    await browser.mouse.up();
+    await label.pressSequentially('X');
+    await label.press('Escape');
+
+    // A backwards run is a selection like any other: the letter takes its place.
+    expect((await savedScene(ui)).elements[0]?.label).toBe('X');
+  });
+
+  test('a Shift+click left of the caret selects from the caret back to the glyph', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+    // The caret opens after the words, so a Shift+click on the first glyph is a
+    // selection running backwards from where the caret was.
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.pressSequentially('abc def ghi');
+    await settle(ui);
+    const ink = (await shot(ui)).darkBounds(INSIDE, DARK) as Rect;
+
+    await browser.keyboard.down('Shift');
+    await browser.mouse.move(ink.x, ink.y + ink.height / 2);
+    await browser.mouse.down();
+    await browser.mouse.up();
+    await browser.keyboard.up('Shift');
+    await label.pressSequentially('X');
+    await label.press('Escape');
+
+    expect((await savedScene(ui)).elements[0]?.label).toBe('X');
+  });
+
+  test('a click after a drag places the caret, though it lands where the drag began', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.pressSequentially('abc def ghi');
+    await settle(ui);
+    const ink = (await shot(ui)).darkBounds(INSIDE, DARK) as Rect;
+    const y = ink.y + ink.height / 2;
+
+    // A drag across the words, and then a click on the glyph the drag started
+    // from, quickly enough to be a double-click if the drag were a click.
+    await browser.mouse.move(ink.x + 1, y);
+    await browser.mouse.down();
+    await browser.mouse.move(ink.x + ink.width, y);
+    await browser.mouse.up();
+    await browser.mouse.move(ink.x + 1, y);
+    await browser.mouse.down();
+    await browser.mouse.up();
+    await label.pressSequentially('X');
+    await label.press('Escape');
+
+    // The click is a click: the caret goes where it was pressed, at the start of
+    // the words, and the letter lands there rather than over a selected word.
+    expect((await savedScene(ui)).elements[0]?.label).toBe('Xabc def ghi');
   });
 
   test('a drag inside the drawn words selects them, and the selection is drawn behind the glyphs', async ({
