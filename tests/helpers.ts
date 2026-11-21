@@ -194,7 +194,7 @@ export const BESIDE_SCENE = {
 export const BESIDE: View = { zoom: 1, panX: 351, panY: 180 };
 
 /**
- * A level line whose Label is placed above the middle of the shaft: a drag of
+ * A level arrow whose Label is placed above the middle of the shaft: a drag of
  * 120px right and 40px up from there is `labelAt: { t: 0.8, offset: 101 }`, the
  * arithmetic a test can predict from the page alone. The offset is odd so the
  * page the Scene fits is a whole number of pixels either side of its middle.
@@ -206,12 +206,12 @@ export const LABELLED_SCENE = {
   elements: [
     {
       id: 'rule',
-      type: 'line',
+      type: 'arrow',
       points: [
         { x: 100, y: 200 },
         { x: 500, y: 200 },
       ],
-      heads: { start: 'none', end: 'none' },
+      heads: { start: 'none', end: 'arrow' },
       label: 'moving',
       labelAt: { t: 0.5, offset: 61 },
     },
@@ -221,7 +221,7 @@ export const LABELLED_SCENE = {
 /** The view `LABELLED_SCENE` lands in, worked out the same way as `VIEW`. */
 export const LABELLED: View = { zoom: 1, panX: 340, panY: 238 };
 
-/** The same line with its words where Layout puts them, for a first placement. */
+/** The same arrow with its words where Layout puts them, for a first placement. */
 export const UNPLACED_SCENE = {
   version: 1,
   title: 'Unplaced',
@@ -229,12 +229,12 @@ export const UNPLACED_SCENE = {
   elements: [
     {
       id: 'rule',
-      type: 'line',
+      type: 'arrow',
       points: [
         { x: 100, y: 200 },
         { x: 500, y: 200 },
       ],
-      heads: { start: 'none', end: 'none' },
+      heads: { start: 'none', end: 'arrow' },
       label: 'moving',
     },
   ],
@@ -244,9 +244,9 @@ export const UNPLACED_SCENE = {
 export const UNPLACED: View = { zoom: 1, panX: 340, panY: 216.5 };
 
 /**
- * A box with a line Snapped to its middle, and the Line's Label placed below the
- * shaft: moving the box along the line keeps the Label's `t` and offset, so the
- * words ride the shaft the Snap redraws.
+ * A box with an arrow Snapped to its middle, and the arrow's Label placed below
+ * the shaft: moving the box along the shaft keeps the Label's `t` and offset, so
+ * the words ride the shaft the Snap redraws.
  */
 export const FOLLOW_SCENE = {
   version: 1,
@@ -256,12 +256,12 @@ export const FOLLOW_SCENE = {
     { id: 'box', type: 'rectangle', x: 30, y: 270, width: 60, height: 60 },
     {
       id: 'rule',
-      type: 'line',
+      type: 'arrow',
       points: [
         { x: 100, y: 300, snap: 'box' },
         { x: 500, y: 300 },
       ],
-      heads: { start: 'none', end: 'none' },
+      heads: { start: 'none', end: 'arrow' },
       label: 'moving',
       labelAt: { t: 0.5, offset: -39 },
     },
