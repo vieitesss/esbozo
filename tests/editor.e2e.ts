@@ -70,12 +70,13 @@ import {
   releaseClipboardWrite,
   runAsWritten,
   openNewScene,
+  refuseWrite,
   releaseWrite,
   savedFiles,
   savedScene,
 } from './helpers.ts';
 import type { Point, SavedScene, Ui } from './helpers.ts';
-import { livePage } from './cdp.ts';
+import { blurPage, livePage } from './cdp.ts';
 import { decodePng, difference, shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
 
@@ -1645,6 +1646,46 @@ test('a middle drag names the pan in the mode pill while the button is down', as
   expect((await shot(ui)).darkCount(BOTTOM_MIDDLE, 0.6)).toBe(0);
 });
 
+test('a save the folder refuses keeps the pan in the hand it was taken with', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await ui.browser.setViewport({ width: 1366, height: 768 });
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+  await expect(ui.screen.getByRole('status')).toHaveText('saved');
+
+  const pill = ui.screen.getByText('Panning');
+  const readOnly = ui.screen.getByText('read-only');
+  await expect(pill).toBeHidden();
+  await expect(readOnly).toBeHidden();
+
+  // An edit asks the folder to write, and the folder's answer waits for this
+  // test: the page does not know yet whether it may write.
+  await holdWrites(ui, 'scene.json');
+  await clickScene(ui, { x: 100, y: 80 });
+  await browser.keyboard.press('Shift+ArrowRight');
+  const mouse = livePage().mouse;
+  await mouse.move(300, 650);
+  await mouse.down({ button: 'middle' });
+  await mouse.move(320, 680);
+  await expect(pill).toBeVisible();
+
+  // The folder answers `403` while the button is still down: the page may only
+  // read from now on. A pan is a view, not an edit, so it keeps the hand it was
+  // taken with, and the word it was naming.
+  await refuseWrite(ui, 'this folder is served read-only');
+  await expect(readOnly).toBeHidden();
+  await expect(pill).toBeVisible();
+
+  // The button comes up: the pan ends with it, and the page says what it may do.
+  await mouse.up({ button: 'middle' });
+  await expect(pill).toBeHidden();
+  await expect(readOnly).toBeVisible();
+  await allowWrites(ui);
+});
+
 test('a window blur while Space is held takes the pill with the pan', async ({
   app,
   browser,
@@ -1658,13 +1699,10 @@ test('a window blur while Space is held takes the pill with the pan', async ({
   await ui.browser.keyboard.down('Space');
   await expect(pill).toBeVisible();
 
-  // The focus leaves the page while the key is still held: no release ever comes
-  // here, so the page lets the pan go rather than keep the word for a hold it no
-  // longer has.
-  await browser.evaluate(() => {
-    window.dispatchEvent(new Event('blur'));
-    return true;
-  });
+  // The focus really leaves the page while the key is still held: the window
+  // takes it for another one of its own, so no release ever comes here, and the
+  // page lets the pan go rather than keep the word for a hold it no longer has.
+  await blurPage();
   await expect(pill).toBeHidden();
   expect((await shot(ui)).darkCount(MODE_PILL_BAND, 0.6)).toBe(0);
   await browser.keyboard.up('Space');
@@ -1692,10 +1730,54 @@ test('another Scene takes the pan word with the Scene it named', async ({ app, b
   await ui.browser.keyboard.up('Space');
 });
 
+/**
+ * The page this file's own host tests own: it holds the element and keeps its
+ * own hands on it, so handing it back — and naming another Scene to it — is the
+ * host's doing and no test reads where the page put it.
+ */
+const CONTROLLED_HOST = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<style>html, body { height: 100%; margin: 0 } esbozo-editor { display: block; height: 100vh }</style>
+<link rel="stylesheet" href="editor.css" />
+</head>
+<body>
+<div class="slot"><esbozo-editor></esbozo-editor></div>
+<script type="module">
+  const slot = document.querySelector('.slot');
+  const editor = slot.querySelector('esbozo-editor');
+  window.editor = editor;
+  // The host takes the element out of the page and puts it back where it had it.
+  window.unplug = () => {
+    editor.remove();
+    slot.append(editor);
+  };
+</script>
+<script type="module" src="editor.js"></script>
+</body>
+</html>`;
+
+/** What the controlled host page keeps for a test that holds it. */
+interface ControlledHost {
+  /** The page's own handle on the element it holds. */
+  readonly editor: Element;
+  /** The page takes the element out of itself and puts it back. */
+  readonly unplug: () => void;
+}
+
+/** Open the editor on the page this file owns, holding a Scene it can draw. */
+async function openControlledHost(ui: Ui): Promise<void> {
+  await ui.browser.route('**/editor.html', (route) =>
+    route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: CONTROLLED_HOST }),
+  );
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+}
+
 for (const hostChange of ['disconnect', 'reset'] as const) {
   test(`a pan ends on a host ${hostChange}`, async ({ app, browser, screen }) => {
     const ui = { app, browser, screen };
-    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+    await openControlledHost(ui);
     const pill = screen.getByText('Panning');
     const mouse = livePage().mouse;
 
@@ -1705,13 +1787,13 @@ for (const hostChange of ['disconnect', 'reset'] as const) {
     await expect(pill).toBeVisible();
 
     await browser.evaluate((change) => {
-      const editor = document.querySelector('esbozo-editor')!;
+      const host = window as unknown as ControlledHost;
       if (change === 'disconnect') {
-        const { parentElement, nextSibling } = editor;
-        editor.remove();
-        parentElement!.insertBefore(editor, nextSibling);
+        // The page the pan was taken on hands the element back, and the element
+        // comes back with the key still held.
+        host.unplug();
       } else {
-        editor.setAttribute('scene', 'another-scene.json');
+        host.editor.setAttribute('scene', 'another-scene.json');
       }
       return true;
     }, hostChange);
@@ -1756,11 +1838,16 @@ test('the ? button opens the Shortcuts sheet, and Escape shuts it', async ({ app
   await expect(ui.screen.getByRole('dialog', 'Style')).toBeVisible();
 });
 
-test('a press on the page shuts the Shortcuts sheet and draws nothing', async ({ app, browser, screen }) => {
+test('a press on the page shuts the Shortcuts sheet and lands where it was aimed', async ({
+  app,
+  browser,
+  screen,
+}) => {
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
   const help = ui.screen.getByRole('button', 'Shortcuts');
   const sheet = ui.screen.getByRole('dialog', 'Shortcuts');
+  const style = ui.screen.getByRole('dialog', 'Style');
 
   // Open, shut with the button, open again: the toggle leaves the tool in Select
   // and the Scene where it was, so the press below has nothing to draw with.
@@ -1771,12 +1858,26 @@ test('a press on the page shuts the Shortcuts sheet and draws nothing', async ({
   await help.click();
   await expect(sheet).toBeVisible();
 
+  // One Element selected, so a press the sheet shut on and a press it swallowed
+  // are told apart: the sheet shuts either way, and only a press that landed
+  // also lets the selection go. The press that selected the box shut the sheet,
+  // so the sheet is asked for again once the selection is in hand.
+  await clickScene(ui, { x: 100, y: 80 });
+  await expect(style).toBeVisible();
+  await help.click();
+  await expect(sheet).toBeVisible();
+  await expect(style).toBeVisible();
+
   await clickScene(ui, { x: 60, y: 300 });
   await expect(sheet).toBeHidden();
   await expect(help).toHaveAttribute('aria-expanded', 'false');
-  expect((await savedScene(ui)).elements.map((element) => element.id)).toEqual(
-    SCENE.elements.map((element) => element.id),
-  );
+  await expect(style).toBeHidden();
+
+  // The press was bare paper: the box is where the Scene has it, and the nudge a
+  // selection would have answered moves nothing and writes nothing.
+  await browser.keyboard.press('Shift+ArrowRight');
+  await settle(ui);
+  expect((await savedFiles(ui))['scene.json']).toBe(SCENE_SOURCE);
 });
 
 test('the docked note never covers the selection: the view pans clear of it', async ({ app, browser, screen }) => {

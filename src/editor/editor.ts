@@ -393,8 +393,9 @@ class EsbozoEditorElement extends HTMLElement {
     window.removeEventListener('blur', this.#gestures.release);
     // A page that takes the editor away takes the words with it: the field is a
     // child that left with the element, and no gesture of this pointer survives
-    // the DOM it was pressed on.
+    // the DOM it was pressed on — the pan is the page's, and it goes too.
     this.#endEdits();
+    this.#gestures.endSpacePan();
     this.#gestures.drop();
     this.#wired = false;
     if (active === this) {
@@ -434,6 +435,9 @@ class EsbozoEditorElement extends HTMLElement {
   #forget(): void {
     this.#gestures.drop();
     this.#endEdits();
+    // No Scene to hold in the hand either: the pan and the word it named go
+    // with the Scene the page let go of.
+    this.#gestures.endSpacePan();
     this.#replaceScene(emptyScene());
     this.#selected = [];
     this.#history.reset(serialiseScene(this.#scene));
@@ -515,13 +519,16 @@ class EsbozoEditorElement extends HTMLElement {
     }
   }
 
-  /** Let go of every edit in flight: half-typed words, the gesture in hand, and the tool. */
+  /**
+   * Let go of every edit in flight: half-typed words, the Scene-editing gesture
+   * in hand, and the tool.
+   *
+   * The pan is not an edit. It changes the view and never the Scene, so it stays
+   * in the hand it was taken with until the key or the button comes up, or the
+   * page loses the Scene it is holding (see the callers below).
+   */
   #endEdits(): void {
     this.#endText();
-    // A Space press holds the page that was in hand. Another Scene, no write
-    // access or no DOM is not that page, so the pan goes with it, and with the
-    // word it was naming in the status bar.
-    this.#gestures.endSpacePan();
     // Write access can end in the middle of a gesture, as a folder that answers a
     // queued save with a 403 does. Half a gesture is not a Scene any more: it is
     // dropped with the preview it painted, rather than left on a page that may
@@ -557,8 +564,11 @@ class EsbozoEditorElement extends HTMLElement {
     this.#whereLabel.textContent = `${target.folder.name} / ${target.name}`;
     this.#note.hidden = true;
     // Another Scene: the tool in hand and the words half-typed into the last
-    // one belong to that one, not this, and the note shows its defaults.
+    // one belong to that one, not this, and the note shows its defaults. A Space
+    // press holds the page in the hand, and another Scene is another page, so
+    // the pan goes with it, and with the word it was naming in the status bar.
     this.#endEdits();
+    this.#gestures.endSpacePan();
     this.#showDefaultRoughness();
     this.#refresh();
   }
