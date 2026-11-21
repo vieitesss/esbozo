@@ -1978,6 +1978,9 @@ class EsbozoEditorElement extends HTMLElement {
       return;
     }
     const box = this.#pageBox(labelInkBounds(words));
+    // The dashes stand a little outside the words and are the selection's: no
+    // press lands on them. The box the words paint is what a press takes, so it
+    // is the one that says what a press there does.
     this.#appendRect(overlay, {
       x: box.x - LABEL_CUE_GAP,
       y: box.y - LABEL_CUE_GAP,
@@ -1985,6 +1988,7 @@ class EsbozoEditorElement extends HTMLElement {
       height: box.height + LABEL_CUE_GAP * 2,
       class: 'label-cue',
     });
+    this.#appendRect(overlay, { ...box, class: 'label-grab' });
   }
 
   #appendRect(

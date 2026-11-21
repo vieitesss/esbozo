@@ -138,13 +138,23 @@ esbozo-editor .selection {
 }
 
 /* A selected shaft's Label: faint, so the words read as something a press
-   carries and not as another Element the selection chose. The pointer over them
-   says what a press there does. */
+   carries and not as another Element the selection chose. The dashes stand
+   outside the words, so they are no part of what a press takes: the box the
+   words paint says what a press there does. */
 esbozo-editor .label-cue {
   fill: none;
   stroke: var(--sel);
   stroke-width: 1;
   stroke-dasharray: 2 4;
+  pointer-events: none;
+}
+
+/* The words themselves, as the box a press on them takes: the pointer over them
+   is the grab a drag starts from, and nothing outside them advertises one. */
+esbozo-editor .label-grab {
+  fill: transparent;
+  stroke: none;
+  pointer-events: fill;
   cursor: grab;
 }
 

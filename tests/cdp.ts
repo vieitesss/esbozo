@@ -23,6 +23,10 @@
  *   of its blink, so a pixel test cannot say where it is; the page draws it still
  *   when the person asked for less motion (`prefers-reduced-motion: reduce`),
  *   and `stillCaret` asks for exactly that.
+ * - **A hover's cursor.** The pointer a person sees is the browser's own answer
+ *   to where it is: no event carries it and no screenshot shows it, so a page
+ *   that advertises a grab where nothing can be grabbed is invisible to role and
+ *   pixel alike. `cursorAt` asks the browser what it would show there.
  *
  * Driving the page out of band is what the engine documents `surfaceOf` for: the
  * harness stays the notary for what it witnesses, and a test that needs more
@@ -216,4 +220,22 @@ export async function stillCaret(): Promise<void> {
   await cdp.send('Emulation.setEmulatedMedia', {
     features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
   });
+}
+
+/**
+ * The cursor the browser shows at a point, as its own name (`grab`, `default`):
+ * the pointer a person reads off the screen, which no event carries and no
+ * screenshot catches. Only the shape the pointer takes is read — never the
+ * element under it, nor the box it is drawn in.
+ */
+export async function cursorAt(point: { x: number; y: number }): Promise<string | null> {
+  const cdp = await session();
+  const answer = (await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const under = document.elementFromPoint(${point.x}, ${point.y});
+      return under === null ? null : getComputedStyle(under).cursor;
+    })()`,
+    returnByValue: true,
+  })) as { result?: { value?: unknown } };
+  return typeof answer.result?.value === 'string' ? answer.result.value : null;
 }

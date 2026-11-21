@@ -57,7 +57,7 @@ import {
   settle,
 } from './helpers.ts';
 import type { Ui, View } from './helpers.ts';
-import { imeCommit, imeCompose, insertText, livePage, stillCaret } from './cdp.ts';
+import { cursorAt, imeCommit, imeCompose, insertText, livePage, stillCaret } from './cdp.ts';
 import { shot } from './pixels.ts';
 import type { Rect, Shot } from './pixels.ts';
 
@@ -2419,6 +2419,39 @@ describe('labels', () => {
     ]);
     // The words keep the place on their own shaft that they had.
     expect(scene.elements[0]?.labelAt).toEqual({ t: 0.5, offset: 40 });
+  });
+
+  test('a selected shaft offers the grab on its words, and nowhere the words are not', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'labelled.json': LABELLED_SOURCE } }, 'labelled.json');
+
+    // A press on the shaft selects it: from then on its words are something a
+    // press can carry, and the pointer over them says so.
+    await clickScene(ui, { x: 150, y: 200 }, [], LABELLED);
+    const words = at({ x: 300, y: 139 }, LABELLED);
+    await browser.mouse.move(words.x, words.y);
+    expect(await cursorAt(words)).toBe('grab');
+
+    // A pixel off them, inside the dashed mark that says where they are, a press
+    // would grab nothing: the mark says where, and the words are what is taken.
+    const beside = at({ x: 300, y: 124 }, LABELLED);
+    await browser.mouse.move(beside.x, beside.y);
+    expect(await cursorAt(beside)).not.toBe('grab');
+
+    // A drag from where the grab showed carries the words: 20px further to the
+    // side they already sit on, with the fraction along their shaft unchanged.
+    await browser.mouse.move(words.x, words.y);
+    await browser.mouse.down();
+    await browser.mouse.move(words.x, words.y - 20);
+    await browser.mouse.up();
+    expect((await savedScene(ui, 'labelled.json')).elements[0]?.labelAt).toEqual({
+      t: 0.5,
+      offset: 81,
+    });
   });
 
   test('a Label dragged after the shaft moved and reshaped keeps to the side the page draws', async ({
