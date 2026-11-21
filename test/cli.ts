@@ -58,7 +58,30 @@ export interface Serve {
   readonly folder: string;
   /** The line `ez serve` printed when it started, as it printed it. */
   readonly startup: string;
+  /** The build that line names. */
+  readonly build: string;
+  /** When that build was made, or `null` when the CLI ran from source. */
+  readonly builtAt: string | null;
   stop(): Promise<void>;
+}
+
+/**
+ * The startup line, read once and anchored at its end: `serving <folder> on
+ * <url>/[ (read-only)] (build <id>[, <time>])`. A folder whose own name holds a
+ * `(build ...)` is part of the folder, not the end of the line, so it answers
+ * nothing.
+ */
+function readStartup(
+  line: string,
+): { url: string; build: string; builtAt: string | null } | null {
+  const found =
+    /^serving .+ on (http:\/\/\S+?)\/(?: \(read-only\))? \(build (\S+?)(?:, (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z))?\)$/.exec(
+      line,
+    );
+  if (found === null) {
+    return null;
+  }
+  return { url: found[1]!.replace(/\/$/, ''), build: found[2]!, builtAt: found[3] ?? null };
 }
 
 /**
@@ -85,31 +108,30 @@ export async function startServe(
   child.stdout!.on('data', (chunk: string) => (stdout += chunk));
   child.stderr!.on('data', (chunk: string) => (stderr += chunk));
 
-  const { startup, url } = await new Promise<{ startup: string; url: string }>((resolve_, reject) => {
+  const started = await new Promise<Omit<Serve, 'folder' | 'stop'>>((resolve_, reject) => {
     const onData = (): void => {
-      // Pipe chunks are not lines. Capture the URL only after the build id has arrived too.
+      // Pipe chunks are not lines. Read the whole line once it has arrived.
       const end = stdout.indexOf('\n');
       if (end === -1) {
         return;
       }
       child.stdout!.off('data', onData);
-      const line = stdout.slice(0, end);
-      const url = /^serving .+ on (http:\/\/\S+)/.exec(line)?.[1];
-      if (url === undefined) {
+      const startup = stdout.slice(0, end);
+      const read = readStartup(startup);
+      if (read === null) {
         child.kill('SIGTERM');
-        reject(new Error(`ez serve printed no startup URL: ${line}`));
+        reject(new Error(`ez serve printed no startup line: ${startup}`));
         return;
       }
-      resolve_({ startup: line, url: url.replace(/\/$/, '') });
+      resolve_({ startup, ...read });
     };
     child.stdout!.on('data', onData);
     child.once('exit', (code) => reject(new Error(`ez serve exited ${code}: ${stderr || stdout}`)));
   });
 
   return {
-    url,
+    ...started,
     folder,
-    startup,
     async stop(): Promise<void> {
       if (child.exitCode !== null) {
         return;

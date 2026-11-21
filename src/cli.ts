@@ -59,7 +59,7 @@
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BUILD } from './build-id.js';
+import { BUILD, BUILT_AT } from './build-id.js';
 import { sceneStem, svgFileName } from './paths.js';
 import { parseScene } from './scene.js';
 import { renderScene } from './renderer.js';
@@ -347,7 +347,10 @@ async function runServe(argv: readonly string[]): Promise<number> {
   }
 
   const mode = running.readOnly ? ' (read-only)' : '';
-  process.stdout.write(`serving ${running.folder} on ${running.url}/${mode} (build ${BUILD})\n`);
+  // The build, and when it was made: two builds of one commit are told apart by
+  // their time. A run from source is no build, so it dates nothing.
+  const build = BUILT_AT === null ? `build ${BUILD}` : `build ${BUILD}, ${BUILT_AT}`;
+  process.stdout.write(`serving ${running.folder} on ${running.url}/${mode} (${build})\n`);
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => void running.close());
   }

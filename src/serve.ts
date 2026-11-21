@@ -8,7 +8,8 @@
  *
  *   GET  /api/scenes                  the folder's name, its Scene file names
  *                                     and whether writes are refused
- *   GET  /api/health                  the build this server is, as { "build": "<id>" }
+ *   GET  /api/health                  the build this server is, as
+ *                                     { "build": "<id>", "builtAt": "<time>" }
  *   GET  /api/scenes/<name>           200 with the Scene source, or 404
  *   PUT  /api/scenes/<name>           { "scene": "<source>", "svg": "<source>" }
  *   POST /api/scenes/<name>           the same write, for a client that posts
@@ -37,7 +38,7 @@ import { createServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { basename, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BUILD } from './build-id.js';
+import { BUILD, BUILT_AT } from './build-id.js';
 import { PAGE_ASSETS } from './page-assets.js';
 import { listedAsScene, MAX_LISTED_SCENE_BYTES, sceneExtension, svgFileName } from './paths.js';
 import { SCENES_API, sceneWrite } from './scenes-api.js';
@@ -170,7 +171,8 @@ async function handle(
       sendJson(response, 405, { error: 'use GET' });
       return;
     }
-    sendJson(response, 200, { build: BUILD });
+    // A run from source dates nothing, so it has no `builtAt` to answer with.
+    sendJson(response, 200, BUILT_AT === null ? { build: BUILD } : { build: BUILD, builtAt: BUILT_AT });
     return;
   }
   if (pathname === SCENES_API || pathname === `${SCENES_API}/`) {

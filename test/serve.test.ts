@@ -8,12 +8,13 @@
  */
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { chmod, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, cp, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { request as httpRequest } from 'node:http';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { brotliDecompressSync, gunzipSync } from 'node:zlib';
-import { buildId } from '../src/build-id.ts';
+import { BUILD, BUILT_AT, buildId, buildTime } from '../src/build-id.ts';
 import { PAGE_ASSETS } from '../src/page-assets.ts';
 import { MAX_LISTED_SCENE_BYTES } from '../src/paths.ts';
 import { promisify } from 'node:util';
@@ -21,6 +22,9 @@ import { ez, sceneFolder, startServe, tempFolder } from './cli.ts';
 import type { Serve } from './cli.ts';
 
 const run = promisify(execFile);
+
+/** The repository these sources live in, which a build of its own is copied from. */
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 const SCENE = {
   version: 1,
@@ -889,16 +893,19 @@ test('a folder it cannot read, a taken port and a bad argument are told apart', 
   }
 });
 
-test('the startup line names the build it serves, so a stale server is told apart', async () => {
+test('the startup line names and dates the build it serves, so a stale server is told apart', async () => {
   const server = await served(await sceneFolder(SCENE));
-  assert.match(server.startup, /^serving .+ on http:\/\/\S+ \(build \S+\)$/);
+  assert.match(
+    server.startup,
+    /^serving .+ on http:\/\/\S+ \(build \S+, \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\)$/,
+  );
 });
 
 test('the health route answers the build the server was started with', async () => {
   const server = await served(await sceneFolder(SCENE));
   const answer = await request(server, '/api/health');
   assert.equal(answer.status, 200);
-  assert.equal(answer.body, JSON.stringify({ build: buildOn(server.startup) }));
+  assert.equal(answer.body, JSON.stringify({ build: server.build, builtAt: server.builtAt }));
 
   // A method other than GET is refused like every other route that only reads.
   assert.deepEqual(await request(server, '/api/health', 'PUT'), {
@@ -907,11 +914,71 @@ test('the health route answers the build the server was started with', async () 
   });
 });
 
-/** The build id the startup line carries, from its trailing `(build <id>)`. */
-function buildOn(startup: string): string {
-  const found = /\(build (\S+)\)/.exec(startup);
-  assert.ok(found !== null, `the startup line names no build: ${startup}`);
-  return found[1]!;
+test('a folder named like a build does not decide which build is served', async () => {
+  const folder = await tempFolder('esbozo-(build deadbee, 2020-01-01T00:00:00Z)-');
+  await writeFile(join(folder, 'scene.json'), SCENE_SOURCE, 'utf8');
+  const server = await served(folder);
+
+  const answer = JSON.parse((await request(server, '/api/health')).body) as { build: string };
+  assert.notEqual(answer.build, 'deadbee', 'the folder name is not the build');
+  assert.equal(server.build, answer.build, 'the line the CLI printed names the build the server answers with');
+  assert.equal(server.builtAt, JSON.parse((await request(server, '/api/health')).body).builtAt);
+});
+
+/**
+ * The build is only what it stamps: a repo whose commit nobody has written down
+ * here answers with the commit git names and the moment the build ran. The
+ * sources are built in a copy with a git history of their own, so the answer
+ * cannot come from this checkout's HEAD.
+ */
+test('a build stamps the commit it was built from, and the server serves that build', async () => {
+  const source = await committedSources();
+  const commit = (await run('git', ['rev-parse', '--short', 'HEAD'], { cwd: source })).stdout.trim();
+  const built = Date.now();
+  await run('node', ['scripts/build.mjs'], { cwd: source });
+
+  const server = await startServe(await sceneFolder(SCENE), [], join(source, 'dist', 'cli.js'));
+  running.push(server);
+
+  assert.equal(server.build, commit, 'the stamped id is the commit the build was made from');
+  assert.match(
+    server.builtAt ?? '',
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/,
+    'the stamp is ISO-8601 UTC to the second',
+  );
+  assert.ok(
+    Math.abs(Date.parse(server.builtAt ?? '') - built) < 5 * 60_000,
+    `the stamp ${server.builtAt} is not when this build ran`,
+  );
+  assert.equal(
+    (await request(server, '/api/health')).body,
+    JSON.stringify({ build: commit, builtAt: server.builtAt }),
+    'the health route answers the build the CLI was stamped with',
+  );
+});
+
+/**
+ * The sources committed to a git repo of their own, with this repository's
+ * dependencies linked in: the build runs for real, and the one every other
+ * suite spawns from is never rewritten underneath it.
+ */
+async function committedSources(): Promise<string> {
+  const folder = await tempFolder('esbozo-build-');
+  for (const path of ['package.json', 'scripts', 'src', 'fonts']) {
+    await cp(join(ROOT, path), join(folder, path), { recursive: true });
+  }
+  await symlink(join(ROOT, 'node_modules'), join(folder, 'node_modules'), 'dir');
+  // What the build writes and what it reads are not the commit: a tree with a
+  // `dist` in it would stamp the build `-dirty`.
+  await writeFile(join(folder, '.gitignore'), 'node_modules\ndist\n', 'utf8');
+  await run('git', ['init', '-q'], { cwd: folder });
+  await run('git', ['add', '-A'], { cwd: folder });
+  await run(
+    'git',
+    ['-c', 'user.name=esbozo', '-c', 'user.email=esbozo@example.invalid', 'commit', '-q', '-m', 'the sources'],
+    { cwd: folder },
+  );
+  return folder;
 }
 
 test('a build outside a git checkout is unknown, not a failed build', () => {
@@ -922,6 +989,16 @@ test('a build outside a git checkout is unknown, not a failed build', () => {
   assert.equal(buildId(answers('abc1234\n', '')), 'abc1234');
   assert.equal(buildId(answers('abc1234\n', ' M src/serve.ts\n')), 'abc1234-dirty');
   assert.equal(buildId(answers('abc1234\n', null)), 'unknown');
+});
+
+test('a build writes the time it was made, ISO-8601 UTC to the second', () => {
+  assert.equal(buildTime(new Date('2024-06-01T12:34:56.789Z')), '2024-06-01T12:34:56Z');
+  assert.equal(buildTime(new Date('2024-12-31T23:59:59.000Z')), '2024-12-31T23:59:59Z');
+});
+
+test('a CLI run from source is dev and carries no build time', () => {
+  assert.equal(BUILD, 'dev');
+  assert.equal(BUILT_AT, null);
 });
 
 async function assertMissing(path: string): Promise<void> {

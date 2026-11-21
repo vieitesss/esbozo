@@ -46,7 +46,7 @@ The editor is a custom element, `<esbozo-editor>`, built into `dist/` with the C
 The way to use it is `ez serve`:
 
 ```sh
-ez serve ./diagrams          # serving /abs/path/diagrams on http://127.0.0.1:4320/ (build 1a2b3c4)
+ez serve ./diagrams          # serving /abs/path/diagrams on http://127.0.0.1:4320/ (build 1a2b3c4, 2024-06-01T12:34:56Z)
 ez serve ./diagrams --port 0 # let the system pick the port, and read it from the line it prints
 ez serve ./diagrams --read-only
 ```

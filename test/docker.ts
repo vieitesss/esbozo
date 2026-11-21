@@ -274,5 +274,8 @@ test('a later --host wins over the one the image passes', { skip }, async () => 
   const folder = await tempFolder();
   const container = await start(folder, { args: ['--host', '127.0.0.1'], reachable: false });
 
-  assert.match(await servedOn(container), /^serving .* on http:\/\/127\.0\.0\.1:4320\/ \(build \S+\)$/);
+  assert.match(
+    await servedOn(container),
+    /^serving .* on http:\/\/127\.0\.0\.1:4320\/ \(build \S+, \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\)$/,
+  );
 });
