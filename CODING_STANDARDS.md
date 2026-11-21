@@ -9,7 +9,7 @@ Judgement-call rules for code and tests. Mechanical checks (lint, unused exports
 - **Small, framework-free footprint:** keep runtime dependencies to `roughjs`, `opentype.js`, and `@resvg/resvg-wasm` (CLI PNG only); every new dependency requires explicit approval.
 - **Glossary discipline:** use the terms in `GLOSSARY.md` (`Scene`, `Element`, `Label`, `Text`, `Snap`, `Grid`) across identifiers, UI copy, tests, and docs so one vocabulary spans the codebase.
 - **Grid and Snap separation:** Grid is a visual guide only and Elements move freely; Snap applies only to arrow and line ends as a per-end option (attached or free, set in the style menu) with target highlighting and `Alt` to skip Snap for one drag.
-- **CSS-variable theming and external editor font:** SVGs take colours and font solely from `--ink`, `--paper`, `--muted`, and `--font-hand`, with no scripts or external references; the editor bundle loads its font from the host URL rather than embedding Kalam.
+- **CSS-variable theming and external editor font:** SVGs take colours and font solely from `--ink`, `--paper`, `--muted`, and `--font-hand`, each with the light theme's value as its own fallback so a saved SVG opened with no stylesheet still draws, and with no scripts or external references; the editor bundle loads its font from the host URL rather than embedding Kalam.
 - **Plain-text CLI and local-first server:** `ez` commands print plain text with distinct non-zero exit codes, and `ez serve` binds to `127.0.0.1` by default with no built-in authentication.
 
 ## Testing

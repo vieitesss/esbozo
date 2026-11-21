@@ -71,7 +71,7 @@ vertical shaft). That is the middle of the ink for a two-point arrow or line, an
 the middle of the gap rather than of the ink for a bent one. Place the words with
 `labelAt` on a bent one.
 
-Every shaft Label sits on paper: the Renderer draws `var(--paper)` behind its
+Every shaft Label sits on paper: the Renderer draws `var(--paper, #fbf8f1)` behind its
 words, so a Label placed over its own shaft — or over anything else — is read
 against paper rather than through what runs under it. That holds in the SVG,
 both PNG themes and the editor.
@@ -124,7 +124,7 @@ Every Element accepts every style key, and each type draws the ones that mean so
 - Arrow and line: `roughness`, `stroke`, `tone`, `corners` for their bend points, and `fontSize` for the Label. They have no fill and no `textAlign` effect: their Label sits on the shaft, placed by `labelAt` when one is written.
 - Text: `tone`, `fontSize` and `textAlign`.
 
-Colours are never written in a Scene. The look comes from the host's CSS variables `--ink`, `--paper`, `--muted` and `--font-hand`; the grey ladder is a fixed mix of ink into paper. There is no opacity, rotation, image, group or frame.
+Colours are never written in a Scene. The look comes from the host's CSS variables `--ink`, `--paper`, `--muted` and `--font-hand`, and each one is written with the light theme's value as its fallback (`var(--ink, #1b1a17)`, `var(--paper, #fbf8f1)`, `var(--muted, #878580)`, `var(--font-hand, 'Kalam', 'Bradley Hand', 'Segoe Print', cursive)`), so a saved SVG opened on its own — or dropped into an `<img>` — still draws paper, ink and words; a host that declares the name wins over the fallback. The grey ladder is a fixed mix of ink into paper. There is no opacity, rotation, image, group or frame.
 
 ## Canonical form
 

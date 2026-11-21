@@ -2,7 +2,7 @@
 
 A small canvas for hand-drawn diagrams, drawn by people and written by agents.
 
-A diagram is a **Scene**: a short JSON file that a person edits in a browser and an agent writes directly. The `ez` command checks a Scene, renders it to an SVG that takes its colours and font from the page's CSS variables (so one file fits light and dark), and renders it to a PNG so an agent can look at its own work.
+A diagram is a **Scene**: a short JSON file that a person edits in a browser and an agent writes directly. The `ez` command checks a Scene, renders it to an SVG that takes its colours and font from the page's CSS variables (so one file fits light and dark) and falls back to the light theme when there is no page around it, and renders it to a PNG so an agent can look at its own work.
 
 Words used here (Scene, Element, Label, Text, Snap, Grid) are defined in [GLOSSARY.md](GLOSSARY.md).
 
