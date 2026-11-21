@@ -116,6 +116,8 @@ const THE_LABEL: Rect = { x: 500, y: 350, width: 300, height: 200 };
  * wrap puts there, and Kalam's shorter wrap leaves bare.
  */
 const LABEL_LOW: Rect = { x: 560, y: 408, width: 170, height: 26 };
+/** Where `SNAPPED_SCENE` draws on the bordered page: the whole drawing and nothing else. */
+const BORDERED_INK: Rect = { x: 300, y: 200, width: 680, height: 400 };
 
 /** Where `WORDS_SCENE`'s Text draws in a full-window editor: its ink and nothing else. */
 const WORDS: Rect = { x: 520, y: 480, width: 240, height: 60 };
@@ -1374,16 +1376,20 @@ test('the pointer measures the paper the view draws on, not the host’s border 
     // on that same paper — a click on the ink has to land on the ink.
     await app.open(`${embed.url}/bordered.html`);
     await expect(screen.getByRole('status')).toHaveText('saved');
+    await settle(ui);
 
-    // Where the arrow's shaft is drawn on the page, read from the drawing.
-    const shaft = (await browser.evaluate(() => {
-      const drawn = document.querySelector('[data-element="link"]')!.getBoundingClientRect();
-      return { x: drawn.left + drawn.width / 2, y: drawn.top + drawn.height / 2 };
-    })) as { x: number; y: number };
-    // The shaft is there: the click below is a click on visible ink.
-    expect(
-      (await shot(ui)).darkCount({ x: shaft.x - 20, y: shaft.y - 2, width: 40, height: 4 }, 0.6),
-    ).toBeGreaterThan(0);
+    // Where the arrow's shaft is drawn, read from the pixels: the Scene's ink
+    // is the left box, the right box and the shaft between them, so the ink
+    // down the middle of that drawing is the shaft and nothing else. Its centre
+    // is a point on the shaft, on ink a person can see.
+    const drawing = await shot(ui);
+    const ink = drawing.darkBounds(BORDERED_INK, 0.6);
+    if (ink === null) {
+      throw new Error('the bordered page shows no ink');
+    }
+    const middle = ink.x + ink.width / 2;
+    const shaft = drawing.darkCentre({ x: middle - 2, y: ink.y, width: 5, height: ink.height }, 0.6);
+    expect(shaft.count).toBeGreaterThan(0);
 
     await browser.mouse.move(shaft.x, shaft.y);
     await browser.mouse.down();
