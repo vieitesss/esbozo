@@ -510,10 +510,12 @@ describe('shortcuts that edit', () => {
     // Draw, move, delete: three actions. The Element's id is the Scene's to
     // choose, so it is read back from the Scene rather than assumed.
     await browser.keyboard.press('r');
-    await drag(ui, at(PAPER), at({ x: PAPER.x + 100, y: PAPER.y + 100 }));
+    // Narrow enough to stay clear of the docked Style menu, which would otherwise
+    // pan the view and carry the page points this suite aims through with it.
+    await drag(ui, at(PAPER), at({ x: PAPER.x + 50, y: PAPER.y + 100 }));
     const drawnId = (await savedScene(ui)).elements[2]?.id ?? '';
     expect(drawnId.length).toBeGreaterThan(0);
-    await dragBy(ui, { x: PAPER.x + 50, y: PAPER.y + 50 }, 20, 0);
+    await dragBy(ui, { x: PAPER.x + 25, y: PAPER.y + 50 }, 20, 0);
     await clickScene(ui, { x: 100, y: 80 });
     await browser.keyboard.press('x');
     const afterDelete = (await savedFiles(ui))['scene.json'];
