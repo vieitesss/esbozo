@@ -8,7 +8,7 @@
  * `{ folder, name }` destination.
  */
 import { createLayout } from '../layout.js';
-import type { Block, GlyphBoundaries, Layout, Metrics } from '../layout.js';
+import type { Block, Layout, LineGlyphs, Metrics } from '../layout.js';
 import { drawnShaft, drawnWords, elementBounds, elementsById, outlineBox } from '../renderer.js';
 import {
   emptyScene,
@@ -2409,7 +2409,7 @@ class EsbozoEditorElement extends HTMLElement {
    * them laid them out. The call to `#wordsBlock` has drawn the frame they
    * belong to, so the group asked here is the one holding their ink.
    */
-  #wordsGlyphs(words: Block): GlyphBoundaries {
+  #wordsGlyphs(words: Block): LineGlyphs {
     const id = this.#editing?.id ?? this.#draft?.id;
     const group = id === undefined ? null : (this.#groups.get(id)?.node ?? null);
     return drawnGlyphs(group, words);
@@ -2429,7 +2429,7 @@ class EsbozoEditorElement extends HTMLElement {
     const glyphs = this.#wordsGlyphs(block);
     const caret = this.#layout.caret(block, this.#shift.drawn(state.caret), glyphs);
     const middle = caret.y + caret.height / 2;
-    const xs = glyphs(block.lines[caret.line]!);
+    const { boundaries: xs } = glyphs(block.lines[caret.line]!);
     // The lines are the Layout's own boxes, one line height each: half a line
     // above or below the caret's middle is the middle of its neighbour. Home
     // and End ask from the line's own first and last glyph boundary, so which

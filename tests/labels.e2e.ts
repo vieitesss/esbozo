@@ -40,7 +40,7 @@ import {
 } from './helpers.ts';
 import { imeCommit, imeCompose, livePage, stillCaret } from './cdp.ts';
 import { shot } from './pixels.ts';
-import type { Rect } from './pixels.ts';
+import type { Rect, Shot } from './pixels.ts';
 
 const SCENE_SOURCE = JSON.stringify(SCENE, null, 2);
 const MIXED_SOURCE = JSON.stringify(MIXED_SCENE, null, 2);
@@ -71,6 +71,9 @@ const ONE_LETTER = 'w';
 
 /** Words that read right to left, in a font Kalam has no glyphs for. */
 const RTL_WORDS = 'שלום עולם';
+
+/** A line that mixes both directions: the Hebrew run in the middle is drawn the other way round. */
+const MIXED_WORDS = 'abc אבג xyz';
 
 /** Where an empty Scene's first Text lands, and the room its words take there. */
 const TYPED: Rect = { x: 500, y: 320, width: 260, height: 90 };
@@ -112,6 +115,33 @@ const INK_ONLY = 0.13;
  * only ink that can be in here.
  */
 const INSIDE: Rect = { x: 517, y: 346, width: 106, height: 66 };
+
+/** A gap narrower than this is the room between two letters, not between two words. */
+const LETTER_GAP = 4;
+
+/**
+ * The words a line of ink is made of, left to right: the runs of its glyphs,
+ * with the narrow gaps between letters closed and the wider spaces between
+ * words kept. It answers where each word is drawn, whatever it says and
+ * whichever way it reads.
+ */
+function wordRuns(view: Shot, line: Rect, threshold: number): Rect[] {
+  const words: Rect[] = [];
+  let open: Rect | null = null;
+  for (let x = Math.floor(line.x); x < line.x + line.width; x += 1) {
+    const written = view.darkCount({ x, y: line.y, width: 1, height: line.height }, threshold) > 0;
+    if (!written) {
+      continue;
+    }
+    if (open !== null && x - (open.x + open.width) < LETTER_GAP) {
+      open.width = x - open.x + 1;
+      continue;
+    }
+    open = { x, y: line.y, width: 1, height: line.height };
+    words.push(open);
+  }
+  return words;
+}
 
 describe('labels', () => {
   test('double-clicking a box Element types its Label in place, and the Scene keeps the words', async ({
@@ -1091,6 +1121,69 @@ describe('labels', () => {
     await label.press('Escape');
 
     expect((await savedScene(ui, 'words.json')).elements[0]?.label).toBe(`${RTL_WORDS}X`);
+  });
+
+  test('a run that reads the other way is selected and pressed by the box its glyphs make', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+    // Bare paper right of both boxes: the only ink there is the words this test
+    // places, and no Grid dot is dark enough to be mistaken for their wash.
+    await browser.keyboard.press('g');
+
+    await browser.keyboard.press('t');
+    await clickScene(ui, { x: 420, y: 300 });
+    const text = screen.getByRole('textbox', { name: 'Text' });
+    await text.fill(MIXED_WORDS);
+    await text.press('Escape');
+    // A press on the paper clears the selection, so the runs of ink are the
+    // line's own: no caret, and no box around a selected Element, is in them.
+    await clickScene(ui, { x: 30, y: 400 });
+
+    const plain = await shot(ui);
+    const line = plain.darkBounds({ x: 860, y: 585, width: 240, height: 60 }, DARK) as Rect;
+    const words = wordRuns(plain, line, DARK);
+    expect(words).toHaveLength(3);
+    const [latin, hebrew, tail] = words as [Rect, Rect, Rect];
+    expect(latin.x + latin.width).toBeLessThan(hebrew.x);
+    expect(hebrew.x + hebrew.width).toBeLessThan(tail.x);
+
+    // The words open where they are drawn, and a drag across the Hebrew run
+    // takes it. A highlight read from two logical endpoints of a run drawn the
+    // other way round is the width of one glyph, or none at all.
+    await doubleClickScene(ui, { x: hebrew.x + hebrew.width / 2 - 470, y: 310 });
+    const y = hebrew.y + hebrew.height / 2;
+    await browser.mouse.move(hebrew.x + 1, y);
+    await browser.mouse.down();
+    await browser.mouse.move(hebrew.x + hebrew.width - 1, y);
+    await browser.mouse.up();
+
+    // The wash is read from the strip under the glyphs' own ink, in the bottom
+    // few pixels of the line: the highlight covers the whole line box, so a
+    // box that holds the run and one that holds two of its letters differ there
+    // without a glyph covering the difference.
+    const wash = (await shot(ui)).darkBounds(
+      { x: hebrew.x - 6, y: hebrew.y + hebrew.height + 1, width: hebrew.width + 12, height: 3 },
+      0.9,
+    );
+    expect(wash).not.toBeNull();
+    expect(Math.abs((wash as Rect).x - hebrew.x)).toBeLessThan(6);
+    expect((wash as Rect).width).toBeGreaterThan(hebrew.width - 2);
+    expect((wash as Rect).width).toBeLessThan(line.width / 2);
+
+    // The left end of the run is the offset after its last letter, so a letter
+    // typed there goes after the Hebrew word and not inside it.
+    await browser.mouse.move(hebrew.x + 1, y);
+    await browser.mouse.down();
+    await browser.mouse.up();
+    await text.pressSequentially('X');
+    await text.press('Escape');
+
+    const typed = (await savedScene(ui)).elements.find((element) => element.type === 'text');
+    expect(typed?.content).toBe('abc אבגX xyz');
   });
 
   test('a caret walked back through the words moves alone, and keeps the boxes around them', async ({

@@ -13,7 +13,7 @@ import { test } from 'node:test';
 import opentype from 'opentype.js';
 import { fontBytes } from './fonts.ts';
 import { loadProjectModules } from './modules.ts';
-import type { Block, Box, GlyphBoundaries, Shaft } from '../src/layout.ts';
+import type { Block, Box, LineGlyphs, Shaft } from '../src/layout.ts';
 import type { Element, Point, TextElement } from '../src/scene.ts';
 
 const { parseScene, createLayout, parseFontFile, KALAM } = await loadProjectModules();
@@ -402,16 +402,22 @@ test('an Element without a Label, a Text and an arrow come back unchanged', () =
  * engine lays them out: the font's advance for the prefix, from the line's own
  * left edge. A browser answers with the same numbers for the element it drew —
  * a fallback font and the words' direction included — and Layout reads that
- * answer rather than measuring glyphs of its own.
+ * answer rather than measuring glyphs of its own. Each glyph's box is the room
+ * between the two boundaries that name it.
  */
-function glyphs(block: Block): GlyphBoundaries {
+function glyphs(block: Block): LineGlyphs {
   return (line) => {
     const width = kalamAdvance(line.text, block.size);
     const left =
       block.anchor === 'start' ? line.x : block.anchor === 'middle' ? line.x - width / 2 : line.x - width;
-    return Array.from({ length: line.text.length + 1 }, (_, column) =>
+    const boundaries = Array.from({ length: line.text.length + 1 }, (_, column) =>
       left + kalamAdvance(line.text.slice(0, column), block.size),
     );
+    const boxes = boundaries.slice(0, -1).map((one, index) => {
+      const other = boundaries[index + 1]!;
+      return { left: Math.min(one, other), right: Math.max(one, other) };
+    });
+    return { boundaries, glyphs: boxes };
   };
 }
 
@@ -592,11 +598,17 @@ test('words that read right to left put their boundaries the other way', () => {
   const block = LAYOUT.text(words(content));
   const middle = block.y + block.height / 2;
   const width = kalamAdvance(content, block.size);
-  const rightToLeft: GlyphBoundaries = () =>
-    Array.from(
+  const rightToLeft: LineGlyphs = () => {
+    const boundaries = Array.from(
       { length: content.length + 1 },
       (_, column) => block.x + width - kalamAdvance(content.slice(0, column), block.size),
     );
+    const boxes = boundaries.slice(0, -1).map((one, index) => {
+      const other = boundaries[index + 1]!;
+      return { left: Math.min(one, other), right: Math.max(one, other) };
+    });
+    return { boundaries, glyphs: boxes };
+  };
 
   assert.equal(LAYOUT.caret(block, 0, rightToLeft).x, block.x + width, 'the caret starts at the right edge');
   assert.equal(LAYOUT.caret(block, content.length, rightToLeft).x, block.x, 'and ends at the left one');
@@ -620,4 +632,58 @@ test('words that read right to left put their boundaries the other way', () => {
     0,
     'and their right is their start',
   );
+});
+
+test('a run that reads the other way is drawn as its own box, and a press on it lands at its end', () => {
+  // A mixed line as a browser lays it out: `abc ` from the left, the Hebrew run
+  // right to left in the room after it, then ` xyz` again from the left. The
+  // boundary after the Hebrew run and the boundary before it stand at the same
+  // x, which is the whole of why two logical endpoints are no box.
+  const content = 'abc אבג xyz';
+  const block = LAYOUT.text(words(content));
+  const x = block.x;
+  const mixed: LineGlyphs = () => ({
+    boundaries: [0, 10, 20, 30, 70, 60, 50, 70, 80, 90, 100, 110].map((at) => x + at),
+    glyphs: [
+      { left: x + 0, right: x + 10 },
+      { left: x + 10, right: x + 20 },
+      { left: x + 20, right: x + 30 },
+      { left: x + 30, right: x + 40 },
+      { left: x + 60, right: x + 70 },
+      { left: x + 50, right: x + 60 },
+      { left: x + 40, right: x + 50 },
+      { left: x + 70, right: x + 80 },
+      { left: x + 80, right: x + 90 },
+      { left: x + 90, right: x + 100 },
+      { left: x + 100, right: x + 110 },
+    ],
+  });
+  const middle = block.y + block.height / 2;
+
+  // The Hebrew word is one box of its own: the ink its glyphs cover, not the
+  // span between the boundary before it and the boundary after it.
+  assert.deepEqual(LAYOUT.selection(block, 4, 7, mixed), [
+    { x: x + 40, y: block.y, width: 30, height: block.height },
+  ]);
+
+  // A selection that reaches across a gap is one box per run of ink, so the
+  // space before the Hebrew run is not drawn as if it reached the run's start.
+  const across = LAYOUT.selection(block, 3, 5, mixed);
+  assert.deepEqual(
+    across.map((box) => [box.x - x, box.width]),
+    [
+      [30, 10],
+      [60, 10],
+    ],
+    'the space and the letter after it, each in its own place',
+  );
+
+  // A press on the left end of that run names the offset after its last letter,
+  // and a press on the right end names the offset before its first one.
+  assert.equal(LAYOUT.offsetAt(block, { x: x + 41, y: middle }, mixed), 7, 'left is after the run');
+  assert.equal(LAYOUT.offsetAt(block, { x: x + 69, y: middle }, mixed), 4, 'right is before it');
+  // The caret for either of those offsets stands at the run's right edge, where
+  // the boundary between the two runs is drawn.
+  assert.equal(LAYOUT.caret(block, 7, mixed).x, x + 70);
+  assert.equal(LAYOUT.caret(block, 4, mixed).x, x + 70);
 });
