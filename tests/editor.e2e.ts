@@ -1186,17 +1186,14 @@ test('the menu offers only the controls the selection can use', async ({ app, br
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'scene.json': MIXED_SOURCE } }, 'scene.json');
 
-  // An arrow is a stroke: heads, no fill, no corners, nothing to roughen.
+  // An arrow is a stroke: heads, no fill, no corners, and words that take a size
+  // and an alignment of their own on the block the shaft gives them.
   await clickScene(ui, { x: 200, y: 280 }, [], MIXED);
   await expect(control(ui, 'Head ←: dot')).toBeVisible();
   await expect(control(ui, 'Head →: bar')).toBeVisible();
   await expect(control(ui, 'Rough: cartoonist')).toBeVisible();
-  await expectNoControl(ui, [
-    'Fill: hachure',
-    'Grey: grey 5',
-    'Corners: round',
-    'Align: left',
-  ]);
+  await expect(control(ui, 'Align: centre')).toBeVisible();
+  await expectNoControl(ui, ['Fill: hachure', 'Grey: grey 5', 'Corners: round']);
 
   await control(ui, 'Head ←: dot').click();
   await control(ui, 'Head →: bar').click();
@@ -1222,7 +1219,7 @@ test('the menu offers only the controls the selection can use', async ({ app, br
   });
 });
 
-test('Align is offered for words and boxes, and hidden when the selection holds a shaft', async ({ app, browser, screen }) => {
+test('Align is offered for words and boxes, a shaft’s Label among them', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'scene.json': MIXED_SOURCE } }, 'scene.json');
 
@@ -1231,15 +1228,18 @@ test('Align is offered for words and boxes, and hidden when the selection holds 
   await clickScene(ui, { x: 277, y: 110 }, ['Shift'], MIXED);
   await expect(control(ui, 'Align: right')).toBeVisible();
   await control(ui, 'Align: right').click();
-  const scene = await savedScene(ui);
-  const saved = new Map(scene.elements.map((element) => [element.id, element]));
+  let scene = await savedScene(ui);
+  let saved = new Map(scene.elements.map((element) => [element.id, element]));
   expect([saved.get('oval')?.textAlign, saved.get('word')?.textAlign]).toEqual(['right', 'right']);
 
-  // Adding the arrow takes Align away: a shaft's Label is always centred, so
-  // the pick would save a value the drawing never shows. Size still applies.
-  await clickScene(ui, { x: 200, y: 280 }, ['Shift'], MIXED);
-  await expectNoControl(ui, ['Align: left', 'Align: centre', 'Align: right']);
+  // A shaft's Label takes one too: its lines read from the edge the pick names.
+  await clickScene(ui, { x: 200, y: 280 }, [], MIXED);
+  await expect(control(ui, 'Align: centre')).toBeVisible();
   await expect(control(ui, 'Size: L')).toBeVisible();
+  await control(ui, 'Align: left').click();
+  scene = await savedScene(ui);
+  saved = new Map(scene.elements.map((element) => [element.id, element]));
+  expect(saved.get('shaft')?.textAlign).toBe('left');
 });
 
 test('a pick writes to every selected Element, and a row that shares no value says mixed', async ({ app, browser, screen }) => {

@@ -16,8 +16,8 @@
  * pick writes the same value into all of them: a Text has no outline to
  * roughen, an arrow has no fill, and an ellipse has no corners to round. Font
  * size is offered to every Element, because every Element draws words (#4 gives
- * them Labels); alignment is not offered for an arrow or line, because a shaft's
- * Label is always centred on its middle and the value would never show.
+ * them Labels); alignment is offered to every Element too, and a shaft's Label
+ * lines up its own lines with it.
  */
 import {
   CORNERS,
@@ -236,9 +236,9 @@ const CONTROLS: readonly StyleControl[] = [
     key: 'textAlign',
     label: 'Align',
     choices: choicesOf(TEXT_ALIGNS, ALIGN_NAMES),
-    // A shaft's Label is centred on its middle whatever this says, so the pick
-    // would save a value the drawing never shows.
-    usable: (element) => !ended(element),
+    // Every Element's words take an alignment: a box Label and a Text inside
+    // their box, and a shaft's Label inside the block the shaft gives it.
+    usable: () => true,
     read: (element) => element.textAlign,
     write: (element, value) => ({
       ...element,

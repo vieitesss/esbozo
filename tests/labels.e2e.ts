@@ -173,6 +173,63 @@ const UNDER_FILL: Rect = { x: 700, y: 416, width: 16, height: 30 };
 /** A single letter: enough words to have ink, and no more. */
 const ONE_LETTER = 'w';
 
+/** An arrow whose Label is two lines of different lengths, so an alignment shows. */
+const ALIGNED_SHAFT_SOURCE = JSON.stringify(
+  {
+    version: 1,
+    title: 'Aligned shaft',
+    defaults: { roughness: 1 },
+    elements: [
+      {
+        id: 'shaft',
+        type: 'arrow',
+        points: [
+          { x: 100, y: 240 },
+          { x: 500, y: 240 },
+        ],
+        label: 'a wider line\ntiny',
+      },
+    ],
+  },
+  null,
+  2,
+);
+
+/**
+ * The view `ALIGNED_SHAFT_SOURCE` lands in: the shaft fitted with the words above
+ * it, so the middle of the shaft, Scene (300, 240), is page (640, 431).
+ */
+const ALIGNED_SHAFT: View = { zoom: 1, panX: 340, panY: 191 };
+
+/**
+ * Room on the page for the Label at any alignment and size: above the shaft's
+ * own ink, and left of the head that ends it.
+ */
+const SHAFT_LABEL_ROOM: Rect = { x: 400, y: 250, width: 400, height: 176 };
+
+/**
+ * The ink of each of the two lines of a shaft's Label, read from the page above
+ * the shaft and split where the two line boxes meet.
+ */
+async function labelLines(ui: Ui): Promise<[Rect, Rect]> {
+  const drawn = await shot(ui);
+  const all = drawn.darkBounds(SHAFT_LABEL_ROOM, DARK);
+  expect(all).not.toBeNull();
+  const words = all as Rect;
+  const split = words.y + words.height / 2;
+  const top = drawn.darkBounds({ ...SHAFT_LABEL_ROOM, height: split - SHAFT_LABEL_ROOM.y }, DARK);
+  const bottom = drawn.darkBounds(
+    { ...SHAFT_LABEL_ROOM, y: split, height: SHAFT_LABEL_ROOM.y + SHAFT_LABEL_ROOM.height - split },
+    DARK,
+  );
+  expect(top).not.toBeNull();
+  expect(bottom).not.toBeNull();
+  return [top as Rect, bottom as Rect];
+}
+
+/** How far apart two places are on each axis: a glyph's own bearing is under a pixel. */
+const apart = (a: number, b: number): number => Math.abs(a - b);
+
 /** Words that read right to left, in a font Kalam has no glyphs for. */
 const RTL_WORDS = 'שלום עולם';
 
@@ -363,6 +420,65 @@ describe('labels', () => {
     await label.press('Escape');
     const saved = await savedScene(ui, 'under.json');
     expect(saved.elements.find((element) => element.id === 'shaft')?.label).toBe('on the line');
+  });
+
+  test("an arrow's Label takes Align and Size from the Style menu, and lines up as it is told", async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'shaft.json': ALIGNED_SHAFT_SOURCE } }, 'shaft.json');
+
+    // Nothing is selected, so no cue is drawn around the words: their own ink is
+    // all there is to measure. Centred is what an unwritten alignment means.
+    const [wide, narrow] = await labelLines(ui);
+    expect(apart(wide.x + wide.width / 2, 640)).toBeLessThan(3);
+    expect(apart(narrow.x + narrow.width / 2, 640)).toBeLessThan(3);
+
+    // A shaft's Label takes an alignment from the Style menu like any other
+    // words, and the pick is what the Scene keeps.
+    await clickScene(ui, { x: 300, y: 240 }, [], ALIGNED_SHAFT);
+    await screen.getByRole('button', { name: 'Align: left' }).click();
+    await settle(ui);
+    expect((await savedScene(ui, 'shaft.json')).elements[0]?.textAlign).toBe('left');
+
+    // Both lines read from the block's left edge, which is left of the middle.
+    await browser.keyboard.press('Escape');
+    await settle(ui);
+    const [leftWide, leftNarrow] = await labelLines(ui);
+    expect(apart(leftWide.x, leftNarrow.x)).toBeLessThan(3);
+    expect(leftWide.x).toBeLessThan(620);
+
+    await clickScene(ui, { x: 300, y: 240 }, [], ALIGNED_SHAFT);
+    await screen.getByRole('button', { name: 'Align: right' }).click();
+    await settle(ui);
+    expect((await savedScene(ui, 'shaft.json')).elements[0]?.textAlign).toBe('right');
+
+    await browser.keyboard.press('Escape');
+    await settle(ui);
+    const [rightWide, rightNarrow] = await labelLines(ui);
+    expect(apart(rightWide.x + rightWide.width, rightNarrow.x + rightNarrow.width)).toBeLessThan(3);
+    expect(rightWide.x + rightWide.width).toBeGreaterThan(660);
+
+    // The size is the Label's too: the words draw larger, and the Scene keeps it.
+    await clickScene(ui, { x: 300, y: 240 }, [], ALIGNED_SHAFT);
+    await screen.getByRole('button', { name: 'Align: centre' }).click();
+    await screen.getByRole('button', { name: 'Size: XL' }).click();
+    await settle(ui);
+    const scaled = await savedScene(ui, 'shaft.json');
+    expect({ textAlign: scaled.elements[0]?.textAlign, fontSize: scaled.elements[0]?.fontSize }).toEqual({
+      textAlign: 'center',
+      fontSize: 'XL',
+    });
+
+    await browser.keyboard.press('Escape');
+    await settle(ui);
+    const [large, small] = await labelLines(ui);
+    expect(large.height).toBeGreaterThan(wide.height * 1.4);
+    expect(large.width).toBeGreaterThan(wide.width * 1.4);
+    expect(apart(large.x + large.width / 2, 640)).toBeLessThan(4);
+    expect(apart(small.x + small.width / 2, 640)).toBeLessThan(4);
   });
 
   test('typing a Label grows its Element downwards, keeping the width the author gave it', async ({
