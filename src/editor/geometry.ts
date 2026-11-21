@@ -9,7 +9,7 @@
  * diagonal arrow's empty corner is bare canvas. Box-select still works on boxes,
  * because a box sweeps up only what it encloses.
  */
-import { drawnShaft, elementBounds, elementsById, inkBounds, pageBounds, strokeWidthOf } from '../renderer.js';
+import { drawnShaft, elementBounds, elementsById, inkBounds, pageBounds, shaftLabel, strokeWidthOf } from '../renderer.js';
 import type { Layout } from '../layout.js';
 import { MIN_SIZE, isOutlined } from '../scene.js';
 import type { Element, Scene } from '../scene.js';
@@ -88,7 +88,7 @@ export function elementAt(
         return element;
       }
       if (words) {
-        const label = layout.label(element, { start, end });
+        const label = shaftLabel(element, byId, layout);
         if (label !== null && holds(label, point)) {
           return element;
         }

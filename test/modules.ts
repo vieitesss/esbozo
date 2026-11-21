@@ -22,6 +22,8 @@ export interface ProjectModules {
   History: typeof import('../src/editor/history.ts').History;
   emptyScene: typeof import('../src/scene.ts').emptyScene;
   renderScene: typeof import('../src/renderer.ts').renderScene;
+  pageBounds: typeof import('../src/renderer.ts').pageBounds;
+  elementAt: typeof import('../src/editor/geometry.ts').elementAt;
   PaintCache: typeof import('../src/editor/paint.ts').PaintCache;
   sceneFile: typeof import('../src/editor/paint.ts').sceneFile;
   createLayout: typeof import('../src/layout.ts').createLayout;
@@ -41,7 +43,8 @@ export async function loadProjectModules(): Promise<ProjectModules> {
     [
       `export { parseScene, serialiseScene, hashScene, emptyScene, serialiseFragment, parseFragment } from ${source('scene.ts')};`,
       `export { History } from ${source('editor/history.ts')};`,
-      `export { renderScene } from ${source('renderer.ts')};`,
+      `export { renderScene, pageBounds } from ${source('renderer.ts')};`,
+      `export { elementAt } from ${source('editor/geometry.ts')};`,
       `export { PaintCache, sceneFile } from ${source('editor/paint.ts')};`,
       `export { createLayout, parseFontFile } from ${source('layout.ts')};`,
       `export { default as KALAM } from ${JSON.stringify(

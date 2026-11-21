@@ -45,7 +45,7 @@
  */
 import { RoughGenerator } from 'roughjs/bin/generator.js';
 import type { Drawable, OpSet, Options } from 'roughjs/bin/core.js';
-import { canonicalScene, hashScene, isOutlined } from './scene.js';
+import { canonicalElement, canonicalScene, hashScene, isOutlined } from './scene.js';
 import type {
   ArrowOrLineElement,
   Element,
@@ -152,11 +152,13 @@ export function sceneSvg(
 /**
  * The page a Scene occupies: the box around every Element, padded, or the empty
  * page when there are none. Exported so a host fits the page the Renderer
- * draws, not a second copy of the same arithmetic.
+ * draws, not a second copy of the same arithmetic. The Scene is canonicalised
+ * first, so an editor's unrounded draft is measured where it is drawn.
  */
 export function pageBounds(scene: Scene, layout: Layout): Box {
-  const byId = elementsById(scene.elements);
-  return pageOfBounds(scene.elements.map((element) => elementBounds(element, byId, layout)));
+  const canonical = canonicalScene(scene);
+  const byId = elementsById(canonical.elements);
+  return pageOfBounds(canonical.elements.map((element) => elementBounds(element, byId, layout)));
 }
 
 /** The page a set of Element boxes occupies: the box around them, padded. */
@@ -214,6 +216,20 @@ export function drawnShaft(
   byId: ReadonlyMap<string, Element>,
 ): [Point, Point] {
   return arrowOrLinePoints(element, byId);
+}
+
+/**
+ * Where a shaft's Label is drawn, or null when the shaft has none: Layout's own
+ * place, moved to the `labelAt` the Scene wrote, which is the box both the ink
+ * and a press on it share.
+ */
+export function shaftLabel(
+  element: ArrowOrLineElement,
+  byId: ReadonlyMap<string, Element>,
+  layout: Layout,
+): Block | null {
+  const placed = placement(element, byId, layout);
+  return placed.kind === 'shaft' ? placed.words : null;
 }
 
 /** The stroke width an Element draws with, in pixels. */
@@ -420,29 +436,33 @@ function placement(
   byId: ReadonlyMap<string, Element>,
   layout: Layout,
 ): Placement {
-  switch (element.type) {
+  // The same canonical Element `renderScene` draws: a Scene the editor mutates
+  // keeps more precision than a saved one writes, and the bounds a host fits and
+  // selects by have to be the bounds of the ink.
+  const canonical = canonicalElement(element);
+  switch (canonical.type) {
     case 'arrow':
     case 'line': {
-      const [start, end] = arrowOrLinePoints(element, byId);
+      const [start, end] = arrowOrLinePoints(canonical, byId);
       const shaft = { start, end };
       return {
         kind: 'shaft',
-        element,
+        element: canonical,
         shaft,
-        words: shaftWords(element, shaft, layout),
+        words: shaftWords(canonical, shaft, layout),
         box: shaftBox(shaft),
       };
     }
     case 'text': {
-      const words = layout.text(element);
-      return { kind: 'text', element, words, box: words };
+      const words = layout.text(canonical);
+      return { kind: 'text', element: canonical, words, box: words };
     }
     default:
       return {
         kind: 'outline',
-        element,
-        words: layout.label(element),
-        box: outlineBox(element),
+        element: canonical,
+        words: layout.label(canonical),
+        box: outlineBox(canonical),
       };
   }
 }
