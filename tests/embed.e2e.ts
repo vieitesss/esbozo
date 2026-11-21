@@ -54,6 +54,31 @@ const WORDS_SCENE = {
 };
 const WORDS_SOURCE = JSON.stringify(WORDS_SCENE, null, 2);
 
+/**
+ * A box with words that do not fit it: the wide test font breaks them into more
+ * lines than Kalam does, so a stale measurement shows below the box.
+ */
+const LABEL_SCENE = {
+  version: 1,
+  title: 'Label',
+  defaults: { roughness: 1 },
+  elements: [
+    {
+      id: 'l',
+      type: 'rectangle',
+      x: 40,
+      y: 40,
+      width: 160,
+      height: 80,
+      label: 'a label that wraps',
+    },
+  ],
+};
+const LABEL_SOURCE = JSON.stringify(LABEL_SCENE, null, 2);
+
+/** A Scene with nothing in it: paper, so ink left on the page is somebody's old ink. */
+const EMPTY_SOURCE = JSON.stringify({ version: 1, title: 'Empty', elements: [] }, null, 2);
+
 /** The arrow `link` attached at both ends: the ink a click has to reach. */
 const LINK_SOURCE = JSON.stringify(SNAPPED_SCENE, null, 2);
 
@@ -82,6 +107,11 @@ const BOX_A: Rect = { x: 510, y: 340, width: 120, height: 80 };
 const PAPER: Rect = { x: 700, y: 500, width: 120, height: 100 };
 /** The page inside the ring a focused canvas draws, for shots of the drawing alone. */
 const DRAWING: Rect = { x: 24, y: 24, width: 1232, height: 752 };
+/** Below `LABEL_SCENE`'s box: where only words the wide font wrapped reach. */
+const UNDER_LABEL: Rect = { x: 500, y: 420, width: 260, height: 120 };
+/** The box and the words in it: every line the label breaks into. */
+const THE_LABEL: Rect = { x: 500, y: 350, width: 300, height: 200 };
+
 /** Where `WORDS_SCENE`'s Text draws in a full-window editor: its ink and nothing else. */
 const WORDS: Rect = { x: 520, y: 480, width: 240, height: 60 };
 /** The same Text, in the upper and the lower half of the two-element page. */
@@ -122,6 +152,80 @@ interface Embed {
 
 /** The folder the bundle was written into once, for the whole file. */
 let bundled: Promise<string> | undefined;
+
+test('a font the page swaps is measured again for the words already on the page', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), { l: LABEL_SOURCE });
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/label-kalam.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    const kalam = await shot(ui);
+    const thin = kalam.darkCount(THE_LABEL, 0.6);
+    const thinBelow = kalam.darkCount(UNDER_LABEL, 0.6);
+
+    // The page names the wide file. The same box, drawn again: its words are
+    // measured with the new file and break into the lines that file gives them.
+    await browser.evaluate(() => {
+      document.querySelector('esbozo-editor')!.setAttribute('font', 'fonts/b.ttf');
+      return true;
+    });
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    await settle(ui);
+    const swapped = await shot(ui);
+
+    // What the page that always named the wide file draws: the ink of the
+    // swapped page is that page's ink, not the old lines in a new face.
+    await app.open(`${embed.url}/label-wide.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    const reference = await shot(ui);
+    expect(reference.darkCount(UNDER_LABEL, 0.6)).toBeGreaterThan(0);
+    expect(swapped.darkCount(UNDER_LABEL, 0.6)).toBe(
+      reference.darkCount(UNDER_LABEL, 0.6),
+    );
+    expect(swapped.darkCount(THE_LABEL, 0.6)).toBeGreaterThan(reference.darkCount(THE_LABEL, 0.6) * 0.9);
+    expect(swapped.darkCount(THE_LABEL, 0.6)).toBeLessThan(reference.darkCount(THE_LABEL, 0.6) * 1.1);
+    // And the two files draw differently, or none of this says anything.
+    expect(reference.darkCount(UNDER_LABEL, 0.6)).toBeGreaterThan(thinBelow);
+    expect(thin).toBeGreaterThan(0);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('a Scene the page lets go of leaves no ink of its own while the next is read', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), { a: SCENE_SOURCE, b: EMPTY_SOURCE });
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/embedded.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    expect((await shot(ui)).darkCount(BOX_A, 0.6)).toBeGreaterThan(0);
+
+    // The page names another Scene, and its answer is held: until it lands, the
+    // page holds no Scene at all, so it shows none of the one it let go of.
+    embed.hold('/api/b');
+    await browser.evaluate(() => {
+      document.querySelector('esbozo-editor')!.setAttribute('scene', 'api/b');
+      return true;
+    });
+    await settle(ui);
+    expect((await shot(ui)).darkCount(BOX_A, 0.6)).toBe(0);
+
+    // The Scene that lands is the one the page names: still bare paper.
+    embed.release('/api/b');
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    expect((await shot(ui)).darkCount(BOX_A, 0.6)).toBe(0);
+  } finally {
+    await embed.stop();
+  }
+});
 
 test('a plain page with the element and its attributes opens, edits and saves a Scene', async ({ app, browser, screen }) => {
   const embed = await startEmbed(await bundleFolder());
@@ -1356,6 +1460,8 @@ async function writeBundle(): Promise<string> {
 <div class="tall"></div>`,
       bundle,
     ),
+    'label-kalam.html': page(FULL, `<esbozo-editor scene="api/l" save="api/l" font="${FONT}"></esbozo-editor>`, bundle),
+    'label-wide.html': page(FULL, `<esbozo-editor scene="api/l" save="api/l" font="fonts/b.ttf"></esbozo-editor>`, bundle),
     'live.html': page(
       FULL,
       `<script type="module" src="${bundle}"></script>

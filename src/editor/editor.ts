@@ -582,7 +582,7 @@ export class EsbozoEditorElement extends HTMLElement {
   #rebuild(): void {
     this.#drag = null;
     this.#endEdits();
-    this.#scene = emptyScene();
+    this.#replaceScene(emptyScene());
     this.#selected = [];
     this.#target = null;
     this.#browsed = null;
@@ -861,11 +861,22 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#gridRect.style.display = this.#grid ? '' : 'none';
   }
 
-  #load(scene: Scene, target: SaveTarget): void {
+  /**
+   * A Scene that replaces the one in hand: another one opened, the Scene an
+   * embedded element names, or the paper it lets go of. Nothing drawn for the
+   * last one can speak for this one — the ids may be the same and mean something
+   * else — so the drawings start empty and the page counts a new Scene.
+   */
+  #replaceScene(scene: Scene): void {
     this.#scene = scene;
+    this.#paintables?.clear();
+    this.#version++;
+  }
+
+  #load(scene: Scene, target: SaveTarget): void {
+    this.#replaceScene(scene);
     this.#target = target;
     this.#selected = [];
-    this.#version++;
     this.#history.reset(serialiseScene(scene));
     this.#menuFor = null;
     this.#view = fittedView(scene, this.#viewportSize(), this.#layout);
@@ -1418,15 +1429,11 @@ export class EsbozoEditorElement extends HTMLElement {
 
     const layer = this.#layerOf();
     const groups = new Map<string, { key: string; node: SVGGElement }>();
-    let reorder = paint.order.length !== this.#order.length;
-    for (const [index, id] of paint.order.entries()) {
+    for (const id of paint.order) {
       const painted = paint.elements.get(id)!;
       const held = this.#groups.get(id);
       if (held !== undefined && held.key === painted.key) {
         groups.set(id, held);
-        if (!reorder && this.#order[index] !== id) {
-          reorder = true;
-        }
         continue;
       }
       // New or changed: one Element's SVG, parsed on its own, in the group the
@@ -1434,17 +1441,20 @@ export class EsbozoEditorElement extends HTMLElement {
       const node = groupOf(id, painted.svg);
       if (held === undefined) {
         layer.append(node);
-        reorder = true;
       } else {
         held.node.replaceWith(node);
       }
       groups.set(id, { key: painted.key, node });
     }
     this.#groups = groups;
-    this.#order = paint.order;
-    if (reorder) {
-      layer.replaceChildren(...paint.order.map((id) => groups.get(id)!.node));
+    // Stacking is the Scene's order and nothing else: what a frame reused, and
+    // which of the reused groups were replaced in place, says nothing about
+    // which Element is drawn on top. One comparison, one write when it changed.
+    const order = paint.order;
+    if (order.length !== this.#order.length || order.some((id, index) => this.#order[index] !== id)) {
+      layer.replaceChildren(...order.map((id) => groups.get(id)!.node));
     }
+    this.#order = order;
   }
 
   /** The Scene's own `svg` inside `.painted`, made once, so each Element is one group under it. */

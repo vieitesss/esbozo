@@ -21,6 +21,51 @@ import { startServe, tempFolder } from '../test/cli.ts';
 const SCENE_SOURCE = JSON.stringify(SCENE, null, 2);
 const MIXED_SOURCE = JSON.stringify(MIXED_SCENE, null, 2);
 
+/**
+ * Two Elements with the same ids in two Scenes: `ink` is solid, `paper` is the
+ * paper's own colour, and which of them is drawn last is what shows in between.
+ */
+const INK_BOX = {
+  id: 'ink',
+  type: 'rectangle',
+  x: 40,
+  y: 40,
+  width: 160,
+  height: 100,
+  fill: { kind: 'solid', grey: 6 },
+};
+const PAPER_BOX = {
+  id: 'paper',
+  type: 'rectangle',
+  x: 100,
+  y: 60,
+  width: 160,
+  height: 100,
+  fill: { kind: 'solid', grey: 0 },
+};
+/** `ink` under `paper`: the overlap is the paper colour the top box paints. */
+const STACK_SCENE = {
+  version: 1,
+  title: 'Stack',
+  defaults: { roughness: 1 },
+  elements: [INK_BOX, PAPER_BOX],
+};
+/** The same ids the other way round, and `ink` moved, so both drawings change. */
+const RESTACK_SCENE = {
+  version: 1,
+  title: 'Restack',
+  defaults: { roughness: 1 },
+  elements: [PAPER_BOX, { ...INK_BOX, x: 60 }],
+};
+const STACK_SOURCE = JSON.stringify(STACK_SCENE, null, 2);
+const RESTACK_SOURCE = JSON.stringify(RESTACK_SCENE, null, 2);
+
+/**
+ * Where both boxes cover the page, in both Scenes: the top one's fill is what
+ * shows there.
+ */
+const OVERLAP: Rect = { x: 610, y: 380, width: 60, height: 40 };
+
 /** The middle of `b`, the one solid grey box in `SCENE`. */
 const GREY_BOX: Rect = { x: 700, y: 390, width: 40, height: 40 };
 /** Bare paper beside the Scene's Elements. */
@@ -42,6 +87,39 @@ async function folderWith(files: Record<string, string>): Promise<string> {
   }
   return folder;
 }
+
+test('a Scene switch stacks by the new Scene, however the old drawings were reused', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const folder = await folderWith({ 'a.json': STACK_SOURCE, 'b.json': RESTACK_SOURCE });
+  const server = await startServe(folder);
+  try {
+    const ui = { app, browser, screen };
+    await app.open(`${server.url}/editor.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+
+    // `a` draws the ink box first, so the paper box covers it.
+    expect((await shot(ui)).meanLuminance(OVERLAP)).toBeGreaterThan(0.85);
+
+    // `b` holds the same two ids the other way round, and both boxes are drawn
+    // again: the stacking has to be the new Scene's, not the old one's.
+    await screen.getByRole('button', 'Scenes').click();
+    await screen.getByRole('button', { name: 'b.json' }).click();
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    const switched = await shot(ui);
+    expect(switched.meanLuminance(OVERLAP)).toBeLessThan(0.2);
+
+    // And back again: the order is the Scene's each time, never the last one's.
+    await screen.getByRole('button', 'Scenes').click();
+    await screen.getByRole('button', { name: 'a.json' }).click();
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    expect((await shot(ui)).meanLuminance(OVERLAP)).toBeGreaterThan(0.85);
+  } finally {
+    await server.stop();
+  }
+});
 
 test('the served editor lists, opens and autosaves Scenes, saving Scene and SVG together', async ({ app, browser, screen }) => {
   const folder = await folderWith({ 'one.json': SCENE_SOURCE, 'two.json': MIXED_SOURCE });

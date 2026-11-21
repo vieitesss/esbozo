@@ -12,8 +12,8 @@
  * assembled by `sceneSvg` from these same drawings.
  */
 import type { Layout } from '../layout.js';
-import { elementsById, pageOfBounds, renderElement, sceneSvg } from '../renderer.js';
-import type { Box, ElementDrawing } from '../renderer.js';
+import { elementsById, renderElement, sceneSvg } from '../renderer.js';
+import type { ElementDrawing } from '../renderer.js';
 import { canonicalElement, canonicalScene, hashScene } from '../scene.js';
 import type { Element, Scene } from '../scene.js';
 
@@ -23,23 +23,28 @@ export interface PaintedElement extends ElementDrawing {
   readonly key: string;
 }
 
-/** What one frame of the page is made of: the drawings in Scene order, and the page they cover. */
+/** What one frame of the page is made of: the drawings in Scene order. */
 export interface Paint {
   readonly elements: ReadonlyMap<string, PaintedElement>;
   readonly order: readonly string[];
-  readonly page: Box;
   /** The Elements by id, so a Snapped end of what is shown resolves its target. */
   readonly byId: ReadonlyMap<string, Element>;
 }
 
 /**
- * Everything one Element's drawing depends on: its own canonical JSON, and the
- * canonical JSON of whatever its ends snap to, because a Snap draws the end on
- * the target's outline. Anything else — a theme, a colour, the page around the
- * drawing — is a CSS variable the SVG names rather than a value it holds.
+ * Everything one Element's drawing depends on: the measurement it was made with
+ * — a font decides how a Label breaks, so it is part of the drawing and not of
+ * the face alone — the Element's own canonical JSON, and the canonical JSON of
+ * whatever its ends snap to, because a Snap draws the end on the target's
+ * outline. Anything else — a theme, a colour, the page around the drawing — is
+ * a CSS variable the SVG names rather than a value it holds.
  */
-export function paintKey(element: Element, byId: ReadonlyMap<string, Element>): string {
-  const key = JSON.stringify(element);
+function paintKey(
+  generation: number,
+  element: Element,
+  byId: ReadonlyMap<string, Element>,
+): string {
+  const key = `${generation}|${JSON.stringify(element)}`;
   if (element.type !== 'arrow' && element.type !== 'line') {
     return key;
   }
@@ -52,6 +57,12 @@ export function paintKey(element: Element, byId: ReadonlyMap<string, Element>): 
 /** The drawings a page shows, and the one measurement they were made with. */
 export class PaintCache {
   #layout: Layout;
+  /**
+   * Which measurement the drawings are keyed on. The key is what the page keeps
+   * a drawn group by as well, so a new font has to move it or the page would
+   * hold the layout the old one broke.
+   */
+  #generation = 0;
   /** The last painting, by Element id: what a frame reuses. */
   #elements = new Map<string, PaintedElement>();
 
@@ -65,6 +76,15 @@ export class PaintCache {
    */
   measure(layout: Layout): void {
     this.#layout = layout;
+    this.#generation += 1;
+    this.#elements.clear();
+  }
+
+  /**
+   * A Scene that replaces the one these drawings were made for. Nothing kept
+   * here can speak for it: the ids may be the same and mean something else.
+   */
+  clear(): void {
     this.#elements.clear();
   }
 
@@ -73,7 +93,7 @@ export class PaintCache {
    * the outlines it snaps to are unchanged, and a fresh draw when they are not.
    */
   element(element: Element, byId: ReadonlyMap<string, Element>): PaintedElement {
-    const key = paintKey(element, byId);
+    const key = paintKey(this.#generation, element, byId);
     const painted = this.#elements.get(element.id);
     if (painted !== undefined && painted.key === key) {
       return painted;
@@ -87,17 +107,14 @@ export class PaintCache {
     const byId = elementsById(canonical);
     const elements = new Map<string, PaintedElement>();
     const order: string[] = [];
-    const bounds: Box[] = [];
     for (const element of canonical) {
-      const painted = this.element(element, byId);
-      elements.set(element.id, painted);
+      elements.set(element.id, this.element(element, byId));
       order.push(element.id);
-      bounds.push(painted.bounds);
     }
     // Only what this Scene holds is kept: an Element that left the page is not
     // held for a return that may never come.
     this.#elements = elements;
-    return { elements, order, page: pageOfBounds(bounds), byId };
+    return { elements, order, byId };
   }
 
   /**
