@@ -1092,11 +1092,23 @@ test('a Label placed on its shaft cuts the shaft out, leaving paper under the wo
   }
 });
 
-test('a Label placed off its shaft leaves the shaft whole and takes its paper with it', async () => {
+test('a Label placed off its shaft clears the ink under its paper and leaves the shaft whole', async () => {
+  // A solid band of ink runs behind the Label, 40px above its shaft. The paper
+  // has to cut that band to paper where the words stand, and cut nothing else:
+  // the band stays either side of them and the shaft below stays whole.
   const folder = await sceneFolder({
     version: 1,
     defaults: { roughness: 0 },
     elements: [
+      {
+        id: 'band',
+        type: 'rectangle',
+        x: 60,
+        y: 46,
+        width: 100,
+        height: 34,
+        fill: { kind: 'solid', grey: 2 },
+      },
       {
         id: 'a',
         type: 'line',
@@ -1111,13 +1123,32 @@ test('a Label placed off its shaft leaves the shaft whole and takes its paper wi
   });
   await writeFont(folder, 'wide.ttf', { glyphHeight: 100 });
 
-  const { png } = await pngOne(['png', 'scene.json', '--theme', 'light', '--font', 'wide.ttf'], folder);
-  const row = shaftRow(png, LIGHT_PAPER);
+  for (const [theme, paper] of [
+    ['light', LIGHT_PAPER],
+    ['dark', DARK_PAPER],
+  ] as const) {
+    const { png } = await pngOne(
+      ['png', 'scene.json', '--theme', theme, '--font', 'wide.ttf'],
+      folder,
+    );
+    const row = shaftRow(png, paper);
 
-  assert.ok(row.gap < 5, `the shaft runs unbroken: ${row.gap}px of paper in it`);
-  // The offset is 40px above the shaft, so the words' paper sits on the row 40
-  // pixels up from the shaft's.
-  assert.ok(paperRun(png, row.row - 40, LIGHT_PAPER) >= 30, 'the paper went with the words');
+    assert.ok(row.gap < 5, `${theme}: the shaft runs unbroken: ${row.gap}px of paper in it`);
+    // The offset is 40px above the shaft, so the words' paper sits on the row 40
+    // pixels up from the shaft's.
+    const labelRow = row.row - 40;
+    const band = inkOnRow(png, labelRow, paper);
+    assert.ok(band !== null, `${theme}: the ink behind the Label is painted`);
+    const gap = paperRunThrough(png, labelRow, paper, band);
+    assert.ok(
+      gap.length >= 30,
+      `${theme}: ${gap.length}px of paper between the band's edges, where the words stand`,
+    );
+    assert.ok(
+      inkIn(png, paper, gap.start, gap.start + gap.length, labelRow - 20, labelRow + 20) > 0,
+      `${theme}: the words are drawn on the paper the knockout left`,
+    );
+  }
 });
 
 /**
@@ -1282,15 +1313,61 @@ function inkIn(
   return ink;
 }
 
-/** The widest run of paper on one row, the page's own margins included. */
-function paperRun(png: Png, row: number, paper: readonly number[]): number {
-  let longest = 0;
-  let run = 0;
+/** The colour a row holds most, paper aside: the ink a knockout had to cut through. */
+function inkOnRow(png: Png, row: number, paper: readonly number[]): Color | null {
+  const counts = new Map<string, { colour: Color; count: number }>();
   for (let x = 0; x < png.width; x += 1) {
-    run = isPaper(png.pixel(x, row), paper) ? run + 1 : 0;
-    longest = Math.max(longest, run);
+    const colour = png.pixel(x, row);
+    if (isPaper(colour, paper)) {
+      continue;
+    }
+    const key = colour.join(',');
+    const seen = counts.get(key);
+    counts.set(key, { colour, count: (seen?.count ?? 0) + 1 });
   }
-  return longest;
+  let common: { colour: Color; count: number } | null = null;
+  for (const seen of counts.values()) {
+    if (common === null || seen.count > common.count) {
+      common = seen;
+    }
+  }
+  return common?.colour ?? null;
+}
+
+/** The widest run of paper between the first and last `cut` pixel on one row. */
+function paperRunThrough(
+  png: Png,
+  row: number,
+  paper: readonly number[],
+  cut: Color,
+): { start: number; length: number } {
+  let first = -1;
+  let last = -1;
+  for (let x = 0; x < png.width; x += 1) {
+    if (!sameColour(png.pixel(x, row), cut)) {
+      continue;
+    }
+    first = first < 0 ? x : first;
+    last = x;
+  }
+  let gap = { start: 0, length: 0 };
+  let run = 0;
+  for (let x = Math.max(0, first); x <= last; x += 1) {
+    if (!isPaper(png.pixel(x, row), paper)) {
+      run = 0;
+      continue;
+    }
+    run += 1;
+    if (run > gap.length) {
+      gap = { start: x - run + 1, length: run };
+    }
+  }
+  return gap;
+}
+
+/** Whether two pixels are the same colour. */
+function sameColour(one: Color, other: Color): boolean {
+  return one.every((channel, index) => channel === other[index]);
 }
 
 interface ShaftRow {
