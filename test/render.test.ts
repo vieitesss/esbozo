@@ -65,7 +65,7 @@ test('render writes the SVG beside the Scene and prints its path', async () => {
   assert.match(svg, /^<svg [^>]*xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
   assert.match(svg, /^<svg [^>]*>[\s\n]*<title>Two boxes<\/title>/);
   assert.equal(fillsOf(svg).length, 1, 'the solid-filled Element painted a fill');
-  assert.deepEqual(mixesIn(svg), [38], 'the hachure-filled Element painted its lines');
+  assert.deepEqual(mixesIn(svg), [], 'the Element that writes no fill painted no lines');
 });
 
 test('two runs produce byte-identical SVG', async () => {

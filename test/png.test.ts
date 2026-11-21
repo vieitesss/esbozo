@@ -292,6 +292,42 @@ test('explicit --ink, --paper and --muted colours reach the PNG', async () => {
   assert.ok(hasPixel(png, isGreen), 'the muted outline is green');
 });
 
+test('an Element that writes no fill paints no fill', async () => {
+  const oneBox = (fill?: unknown) => ({
+    version: 1,
+    title: 'Bare',
+    defaults: { roughness: 0 },
+    elements: [
+      {
+        id: 'box',
+        type: 'rectangle',
+        x: 20,
+        y: 20,
+        width: 160,
+        height: 120,
+        ...(fill === undefined ? {} : { fill }),
+      },
+    ],
+  });
+
+  // The page pads the Scene by 16px, and the box starts at Scene (20,20), so it
+  // lands at page (4,4)..(184,144) with Scene x on pixel x + 4. Every pixel well
+  // inside that outline is bare paper when no fill is written.
+  const bare = await sceneFolder(oneBox());
+  const { png } = await pngOne(['png', 'scene.json', '--theme', 'light'], bare);
+  for (let y = 50; y < 130; y += 1) {
+    for (let x = 50; x < 160; x += 1) {
+      assert.deepEqual(png.pixel(x, y), [...LIGHT_PAPER, 255], `inside the outline at ${x},${y}`);
+    }
+  }
+
+  // A fill the author writes is still painted, so the check above is not passing
+  // on a drawing that stopped filling anything at all.
+  const washed = await sceneFolder(oneBox({ kind: 'solid', grey: 2 }));
+  const { png: filled } = await pngOne(['png', 'scene.json', '--theme', 'light'], washed);
+  assert.notDeepEqual(filled.pixel(100, 80), [...LIGHT_PAPER, 255], 'a written fill paints');
+});
+
 test('a grey fill resolves to ink mixed into paper, with no CSS left to read', async () => {
   const folder = await sceneFolder({
     version: 1,

@@ -11,7 +11,7 @@
  *   "defaults": {                                   // every field optional
  *     "roughness": 1,
  *     "stroke": { "width": "bold", "style": "solid" },
- *     "fill": { "kind": "hachure", "grey": 2 },
+ *     "fill": { "kind": "none", "grey": 2 },
  *     "tone": "ink",
  *     "corners": "sharp",
  *     "fontSize": "M",
@@ -250,7 +250,7 @@ type ParseResult =
 const DEFAULT_STYLE: SceneStyle = {
   roughness: 1,
   stroke: { width: 'bold', style: 'solid' },
-  fill: { kind: 'hachure', grey: 2 },
+  fill: { kind: 'none', grey: 2 },
   tone: 'ink',
   corners: 'sharp',
   fontSize: 'M',
