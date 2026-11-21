@@ -2128,6 +2128,27 @@ describe('labels', () => {
     expect(Math.abs((moved as Rect).y - (start as Rect).y + 40)).toBeLessThan(1.5);
   });
 
+  test('dragging the shaft itself carries the shaft and leaves the placed words where they are', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'labelled.json': LABELLED_SOURCE } }, 'labelled.json');
+
+    // Pressed on the line itself, well clear of the words: the hand took the
+    // shaft, and both of its ends come with it.
+    await dragBy(ui, { x: 150, y: 200 }, 60, 40, LABELLED);
+    const scene = await savedScene(ui, 'labelled.json');
+    expect(scene.elements[0]?.points).toEqual([
+      { x: 160, y: 240 },
+      { x: 560, y: 240 },
+    ]);
+    // The place on the shaft is the words' own, so they ride it: the Label was
+    // not dragged and its fraction of the shaft did not change.
+    expect(scene.elements[0]?.labelAt).toEqual({ t: 0.5, offset: 61 });
+  });
+
   test("a Label dragged onto the shaft is paper over the shaft's own ink", async ({
     app,
     browser,
