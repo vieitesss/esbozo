@@ -31,7 +31,6 @@ import {
   clickScene,
   doubleClickScene,
   dragBy,
-  middleDrag,
   openEditor,
   savedFiles,
   savedScene,
@@ -546,28 +545,64 @@ describe('labels', () => {
     await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveCount(0);
   });
 
-  test('a middle-drag pans the page and leaves the words open', async ({ app, browser, screen }) => {
+  test('a middle drag pans the page and keeps the words open, ink and all', async ({
+    app,
+    browser,
+    screen,
+  }) => {
     const ui = { app, browser, screen };
     await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+    const before = await savedFiles(ui);
 
     await doubleClickScene(ui, { x: 100, y: 80 });
     const label = screen.getByRole('textbox', { name: 'Label' });
     await label.pressSequentially('Orders');
-    // The box sits under the box it edits, and its words are ink like any other.
-    const under: Rect = { x: 512, y: 428, width: 120, height: 24 };
-    const carried: Rect = { x: under.x - 60, y: under.y - 40, width: under.width, height: under.height };
-    expect((await shot(ui)).darkCount(under, DARK)).toBeGreaterThan(0);
+    // Two kinds of ink hold the same words: the canvas draws them inside the
+    // box, and the plain field does beside it. Both have to travel with the pan.
+    const written: Rect = { x: 545, y: 368, width: 52, height: 20 };
+    const writtenCarried: Rect = {
+      x: written.x + 100,
+      y: written.y + 70,
+      width: written.width,
+      height: written.height,
+    };
+    const field: Rect = { x: 516, y: 430, width: 60, height: 22 };
+    const fieldCarried: Rect = {
+      x: field.x + 100,
+      y: field.y + 70,
+      width: field.width,
+      height: field.height,
+    };
+    const drawn = await shot(ui);
+    expect(drawn.darkCount(written, DARK)).toBeGreaterThan(0);
+    expect(drawn.darkCount(field, DARK)).toBeGreaterThan(0);
 
-    // The middle button is a pan, not a click away: the words stay open.
+    // The middle button is a pan, not a click away: the words stay open, and
+    // the page's own mouse sends it, because the fixture's pointer has one
+    // button and a synthesized event would skip the focus change a real press
+    // makes. The frame that matters is the one before the release.
     const from = at({ x: 100, y: 80 });
-    await middleDrag(ui, from, { x: from.x - 60, y: from.y - 40 });
-
-    await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveCount(1);
-    await expect(label).toHaveValue('Orders');
-    // And the pan carried the box with the page: its words left where they were.
+    const page = livePage();
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down({ button: 'middle' });
+    for (let step = 1; step <= 5; step += 1) {
+      const share = step / 5;
+      await page.mouse.move(from.x + 100 * share, from.y + 70 * share);
+    }
+    await expect(label).toHaveCount(1);
+    // The canvas still draws the words, carried by the pan, while the button is
+    // still down: the page never falls back to the committed Scene.
     const panned = await shot(ui);
-    expect(panned.darkCount(under, DARK)).toBe(0);
-    expect(panned.darkCount(carried, DARK)).toBeGreaterThan(0);
+    expect(panned.darkCount(written, DARK)).toBe(0);
+    expect(panned.darkCount(writtenCarried, DARK)).toBeGreaterThan(0);
+    expect(panned.darkCount(field, DARK)).toBe(0);
+    expect(panned.darkCount(fieldCarried, DARK)).toBeGreaterThan(0);
+    // Nothing of the pan is a Scene: the words are nobody's until they land.
+    expect(await savedFiles(ui)).toEqual(before);
+
+    await page.mouse.up({ button: 'middle' });
+    await expect(label).toHaveValue('Orders');
+    expect(await savedFiles(ui)).toEqual(before);
 
     await label.press('Escape');
     expect((await savedScene(ui)).elements[0]?.label).toBe('Orders');

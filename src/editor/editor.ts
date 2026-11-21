@@ -994,7 +994,7 @@ class EsbozoEditorElement extends HTMLElement {
     const draft = this.#draft;
     // A pan moves the page the Scene is drawn on, not the Scene: what is being
     // typed is still what the page shows, and it travels with everything else.
-    if (drag === null) {
+    if (drag === null || drag.kind === 'pan') {
       const words =
         editing === null
           ? this.#scene.elements
@@ -1930,6 +1930,10 @@ class EsbozoEditorElement extends HTMLElement {
     this.#capture(event);
     const target = event.target as Element | null;
     if (this.#spaceDown || event.button === 1) {
+      // A pan moves the page, not the person: the default press would take the
+      // focus off the words being typed, and the blur it causes would commit
+      // them. Nothing of a pan is the browser's to do.
+      event.preventDefault();
       // A pan is not a click: the next press starts a fresh sequence.
       this.#press = null;
       this.#lastClick = null;

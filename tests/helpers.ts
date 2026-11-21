@@ -1009,45 +1009,6 @@ export async function doubleClickScene(
   await ui.screen.doubleTapAt(at(point, view));
 }
 
-/**
- * A drag with the middle button, which a person uses to pan and a click test
- * cannot ask for: the harness's pointer has one button. The events are the ones
- * Chromium sends for a middle drag, at the node under the pointer.
- */
-export async function middleDrag(ui: Ui, from: Point, to: Point): Promise<void> {
-  await ui.browser.evaluate((corners) => {
-    const [first, last] = corners as [[number, number], [number, number]];
-    const start = { x: first[0], y: first[1] };
-    const end = { x: last[0], y: last[1] };
-    const node = document.elementFromPoint(start.x, start.y) ?? document.body;
-    const send = (type: string, x: number, y: number, buttons: number): void => {
-      node.dispatchEvent(
-        new PointerEvent(type, {
-          bubbles: true,
-          cancelable: true,
-          pointerId: 1,
-          pointerType: 'mouse',
-          isPrimary: true,
-          button: type === 'pointermove' ? -1 : 1,
-          buttons,
-          clientX: x,
-          clientY: y,
-        }),
-      );
-    };
-    send('pointerdown', start.x, start.y, 4);
-    for (let step = 1; step <= 5; step += 1) {
-      const share = step / 5;
-      send('pointermove', start.x + (end.x - start.x) * share, start.y + (end.y - start.y) * share, 4);
-    }
-    send('pointerup', end.x, end.y, 0);
-    return true;
-  }, [
-    [from.x, from.y],
-    [to.x, to.y],
-  ]);
-}
-
 /** Drag from a Scene point by a page-pixel offset. */
 export async function dragBy(
   ui: Ui,
