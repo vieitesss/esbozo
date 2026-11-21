@@ -832,7 +832,13 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#commitText();
   };
 
-  /** Commit the open in-place input: a Text with words in it, or nothing. */
+  /**
+   * Commit the open in-place input: a Text with words in it, or nothing.
+   *
+   * The Text goes through the Scene module's own validation before it is
+   * recorded, so words a Scene file could not hold never reach disk. A refusal
+   * says why in the status line and leaves the Scene exactly as it was.
+   */
   #commitText(): void {
     const input = this.#textInput;
     const at = this.#textAt;
@@ -847,7 +853,15 @@ export class EsbozoEditorElement extends HTMLElement {
       return;
     }
     const element = newText(at, content, freshId('text', idsOf(this.#scene.elements)), this.#scene.defaults);
-    this.#scene.elements = [...this.#scene.elements, element];
+    const parsed = parseScene(
+      serialiseScene({ ...this.#scene, elements: [...this.#scene.elements, element] }),
+    );
+    if (!parsed.ok) {
+      const problem = parsed.problems[0];
+      this.#setSaved('failed', problem === undefined ? 'the Scene cannot hold this Text' : problem.message);
+      return;
+    }
+    this.#scene = parsed.scene;
     this.#selected = [element.id];
     this.#paint();
     this.#record();
