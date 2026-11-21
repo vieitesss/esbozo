@@ -51,6 +51,7 @@ import { parseScene } from './scene.js';
 import { renderScene } from './renderer.js';
 import { THEMES, renderPng } from './png.js';
 import { serve } from './serve.js';
+import type { ServeOptions } from './serve.js';
 import type { PngOptions, Theme } from './png.js';
 import type { Scene } from './scene.js';
 import { chooseFont, layoutFor, readStylesheet } from './font.js';
@@ -333,15 +334,8 @@ async function runServe(argv: readonly string[]): Promise<number> {
   return EXIT.ok;
 }
 
-interface ServeArguments {
-  readonly folder: string;
-  readonly host: string;
-  readonly port: number;
-  readonly readOnly: boolean;
-}
-
 /** One folder, and space-separated flags: `--port 4320`, never `--port=4320`. */
-function parseServeArguments(argv: readonly string[]): ServeArguments | null {
+function parseServeArguments(argv: readonly string[]): ServeOptions | null {
   let folder: string | undefined;
   let host = '127.0.0.1';
   let port = DEFAULT_PORT;

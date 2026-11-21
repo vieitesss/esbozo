@@ -9,22 +9,21 @@
  *
  * No test here uses the model, so `pnpm e2e` passes with no key set.
  */
-import { mkdtemp, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import { cliRender, MIXED, MIXED_SCENE, SCENE, clickScene } from './helpers.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
-import { startServe } from '../test/cli.ts';
+import { startServe, tempFolder } from '../test/cli.ts';
 
 const SCENE_SOURCE = JSON.stringify(SCENE, null, 2);
 const MIXED_SOURCE = JSON.stringify(MIXED_SCENE, null, 2);
 
 /** The middle of `b`, the one solid grey box in `SCENE`. */
 const GREY_BOX: Rect = { x: 700, y: 390, width: 40, height: 40 };
-/** Bare paper beside the drawings. */
+/** Bare paper beside the Scene's Elements. */
 const PAPER: Rect = { x: 900, y: 550, width: 40, height: 40 };
 
 interface SavedScene {
@@ -37,7 +36,7 @@ function elementX(scene: SavedScene, id: string): number | undefined {
 
 /** A fresh folder that holds exactly the files it is given. */
 async function folderWith(files: Record<string, string>): Promise<string> {
-  const folder = await realpath(await mkdtemp(join(tmpdir(), 'esbozo-served-')));
+  const folder = await tempFolder('esbozo-served-');
   for (const [name, text] of Object.entries(files)) {
     await writeFile(join(folder, name), text, 'utf8');
   }
@@ -107,6 +106,14 @@ test('the page shows a failing folder request in its status line', async ({ app,
     await app.open('/editor.html');
     await expect(screen.getByRole('status')).toContainText('the folder is unreadable');
     await expect(screen.getByRole('button', /Open folder/)).toBeVisible();
+
+    // An answer that is not a listing is a failure too, not a folder.
+    await browser.unrouteAll();
+    await browser.route('**/api/scenes', (route) =>
+      route.fulfill({ status: 200, body: '<html>not the save API</html>' }),
+    );
+    await app.open('/editor.html');
+    await expect(screen.getByRole('status')).toContainText('/api/scenes did not answer');
   } finally {
     await browser.unrouteAll();
   }

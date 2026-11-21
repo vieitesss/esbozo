@@ -10,6 +10,10 @@
  *                                     and whether writes are refused
  *   GET  /api/scenes/<name>           200 with the Scene source, or 404
  *   PUT  /api/scenes/<name>           { "scene": "<source>", "svg": "<source>" }
+ *   POST /api/scenes/<name>           the same write, for a client that posts
+ *
+ * A write has to announce `content-type: application/json`, so a cross-origin
+ * page cannot reach the folder with a request the browser sends on its own.
  *
  * Every path is a plain Scene file name at the top level of the folder: names
  * with a separator, `..`, an absolute path or a symlink that points outside are
@@ -31,10 +35,9 @@ import { basename, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PAGE_ASSETS } from './page-assets.js';
 import { svgFileName } from './paths.js';
+import { SCENES_API } from './scenes-api.js';
+import type { SceneListing } from './scenes-api.js';
 import { parseScene } from './scene.js';
-
-/** Where the save API lives, and the one prefix the server answers for it. */
-export const API = '/api/scenes';
 
 /** The biggest write the server reads: a Scene is text, and a page of it is small. */
 const BODY_LIMIT = 8 * 1024 * 1024;
@@ -146,20 +149,21 @@ async function handle(
     return;
   }
   const pathname = new URL(raw, 'http://localhost').pathname;
-  if (pathname === API || pathname === `${API}/`) {
+  if (pathname === SCENES_API || pathname === `${SCENES_API}/`) {
     if (request.method !== 'GET') {
       sendJson(response, 405, { error: 'use GET' });
       return;
     }
-    sendJson(response, 200, {
+    const listing: SceneListing = {
       folder: basename(root),
       readOnly,
       scenes: await listScenes(root),
-    });
+    };
+    sendJson(response, 200, listing);
     return;
   }
-  if (pathname.startsWith(`${API}/`)) {
-    await handleScene(request, response, root, readOnly, pathname.slice(API.length + 1));
+  if (pathname.startsWith(`${SCENES_API}/`)) {
+    await handleScene(request, response, root, readOnly, pathname.slice(SCENES_API.length + 1));
     return;
   }
   await servePageAsset(request, response, pathname);
@@ -265,7 +269,6 @@ async function handleScene(
   if (!parsed.ok) {
     sendJson(response, 400, {
       error: `the Scene is invalid: ${parsed.problems.map((problem) => problem.message).join('; ')}`,
-      problems: parsed.problems,
     });
     return;
   }
@@ -279,7 +282,8 @@ async function handleScene(
     sendJson(response, error.status, { error: error.message });
     return;
   }
-  sendJson(response, 200, { scene: name, svg: svgFileName(name) });
+  // The write is the answer: the files say what landed, so no body repeats it.
+  sendJson(response, 200, {});
 }
 
 /** `null` for a name that is not a plain Scene file at the folder's top level. */

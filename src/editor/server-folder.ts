@@ -2,19 +2,13 @@
  * The served folder: the save API in `src/serve.ts` seen through the same seam
  * as a picked File System Access folder.
  *
- * A static page has no server to ask, so `servedFolder()` returns `null` and the
- * editor keeps its folder picker. Under `ez serve` it answers with the folder,
- * and the editor lists, opens and autosaves over http without a picker.
+ * A page served as files has no server to ask, so `servedFolder()` returns `null`
+ * and the editor keeps its folder picker. Under `ez serve` it answers with the
+ * folder, and the editor lists, opens and autosaves over http without a picker.
  */
 import type { SceneFolder } from './files.js';
-
-const API = '/api/scenes';
-
-interface Listing {
-  readonly folder: string;
-  readonly readOnly: boolean;
-  readonly scenes: string[];
-}
+import { listingOf, sceneApiPath, SCENES_API } from '../scenes-api.js';
+import type { SceneListing } from '../scenes-api.js';
 
 /**
  * The folder this page is served from, or `null` when nothing is serving one.
@@ -41,7 +35,7 @@ export async function servedFolder(): Promise<SceneFolder | null> {
     },
 
     async read(name: string): Promise<string | null> {
-      const response = await ask(scenePath(name));
+      const response = await ask(sceneApiPath(name));
       if (response.status === 404) {
         return null;
       }
@@ -49,7 +43,7 @@ export async function servedFolder(): Promise<SceneFolder | null> {
     },
 
     async write(name: string, scene: string, svg: string): Promise<void> {
-      await textOf(await ask(scenePath(name), { scene, svg }), name);
+      await textOf(await ask(sceneApiPath(name), { scene, svg }), name);
     },
   };
 }
@@ -58,8 +52,8 @@ export async function servedFolder(): Promise<SceneFolder | null> {
  * The folder's name, its Scenes and whether it refuses writes; `null` only when
  * the API is not there at all, which is what a page without a server answers.
  */
-async function askListing(): Promise<Listing | null> {
-  const response = await ask(API);
+async function askListing(): Promise<SceneListing | null> {
+  const response = await ask(SCENES_API);
   if (response.status === 404) {
     return null;
   }
@@ -67,36 +61,11 @@ async function askListing(): Promise<Listing | null> {
   if (!response.ok) {
     throw new Error(problemIn(text, response.status, 'the served folder'));
   }
-  const listed = listingIn(text);
+  const listed = listingOf(text);
   if (listed === null) {
-    throw new Error(`${API} did not answer with a folder`);
+    throw new Error(`${SCENES_API} did not answer with a folder`);
   }
   return listed;
-}
-
-/** A listing as the server sends it, or `null` when the body is not one. */
-function listingIn(text: string): Listing | null {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(text);
-  } catch {
-    return null;
-  }
-  if (typeof raw !== 'object' || raw === null) {
-    return null;
-  }
-  const { folder, readOnly, scenes } = raw as { folder?: unknown; readOnly?: unknown; scenes?: unknown };
-  if (typeof folder !== 'string' || !Array.isArray(scenes)) {
-    return null;
-  }
-  if (!scenes.every((name): name is string => typeof name === 'string')) {
-    return null;
-  }
-  return { folder, readOnly: readOnly === true, scenes };
-}
-
-function scenePath(name: string): string {
-  return `${API}/${encodeURIComponent(name)}`;
 }
 
 /** One request to the save API. A server that is not there is an error, not a folder. */
