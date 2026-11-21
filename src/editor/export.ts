@@ -16,9 +16,11 @@
  *
  * The canvas draws at one pixel per Scene unit, which is the scale `ez png`
  * rasterises at, so the PNG has the CLI's size and, within the rasteriser's
- * antialiasing, its pixels. A Scene whose page the canvas cannot hold at that
- * scale is not re-encoded here: the status line names the CLI command that
- * draws it instead.
+ * antialiasing, its pixels. A page too large for a canvas is neither shrunk nor
+ * tiled here: the status line names the CLI command that draws it instead.
+ * Whether a page is too large is the browser's answer, not a limit written down
+ * in this file — the canvas is asked for the page at 1:1, and only an
+ * allocation or an encode that really fails makes the export refuse.
  */
 import { colourText, readColour, resolveSvgColours, resolveVariables } from '../css.js';
 import type { Theme, Variables } from '../css.js';
@@ -29,14 +31,6 @@ import type { Scene } from '../scene.js';
 
 /** One pixel per Scene unit: what `ez png` draws at, so a PNG is the CLI's size. */
 const SCALE = 1;
-
-/**
- * The largest page a browser canvas draws, in pixels: Chromium's 2D canvas
- * limits are 32,767 a side and 2^28 in all, the square of 16,384. A page past
- * them is one this editor cannot rasterise at 1:1 at all.
- */
-const MAX_SIDE = 32_767;
-const MAX_PIXELS = 16_384 * 16_384;
 
 /** The colours the page's stylesheet declares for the theme, before any mixing. */
 const COLOURS = ['--ink', '--paper', '--muted'] as const;
@@ -71,26 +65,21 @@ export async function exportPng(options: PngExport): Promise<void> {
     throw new Error(outlined.problems[0] ?? 'the drawing cannot be outlined');
   }
   const size = sizeOf(outlined.svg);
-  if (!canvasHolds(size)) {
-    throw new Error(
-      `${options.file} is ${size.width}×${size.height}: too big for this page to draw ` +
-        `at one pixel per unit. Run \`ez png ${options.file} --theme ${options.theme}\` instead.`,
-    );
-  }
-  const drawing = await rasterise(outlined.svg, page['--paper'], size);
+  const drawing = await rasterise(outlined.svg, page['--paper'], size, options);
   download(drawing, `${options.name}.${options.theme}.png`);
 }
 
-/** Whether a canvas can hold the page at one pixel per Scene unit. */
-function canvasHolds(size: { width: number; height: number }): boolean {
-  const width = Math.round(size.width * SCALE);
-  const height = Math.round(size.height * SCALE);
-  return (
-    width > 0 &&
-    height > 0 &&
-    width <= MAX_SIDE &&
-    height <= MAX_SIDE &&
-    width * height <= MAX_PIXELS
+/** A page a canvas of this browser cannot hold at 1:1, so the CLI draws it. */
+class TooBigForCanvas extends Error {}
+
+/**
+ * The plain reason a page cannot come out of this one: its size, and the CLI
+ * command that draws it at 1:1 instead.
+ */
+function tooBig(options: PngExport, page: { width: number; height: number }): TooBigForCanvas {
+  return new TooBigForCanvas(
+    `${options.file} is ${page.width}×${page.height}: too big for this page to draw ` +
+      `at one pixel per unit. Run \`ez png ${options.file} --theme ${options.theme}\` instead.`,
   );
 }
 
@@ -141,37 +130,55 @@ function resolvedColour(name: ColourVariable, variables: Variables): string {
   return colourText(colour);
 }
 
-/** Rasterise the SVG on a canvas the size of its page, over the theme's paper. */
+/**
+ * Rasterise the SVG on a canvas the size of its page, over the theme's paper.
+ *
+ * The page is asked for at 1:1 and the browser decides: a canvas too large for
+ * it comes back at another size, or with no drawing context, or with nothing to
+ * encode, and only then is the page too big for this export. A page this
+ * browser can hold — 33,170×142, past the 32,767 a side an older canvas limit
+ * had — is drawn whole.
+ */
 async function rasterise(
   svg: string,
   paper: string,
   page: { width: number; height: number },
+  options: PngExport,
 ): Promise<Blob> {
+  const width = Math.round(page.width * SCALE);
+  const height = Math.round(page.height * SCALE);
   const source = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
   try {
     const image = new Image();
     image.src = source;
+    // The drawing itself has to be readable whatever its size: a failure here
+    // is the SVG's, not the canvas's.
     await image.decode();
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.round(page.width * SCALE);
-    canvas.height = Math.round(page.height * SCALE);
-    const context = canvas.getContext('2d');
-    if (context === null) {
-      throw new Error('this browser cannot draw a PNG');
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context =
+        canvas.width === width && canvas.height === height ? canvas.getContext('2d') : null;
+      if (context === null) {
+        throw tooBig(options, page);
+      }
+      // The SVG carries the drawing, not the page: the paper is the canvas's.
+      context.fillStyle = paper;
+      context.fillRect(0, 0, width, height);
+      context.drawImage(image, 0, 0, width, height);
+      const blob = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob(resolve, 'image/png');
+      });
+      if (blob === null) {
+        throw tooBig(options, page);
+      }
+      return blob;
+    } catch (error) {
+      // Allocating the canvas and writing the PNG are the two steps a page too
+      // large for this browser cannot do: anything else they throw is that.
+      throw error instanceof TooBigForCanvas ? error : tooBig(options, page);
     }
-    // The SVG carries the drawing, not the page: the paper is the canvas's.
-    context.fillStyle = paper;
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    return await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob((blob) => {
-        if (blob === null) {
-          reject(new Error('this browser cannot write a PNG'));
-        } else {
-          resolve(blob);
-        }
-      }, 'image/png');
-    });
   } finally {
     URL.revokeObjectURL(source);
   }

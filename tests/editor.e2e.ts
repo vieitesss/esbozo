@@ -33,6 +33,7 @@ import {
   MIXED,
   MIXED_SCENE,
   TEXT_SCENE,
+  WIDE_WALL_SCENE,
   XL_WORDS_SCENE,
   OVERFLOW,
   OVERFLOW_SCENE,
@@ -93,6 +94,7 @@ const SHAFT_SOURCE = JSON.stringify(SHAFT_SCENE, null, 2);
 const TEXT_SOURCE = JSON.stringify(TEXT_SCENE, null, 2);
 const BIG_SOURCE = JSON.stringify(BIG_SCENE, null, 2);
 const XL_SOURCE = JSON.stringify(XL_WORDS_SCENE, null, 2);
+const WIDE_WALL_SOURCE = JSON.stringify(WIDE_WALL_SCENE, null, 2);
 
 /** The middle of `b`, the one solid grey box in the fixture. */
 const GREY_BOX: Rect = { x: 700, y: 390, width: 40, height: 40 };
@@ -1684,6 +1686,27 @@ test('five XL lines of one sentence export as `ez png` draws them, in light and 
       );
     }
   }
+});
+
+test('a page wider than 32,767 units exports at one pixel per unit', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  // 33,170×142: past the 32,767 a canvas may be a side, and inside the limit
+  // the browser really draws at, so this page is the browser's to export.
+  await openEditor(ui, { A: { 'wide.json': WIDE_WALL_SOURCE } }, 'wide.json');
+
+  const file = await exportFromPalette(ui, 'Export PNG (light)');
+
+  expect(file.name).toBe('wide.light.png');
+  expect({ width: decodePng(file.png).width, height: decodePng(file.png).height }).toEqual({
+    width: 33170,
+    height: 142,
+  });
+  // The wall is drawn, not an empty sheet: its outline is ink across the page.
+  expect(inkShare(file.png)).toBeGreaterThan(0.02);
 });
 
 test('a Scene too big for a canvas names the CLI command that draws it', async ({
