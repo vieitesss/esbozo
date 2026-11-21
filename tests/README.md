@@ -21,6 +21,8 @@ model-free files run under `pnpm e2e`.
 | `pnpm e2e:agent` | `visual.e2e.ts` | one per `agent.assert` / `agent.waitFor`, every run |
 | `pnpm e2e:shots` | `screenshots.e2e.ts` | none; skipped unless `ESBOZO_SHOTS` names a folder |
 
+For fast inner-loop runs without creating scratch files or running an entire suite, filter to one test with `npx e2e run tests/<file>.e2e.ts:<line>`, `--grep <pattern>`, or `--last-failed` (after `pnpm build`).
+
 ## Real browser input: `tests/cdp.ts`
 
 e2e's `browser` fixture drives the page through roles, pointer and keys, and
