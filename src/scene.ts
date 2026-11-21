@@ -998,7 +998,8 @@ function parseLabelAt(
     report(`labelAt: unknown key "${unknownKey}"`),
   );
   const t = parseFraction(raw.t, 'labelAt.t', report);
-  const offset = parseWholePixels(raw.offset, 'labelAt.offset', report);
+  // Both fields are rounded by `canonicalLabelAt`, the one owner of a Label's place.
+  const offset = parseNumber(raw.offset, 'labelAt.offset', report);
   return t === null || offset === null ? undefined : canonicalLabelAt({ t, offset });
 }
 

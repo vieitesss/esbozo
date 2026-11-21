@@ -479,8 +479,9 @@ function shaftBox(shaft: Shaft): Box {
 
 /**
  * A shaft's words: where Layout wrapped them, moved to the `labelAt` the Scene
- * wrote. A shaft that writes none keeps Layout's own place, so a Scene that
- * never asks for a position draws exactly what it drew before.
+ * wrote. A shaft that writes none keeps the place Layout gives it, so a Scene
+ * that never asks for a position keeps the position it always had; only the
+ * paper behind the words is new.
  */
 function shaftWords(
   element: ArrowOrLineElement,
