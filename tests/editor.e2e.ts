@@ -70,6 +70,7 @@ import {
   releaseClipboardWrite,
   runAsWritten,
   openNewScene,
+  refuseWrite,
   releaseWrite,
   savedFiles,
   savedScene,
@@ -1643,6 +1644,46 @@ test('a middle drag names the pan in the mode pill while the button is down', as
   await mouse.up({ button: 'middle' });
   await expect(pill).toBeHidden();
   expect((await shot(ui)).darkCount(BOTTOM_MIDDLE, 0.6)).toBe(0);
+});
+
+test('a save the folder refuses keeps the pan in the hand it was taken with', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await ui.browser.setViewport({ width: 1366, height: 768 });
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+  await expect(ui.screen.getByRole('status')).toHaveText('saved');
+
+  const pill = ui.screen.getByText('Panning');
+  const readOnly = ui.screen.getByText('read-only');
+  await expect(pill).toBeHidden();
+  await expect(readOnly).toBeHidden();
+
+  // An edit asks the folder to write, and the folder's answer waits for this
+  // test: the page does not know yet whether it may write.
+  await holdWrites(ui, 'scene.json');
+  await clickScene(ui, { x: 100, y: 80 });
+  await browser.keyboard.press('Shift+ArrowRight');
+  const mouse = livePage().mouse;
+  await mouse.move(300, 650);
+  await mouse.down({ button: 'middle' });
+  await mouse.move(320, 680);
+  await expect(pill).toBeVisible();
+
+  // The folder answers `403` while the button is still down: the page may only
+  // read from now on. A pan is a view, not an edit, so it keeps the hand it was
+  // taken with, and the word it was naming.
+  await refuseWrite(ui, 'this folder is served read-only');
+  await expect(readOnly).toBeHidden();
+  await expect(pill).toBeVisible();
+
+  // The button comes up: the pan ends with it, and the page says what it may do.
+  await mouse.up({ button: 'middle' });
+  await expect(pill).toBeHidden();
+  await expect(readOnly).toBeVisible();
+  await allowWrites(ui);
 });
 
 test('a window blur while Space is held takes the pill with the pan', async ({
