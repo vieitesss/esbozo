@@ -94,6 +94,15 @@ export function withWords(element: Element, words: string, layout: Layout): Elem
   return layout.grow(labelled);
 }
 
+/**
+ * The Element with the room its words need but not the words: while they are
+ * typed, the field in front of the page shows them, and painting them twice
+ * would put two copies on the screen, one of them a few pixels off.
+ */
+export function withoutWords(element: Element): Element {
+  return element.type === 'text' ? { ...element, content: '' } : stripLabel(element);
+}
+
 /** The two ends an arrow or line draws, with Snap resolved: the shaft its Label belongs to. */
 function shaftOf(
   element: ArrowOrLineElement,

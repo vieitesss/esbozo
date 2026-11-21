@@ -27,6 +27,8 @@ import {
   EDGE_SCENE,
   MIXED,
   MIXED_SCENE,
+  OVERFLOW,
+  OVERFLOW_SCENE,
   SCENE,
   SNAP,
   SNAP_SCENE,
@@ -36,6 +38,7 @@ import {
   WIDE_SCENE,
   at,
   clickScene,
+  doubleClickScene,
   drag,
   openEditor,
   savedFiles,
@@ -51,6 +54,10 @@ const EDGE_SOURCE = JSON.stringify(EDGE_SCENE, null, 2);
 const WIDE_SOURCE = JSON.stringify(WIDE_SCENE, null, 2);
 const SNAP_SOURCE = JSON.stringify(SNAP_SCENE, null, 2);
 const SNAPPED_SOURCE = JSON.stringify(SNAPPED_SCENE, null, 2);
+const OVERFLOW_SOURCE = JSON.stringify(OVERFLOW_SCENE, null, 2);
+
+/** A Label long enough that the box it is typed into has to grow for it. */
+const LONG_LABEL = 'words that wrap and grow';
 
 test('a Scene that will not parse is reported, naming the box-a width problem', async ({ agent, app, browser, screen }) => {
   const ui = { agent, app, browser, screen };
@@ -233,6 +240,23 @@ test('the Style menu is a note taped to the right edge, and it leaves the select
   );
 });
 
+test('a Label that does not fit its Element is outlined in red, as ez check reports it', async ({
+  agent,
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { agent, app, browser, screen };
+  await openEditor(ui, { A: { 'overflow.json': OVERFLOW_SOURCE } }, 'overflow.json');
+
+  // The words spill out of the box and a red outline says so; `ez check` exits 6
+  // on the same Scene, in `tests/labels.e2e.ts`.
+  await ui.agent.assert(
+    'a small hand-drawn rectangle holds words that spill out above and below it, and a red outline frames those words',
+    { vision: 'only' },
+  );
+});
+
 test('the Style menu fits a 1366×768 window beside the selection', async ({ agent, app, browser, screen }) => {
   const ui = { agent, app, browser, screen };
   await ui.browser.setViewport({ width: 1366, height: 768 });
@@ -316,5 +340,50 @@ test('the note says what each end of an arrow is attached to, and says nothing o
   await ui.agent.assert(
     'the note speaks for two Elements and nowhere says that an end is attached to anything: there is no detach button in it, and no row naming a start or an end',
     { vision: false },
+  );
+});
+test('a Label that does not fit its Element is outlined in red, as ez check reports it', async ({
+  agent,
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { agent, app, browser, screen };
+  await openEditor(ui, { A: { 'overflow.json': OVERFLOW_SOURCE } }, 'overflow.json');
+
+  // The words spill out of the box and a red outline says so; `ez check` exits 6
+  // on the same Scene, in `tests/labels.e2e.ts`.
+  await ui.agent.assert(
+    'a small hand-drawn rectangle holds words that spill out above and below it, and a red outline frames those words',
+    { vision: 'only' },
+  );
+});
+
+test('a box grows for the Label typed into it, and the words wrap inside its outline', async ({
+  agent,
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { agent, app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+  await doubleClickScene(ui, { x: 100, y: 80 });
+  const label = screen.getByRole('textbox', { name: 'Label' });
+  await label.pressSequentially(LONG_LABEL);
+
+  // A caret blinks, and a screenshot catches it in either half of the blink, so
+  // it is not judged here: what a person sees is that the box grew for the words
+  // as they were typed, and that they sit inside it, wrapped, with nothing drawn
+  // around them that the Scene would not draw.
+  await ui.agent.assert(
+    'the left-hand hand-drawn rectangle has grown taller and holds the words written inside it as three wrapped lines, every word inside the outline, with no box or border around the words themselves',
+    { vision: 'only' },
+  );
+
+  await label.press('Escape');
+  await ui.agent.assert(
+    'the same three lines of words are still inside the left-hand rectangle, with nothing around them but the rectangle',
+    { vision: 'only' },
   );
 });

@@ -67,7 +67,7 @@ import { railArt, railMarkup } from './rail.js';
 import { attachedTo, endPoint, freedEnd, isShaft, otherEnd, released, targetAt, withEnd } from './snap.js';
 import type { End } from './snap.js';
 import { TextSession } from './text-session.js';
-import { fieldFor, withWords, wordsOf } from './words.js';
+import { fieldFor, withoutWords, withWords, wordsOf } from './words.js';
 import { PaintCache, sceneFile } from './paint.js';
 import type { SceneFiles } from './paint.js';
 import type { Paint } from './paint.js';
@@ -2087,7 +2087,10 @@ class EsbozoEditorElement extends HTMLElement {
    * with its words as they arrive, and only the commit makes that a change.
    */
   #showWords(element: SceneElement, words: string): void {
-    this.#editing = { id: element.id, element: withWords(element, words, this.#layout) };
+    const grown = withWords(element, words, this.#layout);
+    // The field in front of the page holds the words; the Element under it only
+    // grows for them, so the page never shows them twice.
+    this.#editing = { id: element.id, element: withoutWords(grown) };
     this.#paint();
   }
 
