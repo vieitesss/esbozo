@@ -11,7 +11,8 @@
  * The words are drawn as the font's own outlines (`../glyphs.ts`), not as
  * `<text>`: a browser would shape and hint a line its own way, and a page of
  * dense words would not be the CLI's drawing. Paths leave both rasterisers the
- * same curves to fill.
+ * same curves to fill, and they come from the font Layout measured with, so an
+ * export reads the font once rather than once more.
  *
  * The canvas draws at one pixel per Scene unit, which is the scale `ez png`
  * rasterises at, so the PNG has the CLI's size and, within the rasteriser's
@@ -21,8 +22,6 @@
  */
 import { colourText, readColour, resolveSvgColours, resolveVariables } from '../css.js';
 import type { Theme, Variables } from '../css.js';
-import { glyphsOf } from '../glyphs.js';
-import type { Glyphs } from '../glyphs.js';
 import type { Layout } from '../layout.js';
 import { outlineText } from '../outlines.js';
 import { renderScene } from '../renderer.js';
@@ -43,18 +42,12 @@ const MAX_PIXELS = 16_384 * 16_384;
 const COLOURS = ['--ink', '--paper', '--muted'] as const;
 type ColourVariable = (typeof COLOURS)[number];
 
-/** The hand font the page draws with, as the bytes an SVG can carry. */
-export interface SceneFont {
-  /** The family the page's CSS names, and the one the SVG is drawn in. */
-  readonly family: string;
-  readonly bytes: Uint8Array;
-}
-
 export interface PngExport {
   readonly scene: Scene;
   /** The page's measurement, so the words break where the saved SVG breaks them. */
   readonly layout: Layout;
-  readonly font: SceneFont;
+  /** The family the page's CSS names, and the one the outlined SVG is resolved in. */
+  readonly family: string;
   readonly theme: Theme;
   /** The file name without its extension: `sketch` writes `sketch.light.png`. */
   readonly name: string;
@@ -68,12 +61,12 @@ export interface PngExport {
  */
 export async function exportPng(options: PngExport): Promise<void> {
   const page = pageVariables(options.theme);
-  const variables: Variables = { ...page, '--font-hand': options.font.family };
+  const variables: Variables = { ...page, '--font-hand': options.family };
   const resolved = resolveSvgColours(renderScene(options.scene, options.layout), variables);
   if (!resolved.ok) {
     throw new Error(resolved.problems[0] ?? 'the drawing cannot be resolved');
   }
-  const outlined = outlineText(resolved.value, glyphsFor(options.font));
+  const outlined = outlineText(resolved.value, options.layout.glyphs);
   if (!outlined.ok) {
     throw new Error(outlined.problems[0] ?? 'the drawing cannot be outlined');
   }
@@ -86,21 +79,6 @@ export async function exportPng(options: PngExport): Promise<void> {
   }
   const drawing = await rasterise(outlined.svg, page['--paper'], size);
   download(drawing, `${options.name}.${options.theme}.png`);
-}
-
-/**
- * The glyphs of the page's font, parsed once and kept: an export outlines every
- * line of a Scene, and a person may export the same Scene more than once.
- */
-const parsedGlyphs = new WeakMap<SceneFont, Glyphs>();
-
-function glyphsFor(font: SceneFont): Glyphs {
-  let glyphs = parsedGlyphs.get(font);
-  if (glyphs === undefined) {
-    glyphs = glyphsOf(font.bytes);
-    parsedGlyphs.set(font, glyphs);
-  }
-  return glyphs;
 }
 
 /** Whether a canvas can hold the page at one pixel per Scene unit. */

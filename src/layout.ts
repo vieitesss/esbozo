@@ -33,6 +33,8 @@
  * space or an em space among them, stays on the line it was written on.
  */
 import { parse as parseFont } from 'opentype.js';
+import { glyphsOf } from './glyphs.js';
+import type { Curve, Glyphs } from './glyphs.js';
 import type {
   Element,
   FontSize,
@@ -130,13 +132,15 @@ export interface ParsedFont {
   /** How many glyphs the file holds, so a file with none is caught before drawing. */
   glyphCount: number;
   metrics: Metrics;
+  /** The same parse, as the font's own outlines: what a PNG draws its words with. */
+  glyphs: Glyphs;
 }
 
 /**
- * Parses a font file once. The advances, the vertical metrics, the family name
- * and the glyph count all come from this one parse, so a caller that validates
- * a font and then measures with it reads the file only as many times as it has
- * to.
+ * Parses a font file once. The advances, the vertical metrics, the family name,
+ * the glyph count and the outlines all come from this one parse, so a caller
+ * that validates a font, measures with it and then draws its words reads the
+ * file exactly once.
  */
 export function parseFontFile(bytes: Uint8Array): ParsedFont {
   const font = parseFont(arrayBufferOf(bytes));
@@ -152,20 +156,22 @@ export function parseFontFile(bytes: Uint8Array): ParsedFont {
   const lineHeightEm =
     ascender - descender > 0 ? (ascender - descender + lineGap) / unitsPerEm : 1;
   const inkCentreEm = (ascender + descender) / 2 / unitsPerEm;
+  const advance = (text: string, size: number): number =>
+    font.getAdvanceWidth(text, size, { kerning: true });
   return {
     family: font.getEnglishName('fontFamily')?.trim() ?? '',
     glyphCount: font.glyphs.length,
     metrics: {
-      advance: (text, size) => font.getAdvanceWidth(text, size, { kerning: true }),
+      advance,
       lineHeight: (size) => size * lineHeightEm,
       inkCentre: (size) => size * inkCentreEm,
     },
+    glyphs: glyphsOf({
+      advance,
+      curves: (text, x, baseline, size) =>
+        font.getPath(text, x, baseline, size, { kerning: true }).commands as readonly Curve[],
+    }),
   };
-}
-
-/** Reads a font file into the numbers Layout places text with. Throws when the bytes are not a font. */
-export function measureFont(bytes: Uint8Array): Metrics {
-  return parseFontFile(bytes).metrics;
 }
 
 /**
@@ -189,11 +195,18 @@ export interface Layout {
   overflow(element: Element): Overflow | null;
   /** The Element grown down and right until its Label fits. Elements without one come back unchanged. */
   grow<T extends Element>(element: T): T;
+  /**
+   * The lines this Layout placed, as the font's own curves. A PNG draws these
+   * instead of `<text>`, so the words it rasterises are the words it measured.
+   */
+  glyphs: Glyphs;
 }
 
-/** Builds the Layout for one measured font. */
-export function createLayout(metrics: Metrics): Layout {
+/** Builds the Layout for one parsed font: measuring and outlining from one parse. */
+export function createLayout(parsed: ParsedFont): Layout {
+  const metrics = parsed.metrics;
   const layout: Layout = {
+    glyphs: parsed.glyphs,
     text: (element) => textBlock(element, metrics),
     label: (element, shaft) => labelBlock(element, metrics, shaft),
     overflow: (element) => labelOverflow(element, metrics),

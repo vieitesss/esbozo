@@ -33,6 +33,7 @@ import {
   MIXED,
   MIXED_SCENE,
   TEXT_SCENE,
+  XL_WORDS_SCENE,
   OVERFLOW,
   OVERFLOW_SCENE,
   SCENE,
@@ -89,6 +90,7 @@ const LACED_SOURCE = JSON.stringify(LACED_SCENE, null, 2);
 const SHAFT_SOURCE = JSON.stringify(SHAFT_SCENE, null, 2);
 const TEXT_SOURCE = JSON.stringify(TEXT_SCENE, null, 2);
 const BIG_SOURCE = JSON.stringify(BIG_SCENE, null, 2);
+const XL_SOURCE = JSON.stringify(XL_WORDS_SCENE, null, 2);
 
 /** The middle of `b`, the one solid grey box in the fixture. */
 const GREY_BOX: Rect = { x: 700, y: 390, width: 40, height: 40 };
@@ -1557,6 +1559,70 @@ test('a dense page of words exports as `ez png` draws it, in light and dark', as
     expect(apart.meanDelta, `${theme} mean delta ${apart.meanDelta}`).toBeLessThan(1);
     expect(apart.movedShare, `${theme} moved share ${apart.movedShare}`).toBeLessThan(0.01);
     expect(inkShare(file.png)).toBeGreaterThan(0.02);
+  }
+});
+
+/** Where every line of ink ends, read from a PNG of a page of words. */
+function inkLines(png: Buffer): { width: number; right: number[] } {
+  const image = decodePng(png);
+  const paper = [0, 1, 2].map((channel) => image.data[channel] ?? 0);
+  const inked = (x: number, y: number): boolean => {
+    const at = (y * image.width + x) * image.channels;
+    return [0, 1, 2].some((channel) => Math.abs((image.data[at + channel] ?? 0) - paper[channel]!) > 64);
+  };
+  const right: number[] = [];
+  let lastRow = -2;
+  for (let y = 0; y < image.height; y += 1) {
+    let edge = -1;
+    for (let x = 0; x < image.width; x += 1) {
+      if (inked(x, y)) {
+        edge = x;
+      }
+    }
+    if (edge < 0) {
+      continue;
+    }
+    // A line is a band of inked rows: the next inked row continues it.
+    if (y === lastRow + 1 && right.length > 0) {
+      right[right.length - 1] = Math.max(right[right.length - 1]!, edge);
+    } else {
+      right.push(edge);
+    }
+    lastRow = y;
+  }
+  return { width: image.width, right };
+}
+
+test('five XL lines of one sentence export as `ez png` draws them, in light and dark', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  // The reviewer's page: five XL lines of the same words, which the browser
+  // drew as the word `Kalam` alone because the path it was given held a NaN.
+  await openEditor(ui, { A: { 'scene.json': XL_SOURCE } }, 'scene.json');
+
+  for (const theme of ['light', 'dark'] as const) {
+    const file = await exportFromPalette(ui, `Export PNG (${theme})`);
+    const cli = await cliPng(await savedScene(ui), theme);
+    expect({ width: decodePng(file.png).width, height: decodePng(file.png).height }).toEqual({
+      width: decodePng(cli).width,
+      height: decodePng(cli).height,
+    });
+    const apart = difference(decodePng(file.png), decodePng(cli));
+    expect(apart.meanDelta, `${theme} mean delta ${apart.meanDelta}`).toBeLessThan(1);
+    expect(apart.movedShare, `${theme} moved share ${apart.movedShare}`).toBeLessThan(0.01);
+
+    // Every one of the five lines keeps its words: five bands of ink, each
+    // reaching the end of the line the font measured.
+    const lines = inkLines(file.png);
+    expect(lines.right.length, `${theme} lines`).toBe(5);
+    for (const edge of lines.right) {
+      expect(edge, `${theme} line ends at ${edge} of ${lines.width}`).toBeGreaterThan(
+        lines.width * 0.9,
+      );
+    }
   }
 });
 

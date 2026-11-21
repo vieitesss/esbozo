@@ -36,7 +36,6 @@ import type { ArrangeAct } from './arrange.js';
 import { actionById, actionFor } from './actions.js';
 import type { ActionHost, ActionState, ToolId } from './actions.js';
 import { exportPng } from './export.js';
-import type { SceneFont } from './export.js';
 import { CommandPalette } from './palette.js';
 import { menuSignature, roughnessNote, styleNote } from './menu.js';
 import { nextRoughness, styled } from './style.js';
@@ -165,10 +164,10 @@ const SHELL = `
 `;
 
 export class EsbozoEditorElement extends HTMLElement {
-  /** The page's font, measured: every Text and Label is placed with it. */
+  /** The page's font, measured: every Text and Label is placed with it, and outlined from it. */
   readonly #layout: Layout;
-  /** The same font's bytes, so an exported SVG can carry them. */
-  readonly #font: SceneFont;
+  /** The family the page draws that font as, which an exported SVG is resolved in. */
+  readonly #family: string;
   #scene: Scene = emptyScene();
   #selected: string[] = [];
   #tool: ToolId = 'select';
@@ -237,10 +236,10 @@ export class EsbozoEditorElement extends HTMLElement {
     openFolder: () => void (this.#served ? this.#showNote() : this.#openFolder()),
   };
 
-  constructor(layout: Layout, font: SceneFont) {
+  constructor(layout: Layout, family: string) {
     super();
     this.#layout = layout;
-    this.#font = font;
+    this.#family = family;
   }
 
   connectedCallback(): void {
@@ -656,7 +655,7 @@ export class EsbozoEditorElement extends HTMLElement {
         scene: this.#scene,
         theme,
         layout: this.#layout,
-        font: this.#font,
+        family: this.#family,
         name: sceneStem(file) || this.#scene.title,
         file,
       });
@@ -1549,7 +1548,7 @@ function normaliseSceneName(raw: string): string {
  * instead of showing an editor that cannot draw.
  */
 export type PageFont =
-  | { ok: true; layout: Layout; font: SceneFont }
+  | { ok: true; layout: Layout; family: string }
   | { ok: false; problem: string };
 
 /**
@@ -1586,12 +1585,12 @@ export function defineEditorElement(font: PageFont): void {
     return;
   }
   if (font.ok) {
-    const { layout, font: sceneFont } = font;
+    const { layout, family } = font;
     customElements.define(
       'esbozo-editor',
       class extends EsbozoEditorElement {
         constructor() {
-          super(layout, sceneFont);
+          super(layout, family);
         }
       },
     );

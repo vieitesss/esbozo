@@ -554,6 +554,52 @@ export const BIG_SCENE = {
   ],
 };
 
+/**
+ * Five identical lines of XL words: the page the reviewer exported, which came
+ * out as one word. A line is placed by the same font that draws it, so a broken
+ * glyph path loses the rest of every line, and a page of one word per line says
+ * so at a glance.
+ */
+export const XL_WORDS = 'Kalam is meant to match.';
+export const XL_WORDS_SCENE = {
+  version: 1,
+  title: 'XL words',
+  defaults: { roughness: 1 },
+  elements: [
+    {
+      id: 'lines',
+      type: 'text',
+      x: 40,
+      y: 40,
+      content: Array.from({ length: 5 }, () => XL_WORDS).join('\n'),
+      fontSize: 'XL',
+      textAlign: 'left',
+    },
+  ],
+};
+
+/**
+ * A wall 33,170 units wide: wider than the 32,767 a canvas may be a side, and
+ * narrower than the browser's real limit, which draws it at one pixel per unit.
+ * The page the Renderer lays out is 33,170×142.
+ */
+export const WIDE_WALL_SCENE = {
+  version: 1,
+  title: 'Wide wall',
+  defaults: { roughness: 1 },
+  elements: [
+    {
+      id: 'wall',
+      type: 'rectangle',
+      x: 40,
+      y: 40,
+      width: 33138,
+      height: 110,
+      fill: { kind: 'solid', grey: 2 },
+    },
+  ],
+};
+
 /** Stub folders: a folder name mapped to its `name → text` files. */
 export interface Folders {
   [folder: string]: Record<string, string>;

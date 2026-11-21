@@ -36,10 +36,12 @@
  * command that measures — `--font`, then a local `@font-face` for the
  * stylesheet's `--font-hand`, then the bundled Kalam — so `ez check` and
  * `ez png` measure the same bytes for the same inputs. The font is read once,
- * and the same bytes are used for two things: Layout measures the Scene's words
- * with them, so the drawing that is rasterised has the line breaks this font
- * makes, and resvg draws the glyphs with them, so the PNG shows the font it was
- * measured for.
+ * and that one parse does both jobs: Layout measures the Scene's words with it,
+ * so the line breaks are the font's, and its glyphs are drawn from the same
+ * outlines (`./glyphs.ts`), so the PNG shows the font it was measured for. A
+ * PNG therefore has no `<text>` left in it: no text engine lays the words out a
+ * second time, and `ez render` keeps real `<text>` because a person can select
+ * it.
  *
  * The built-in light and dark palettes are sb's Excalidraw converter defaults,
  * the prior art.
@@ -49,7 +51,8 @@ import resvgWasm from '@resvg/resvg-wasm/index_bg.wasm';
 import { colourText, readColour, resolveSvgColours, resolveVariables, themeVariables } from './css.js';
 import type { Rgba, Theme, Variables } from './css.js';
 import { chooseFont, layoutFor, readStylesheet } from './font.js';
-import type { FontFile, Stylesheet } from './font.js';
+import type { Stylesheet } from './font.js';
+import { outlineText } from './outlines.js';
 import { renderScene } from './renderer.js';
 import type { Scene } from './scene.js';
 
@@ -123,8 +126,10 @@ export async function renderPng(scene: Scene, options: PngOptions): Promise<PngR
 
   const family = font.family ?? font.value.family;
   // The words are measured with the font the glyphs are drawn with, so the PNG
-  // wraps exactly as that font makes it wrap.
-  const svg = renderScene(scene, layoutFor(font.value));
+  // wraps exactly as that font makes it wrap, and every line is drawn as that
+  // same font's outlines: no text engine sees the drawing.
+  const layout = layoutFor(font.value);
+  const svg = renderScene(scene, layout);
   const resolved = resolveSvgColours(svg, {
     '--ink': palette.value.ink,
     '--paper': palette.value.paper,
@@ -134,9 +139,13 @@ export async function renderPng(scene: Scene, options: PngOptions): Promise<PngR
   if (!resolved.ok) {
     return resolved;
   }
+  const outlined = outlineText(resolved.value, layout.glyphs);
+  if (!outlined.ok) {
+    return { ok: false, problems: outlined.problems };
+  }
 
   try {
-    const png = await rasterise(resolved.value, palette.value, font.value);
+    const png = await rasterise(outlined.svg, palette.value);
     return { ok: true, png, notes };
   } catch (error) {
     return { ok: false, problems: [`cannot rasterise the Scene: ${messageOf(error)}`] };
@@ -210,12 +219,11 @@ function paletteColour(
   return { ok: true, value: colourText(colour) };
 }
 
-async function rasterise(svg: string, palette: Palette, font: FontFile): Promise<Uint8Array> {
+async function rasterise(svg: string, palette: Palette): Promise<Uint8Array> {
   await readyWasm();
   const resvg = new Resvg(svg, {
     background: palette.paper,
     fitTo: { mode: 'original' },
-    font: { fontBuffers: [font.bytes], loadSystemFonts: false, defaultFontFamily: font.family },
   });
   try {
     return resvg.render().asPng();

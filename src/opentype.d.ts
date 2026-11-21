@@ -35,8 +35,7 @@ declare module 'opentype.js' {
       y: number,
       fontSize?: number,
       options?: { kerning?: boolean },
-    ): Path;
-    /** The file's bytes, for tests that need a font which is valid but unusual. */
+    ): Path;    /** The file's bytes, for tests that need a font which is valid but unusual. */
     toArrayBuffer(): ArrayBuffer;
   }
 
@@ -52,8 +51,17 @@ declare module 'opentype.js' {
   /** Parses a TrueType/OpenType file; throws when the bytes are not a font. */
   export function parse(buffer: ArrayBuffer): Font;
 
+  /** One command of a glyph outline, in pixels, as opentype.js writes it. */
+  export type PathCommand =
+    | { type: 'M' | 'L'; x: number; y: number }
+    | { type: 'Q'; x1: number; y1: number; x: number; y: number }
+    | { type: 'C'; x1: number; y1: number; x2: number; y2: number; x: number; y: number }
+    | { type: 'Z' };
+
   /** A glyph outline, built by tests that need a font which is valid but unusual. */
   export class Path {
+    /** The commands of a line, in pixels: what a PNG draws its words from. */
+    commands: readonly PathCommand[];
     moveTo(x: number, y: number): void;
     lineTo(x: number, y: number): void;
     close(): void;

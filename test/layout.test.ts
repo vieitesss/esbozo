@@ -16,10 +16,10 @@ import { loadProjectModules } from './modules.ts';
 import type { Block, Box, Shaft } from '../src/layout.ts';
 import type { Element, Point, TextElement } from '../src/scene.ts';
 
-const { parseScene, createLayout, measureFont, KALAM } = await loadProjectModules();
+const { parseScene, createLayout, parseFontFile, KALAM } = await loadProjectModules();
 
 /** The editor measures with the font the host gave it; here that is Kalam. */
-const LAYOUT = createLayout(measureFont(KALAM));
+const LAYOUT = createLayout(parseFontFile(KALAM));
 
 /** Kalam parsed here, for the vertical metrics a test computes its own way. */
 const kalam = opentype.parse(
@@ -146,7 +146,7 @@ test('the line height and ink centre come from the font, not from Kalam', () => 
   );
 
   const tallBytes = fontBytes({ ascender: 1800, descender: -200, glyphHeight: 1800 });
-  const tall = createLayout(measureFont(tallBytes));
+  const tall = createLayout(parseFontFile(tallBytes));
   const tallMetrics = vertical(tallBytes, 18);
   assert.ok(tallMetrics.lineHeight > kalamMetrics.lineHeight, 'the tall font asks for taller lines');
   const tallBlock = tall.text(words('one\ntwo'));
@@ -156,7 +156,7 @@ test('the line height and ink centre come from the font, not from Kalam', () => 
 
 test('a font with tall glyphs overflows a box Kalam fits', () => {
   const box = element(oneElement({ width: 200, height: 50, label: 'Hamburgefonstiv' }));
-  const tall = createLayout(measureFont(fontBytes({ ascender: 1800, descender: -200, glyphHeight: 1800 })));
+  const tall = createLayout(parseFontFile(fontBytes({ ascender: 1800, descender: -200, glyphHeight: 1800 })));
 
   assert.equal(LAYOUT.overflow(box), null, 'Kalam fits its line in this box');
   assert.equal(LAYOUT.label(box)!.lines.length, 1, 'and the Label stays one line');

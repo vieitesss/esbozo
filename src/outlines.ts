@@ -10,7 +10,8 @@
  * place, and both rasterisers are left with the same curves.
  *
  * The pass is deliberately strict: an SVG it cannot fully outline is a problem,
- * never a drawing that quietly keeps its words in another typeface.
+ * never a drawing that quietly keeps its words in another typeface or loses the
+ * words it could not place.
  */
 import type { Glyphs, TextAnchor } from './glyphs.js';
 
@@ -26,6 +27,7 @@ const ATTRIBUTE = /([\w:-]+)="([^"]*)"/g;
 /** The words of a Renderer's SVG, as the glyph outlines of the font. */
 export function outlineText(svg: string, glyphs: Glyphs): OutlinedSvg {
   const drawn: string[] = [];
+  let problem: string | null = null;
   let line = TEXT.exec(svg);
   while (line !== null) {
     const attributes = attributesOf(line[1] ?? '');
@@ -37,8 +39,18 @@ export function outlineText(svg: string, glyphs: Glyphs): OutlinedSvg {
       return { ok: false, problems: ['a line of words has no place to be drawn at'] };
     }
     const path = glyphs.path(text, size, x, baseline, anchorOf(attributes['text-anchor']));
-    drawn.push(path === '' ? '' : `<path d="${path}" fill="${attributes['fill'] ?? 'currentColor'}"/>`);
+    if (path === null) {
+      problem ??= 'a line of words cannot be drawn from the font the Scene was measured with';
+      drawn.push('');
+    } else {
+      drawn.push(
+        path === '' ? '' : `<path d="${path}" fill="${attributes['fill'] ?? 'currentColor'}"/>`,
+      );
+    }
     line = TEXT.exec(svg);
+  }
+  if (problem !== null) {
+    return { ok: false, problems: [problem] };
   }
   const outlined = svg.replace(TEXT, () => drawn.shift() ?? '');
   if (outlined.includes('<text')) {
