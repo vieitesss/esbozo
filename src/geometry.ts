@@ -485,7 +485,7 @@ export interface ShaftPath {
   readonly end: Point;
   /** The pieces in drawing order: `start` to `end`, with nothing between them. */
   readonly pieces: readonly ShaftPiece[];
-  /** Total arc length of every piece, so `t = 0.5` is the true middle of the ink. */
+  /** Total arc length of every piece: how far the ink runs from `start` to `end`. */
   readonly length: number;
   readonly bounds: ShaftBounds;
 }
