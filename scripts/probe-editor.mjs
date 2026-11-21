@@ -17,12 +17,14 @@
  *   protocol can send (`tests/cdp.ts` is where the editor's own suite uses one).
  *
  * What the probe returns is printed as JSON on stdout, and the page's URL goes to
- * stderr before the probe runs. The browser and the server are closed whether the
- * probe returned, threw, or the run was interrupted.
+ * stderr before the probe runs. Everything the run takes is given back — the
+ * browser, the server, and the temporary module — whether the probe returned,
+ * threw, called `process.exit` itself, or the run was interrupted while still
+ * setting those up.
  *
  * It serves `dist/` as it finds it: `pnpm probe` does not build.
  */
-import { createReadStream } from 'node:fs';
+import { createReadStream, rmSync } from 'node:fs';
 import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
@@ -116,30 +118,88 @@ async function probeFile(path) {
   }
   const chunks = [];
   for await (const chunk of process.stdin) chunks.push(chunk);
-  scratch = await mkdtemp(join(tmpdir(), 'esbozo-probe-'));
-  const file = join(scratch, 'probe.mjs');
+  const folder = await own(
+    mkdtemp(join(tmpdir(), 'esbozo-probe-')),
+    (path) => rm(path, { recursive: true, force: true }),
+    (path) => rmSync(path, { recursive: true, force: true }),
+  );
+  const file = join(folder, 'probe.mjs');
   await writeFile(file, Buffer.concat(chunks));
   return file;
 }
 
-/** Everything a run has to close, so one path closes it. */
-let scratch;
-let browser;
-let server;
+/**
+ * Everything a run holds, so one path gives all of it back. Ownership is taken
+ * before the thing lands: a signal during setup closes what arrives after it,
+ * and the exit hook has the part that fits in a synchronous last look.
+ */
+const owned = [];
+
+/** Set by `stop`: whatever lands from now on is given back on arrival. */
+let stopping = false;
 let closing;
 
-/** Close the run once. Failure to close one resource cannot skip the others. */
+/**
+ * Owns one acquisition. `dispose` gives back what `landing` resolves to, and
+ * `disposeNow` is the same in the synchronous form a probe that calls
+ * `process.exit` itself leaves room for.
+ */
+function own(landing, dispose, disposeNow) {
+  const held = { landing, dispose, disposeNow, value: undefined, landed: false, closed: false };
+  owned.push(held);
+  void landing.then(
+    (value) => {
+      held.value = value;
+      held.landed = true;
+      if (stopping) void close(held);
+    },
+    () => {
+      // What never landed owns nothing: the failure is the run's to report.
+      held.landed = true;
+    },
+  );
+  return landing;
+}
+
+/** Gives one thing back once, whether it landed already or is still landing. */
+async function close(held) {
+  if (held.closed) return;
+  held.closed = true;
+  const value = held.landed ? held.value : await held.landing.catch(() => undefined);
+  if (value === undefined) return;
+  try {
+    await held.dispose(value);
+  } catch {
+    // One resource that will not close cannot keep the others open.
+  }
+}
+
+/**
+ * Close the run once: everything it owns, including an acquisition still on its
+ * way. A signal can land mid-setup, so the run keeps closing until nothing is
+ * owed — a landing that takes something next is closed before the exit.
+ */
 function stop() {
-  closing ??= Promise.all([
-    browser?.close(),
-    server === undefined ? undefined : new Promise((closed) => {
-      server.close(() => closed());
-      server.closeAllConnections();
-    }),
-    scratch === undefined ? undefined : rm(scratch, { recursive: true, force: true }),
-  ]);
+  closing ??= (async () => {
+    stopping = true;
+    for (;;) {
+      const owed = owned.filter((held) => !held.closed);
+      if (owed.length === 0) return;
+      await Promise.all(owed.map((held) => close(held)));
+    }
+  })();
   return closing;
 }
+
+/**
+ * A probe that calls `process.exit` itself skips `finally`: this hook is the one
+ * last look the run gets, and only what can be given back synchronously is.
+ */
+process.on('exit', () => {
+  for (const held of owned) {
+    if (!held.closed && held.landed && held.value !== undefined) held.disposeNow?.(held.value);
+  }
+});
 
 /** Set by a signal: the run ends where the person ended it, not where the probe was. */
 let interrupted = false;
@@ -156,6 +216,7 @@ async function main() {
   const chosen = options(process.argv.slice(2));
   const folder = resolve(chosen.folder);
   const file = await probeFile(chosen.probe);
+  if (interrupted) return;
   let probe;
   try {
     ({ default: probe } = await import(pathToFileURL(file).href));
@@ -176,9 +237,19 @@ async function main() {
     throw new Error(`no built page at ${built}: run pnpm build first`);
   }
 
-  browser = await chromium.launch();
-  const served = await serve(folder);
-  server = served.server;
+  // A signal ends the run where the person ended it: what `stop` is closing is
+  // given back, but nothing more is taken up or announced after it.
+  if (interrupted) return;
+  const browser = await own(chromium.launch(), (launched) => launched.close());
+  if (interrupted) return;
+  const served = await own(
+    serve(folder),
+    ({ server }) => new Promise((closed) => {
+      server.close(() => closed());
+      server.closeAllConnections();
+    }),
+  );
+  if (interrupted) return;
   const url = `http://127.0.0.1:${served.port}${EDITOR_PAGE.path}`;
   process.stderr.write(`probing ${url}\n`);
   const page = await browser.newPage({ viewport: VIEWPORT });
