@@ -6,11 +6,11 @@ A Scene is one JSON file. `ez check` and the editor read it through the same par
 {
   "version": 1,
   "title": "Two boxes",
-  "defaults": { "fill": { "kind": "none" }, "textAlign": "center" },
   "elements": [
-    { "id": "a", "type": "rectangle", "x": 40, "y": 40, "width": 160, "height": 80, "label": "Orders" },
-    { "id": "b", "type": "rectangle", "x": 320, "y": 40, "width": 160, "height": 80, "label": "Billing" },
-    { "id": "a-b", "type": "arrow", "points": [{ "x": 120, "y": 80, "snap": "a" }, { "x": 400, "y": 80, "snap": "b" }] }
+    { "id": "a", "type": "rectangle", "x": 44, "y": 44, "width": 176, "height": 88, "label": "Orders" },
+    { "id": "b", "type": "rectangle", "x": 330, "y": 44, "width": 176, "height": 88, "label": "Billing" },
+    { "id": "a-b", "type": "arrow", "points": [{ "x": 132, "y": 88, "snap": "a" }, { "x": 418, "y": 88, "snap": "b" }] },
+    { "id": "note", "type": "text", "x": 44, "y": 176, "content": "Billed once per order" }
   ]
 }
 ```
@@ -23,7 +23,7 @@ The parser rejects every key it does not know, so a misspelt key is an error and
 | --- | --- | --- | --- |
 | `version` | integer | none, required | Must be `1`. |
 | `title` | string | `"Scene"` | Not blank. No characters XML cannot hold (control characters, lone surrogates). It becomes the SVG's accessible name. |
-| `defaults` | object | all defaults below | Style keys only (see Style). |
+| `defaults` | object | the defaults in Style | Style keys only (see Style). |
 | `elements` | array | none, required | Element objects. List order is layer order: later Elements draw on top. |
 
 ## Elements
@@ -80,12 +80,14 @@ These keys sit in `defaults` for the whole Scene, and on any Element, where they
 | `roughness` | integer | `1` | `0` architect, `1` artist, `2` cartoonist. |
 | `stroke.width` | string | `"bold"` | `thin` (1px), `bold` (2px) or `extra` (4px). |
 | `stroke.style` | string | `"solid"` | `solid`, `dashed` or `dotted`. |
-| `fill.kind` | string | `"hachure"` | `none`, `solid`, `hachure` or `cross-hatch`. |
+| `fill.kind` | string | `"none"` | `none`, `solid`, `hachure` or `cross-hatch`. Nothing is filled unless the Scene asks. |
 | `fill.grey` | integer | `2` | `0` to `6`: a ladder of seven greys from paper (`0`) to ink (`6`). |
 | `tone` | string | `"ink"` | `ink` or `muted`: the colour of the stroke and the words. |
 | `corners` | string | `"sharp"` | `sharp` or `round`. |
 | `fontSize` | string | `"M"` | `S` (14px), `M` (18px), `L` (24px) or `XL` (32px). |
-| `textAlign` | string | `"left"` | `left`, `center` or `right`. |
+| `textAlign` | string | none written: `"center"` for a Label, `"left"` for a Text | `left`, `center` or `right`. Written on an Element or in `defaults`, it wins for every Label and Text it covers. |
+
+Unwritten `textAlign` means what suits the words: a Label centres in the Element it belongs to (a rectangle, ellipse, diamond, arrow or line), and a Text keeps the left edge its `x` places. Write `"textAlign": "center"` in `defaults` to centre Text too. Write `"left"` to put Labels on the left edge.
 
 Every Element accepts every style key, and each type draws the ones that mean something to it:
 
@@ -98,7 +100,7 @@ Colours are never written in a Scene. The look comes from the host's CSS variabl
 
 ## Canonical form
 
-`serialiseScene` writes a Scene with two-space indentation, a fixed key order, whole-pixel geometry, every style key spelt out and a final newline. The Scene hash in an SVG's `data-scene-hash` is the SHA-256 of that text, so a Scene that parses to the same values hashes the same, whatever its file looked like. Saving from the editor writes this form.
+`serialiseScene` writes a Scene with two-space indentation, a fixed key order, whole-pixel geometry, every style key spelt out on each Element (an unwritten `textAlign` is written as what it resolved to) and a final newline. In `defaults`, `textAlign` appears only when the Scene wrote one. The Scene hash in an SVG's `data-scene-hash` is the SHA-256 of that text, so a Scene that parses to the same values hashes the same, whatever its file looked like. Saving from the editor writes this form.
 
 ## Labels
 
