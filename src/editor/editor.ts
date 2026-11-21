@@ -53,6 +53,7 @@ import {
 import type { Box, Handle, Point, View } from './geometry.js';
 import { History } from './history.js';
 import { railArt, railMarkup } from './rail.js';
+import { TextSession } from './text-session.js';
 import { toolAt, toolForLetter } from './tools.js';
 import type { ToolId } from './tools.js';
 
@@ -170,8 +171,7 @@ export class EsbozoEditorElement extends HTMLElement {
   #rail!: HTMLElement;
   #railArt!: SVGSVGElement;
   /** The in-place input a new Text is typed into, while it is open. */
-  #textInput: HTMLTextAreaElement | null = null;
-  #textAt: Point | null = null;
+  #text: TextSession | null = null;
   #note!: HTMLElement;
   #files!: HTMLUListElement;
   #newScene!: HTMLFormElement;
@@ -694,10 +694,10 @@ export class EsbozoEditorElement extends HTMLElement {
     if (event.button !== 0 && event.button !== 1) {
       return;
     }
-    if (this.#textInput !== null) {
+    if (this.#text !== null) {
       // The click that takes the focus off the words commits them, and goes no
       // further: it is not also a click on the canvas.
-      this.#commitText();
+      this.#text.finish();
       return;
     }
     this.#canvas.setPointerCapture(event.pointerId);
@@ -803,71 +803,29 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#record();
   }
 
-  /**
-   * A minimal in-place input for a new Text: the words are typed where they will
-   * sit, in the hand font and at the size the Text draws. Enter on an empty
-   * line, Escape and a click elsewhere commit; an empty input leaves nothing
-   * behind. While it is open the keys are the input's, not the editor's.
-   */
+  /** A Text is placed: the words are typed where the Text will sit. */
   #openTextInput(at: Point): void {
     this.#setTool('select');
-    const page = toPage(this.#view, at);
-    const input = document.createElement('textarea');
-    input.className = 'text-input';
-    input.setAttribute('aria-label', 'Text');
-    input.rows = 1;
-    input.spellcheck = false;
-    input.style.left = `${page.x}px`;
-    input.style.top = `${page.y}px`;
-    input.style.fontSize = `${fontSizePx(this.#scene.defaults.fontSize) * this.#view.zoom}px`;
-    input.addEventListener('keydown', this.#onTextKeyDown);
-    input.addEventListener('blur', this.#onTextBlur);
-    this.append(input);
-    this.#textInput = input;
-    this.#textAt = at;
-    input.focus();
+    this.#text = new TextSession({
+      host: this,
+      place: {
+        page: toPage(this.#view, at),
+        zoom: this.#view.zoom,
+        fontSize: fontSizePx(this.#scene.defaults.fontSize),
+      },
+      commit: (content) => this.#commitText(at, content),
+    });
   }
 
-  #onTextKeyDown = (event: KeyboardEvent): void => {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      this.#commitText();
-      return;
-    }
-    if (event.key !== 'Enter' || event.shiftKey) {
-      return;
-    }
-    // Enter on an empty line is the end of the Text; anywhere else it is a
-    // line break, which the textarea inserts itself.
-    const input = event.currentTarget as HTMLTextAreaElement;
-    const before = input.value.slice(0, input.selectionStart);
-    if (before.slice(before.lastIndexOf('\n') + 1).trim() === '') {
-      event.preventDefault();
-      this.#commitText();
-    }
-  };
-
-  #onTextBlur = (): void => {
-    this.#commitText();
-  };
-
   /**
-   * Commit the open in-place input: a Text with words in it, or nothing.
+   * Commit the in-place input's words: a Text with words in them, or nothing.
    *
    * The Text goes through the Scene module's own validation before it is
    * recorded, so words a Scene file could not hold never reach disk. A refusal
    * says why in the status line and leaves the Scene exactly as it was.
    */
-  #commitText(): void {
-    const input = this.#textInput;
-    const at = this.#textAt;
-    if (input === null || at === null) {
-      return;
-    }
-    this.#textInput = null;
-    this.#textAt = null;
-    const content = input.value.trim();
-    input.remove();
+  #commitText(at: Point, content: string): void {
+    this.#text = null;
     if (content === '') {
       return;
     }
