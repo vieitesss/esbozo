@@ -829,6 +829,11 @@ function arrowOrLinePoints(
  * target it asked for: parseScene rejects those Scenes, so only a Scene built in
  * memory reaches this, and it must not draw a free end while still claiming a
  * Snap.
+ *
+ * The target is the one that is drawn, rounded like the rest of the Scene, so
+ * every caller that keeps a map of its own — the editor's in-memory draft
+ * among them — resolves the same outline the ink does. A hair of precision left
+ * in a target's `x` tilts the shaft enough to move the side its Label sits on.
  */
 function snapTarget(
   element: ArrowOrLineElement,
@@ -838,10 +843,11 @@ function snapTarget(
   if (point.snap === undefined) {
     return undefined;
   }
-  const target = byId.get(point.snap);
-  if (target === undefined) {
+  const stored = byId.get(point.snap);
+  if (stored === undefined) {
     throw new Error(`${element.id}: snap target "${point.snap}" does not exist`);
   }
+  const target = canonicalElement(stored);
   if (!isOutlined(target)) {
     throw new Error(
       `${element.id}: snap target "${point.snap}" must be a rectangle, ellipse or diamond`,

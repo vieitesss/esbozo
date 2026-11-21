@@ -15,7 +15,7 @@ import { test } from 'node:test';
 import { loadProjectModules } from './modules.ts';
 import type { Scene } from '../src/scene.ts';
 
-const { parseScene, renderScene, pageBounds, elementAt, createLayout, parseFontFile, KALAM } =
+const { parseScene, renderScene, pageBounds, elementBounds, elementAt, createLayout, parseFontFile, KALAM } =
   await loadProjectModules();
 
 /** The drawing is measured with the bundled font, as `ez render` measures it. */
@@ -49,6 +49,50 @@ test('a page measured in memory is the page the SVG draws', () => {
   assert.deepEqual(pageBounds(scene, LAYOUT), viewBoxOf(renderScene(scene, LAYOUT)));
 });
 
+test('a Snap target is resolved where it is drawn, so bounds and picking keep the Label side', () => {
+  // The editor holds a Scene with more precision than a file keeps: the
+  // rectangle's `x` is 79.6 here and 80 once canonical, so its centre is 99.6
+  // in memory and 100 where the ink paints it — the shaft's own x. The shaft
+  // that is drawn is vertical and its Label sits left of it; the shaft only the
+  // stored numbers describe leans 0.4px the other way, and that hair of a tilt
+  // alone flips the side the Label is placed on. So the bounds a host selects
+  // by and the press a person makes have to resolve the Snap target the ink
+  // resolved, whatever map of Elements the caller holds.
+  const scene = parsed({
+    version: 1,
+    elements: [
+      { id: 'r', type: 'rectangle', x: 80, y: 100, width: 40, height: 40 },
+      {
+        id: 'a',
+        type: 'line',
+        points: [
+          { x: 100, y: 0, snap: 'r' },
+          { x: 100, y: 400 },
+        ],
+        label: 'words',
+        labelAt: { t: 0.5, offset: 60 },
+      },
+    ],
+  });
+  const target = scene.elements[0]!;
+  if (target.type !== 'rectangle') {
+    throw new Error(`expected a rectangle, got ${target.type}`);
+  }
+  target.x = 79.6;
+
+  const paper = paperOf(renderScene(scene, LAYOUT));
+  const painted = { x: paper.x + paper.width / 2, y: paper.y + paper.height / 2 };
+  const line = scene.elements[1]!;
+  const held = new Map(scene.elements.map((element) => [element.id, element]));
+
+  assert.ok(inside(elementBounds(line, held, LAYOUT), painted), 'the bounds cover the painted Label');
+  assert.equal(pick(scene, painted), 'a', 'a press on the painted Label finds the shaft');
+  // The mirrored point is the side the stored tilt alone would pick: 60px right
+  // of the shaft, on bare paper.
+  const mirrored = { x: 200 - painted.x, y: painted.y };
+  assert.equal(pick(scene, mirrored), null, 'and the side the tilt would pick finds nothing');
+});
+
 test('a shaft Label is picked where it is painted, not where Layout first put it', () => {
   // The Label is placed 60px above its shaft, well clear of the shaft's ink and
   // of the box Layout puts it in by default: a press on the words finds the
@@ -80,6 +124,16 @@ interface Box {
   y: number;
   width: number;
   height: number;
+}
+
+/** Whether a point is inside a box. */
+function inside(box: Box, point: { x: number; y: number }): boolean {
+  return (
+    point.x >= box.x &&
+    point.x <= box.x + box.width &&
+    point.y >= box.y &&
+    point.y <= box.y + box.height
+  );
 }
 
 /** The topmost Element a press at `point` finds, words included. */
