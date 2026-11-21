@@ -424,10 +424,11 @@ function labelBlock(
     }
     const words = measured(element.label, size, null, metrics);
     // A shaft's Label keeps its block where the shaft puts it — centred on the
-    // middle of the ink, to one side — and each line reads inside that block the
-    // way the Element's alignment asks. Centred is what an unwritten alignment
-    // resolves to, so a Scene that never writes one keeps the place it had. The
-    // words sit far enough out that even a corner of the block clears the shaft.
+    // point half way between its ends, to one side — and each line reads inside
+    // that block the way the Element's alignment asks. Centred is what an
+    // unwritten alignment resolves to, so a Scene that never writes one keeps
+    // the place it had. The words sit far enough out that even a corner of the
+    // block clears the shaft.
     const middle = midpoint(shaft.start, shaft.end);
     const side = shaftSide({ x: shaft.end.x - shaft.start.x, y: shaft.end.y - shaft.start.y });
     const reach =
@@ -438,18 +439,14 @@ function labelBlock(
     };
     const anchor = anchorFor(element.textAlign);
     const left = centre.x - words.width / 2;
-    return placed(words, anchor, anchoredLeft(left, words.width, anchor), centre.y - words.height / 2);
+    const alignX = left + anchorOffset(words.width, anchor);
+    return placed(words, anchor, alignX, centre.y - words.height / 2);
   }
 
   const area = labelArea(element);
   const words = measured(element.label, size, area.width, metrics);
   const anchor = anchorFor(element.textAlign);
-  const alignX =
-    element.textAlign === 'left'
-      ? area.x
-      : element.textAlign === 'center'
-        ? area.x + area.width / 2
-        : area.x + area.width;
+  const alignX = area.x + anchorOffset(area.width, anchor);
   const top = area.y + (area.height - words.height) / 2;
   return placed(words, anchor, alignX, top);
 }
@@ -781,16 +778,17 @@ function anchorFor(align: TextAlign): Block['anchor'] {
 
 /** The left edge of a block whose lines anchor at `alignX`. */
 function leftOf(alignX: number, width: number, anchor: Block['anchor']): number {
-  return anchor === 'start' ? alignX : anchor === 'middle' ? alignX - width / 2 : alignX - width;
+  return alignX - anchorOffset(width, anchor);
 }
 
 /**
- * The x a block's lines anchor at, so a block of `width` keeps the left edge
- * `left` whatever its alignment: the lines read from that edge, from its middle
- * or from its right one, and the block itself never moves.
+ * How far a block's lines anchor stands in from the block's own left edge: none
+ * at `start`, half the width at `middle` and the whole width at `end`. A block
+ * keeps the width and the place it was given whatever its alignment says; only
+ * the edge its lines read from moves.
  */
-function anchoredLeft(left: number, width: number, anchor: Block['anchor']): number {
-  return anchor === 'start' ? left : anchor === 'middle' ? left + width / 2 : left + width;
+function anchorOffset(width: number, anchor: Block['anchor']): number {
+  return anchor === 'start' ? 0 : anchor === 'middle' ? width / 2 : width;
 }
 
 function midpoint(from: Point, to: Point): Point {
