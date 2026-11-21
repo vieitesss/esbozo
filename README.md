@@ -8,37 +8,33 @@ Words used here (Scene, Element, Label, Text, Snap, Grid) are defined in [GLOSSA
 
 ## Install
 
-Needs Node 22.22.3 or newer.
+Needs Node 22.22.3 or newer and pnpm. In a clone of this repository:
 
 ```sh
-npm install --global esbozo   # installs `ez` and `esbozo`
-npx esbozo check scene.json   # or run without installing
+pnpm install && pnpm build
+node dist/cli.js check scene.json
 ```
 
-From a clone: `pnpm install && pnpm build`, then `node dist/cli.js <command>`.
+Everywhere below, `ez` stands for `node dist/cli.js` (or for the `ez` bin, if you link the package into your path). The npm package, which will make `npx esbozo <command>` and a global `ez` work, arrives with #13; until then neither command exists on the registry.
 
 ## Commands
 
-`ez --help` prints the usage of every command and the exit codes.
+`ez --help` is the reference for every command, flag, default and exit code.
 
 | Command | What it does |
 | --- | --- |
-| `ez check <scene>` | Prints each problem as `<element id>: <message>` on stderr, and nothing when the Scene is clean. Reports schema errors, Snap ends that point nowhere, and Labels that do not fit. |
-| `ez render <scene>` | Writes `<name>.svg` beside the Scene and prints its path. The same Scene gives the same bytes. |
+| `ez check <scene>` | Prints each problem as `<element id>: <message>` on stderr, and nothing when the Scene is clean. Reports schema errors, Snap ends that point nowhere, and Labels that do not fit. A font note (a remote `@font-face` replaced by the bundled font) is not a problem: it prints on stderr and the exit code stays `0`. |
+| `ez render <scene>` | Writes `<name>.svg` beside the Scene and prints its path. The same Scene and the same font file give the same bytes. |
 | `ez png <scene> --theme light\|dark` | Writes `<name>.<theme>.png` beside the Scene and prints its path. |
 | `ez serve <dir>` | Serves the editor on a folder of Scenes, and a save API for them. Runs until stopped. See [The editor](#the-editor). |
 
-Options: `--font <file>` (measure and draw with this font instead of the bundled Kalam), `--css <stylesheet>` (take colours and font from a site's stylesheet; `check` and `png`), `--ink`, `--paper` and `--muted` (colours for `png`). Flags take a separate value: `--theme dark`.
-
-`ez serve` takes `--host <address>` (default `127.0.0.1`), `--port <N>` (default `4320`; `0` picks a free port) and `--read-only`.
-
-Exit codes: `0` success, `2` wrong arguments, `3` the Scene cannot be read or parsed, `4` the output cannot be written or the server cannot start, `5` a missing theme value or font, `6` a Label does not fit its Element.
+Flags take a separate value: `--theme dark`, never `--theme=dark`.
 
 ## The Scene
 
 Write a Scene by hand or by agent; [docs/schema.md](docs/schema.md) lists every key. An agent that has the Skill in [skills/esbozo/SKILL.md](skills/esbozo/SKILL.md) learns the schema and the loop: write, `ez check`, `ez png`, look, fix. The SVG and PNG are outputs; the Scene stays the only source.
 
-What a Scene draws when you leave keys out: Labels centre in their Elements, Text starts at its `x`, nothing is filled, and the Skill spaces everything in 22px steps, the editor's Grid.
+Keys you leave out take the defaults in [docs/schema.md](docs/schema.md). The Skill spaces Elements in 22px steps, the spacing of the editor's Grid dots.
 
 ## The editor
 
@@ -52,7 +48,7 @@ ez serve ./diagrams --port 0 # let the system pick the port, and read it from th
 ez serve ./diagrams --read-only
 ```
 
-Open the printed URL in a browser. The page lists the folder's Scenes (top-level `*.json` files), opens the first, and every change saves the Scene and its SVG together. `--read-only` shows the Scenes and saves nothing. The server listens on `127.0.0.1`, so only this machine reaches it; `--host` changes that, and nothing protects the folder from whoever then reaches it. Stop it with Ctrl+C. [docs/save-api.md](docs/save-api.md) is the HTTP contract, for a client that is not the editor.
+Open the printed URL in a browser. The page lists the folder's Scenes (top-level `*.json` files), opens the first, and every change saves the Scene and its SVG. `--read-only` shows the Scenes and saves nothing. The server listens on `127.0.0.1`, so only this machine reaches it; `--host` changes that, and nothing protects the folder from whoever then reaches it. Stop it with Ctrl+C. [docs/save-api.md](docs/save-api.md) holds the flags, the HTTP contract and what a save guarantees, for a client that is not the editor.
 
 The page also works from any static host that serves `dist/`. Without `ez serve` behind it, the page needs a browser with the File System Access API (Chrome or Edge): open a folder, pick or create a Scene, and every change saves the Scene and its SVG back to that folder.
 
