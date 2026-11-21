@@ -90,11 +90,46 @@ export function elementsById(elements: readonly Element[]): Map<string, Element>
 
 export function renderScene(scene: Scene, layout: Layout): string {
   const canonical = canonicalScene(scene);
-  const hash = hashScene(canonical);
   const byId = elementsById(canonical.elements);
-  const drawn = canonical.elements.map((element) => drawElement(element, byId, layout));
-  const page = pageOf(drawn.map((element) => element.bounds));
-  const body = drawn.map((element) => element.svg).join('');
+  const drawn = canonical.elements.map((element) => renderElement(element, byId, layout));
+  return sceneSvg(canonical, hashScene(canonical), drawn);
+}
+
+/**
+ * One Element drawn: the box it takes on the page, and the SVG that draws it.
+ * Exported so an editor that keeps what it last painted asks the Renderer for
+ * one Element at a time, and gets the very same bytes `renderScene` writes.
+ */
+export interface ElementDrawing {
+  readonly bounds: Box;
+  readonly svg: string;
+}
+
+/**
+ * One Element of a canonical Scene, drawn. The target outlines a Snapped end
+ * resolves against are in `byId`, so a caller that redraws one Element redraws
+ * the same drawing the whole Scene would have given it.
+ */
+export function renderElement(
+  element: Element,
+  byId: ReadonlyMap<string, Element>,
+  layout: Layout,
+): ElementDrawing {
+  return drawElement(element, byId, layout);
+}
+
+/**
+ * The SVG document a Scene's drawings make: the page around every Element, its
+ * title and its hash. `renderScene` is this, from a Scene; an editor that keeps
+ * the drawings it already made assembles the same bytes from them.
+ */
+export function sceneSvg(
+  canonical: Scene,
+  hash: string,
+  drawings: readonly ElementDrawing[],
+): string {
+  const page = pageOfBounds(drawings.map((drawing) => drawing.bounds));
+  const body = drawings.map((drawing) => drawing.svg).join('');
 
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${page.width}" height="${page.height}"` +
@@ -114,10 +149,11 @@ export function renderScene(scene: Scene, layout: Layout): string {
  */
 export function pageBounds(scene: Scene, layout: Layout): Box {
   const byId = elementsById(scene.elements);
-  return pageOf(scene.elements.map((element) => elementBounds(element, byId, layout)));
+  return pageOfBounds(scene.elements.map((element) => elementBounds(element, byId, layout)));
 }
 
-function pageOf(bounds: readonly Box[]): Box {
+/** The page a set of Element boxes occupies: the box around them, padded. */
+export function pageOfBounds(bounds: readonly Box[]): Box {
   if (bounds.length === 0) {
     return { x: 0, y: 0, ...EMPTY_PAGE };
   }
@@ -237,14 +273,12 @@ function shaftBox(shaft: Shaft): Box {
   };
 }
 
-/** One Element drawn: the box it takes on the page and the SVG that draws it. */
-interface Drawn {
-  bounds: Box;
-  svg: string;
-}
-
 /** One Element: measured once, then both bounded and drawn from that result. */
-function drawElement(element: Element, byId: ReadonlyMap<string, Element>, layout: Layout): Drawn {
+function drawElement(
+  element: Element,
+  byId: ReadonlyMap<string, Element>,
+  layout: Layout,
+): ElementDrawing {
   const placed = placement(element, byId, layout);
   return { bounds: joined(placed.box, placed.words), svg: svgOf(placed) };
 }
