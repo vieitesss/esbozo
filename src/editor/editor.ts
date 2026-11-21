@@ -211,10 +211,17 @@ export class EsbozoEditorElement extends HTMLElement {
   /** Where a folder of Scenes comes from: `ez serve`'s, or the page's own. */
   #folder: FolderSource;
   /**
-   * Which connection the element is on: every attribute change makes a new one,
-   * and an answer for an older number is dropped, never drawn.
+   * Which connection the element is on: a change of `scene` or `save` makes a
+   * new one, and a read or a write that answers for an older number is dropped,
+   * never drawn.
    */
-  #generation = 0;
+  #connection = 0;
+  /**
+   * Which request for the page's font is the current one. It is a number of its
+   * own, because a font is the drawing's, not the Scene's: a font that is slow,
+   * or missing, never speaks for the Scene a connection is opening.
+   */
+  #fontRequest = 0;
   /** The Scene this connection opened, once one is open: where its writes go. */
   #target: SaveTarget | null = null;
   /** True once the page's font is measured and the editor is drawing. */
@@ -321,7 +328,7 @@ export class EsbozoEditorElement extends HTMLElement {
       if (this.#ready) {
         this.#listen();
       } else {
-        void this.#connect(++this.#generation);
+        void this.#connect(++this.#connection);
       }
       return;
     }
@@ -371,7 +378,7 @@ export class EsbozoEditorElement extends HTMLElement {
 
     // Nothing can be placed without the font's measurement, so the editor waits
     // for it and says so in the status line when the page has none to give.
-    void this.#connect(++this.#generation);
+    void this.#connect(++this.#connection);
   }
 
   /** Wire the editor to the page, once it has a measurement to draw with. */
@@ -437,53 +444,68 @@ export class EsbozoEditorElement extends HTMLElement {
   }
 
   /**
-   * Bring the element up on the attributes it names now: read the page's font,
-   * then join the folder and open the Scene it holds. The first connect runs
-   * this, and so does every change of `scene` or `save`.
+   * Bring the element up on the attributes it names now: the page's font, then
+   * the folder and the Scene it holds. The first connect runs this, and so does
+   * every change of `scene` or `save`. A font already measured carries a new
+   * connection at once, so a change of Scene never waits on the page's font.
    */
-  async #connect(generation: number): Promise<void> {
-    const font = await this.#fontOf();
-    if (generation !== this.#generation) {
+  async #connect(connection: number): Promise<void> {
+    if (!this.#ready && !(await this.#readFont())) {
+      // No measurement means nothing can be placed: the status line says why.
       return;
     }
-    if (!font.ok) {
-      this.#setSaved('failed', font.problem);
+    if (connection !== this.#connection) {
       return;
     }
-    // The face and the metrics read from it are installed together, so a font
-    // that arrived late never draws words it did not measure.
-    font.face?.();
-    this.#layout = font.layout;
-    this.#ready = true;
-    this.#listen();
     this.#showDefaultRoughness();
     this.#paintedFor = null;
     this.#view = fittedView(this.#scene, this.#viewportSize(), this.#layout);
     this.#paint();
-    await this.#joinFolder(generation);
+    await this.#joinFolder(connection);
   }
 
-  /** Read the page's font again and draw the Scene in hand in it: a font that
-   * will not load leaves the face and the metrics that did. */
-  async #measureFont(generation: number): Promise<void> {
+  /**
+   * Read the page's font, and take it if it is still the font the page names. A
+   * font that will not load leaves the face and the metrics that did, with the
+   * reason in the status line: it is never a reason to let go of a Scene.
+   */
+  async #readFont(): Promise<boolean> {
+    const request = ++this.#fontRequest;
     const font = await this.#fontOf();
-    if (generation !== this.#generation) {
-      return;
+    if (request !== this.#fontRequest) {
+      // A newer request answers for this page: this one is not its font.
+      return false;
     }
     if (!font.ok) {
       this.#setSaved('failed', font.problem);
-      return;
+      return false;
     }
+    this.#adopt(font);
+    return true;
+  }
+
+  /**
+   * Take the measurement: the face those metrics were read from, the metrics,
+   * and the editor listening and ready to draw. Nothing is painted here, so a
+   * caller can fit the view first.
+   */
+  #adopt(font: { layout: Layout; face?: () => void }): void {
     font.face?.();
     this.#layout = font.layout;
+    this.#ready = true;
     this.#paintedFor = null;
-    this.#view = fittedView(this.#scene, this.#viewportSize(), this.#layout);
-    this.#paint();
-    if (this.#target === null) {
-      // The font changed before the Scene it names was open, so this connection
-      // is still on its way, and this is the font it gets.
-      await this.#joinFolder(generation);
+    this.#listen();
+  }
+
+  /** Draw the Scene in hand in the font the page names now: `font` alone, and
+   * only the drawing. A font that will not load changes nothing at all. */
+  async #measureFont(): Promise<void> {
+    if (!(await this.#readFont())) {
+      return;
     }
+    this.#view = fittedView(this.#scene, this.#viewportSize(), this.#layout);
+    this.#showDefaultRoughness();
+    this.#paint();
   }
 
   /** The page's font, with a source that will not answer reported as the problem it is. */
@@ -496,25 +518,26 @@ export class EsbozoEditorElement extends HTMLElement {
   }
 
   /**
-   * An attribute changed under a running editor. `font` is only the font, and
-   * the Scene in hand stays. `scene` and `save` are another instance of the
-   * element, so the connection in hand is dropped first.
+   * An attribute changed under a running editor. `font` is only the font: the
+   * Scene in hand stays, the font it is drawn in changes, and neither a slow font
+   * nor a missing one says anything about the Scene a connection is opening.
+   * `scene` and `save` are another instance of the element, so the connection in
+   * hand is dropped first.
    */
   attributeChangedCallback(name: string): void {
-    const generation = ++this.#generation;
     if (this.#canvas === undefined) {
       // Attributes written before the element was connected: nothing to drop,
       // and `connectedCallback` brings it up on them.
       return;
     }
     if (name === 'font' && this.#ready) {
-      void this.#measureFont(generation);
+      void this.#measureFont();
       return;
     }
     if (name !== 'font') {
       this.#rebuild();
     }
-    void this.#connect(generation);
+    void this.#connect(++this.#connection);
   }
 
   /**
@@ -573,17 +596,17 @@ export class EsbozoEditorElement extends HTMLElement {
    * Scene its attributes name. It lists what it holds and opens the first. A
    * static page gets `null` and keeps its Open folder button.
    */
-  async #joinFolder(generation: number): Promise<void> {
+  async #joinFolder(connection: number): Promise<void> {
     let folder: SceneFolder | null;
     try {
       folder = await this.#folder(this);
     } catch (error) {
-      if (generation === this.#generation) {
+      if (connection === this.#connection) {
         this.#setSaved('failed', (error as Error).message);
       }
       return;
     }
-    if (generation !== this.#generation) {
+    if (connection !== this.#connection) {
       return;
     }
     if (folder === null) {
@@ -598,12 +621,12 @@ export class EsbozoEditorElement extends HTMLElement {
     try {
       names = await folder.listScenes();
     } catch (error) {
-      if (generation === this.#generation) {
+      if (connection === this.#connection) {
         this.#setSaved('failed', (error as Error).message);
       }
       return;
     }
-    if (generation !== this.#generation) {
+    if (connection !== this.#connection) {
       return;
     }
     // A folder of Scenes opens its first; the bundle's folder holds the one
@@ -613,7 +636,7 @@ export class EsbozoEditorElement extends HTMLElement {
       await this.#showNote();
       return;
     }
-    await this.#openScene(first, generation);
+    await this.#openScene(first, connection);
   }
 
   /** The status bar's word for what this page may do with the Scene. */
@@ -673,7 +696,7 @@ export class EsbozoEditorElement extends HTMLElement {
    */
   async #openScene(
     name: string,
-    generation = this.#generation,
+    connection = this.#connection,
     options: { create?: boolean } = {},
   ): Promise<void> {
     const folder = this.#browsed;
@@ -682,21 +705,21 @@ export class EsbozoEditorElement extends HTMLElement {
       return;
     }
     await this.#saveQueue;
-    if (generation !== this.#generation) {
+    if (connection !== this.#connection) {
       return;
     }
     let source: string | null;
     try {
       source = await folder.read(name);
     } catch (error) {
-      if (generation !== this.#generation) {
+      if (connection !== this.#connection) {
         return;
       }
       this.#target = null;
       this.#setSaved('failed', `cannot read ${name}: ${(error as Error).message}`);
       return;
     }
-    if (generation !== this.#generation) {
+    if (connection !== this.#connection) {
       return;
     }
     if (source === null) {
@@ -2060,7 +2083,7 @@ export class EsbozoEditorElement extends HTMLElement {
     const name = normaliseSceneName(input.value);
     // Asked for by name, so it is a Scene now: Scene and SVG are written at
     // once, as the served and picked-folder editors always have.
-    void this.#openScene(name, this.#generation, { create: true });
+    void this.#openScene(name, this.#connection, { create: true });
   };
 
   #onFileClick = (event: Event): void => {
