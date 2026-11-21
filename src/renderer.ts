@@ -66,6 +66,7 @@ import {
   arrowHeadTriangle,
   barThrough,
   fillets,
+  quadraticRoots,
   shaftEnds,
   shaftLabelAnchor,
   shaftPath,
@@ -399,15 +400,11 @@ function extendWithCurve(
     const c = other[axis];
     const d = to[axis];
     // The derivative of the Bézier along one axis, as a quadratic in t.
-    const square = -a + 3 * b - 3 * c + d;
-    const linear = 2 * (a - 2 * b + c);
-    const constant = b - a;
-    const roots =
-      square === 0
-        ? linear === 0
-          ? []
-          : [-constant / linear]
-        : quadraticRoots(linear / square, constant / square);
+    const roots = quadraticRoots(
+      -a + 3 * b - 3 * c + d,
+      2 * (a - 2 * b + c),
+      b - a,
+    );
     for (const t of roots) {
       if (!(t > 0 && t < 1)) {
         continue;
@@ -425,16 +422,6 @@ function extendWithCurve(
       }
     }
   }
-}
-
-/** The roots of `t² + b·t + c`, the derivative of a cubic after its square term. */
-function quadraticRoots(b: number, c: number): number[] {
-  const discriminant = b * b - 4 * c;
-  if (discriminant < 0) {
-    return [];
-  }
-  const root = Math.sqrt(discriminant);
-  return [(-b + root) / 2, (-b - root) / 2];
 }
 
 /**

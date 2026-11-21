@@ -14,8 +14,13 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { ez, sceneFolder } from './cli.ts';
 import { loadProjectModules } from './modules.ts';
+import type { Scene } from '../src/scene.ts';
 
-const { parseScene, serialiseScene } = await loadProjectModules();
+const { parseScene, serialiseScene, renderScene, elementBounds, createLayout, parseFontFile, KALAM } =
+  await loadProjectModules();
+
+/** The drawing is measured with the bundled font, as `ez render` measures it. */
+const LAYOUT = createLayout(parseFontFile(KALAM));
 
 const BOX = { id: 'box', type: 'rectangle', x: 0, y: 0, width: 80, height: 80 };
 
@@ -39,6 +44,13 @@ function saved(scene: unknown): Record<string, unknown> {
   const parsed = parseScene(JSON.stringify(scene));
   assert.ok(parsed.ok, parsed.ok ? '' : JSON.stringify(parsed.problems));
   return JSON.parse(serialiseScene(parsed.scene)) as Record<string, unknown>;
+}
+
+/** One Scene, parsed as the editor parses it. */
+function parsed(scene: unknown): Scene {
+  const result = parseScene(JSON.stringify(scene));
+  assert.ok(result.ok, result.ok ? '' : JSON.stringify(result.problems));
+  return result.scene;
 }
 
 /** The points of the one shaft a saved Scene holds. */
@@ -321,6 +333,63 @@ test('a sharp bend point turns at a corner softened by a small fillet', async ()
   assert.ok(near(points[points.length - 1]!.x, 200) && near(points[points.length - 1]!.y, 0), 'and ends at its end');
 });
 
+test('a sharp bend takes the same pullback from a short leg as from a long one', async () => {
+  // The corner is 1px from the middle of its 2px leg, so the fillet may take
+  // only 1px from either leg: the ink leaves the short leg at (1,0) and joins
+  // the long one at (2,1). Taking a full 7px from the long leg alone would bend
+  // the corner about a leg it has already left.
+  const svg = await ink(
+    oneArrow([
+      { x: 0, y: 0 },
+      { x: 2, y: 0, corner: 'sharp' },
+      { x: 2, y: 100 },
+    ]),
+  );
+
+  const drawn = drawnPoints(attribute(shaftFrom(svg, { x: 0, y: 0 }), 'd') ?? '');
+  assert.ok(
+    drawn.some((point) => near(point.x, 1) && near(point.y, 0)),
+    'the fillet leaves the short leg at (1,0)',
+  );
+  assert.ok(
+    drawn.some((point) => near(point.x, 2) && near(point.y, 1)),
+    'and joins the long leg at (2,1)',
+  );
+  assert.ok(
+    !drawn.some((point) => near(point.x, 2) && point.y > 1.5 && point.y < 99.5),
+    'the long leg starts no lower than the short leg allows',
+  );
+});
+
+test('a sharp fillet bulges inside the box a host selects by', () => {
+  // A nearly doubled-back corner bulges past both of the fillet's own ends, to
+  // x about 10.6. The box is measured by solving where the curve turns back, so
+  // a root the solver misses leaves ink outside the box a person selects.
+  const scene = parsed(
+    oneArrow(
+      [
+        { x: 0, y: 0 },
+        { x: 14, y: 4, corner: 'sharp' },
+        { x: 0, y: 8 },
+      ],
+      { heads: { start: 'none', end: 'none' } },
+    ),
+  );
+  const shaft = scene.elements[0]!;
+  const svg = renderScene(scene, LAYOUT);
+  const drawn = attribute(shaftFrom(svg, { x: 0, y: 0 }), 'd') ?? '';
+  const reach = Math.max(...inkSamples(drawn).map((point) => point.x));
+
+  const box = elementBounds(shaft, new Map([['a', shaft]]), LAYOUT);
+  assert.ok(reach > 9, `the fillet bulges past its ends (got ${reach})`);
+  // The written ink is rounded to hundredths on its way into the SVG, so the
+  // box is compared with the ink as written.
+  assert.ok(
+    box.x + box.width >= reach - 0.02,
+    `the box holds the bulge: ${box.x + box.width} < ${reach}`,
+  );
+});
+
 test('a shaft mixes round and sharp bend points without one spoiling the other', async () => {
   const svg = await ink(
     oneArrow([
@@ -427,6 +496,65 @@ test('a curved shaft draws its dash pattern along the whole path', async () => {
     const [start] = drawnPoints(attribute(dashed[0]!, 'd') ?? '');
     assert.ok(near(start!.x, 0, 1) && near(start!.y, 0, 1), `${style}: the pattern starts at the shaft`);
   }
+});
+
+test('clustered round bends never reverse or overshoot the points they run through', async () => {
+  // A bend point 1px from its neighbour must not swing the curve like a lever:
+  // the whole run is one smooth curve, so the ink stays between the points it
+  // passes through instead of stopping and doubling back over them.
+  for (const [points, last] of [
+    [
+      [
+        { x: 0, y: 0 },
+        { x: 1, y: 0, corner: 'round' },
+        { x: 100, y: 0 },
+      ],
+      100,
+    ],
+    [
+      [
+        { x: 0, y: 0 },
+        { x: 100, y: 0, corner: 'round' },
+        { x: 101, y: 0, corner: 'round' },
+        { x: 200, y: 0 },
+      ],
+      200,
+    ],
+  ] as const) {
+    const svg = await ink(oneArrow([...points], { heads: { start: 'none', end: 'none' } }));
+    const drawn = inkSamples(attribute(shaftFrom(svg, { x: 0, y: 0 }), 'd') ?? '');
+    const left = Math.min(...drawn.map((point) => point.x));
+    const right = Math.max(...drawn.map((point) => point.x));
+    assert.ok(left >= -0.01, `the ink never backs up behind the start (got ${left})`);
+    assert.ok(right <= last + 0.01, `and never overshoots the end (got ${right})`);
+  }
+});
+
+test('a cusp keeps its Label on the side the curve arrives from', async () => {
+  // The shaft runs up to a sharp corner and back down the same line, so the
+  // fillet between the two legs is a spike: at its tip the direction vanishes,
+  // and that tip is the middle of the ink. The side is the one the ink is on,
+  // the left of a vertical shaft; a fallback of "rightwards" would put the
+  // words above the tip instead of beside it.
+  const svg = await ink(
+    oneArrow(
+      [
+        { x: 0, y: 0 },
+        { x: 0, y: 100, corner: 'sharp' },
+        { x: 0, y: 0 },
+      ],
+      {
+        label: 'middle',
+        labelAt: { t: 0.5, offset: 12 },
+        heads: { start: 'none', end: 'none' },
+      },
+    ),
+  );
+
+  const centre = wordsCentre(svg);
+  assert.ok(centre.x < -6, `the words sit beside the shaft, got x ${centre.x}`);
+  assert.ok(near(centre.x, -12, 1), `one offset to its left, got x ${centre.x}`);
+  assert.ok(centre.y > 90, `and level with the tip, got y ${centre.y}`);
 });
 
 test('an arrow head follows the curve it arrives on, not the line between the ends', async () => {

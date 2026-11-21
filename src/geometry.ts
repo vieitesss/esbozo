@@ -418,6 +418,16 @@ const FILLET_RADIUS = 7;
 /** How many chords one curve is measured by, for its length and its extremes. */
 const CURVE_STEPS = 32;
 
+/**
+ * How small a quadratic's square term may be, against the rest of it, before the
+ * equation is read as the straight line it is: a shape 12 orders smaller than
+ * its own coefficients carries no curvature a float can still resolve.
+ */
+const QUADRATIC_EPSILON = 1e-12;
+
+/** How far along a curve the direction at a cusp is read from, as a fraction of the piece. */
+const CURVE_TOUCH = 1e-3;
+
 /** What every piece of a resolved shaft measures: an arc length from `from` to `to`. */
 interface ShaftPieceBase {
   readonly from: Point;
@@ -580,8 +590,7 @@ function piecesOf(points: readonly ShaftPoint[]): ShaftPiece[] {
       run.push(bend.at);
       continue;
     }
-    const before = softened(points[index - 1]!.at, bend.at);
-    const after = softened(points[index + 1]!.at, bend.at);
+    const [before, after] = filletEnds(points[index - 1]!.at, bend.at, points[index + 1]!.at);
     run.push(before);
     appendRun(pieces, run);
     pieces.push(
@@ -605,24 +614,72 @@ function appendRun(pieces: ShaftPiece[], run: readonly Point[]): void {
     pieces.push(straight(run[0]!, run[1]!));
     return;
   }
-  for (let index = 0; index + 1 < run.length; index += 1) {
-    const from = run[index]!;
-    const to = run[index + 1]!;
-    const leaving = tangentThrough(run[index - 1] ?? from, to);
-    const arriving = tangentThrough(from, run[index + 2] ?? to);
-    pieces.push(
-      curve(from, plus(from, leaving, 1 / 3), plus(to, arriving, -1 / 3), to),
-    );
-  }
+  pieces.push(...smoothThrough(run));
 }
 
 /**
- * The tangent a smooth curve through three points enters the middle one by: half
- * the chord between its neighbours, which is what a Catmull-Rom curve bends by.
- * A point at the end of a run has one neighbour, so the chord from it serves.
+ * The curves one run of three or more points is drawn by: one centripetal
+ * Catmull-Rom spline through every point of it.
+ *
+ * Knots are spaced by the square root of each chord (α = 0.5), and a point's
+ * tangent is the tangent of the parabola through the three points around it, in
+ * those knots. Spacing is the whole point: a bend point 1px from its neighbour
+ * pulls with the weight of that short span instead of swinging the curve like a
+ * lever, so a run of clustered points never stops and doubles back on itself.
  */
-function tangentThrough(before: Point, after: Point): Point {
-  return { x: (after.x - before.x) / 2, y: (after.y - before.y) / 2 };
+function smoothThrough(run: readonly Point[]): ShaftPiece[] {
+  const spans = run.slice(0, -1).map((point, index) => span(point, run[index + 1]!));
+  const tangents = run.map((point, index) => tangentAt(run, index, spans));
+  const pieces: ShaftPiece[] = [];
+  for (let index = 0; index + 1 < run.length; index += 1) {
+    const from = run[index]!;
+    const to = run[index + 1]!;
+    const knot = spans[index]!;
+    pieces.push(
+      curve(
+        from,
+        plus(from, tangents[index]!, knot / 3),
+        plus(to, tangents[index + 1]!, -knot / 3),
+        to,
+      ),
+    );
+  }
+  return pieces;
+}
+
+/** The centripetal knot spacing of one chord: its length to the power α = 0.5. */
+function span(from: Point, to: Point): number {
+  return Math.sqrt(Math.hypot(to.x - from.x, to.y - from.y));
+}
+
+/**
+ * The tangent the smooth curve passes by one point of the run with: the one-sided
+ * secant at either end, and the knot-weighted average of the two secants around
+ * a point in the middle. A zero tangent means the run doubles back here, and the
+ * curve comes to a cusp its neighbours cannot smooth away.
+ */
+function tangentAt(run: readonly Point[], index: number, spans: readonly number[]): Point {
+  const point = run[index]!;
+  if (index === 0) {
+    return secant(point, run[1]!, spans[0]!);
+  }
+  if (index === run.length - 1) {
+    return secant(run[index - 1]!, point, spans[index - 1]!);
+  }
+  const before = spans[index - 1]!;
+  const after = spans[index]!;
+  const entering = secant(run[index - 1]!, point, before);
+  const leaving = secant(point, run[index + 1]!, after);
+  const total = before + after;
+  return {
+    x: (leaving.x * before + entering.x * after) / total,
+    y: (leaving.y * before + entering.y * after) / total,
+  };
+}
+
+/** How far along one knot spacing the run moves from one point to the next. */
+function secant(from: Point, to: Point, knot: number): Point {
+  return { x: (to.x - from.x) / knot, y: (to.y - from.y) / knot };
 }
 
 /** A straight piece, measured by the distance it spans. */
@@ -637,14 +694,23 @@ function curve(from: Point, control1: Point, control2: Point, to: Point): ShaftP
 }
 
 /**
- * The point the fillet leaves a `sharp` vertex at: `FILLET_RADIUS` back along the
- * leg, and never past its middle, so two legs of a tight corner cannot cross
- * each other and invert the arc. `gathered` dropped repeated points, so the leg
- * always has a length to take a share of.
+ * The two points a fillet leaves a `sharp` vertex by: `FILLET_RADIUS` back along
+ * each leg, and never further than half of either one, so the two legs of a
+ * tight corner cannot cross the arc or each other and the corner never inverts.
+ * `gathered` dropped repeated points, so both legs have a length to halve.
  */
-function softened(neighbour: Point, vertex: Point): Point {
-  const length = Math.hypot(vertex.x - neighbour.x, vertex.y - neighbour.y);
-  return lerp(vertex, neighbour, Math.min(FILLET_RADIUS, length / 2) / length);
+function filletEnds(previous: Point, vertex: Point, next: Point): [Point, Point] {
+  const pullback = Math.min(
+    FILLET_RADIUS,
+    Math.hypot(vertex.x - previous.x, vertex.y - previous.y) / 2,
+    Math.hypot(next.x - vertex.x, next.y - vertex.y) / 2,
+  );
+  return [along(vertex, previous, pullback), along(vertex, next, pullback)];
+}
+
+/** The point `distance` from `from` towards `to`, which are never the same point here. */
+function along(from: Point, to: Point, distance: number): Point {
+  return lerp(from, to, distance / Math.hypot(to.x - from.x, to.y - from.y));
 }
 
 /** `fraction` of the way from `from` to `to`. */
@@ -677,7 +743,18 @@ export function shaftTangentAt(path: ShaftPath, t: number): Point {
   if (found.piece.kind === 'straight') {
     return unit(found.piece.from, found.piece.to);
   }
-  return unit({ x: 0, y: 0 }, tangentOf(found.piece, found.u));
+  const tangent = tangentOf(found.piece, found.u);
+  if (tangent.x !== 0 || tangent.y !== 0) {
+    return unit({ x: 0, y: 0 }, tangent);
+  }
+  // A cusp: the derivative vanishes where the shaft stops and turns back on
+  // itself, so read the direction from the ink a hair before it — or after it,
+  // at the very start. Falling back on "rightwards" would turn a vertical
+  // shaft's Label up instead of keeping it beside the ink.
+  const reach = found.u > CURVE_TOUCH ? found.u - CURVE_TOUCH : found.u + CURVE_TOUCH;
+  const here = pointOf(found.piece, found.u);
+  const there = pointOf(found.piece, reach);
+  return found.u > CURVE_TOUCH ? unit(there, here) : unit(here, there);
 }
 
 /** A piece and how far along it a fraction of the shaft lands. */
@@ -804,26 +881,43 @@ function curveTurns(piece: CurvedPiece, axis: 'x' | 'y'): number[] {
   const control1 = piece.control1[axis];
   const control2 = piece.control2[axis];
   const end = piece.to[axis];
-  const square = -start + 3 * control1 - 3 * control2 + end;
-  const linear = 2 * (start - 2 * control1 + control2);
-  const constant = control1 - start;
-  const roots =
-    square === 0
-      ? linear === 0
-        ? []
-        : [-constant / linear]
-      : quadraticRoots(linear / square, constant / square);
-  return roots.filter((u) => u > 0 && u < 1);
+  return quadraticRoots(
+    -start + 3 * control1 - 3 * control2 + end,
+    2 * (start - 2 * control1 + control2),
+    control1 - start,
+  ).filter((u) => u > 0 && u < 1);
 }
 
-/** The roots of `t² + b·t + c`, the derivative of a cubic after its square term. */
-function quadraticRoots(b: number, c: number): number[] {
-  const discriminant = b * b - 4 * c;
+/**
+ * The roots of `a·t² + b·t + c`. A cubic's extrema sit where its derivative
+ * vanishes, and where the ink goes is what the page, the box and the picking all
+ * read, so this solve keeps its precision: a square term that vanishes against
+ * the others is read as the straight line it is, and the pair of roots is formed
+ * without subtracting two numbers that nearly cancel.
+ */
+export function quadraticRoots(a: number, b: number, c: number): number[] {
+  const scale = Math.max(Math.abs(a), Math.abs(b), Math.abs(c));
+  if (scale === 0) {
+    return [];
+  }
+  if (Math.abs(a) <= QUADRATIC_EPSILON * scale) {
+    return b === 0 ? [] : [-c / b];
+  }
+  const discriminant = b * b - 4 * a * c;
   if (discriminant < 0) {
     return [];
   }
   const root = Math.sqrt(discriminant);
-  return [(-b + root) / 2, (-b - root) / 2];
+  const sum = -0.5 * (b + (b < 0 ? -root : root));
+  if (sum === 0) {
+    return [0];
+  }
+  const roots = [sum / a];
+  const other = c / sum;
+  if (other !== roots[0]) {
+    roots.push(other);
+  }
+  return roots;
 }
 
 /**
