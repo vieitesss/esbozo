@@ -452,7 +452,9 @@ esbozo-editor .status .shortcuts {
   bottom: 32px;
   z-index: 40;
   width: 246px;
-  max-width: calc(100vw - 34px);
+  /* The 78px the button sits in from the right, and 8px of page to the sheet's
+     left: below 332 CSS px the sheet gives up width rather than its left edge. */
+  max-width: calc(100vw - 86px);
   padding: 12px 13px 11px;
   background: color-mix(in srgb, var(--paper) 97%, var(--ink));
   border: 1px solid var(--line-strong);

@@ -1838,6 +1838,30 @@ test('the ? button opens the Shortcuts sheet, and Escape shuts it', async ({ app
   await expect(ui.screen.getByRole('dialog', 'Style')).toBeVisible();
 });
 
+test('the Shortcuts sheet keeps its left border on the narrowest page', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await ui.browser.setViewport({ width: 320, height: 640 });
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+  await ui.screen.getByRole('button', 'Shortcuts').click();
+  await expect(ui.screen.getByRole('dialog', 'Shortcuts')).toBeVisible();
+  await settle(ui);
+
+  // Where the page holds the sheet, so the strip below covers its left edge and
+  // the paper beside it, and nothing of the words inside it.
+  const box = await ui.browser.evaluate(() => {
+    const sheet = document.querySelector('esbozo-editor .shortcuts')?.getBoundingClientRect();
+    return { left: sheet?.left ?? 0, top: sheet?.top ?? 0, height: sheet?.height ?? 0 };
+  });
+  // A sheet that runs off the left of the page has no left edge drawn: the strip
+  // is bare there, while a sheet that fits carries its border down its height.
+  const edge: Rect = { x: box.left, y: box.top + 8, width: 3, height: box.height - 16 };
+  expect((await shot(ui)).darkCount(edge, 0.9)).toBeGreaterThan(box.height / 2);
+});
+
 test('a press on the page shuts the Shortcuts sheet and lands where it was aimed', async ({
   app,
   browser,
