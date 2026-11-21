@@ -159,7 +159,11 @@ export function idsOf(elements: readonly Element[]): Set<string> {
  * Copies of Elements for a paste or a duplicate: fresh ids, every Element moved
  * by the offset, and each Snap kept only where its target is copied too. A Snap
  * to an Element the copies do not carry is dropped, so a paste into another
- * Scene is a free-standing drawing rather than a broken one.
+ * Scene is a free-standing fragment rather than a broken one.
+ *
+ * `taken` is what the destination already uses. The ids the copies arrive with
+ * are avoided as well, so a pasted Element never keeps a name its source used:
+ * the same fragment pasted twice is two different sets of Element ids.
  */
 export function copies(
   elements: readonly Element[],
@@ -167,7 +171,7 @@ export function copies(
   offset: Point,
 ): Element[] {
   const renamed = new Map<string, string>();
-  const used = new Set(taken);
+  const used = new Set([...taken, ...elements.map((element) => element.id)]);
   for (const element of elements) {
     const id = freshId(element.type, used);
     used.add(id);
