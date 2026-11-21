@@ -72,6 +72,7 @@ for (const path of await files(ROOT)) {
   const text = await readFile(join(ROOT, path), 'utf8');
   const file = {
     path,
+    text,
     ...scan(text),
     report: (at, message) => findings.push(`${path}:${lineAt(text, at)}: ${message}`),
   };
@@ -120,7 +121,7 @@ function avoidTerms({ path, report, code, strings }) {
 }
 
 /** Rule 3: a test that reaches past the seam it is testing. */
-function testSeams({ path, report, code, strings, regexes }) {
+function testSeams({ path, text, report, code, strings, regexes }) {
   if (!SUITES.test(path) || SELF.test(path)) return;
 
   for (const match of code.matchAll(/\bboundingBox\s*\(/g)) {
@@ -129,7 +130,7 @@ function testSeams({ path, report, code, strings, regexes }) {
 
   const markup = new RegExp(`<\\s*/?\\s*(?:${TAGS.join('|')})\\b`, 'i');
   for (const { body, at, kind } of [...regexes, ...strings]) {
-    if (kind === 'regex' && markup.test(body)) {
+    if (kind === 'regex' && markup.test(body) && !excused(text, at)) {
       report(at, 'markup in a regex: drive the page, do not read the SVG it wrote');
     }
     if (body.includes('data-element-id')) {
@@ -171,6 +172,8 @@ function avoidTermsOf(markdown) {
 function isCopy(body, before) {
   if (SPECIFIER.test(before)) return false;
   if (!/^[A-Za-z][A-Za-z0-9 ,.!?'’—–-]*$/.test(body)) return false;
+  // `esbozo-editor .board` is a selector, not a sentence a person reads.
+  if (/\.\s*[a-z]/i.test(body)) return false;
   // A sentence or a UI label: words with spaces, or one capitalised word.
   return body.includes(' ') || /^[A-Z]/.test(body);
 }
@@ -199,7 +202,7 @@ function words(text) {
   return text
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
     .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
-    .split(/_\s*|[^A-Za-z_]+/)
+    .split(/[^A-Za-z0-9_]+/)
     .filter((word) => word !== '')
     .map((word) => word.toLowerCase());
 }
@@ -302,6 +305,16 @@ function endOfRegex(text, at) {
     else index += 1;
   }
   return at;
+}
+
+/**
+ * Whether the finding carries the one comment this script takes: the SVG a unit
+ * test parses is the CLI's written file, its public output, not the page.
+ */
+function excused(text, at) {
+  const all = text.split('\n');
+  const line = lineAt(text, at);
+  return /check-rules:/.test(all[line - 1] ?? '') || /check-rules:/.test(all[line - 2] ?? '');
 }
 
 /** The 1-based line an offset sits on. */
