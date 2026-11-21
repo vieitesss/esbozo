@@ -2060,9 +2060,12 @@ class EsbozoEditorElement extends HTMLElement {
    * until the words are committed.
    */
   #openWords(element: SceneElement): void {
-    const field = fieldFor(element, elementsById(this.#scene.elements), this.#layout);
     this.#setTool('select');
     this.#selected = [element.id];
+    // The note follows the selection, and the view makes room for it before the
+    // field is placed: a pan under an open field would leave it behind the words.
+    this.#refresh();
+    const field = fieldFor(element, elementsById(this.#scene.elements), this.#layout);
     this.#editing = { id: element.id, element };
     this.#text = new TextSession({
       host: this,
@@ -2078,7 +2081,6 @@ class EsbozoEditorElement extends HTMLElement {
       typed: (words) => this.#showWords(element, words),
       commit: (words) => this.#commitWords(element, words),
     });
-    this.#refresh();
   }
 
   /**
