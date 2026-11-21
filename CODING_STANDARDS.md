@@ -1,6 +1,6 @@
 # Coding Standards
 
-Judgement-call rules for code and tests. Mechanical checks (lint, unused exports, `node:*` imports, glossary-term scanning) are enforced by `pnpm check` (coming in #19).
+Judgement-call rules for code and tests. Mechanical checks (lint, unused exports, `node:*` imports, glossary-term scanning) are enforced by `pnpm check`.
 
 ## Architecture and conventions
 
