@@ -51,7 +51,7 @@ Every Element has these keys.
 | --- | --- | --- | --- |
 | `points` | array of two points | none, required | Exactly two: the start, then the end. |
 | `heads` | object | arrow: `{ "start": "none", "end": "arrow" }`; line: both `none` | Keys `start` and `end` only, each `none`, `arrow`, `dot` or `bar`. A missing key takes the default. |
-| `label` | string | none | As above. It does not wrap: it breaks only at `\n`. It sits centred above the shaft, or to the left of a vertical shaft. `ez check` does not measure it. |
+| `label` | string | none | As above. It does not wrap: it breaks only at `\n`. It is always centred on the middle of the shaft, on the side that points up (left of a vertical shaft); `textAlign` does not apply to it. `ez check` does not measure it. |
 
 A point has these keys.
 
@@ -85,15 +85,15 @@ These keys sit in `defaults` for the whole Scene, and on any Element, where they
 | `tone` | string | `"ink"` | `ink` or `muted`: the colour of the stroke and the words. |
 | `corners` | string | `"sharp"` | `sharp` or `round`. |
 | `fontSize` | string | `"M"` | `S` (14px), `M` (18px), `L` (24px) or `XL` (32px). |
-| `textAlign` | string | none written: `"center"` for a Label, `"left"` for a Text | `left`, `center` or `right`. Written on an Element or in `defaults`, it wins for every Label and Text it covers. |
+| `textAlign` | string | none written: `"center"` for a box Label, `"left"` for a Text | `left`, `center` or `right`. Written on an Element or in `defaults`, it wins for every box Label (rectangle, ellipse, diamond) and Text it covers. An arrow's or line's Label ignores it (see Elements); the editor offers no Text Align for them. |
 
-Unwritten `textAlign` means what suits the words: a Label centres in the Element it belongs to (a rectangle, ellipse, diamond, arrow or line), and a Text keeps the left edge its `x` places. Write `"textAlign": "center"` in `defaults` to centre Text too. Write `"left"` to put Labels on the left edge.
+Unwritten `textAlign` means what suits the words: a box Label centres in its Element, and a Text keeps the left edge its `x` places. Write `"textAlign": "center"` in `defaults` to centre Text too. Write `"left"` to put box Labels on the left edge.
 
 Every Element accepts every style key, and each type draws the ones that mean something to it:
 
 - Rectangle and diamond: all of them. `corners` rounds their corners.
 - Ellipse: all except `corners`, which it has none of.
-- Arrow and line: `roughness`, `stroke`, `tone`, and `fontSize` and `textAlign` for the Label. They have no fill and no corners.
+- Arrow and line: `roughness`, `stroke`, `tone`, and `fontSize` for the Label. They have no fill, no corners, and no `textAlign` effect: their Label is always centred on the shaft.
 - Text: `tone`, `fontSize` and `textAlign`.
 
 Colours are never written in a Scene. The look comes from the host's CSS variables `--ink`, `--paper`, `--muted` and `--font-hand`; the grey ladder is a fixed mix of ink into paper. There is no opacity, rotation, image, group or frame.
