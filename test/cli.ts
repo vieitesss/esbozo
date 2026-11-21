@@ -63,9 +63,16 @@ export interface Serve {
  * `ez serve` on `folder`, with the port the operating system picks so tests
  * never fight over one. Resolves once the server prints the URL it listens on;
  * the folder is the working directory, as it would be for a person.
+ *
+ * `cli` is the built CLI to run, so a test can drive a copy of `dist/` that has
+ * nothing else from the repository beside it.
  */
-export async function startServe(folder: string, args: readonly string[] = []): Promise<Serve> {
-  const child = spawn(process.execPath, [CLI, 'serve', folder, '--port', '0', ...args], {
+export async function startServe(
+  folder: string,
+  args: readonly string[] = [],
+  cli: string = CLI,
+): Promise<Serve> {
+  const child = spawn(process.execPath, [cli, 'serve', folder, '--port', '0', ...args], {
     cwd: folder,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
