@@ -66,7 +66,7 @@ interface Typing {
 }
 
 /** What the page may show, and the measurement it lays everything out with. */
-export interface PageHost {
+interface PageHost {
   layout(): Layout;
   /** The Scene's own Elements, in the Scene's order. */
   scene(): Scene;
@@ -83,7 +83,7 @@ export interface PageHost {
 }
 
 /** The nodes a frame draws into. */
-export interface PageParts extends ViewportParts {
+interface PageParts extends ViewportParts {
   /** The group every Element's drawing goes into. */
   readonly painted: SVGGElement;
 }
@@ -95,15 +95,8 @@ export class Page {
   readonly #paintedLayer: SVGGElement;
   /** What the next frame owes the page: nothing yet, the words' own layer, or the whole page. */
   #queued: 'none' | 'words' | 'page' = 'none';
-  /**
-   * Counts the Scene: every replacement of the Scene makes a new number, and the
-   * page repaints only when the number it painted is not this one. A pan, a zoom
-   * or a new selection leaves the number alone, so a frame that only moved the
-   * view costs no serialise at all.
-   */
-  #version = 0;
-  /** The Scene number the page shows, gesture in flight included. */
-  #paintedVersion = -1;
+  /** The settled Scene last drawn, or null when a preview or new measurement invalidates it. */
+  #paintedScene: Scene | null = null;
   /**
    * The words being typed that the last frame of the page drew. A caret that
    * moves asks for the words' layer alone, so the Scene is drawn again only when
@@ -176,24 +169,16 @@ export class Page {
     this.#frame('words');
   }
 
-  /** The page has to draw the Scene again: a new measurement, or a Scene to show. */
-  invalidate(): void {
-    this.#paintedVersion = -1;
-  }
-
-  /** The Scene in hand is another one, so the frame that shows it is owed. */
-  sceneChanged(): void {
-    this.#version++;
-  }
-
-  /** Another Scene: nothing drawn for the last one can speak for this one. */
-  clear(): void {
+  /** Opening a Scene starts a new drawing cache, even when its Element ids match. */
+  resetDrawings(): void {
     this.#paintables?.clear();
+    this.#paintedScene = null;
   }
 
   /** A new measurement: every drawing keyed on the last one has to be made again. */
   measure(): void {
     this.#paintables?.measure(this.#host.layout());
+    this.#paintedScene = null;
   }
 
   /**
@@ -245,7 +230,7 @@ export class Page {
    * empty line here, the slot the words would start on, or they would have no
    * place for a caret at all.
    */
-  block(): Block | null {
+  #block(): Block | null {
     const element = this.#host.typing()?.element ?? null;
     if (element === null) {
       return null;
@@ -267,7 +252,7 @@ export class Page {
    * them laid them out. The call to `block` has drawn the frame they belong to,
    * so the group asked here is the one holding their ink.
    */
-  glyphs(words: Block): LineGlyphs {
+  #glyphs(words: Block): LineGlyphs {
     return drawnGlyphs(this.#wordsGroup(), words);
   }
 
@@ -279,11 +264,11 @@ export class Page {
    */
   wordsLine(key: 'up' | 'down' | 'home' | 'end', state: TextSessionState): number | null {
     const shift = this.#host.typing()?.shift;
-    const block = this.block();
+    const block = this.#block();
     if (shift === undefined || block === null) {
       return null;
     }
-    const glyphs = this.glyphs(block);
+    const glyphs = this.#glyphs(block);
     const layout = this.#host.layout();
     const caret = layout.caret(block, shift.drawn(state.caret), glyphs);
     const middle = caret.y + caret.height / 2;
@@ -308,11 +293,11 @@ export class Page {
    * boundary nearest the pointer, or null when the press is off the words.
    */
   wordsOffset(point: Point): number | null {
-    const block = this.block();
+    const block = this.#block();
     if (block === null) {
       return null;
     }
-    const glyphs = this.glyphs(block);
+    const glyphs = this.#glyphs(block);
     // The words reach as far as their glyphs: a fallback font draws them in a
     // width of its own, and a press on the paper beyond them is no press on them.
     const words = drawnBox(block, glyphs);
@@ -327,11 +312,11 @@ export class Page {
 
   /** The nearest glyph boundary of the words, wherever the pointer went: a drag carries the caret. */
   wordsNearest(point: Point): number | null {
-    const block = this.block();
+    const block = this.#block();
     if (block === null) {
       return null;
     }
-    return this.#host.layout().offsetAt(block, point, this.glyphs(block));
+    return this.#host.layout().offsetAt(block, point, this.#glyphs(block));
   }
 
   /**
@@ -398,17 +383,18 @@ export class Page {
         // A preview is not the Scene: the frame after the gesture has to draw
         // what the Scene holds, however the gesture ended — a release that
         // changed nothing, a cancelled pointer or a lost focus included.
-        this.#paintedVersion = -1;
+        this.#paintedScene = null;
       }
       return;
     }
     const shown = this.#host.shown();
-    const settled = shown === this.#host.scene().elements;
-    if (settled && this.#paintedVersion === this.#version) {
+    const scene = this.#host.scene();
+    const settled = shown === scene.elements;
+    if (settled && this.#paintedScene === scene) {
       return;
     }
     this.#drawElements(shown);
-    this.#paintedVersion = settled ? this.#version : -1;
+    this.#paintedScene = settled ? scene : null;
   }
 
   /** One frame of the page: a group redrawn for each Element whose drawing changed. */
@@ -624,7 +610,7 @@ export class Page {
     clearWashes(this.#washes);
     this.#washes = [];
     const typing = this.#host.typing();
-    const block = this.block();
+    const block = this.#block();
     if (typing === null || block === null) {
       return;
     }

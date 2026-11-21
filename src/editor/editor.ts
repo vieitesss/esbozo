@@ -97,8 +97,6 @@ class EsbozoEditorElement extends HTMLElement {
   #menuFor: string | null = null;
   #board!: HTMLElement;
   #canvas!: SVGSVGElement;
-  #gridRect!: SVGRectElement;
-  #dots!: SVGPatternElement;
   #rail!: HTMLElement;
   #railArt!: SVGSVGElement;
   /** The in-place input a Text or a Label is typed into, while it is open. */
@@ -201,8 +199,8 @@ class EsbozoEditorElement extends HTMLElement {
     this.innerHTML = SHELL;
     this.#board = this.querySelector('.board')!;
     this.#canvas = this.querySelector('.canvas')!;
-    this.#gridRect = this.querySelector('.grid-rect')!;
-    this.#dots = this.querySelector('.canvas pattern')!;
+    const gridRect = this.querySelector<SVGRectElement>('.grid-rect')!;
+    const pattern = this.querySelector<SVGPatternElement>('.canvas pattern')!;
     this.#rail = this.querySelector('.rail')!;
     this.#railArt = this.querySelector('.rail-art')!;
     this.#note = this.querySelector('.note')!;
@@ -227,8 +225,8 @@ class EsbozoEditorElement extends HTMLElement {
     // Each instance's Grid is its own pattern: two editors on one page would
     // otherwise share the first one's dots at the first one's zoom.
     const dots = `esbozo-dots-${++instances}`;
-    this.#dots.id = dots;
-    this.#gridRect.setAttribute('fill', `url(#${dots})`);
+    pattern.id = dots;
+    gridRect.setAttribute('fill', `url(#${dots})`);
 
     // The page's frame is told what the page may show, and asked for it. It owns
     // the view, the drawings kept between frames and the overlay that marks them.
@@ -237,7 +235,7 @@ class EsbozoEditorElement extends HTMLElement {
         board: this.#board,
         surface: this.querySelector('.surface')!,
         grid: this.querySelector('.grid')!,
-        gridRect: this.#gridRect,
+        gridRect,
         overlay: this.querySelector('.overlay')!,
         zoom: this.querySelector('.zoom')!,
         painted: this.querySelector('.painted')!,
@@ -452,7 +450,6 @@ class EsbozoEditorElement extends HTMLElement {
   /** A measurement arrived: nothing drawn with the last one is this page's drawing any more. */
   #measure(): void {
     this.#page.measure();
-    this.#page.invalidate();
     this.#listen();
   }
 
@@ -520,16 +517,10 @@ class EsbozoEditorElement extends HTMLElement {
     this.#page.paint();
   }
 
-  /**
-   * A Scene that replaces the one in hand: another one opened, the Scene an
-   * embedded element names, or the paper it lets go of. Nothing drawn for the
-   * last one can speak for this one — the ids may be the same and mean something
-   * else — so the drawings start empty and the page counts a new Scene.
-   */
+  /** A Scene switch or reset starts the new Scene with an empty drawing cache. */
   #replaceScene(scene: Scene): void {
     this.#scene = scene;
-    this.#page.clear();
-    this.#page.sceneChanged();
+    this.#page.resetDrawings();
   }
 
   #load(scene: Scene, target: SaveTarget): void {
@@ -627,7 +618,6 @@ class EsbozoEditorElement extends HTMLElement {
     this.#selected = this.#selected.filter((id) =>
       this.#scene.elements.some((element) => element.id === id),
     );
-    this.#page.sceneChanged();
     this.#nudgedAt = 0;
     // An undone edit may have changed a default or a Snap, so the status bar and
     // the note follow the restored Scene: a Snap the undo put back offers its
@@ -822,7 +812,6 @@ class EsbozoEditorElement extends HTMLElement {
     const { select } = options;
     if (changed) {
       this.#scene = next;
-      this.#page.sceneChanged();
     }
     if (select !== undefined) {
       this.#selected = [...select];
@@ -830,7 +819,7 @@ class EsbozoEditorElement extends HTMLElement {
     // The note follows the Scene, room and all: a Snap row that ended where it
     // began is not left behind, and a change that moved the selection wakes the
     // view that keeps the note off it. A drag in flight is left alone by
-    // `#clearOfMenu`, so nothing moves under the pointer.
+    // `Page.clearOfNote`, so nothing moves under the pointer.
     this.#refresh();
     if (changed) {
       this.#record(options.amend === true, after);
