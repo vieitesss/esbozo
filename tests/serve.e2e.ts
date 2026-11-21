@@ -91,6 +91,21 @@ test('the served editor lists, opens and autosaves Scenes, saving Scene and SVG 
   }
 });
 
+test('the page shows a failing folder request in its status line', async ({ app, browser, screen }) => {
+  // A server that is there but cannot list the folder is not a static page: the
+  // page says so, and it does not pretend it has a folder to offer.
+  await browser.route('**/api/scenes', (route) =>
+    route.fulfill({ status: 500, body: JSON.stringify({ error: 'the folder is unreadable' }) }),
+  );
+  try {
+    await app.open('/editor.html');
+    await expect(screen.getByRole('status')).toContainText('the folder is unreadable');
+    await expect(screen.getByRole('button', /Open folder/)).toBeVisible();
+  } finally {
+    await browser.unrouteAll();
+  }
+});
+
 test('a folder served read-only says so and refuses every save', async ({ app, browser, screen }) => {
   const folder = await folderWith({ 'scene.json': SCENE_SOURCE });
   const server = await startServe(folder, ['--read-only']);
