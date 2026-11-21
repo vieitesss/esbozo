@@ -949,21 +949,14 @@ test('both ends Snapped to one Element exits 3 and names the arrow', async () =>
   assert.equal(result.svg, '');
 });
 
-test('an arrow needs exactly two end points', async () => {
-  for (const points of [
-    [{ x: 10, y: 10 }],
-    [
-      { x: 10, y: 10 },
-      { x: 20, y: 20 },
-      { x: 30, y: 30 },
-    ],
-  ]) {
+test('an arrow needs two or more points', async () => {
+  for (const points of [[], [{ x: 10, y: 10 }]]) {
     const result = await render({
       version: 1,
       elements: [{ id: 'a', type: 'arrow', points }],
     });
     assert.equal(result.code, 3);
-    assert.match(result.stderr, /^a: points must be an array of exactly two end points$/m);
+    assert.match(result.stderr, /^a: points must be an array of two or more points$/m);
     assert.equal(result.svg, '');
   }
 });

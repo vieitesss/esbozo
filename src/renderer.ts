@@ -829,9 +829,10 @@ function arrowOrLinePoints(
   element: ArrowOrLineElement,
   byId: ReadonlyMap<string, Element>,
 ): [Point, Point] {
-  const [start, end] = element.points;
+  const start = element.points[0];
+  const end = element.points[element.points.length - 1]!;
   return shaftEnds(
-    element.points,
+    [start, end],
     snapTarget(element, start, byId),
     snapTarget(element, end, byId),
   );

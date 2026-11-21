@@ -33,8 +33,9 @@
  *     {
  *       "id": "b",
  *       "type": "arrow",                            // or line
- *       "points": [                                 // exactly two ends
+ *       "points": [                                 // two or more points
  *         { "x": 40, "y": 40 },
+ *         { "x": 120, "y": 60, "corner": "round" },  // a bend point: sharp | round
  *         { "x": 200, "y": 140, "snap": "a" }        // Snap target: an Element id
  *       ],
  *       "heads": { "start": "none", "end": "arrow" }, // none | arrow | dot | bar
@@ -63,10 +64,19 @@
  * in the Scene `defaults`, is the alignment of both; when neither writes one, a
  * Label centres in the Element it belongs to and a Text keeps the left edge its
  * `x` places, which is the edge an author aligns words to. Nothing is filled
- * unless the Scene asks: `fill` defaults to none. Fill and corners apply to
- * closed outlines: an arrow or line is a stroke, so it has no fill and no
- * corners. `corners` rounds the vertices of a rectangle or a diamond; an
+ * unless the Scene asks: `fill` defaults to none. Fill applies to closed
+ * outlines: an arrow or line is a stroke, so it has no fill. `corners` rounds
+ * the vertices of a rectangle or a diamond, and it is the corner a middle point
+ * of an arrow or line bends by unless that point writes its own `corner`; an
  * ellipse has no corners, so it ignores the field.
+ *
+ * An arrow or line draws through two or more points: the first and the last are
+ * its ends, and every point between them is a bend point. Only an end may carry
+ * a `snap`, and only a bend point may carry a `corner`, so a Scene that writes
+ * one where it does not belong is refused rather than quietly ignored. Two
+ * ends may Snap to one Element once the shaft has a bend point to reach its
+ * outline by; a shaft of two points cannot, because it has no second direction
+ * to aim along.
  *
  * A Label is words that belong to an Element and wrap inside it: a rectangle,
  * ellipse, diamond, arrow or line carries one optional Label, and a Text is
@@ -158,12 +168,19 @@ interface Heads {
 }
 
 /**
- * One end of an arrow or line. `snap` is the id of the Element outline it is drawn on.
+ * One point an arrow or line draws through. `snap` is the id of the Element
+ * outline an end is drawn on; a middle point bends by its own `corner`, or by
+ * the Element's.
  */
 export interface Point {
   x: number;
   y: number;
   snap?: string;
+  /**
+   * How the shaft turns at this point: a smooth `round` bend or a `sharp` one.
+   * Only a middle point carries one; the ends have nothing to turn.
+   */
+  corner?: Corners;
 }
 
 /**
@@ -232,7 +249,8 @@ interface DiamondElement extends LabelledBase {
 export type OutlinedElement = RectangleElement | EllipseElement | DiamondElement;
 
 interface ArrowOrLineBase extends LabelledBase {
-  points: [Point, Point];
+  /** The two ends, and any bend points between them, in drawing order. */
+  points: [Point, Point, ...Point[]];
   heads: Heads;
   /** Where the Label sits on the drawn shaft; a shaft without it lets Layout place its words. */
   labelAt?: LabelAt;
@@ -353,7 +371,7 @@ const ALL_ELEMENT_KEYS = [
 ];
 const STROKE_KEYS = ['width', 'style'] as const;
 const FILL_KEYS = ['kind', 'grey'] as const;
-const POINT_KEYS = ['x', 'y', 'snap'] as const;
+const POINT_KEYS = ['x', 'y', 'snap', 'corner'] as const;
 const HEADS_KEYS = ['start', 'end'] as const;
 const LABEL_AT_KEYS = ['t', 'offset'] as const;
 
@@ -389,10 +407,9 @@ export function canonicalScene(scene: Scene): Scene {
 /** One Element as it is drawn: whole pixels, so no two roundings draw it twice. */
 export function canonicalElement(element: Element): Element {
   if (element.type === 'arrow' || element.type === 'line') {
-    const [start, end] = element.points;
     return {
       ...element,
-      points: [wholePoint(start), wholePoint(end)],
+      points: wholePoints(element.points),
       ...(element.labelAt === undefined ? {} : { labelAt: canonicalLabelAt(element.labelAt) }),
     };
   }
@@ -410,6 +427,12 @@ export function canonicalElement(element: Element): Element {
 
 function wholePoint(point: Point): Point {
   return { ...point, x: wholePixels(point.x), y: wholePixels(point.y) };
+}
+
+/** A shaft's points, rounded: its two ends and every bend point between them. */
+function wholePoints(points: [Point, Point, ...Point[]]): [Point, Point, ...Point[]] {
+  const [start, second, ...bends] = points;
+  return [wholePoint(start), wholePoint(second), ...bends.map(wholePoint)];
 }
 
 /**
@@ -650,6 +673,7 @@ function serialiseElement(element: Element): object {
         x: point.x,
         y: point.y,
         ...(point.snap === undefined ? {} : { snap: point.snap }),
+        ...(point.corner === undefined ? {} : { corner: point.corner }),
       })),
       heads: { start: element.heads.start, end: element.heads.end },
       ...(element.label === undefined ? {} : { label: element.label }),
@@ -786,17 +810,20 @@ function validateSnapTargets(
     if (element.type !== 'arrow' && element.type !== 'line') {
       continue;
     }
-    const [start, end] = element.points;
-    if (start.snap !== undefined && start.snap === end.snap) {
-      // Both ends on one outline have no line between two targets to aim
-      // along, so the arrow or line cannot say which way it points.
+    const points = element.points;
+    const start = points[0];
+    const end = points[points.length - 1]!;
+    if (points.length === 2 && start.snap !== undefined && start.snap === end.snap) {
+      // Two ends on one outline have no line between two targets to aim
+      // along, so the arrow or line cannot say which way it points. A bend
+      // point between them gives the shaft the direction it was missing.
       problems.push({
         elementId: element.id,
         message: `both ends Snap to ${start.snap}`,
       });
       continue;
     }
-    for (const point of element.points) {
+    for (const point of points) {
       if (point.snap === undefined) {
         continue;
       }
@@ -1023,19 +1050,26 @@ function parseFraction(
 function parsePoints(
   raw: unknown,
   report: (message: string) => void,
-): [Point, Point] | null {
-  if (!Array.isArray(raw) || raw.length !== 2) {
-    report('points must be an array of exactly two end points');
+): [Point, Point, ...Point[]] | null {
+  if (!Array.isArray(raw) || raw.length < 2) {
+    report('points must be an array of two or more points');
     return null;
   }
-  const start = parsePoint(raw[0], 0, report);
-  const end = parsePoint(raw[1], 1, report);
-  return start === null || end === null ? null : [start, end];
+  const parsed = raw.map((point, index) =>
+    parsePoint(point, index, index === 0 || index === raw.length - 1, report),
+  );
+  return parsed.some((point) => point === null) ? null : (parsed as [Point, Point, ...Point[]]);
 }
 
+/**
+ * One point of a shaft. `end` says whether it is the first or the last, which
+ * is what decides where a `snap` and a `corner` belong: an end attaches to an
+ * Element and does not turn, and a middle point turns and does not attach.
+ */
 function parsePoint(
   raw: unknown,
   index: number,
+  end: boolean,
   report: (message: string) => void,
 ): Point | null {
   if (!isRecord(raw)) {
@@ -1045,15 +1079,39 @@ function parsePoint(
   rejectUnknownKeys(raw, POINT_KEYS, (unknownKey) => report(`unknown key "${unknownKey}"`));
   const x = parseWholePixels(raw.x, `points[${index}].x`, report);
   const y = parseWholePixels(raw.y, `points[${index}].y`, report);
+  // A Snap lands the end on a target's outline, where the shaft arrives from
+  // its neighbour: a middle point has no end to land, so it cannot hold one.
   let snap: string | undefined;
-  if (raw.snap !== undefined) {
+  if (raw.snap !== undefined && !end) {
+    report(`points[${index}].snap applies only to the first or last point`);
+  } else if (raw.snap !== undefined) {
     if (typeof raw.snap !== 'string' || raw.snap === '') {
       report(`points[${index}].snap must be a non-empty Element id`);
     } else {
       snap = raw.snap;
     }
   }
-  return x === null || y === null ? null : { x, y, ...(snap === undefined ? {} : { snap }) };
+  // A corner is the bend a middle point turns by: an end has no bend to style.
+  let corner: Corners | undefined;
+  if (raw.corner !== undefined && end) {
+    report(`points[${index}].corner applies only to a middle point`);
+  } else if (raw.corner !== undefined) {
+    if (!isOneOf(CORNERS, raw.corner)) {
+      report(
+        `points[${index}].corner must be one of ${CORNERS.join(', ')}, got ${describe(raw.corner)}`,
+      );
+    } else {
+      corner = raw.corner;
+    }
+  }
+  return x === null || y === null
+    ? null
+    : {
+        x,
+        y,
+        ...(snap === undefined ? {} : { snap }),
+        ...(corner === undefined ? {} : { corner }),
+      };
 }
 
 function parseHeads(
