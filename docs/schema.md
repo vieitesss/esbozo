@@ -55,14 +55,21 @@ Every Element has these keys.
 | `labelAt` | object | none: Layout's own place | Keys `t` and `offset` only. `t` is the fraction of the drawn shaft's length: `0` at the start, `1` at the end, between `0` and `1`. `offset` is a signed distance in pixels to one side, rounded to whole pixels: `0` sits on the shaft, and a positive value is the side the default Label takes, which is the side that points up (the left of a vertical shaft). Only an arrow or line carries one. |
 
 A Label with `labelAt` is centred on the point that fraction of the way along the
-ink the Renderer draws — measured along the shaft, not across the gap between its
-ends, so `0.5` is the true middle of a bent or curved shaft — then moved `offset`
-pixels to the side of the shaft the curve is on there. It follows the ends a Snap
-moves, so it stays where the author put it on the arrow as its targets move. A
-Scene that writes no `labelAt` places the Label where Layout always has: centred
-above the middle of the line between the two ends, which is the middle of the
-shaft for a two-point arrow or line. Place the words with `labelAt` on a bent
-one.
+ink the Renderer draws. It is measured along the shaft, not across the gap
+between its ends, so on a bent or curved shaft `0.5` is half the ink rather than
+the middle of the line between the ends. The measure is a sampled one: a curve is
+walked in chords fine enough to stay well under a pixel off its own arc, and the
+fraction then counts that length as the curve's. The words are moved `offset`
+pixels along the side the shaft is on where they land — the side that points up
+(left of a vertical shaft) on a level or straight run, and the local side where
+the shaft bends. It follows the ends a Snap moves, so it stays where the author
+put it on the arrow as its targets move.
+
+A shaft that writes no `labelAt` keeps the place Layout gives every Label: the
+middle of the line between the two ends, on the side that points up (left of a
+vertical shaft). That is the middle of the ink for a two-point arrow or line, and
+the middle of the gap rather than of the ink for a bent one. Place the words with
+`labelAt` on a bent one.
 
 Every shaft Label sits on paper: the Renderer draws `var(--paper)` behind its
 words, so a Label placed over its own shaft — or over anything else — is read
