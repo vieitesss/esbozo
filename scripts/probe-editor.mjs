@@ -95,14 +95,8 @@ function serve(folder) {
   });
   return new Promise((started, failed) => {
     server.once('error', failed);
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address();
-      if (typeof address !== 'object' || address === null) {
-        failed(new Error('the server has no port'));
-        return;
-      }
-      started({ server, port: address.port });
-    });
+    // Listening is what makes an address: the bound port is the one to read.
+    server.listen(0, '127.0.0.1', () => started({ server, port: server.address().port }));
   });
 }
 
