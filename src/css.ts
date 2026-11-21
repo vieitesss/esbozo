@@ -639,3 +639,38 @@ function unquote(text: string): string {
 function stripComments(css: string): string {
   return css.replace(/\/\*[\s\S]*?\*\//g, '');
 }
+
+/**
+ * Replaces every `var()` and `color-mix()` in an SVG's colour and font
+ * attributes, so a rasteriser with no CSS engine — resvg, or a canvas drawing an
+ * SVG image — has nothing left to resolve. Anything still unresolved is a
+ * problem naming it, and so is a colour attribute that is not a colour: the
+ * alternative is a drawing painted black without a word about it.
+ */
+export function resolveSvgColours(
+  svg: string,
+  variables: Variables,
+): { ok: true; value: string } | { ok: false; problems: string[] } {
+  const problems: string[] = [];
+  const resolved = svg.replace(
+    /\b(fill|stroke|font-family|color)="([^"]*)"/g,
+    (match, name: string, value: string) => {
+      if (!/(?:var|color-mix)\(/.test(value)) {
+        return match;
+      }
+      const resolution = resolveVariables(value, variables);
+      if (!resolution.ok) {
+        problems.push(`the drawing is unresolved: ${resolution.unresolved}`);
+        return match;
+      }
+      if (name !== 'font-family' && readColour(resolution.value) === null) {
+        problems.push(`the drawing colour ${name} is not one this subset reads: ${resolution.value.trim()}`);
+        return match;
+      }
+      // A font stack may arrive quoted — `"Kalam", cursive` — so the quotes
+      // have to be escaped before they land inside a double-quoted attribute.
+      return `${name}="${resolution.value.replace(/"/g, '&quot;')}"`;
+    },
+  );
+  return problems.length > 0 ? { ok: false, problems } : { ok: true, value: resolved };
+}

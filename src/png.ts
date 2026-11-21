@@ -46,12 +46,7 @@
  */
 import { initWasm, Resvg } from '@resvg/resvg-wasm';
 import resvgWasm from '@resvg/resvg-wasm/index_bg.wasm';
-import {
-  colourText,
-  readColour,
-  resolveVariables,
-  themeVariables,
-} from './css.js';
+import { colourText, readColour, resolveSvgColours, resolveVariables, themeVariables } from './css.js';
 import type { Rgba, Theme, Variables } from './css.js';
 import { chooseFont, layoutFor, readStylesheet } from './font.js';
 import type { FontFile, Stylesheet } from './font.js';
@@ -130,7 +125,12 @@ export async function renderPng(scene: Scene, options: PngOptions): Promise<PngR
   // The words are measured with the font the glyphs are drawn with, so the PNG
   // wraps exactly as that font makes it wrap.
   const svg = renderScene(scene, layoutFor(font.value));
-  const resolved = resolveSvg(svg, palette.value, family);
+  const resolved = resolveSvgColours(svg, {
+    '--ink': palette.value.ink,
+    '--paper': palette.value.paper,
+    '--muted': palette.value.muted,
+    [FONT_VARIABLE]: family,
+  });
   if (!resolved.ok) {
     return resolved;
   }
@@ -208,46 +208,6 @@ function paletteColour(
     return { ok: false, problem: `colours must be opaque: ${where} is ${resolved.value.trim()}` };
   }
   return { ok: true, value: colourText(colour) };
-}
-
-/**
- * Replaces every `var()` and `color-mix()` in the SVG's colour and font
- * attributes, so resvg has nothing left to resolve. Anything still unresolved
- * is a problem naming it; a colour attribute that is not a colour is one too.
- */
-function resolveSvg(
-  svg: string,
-  palette: Palette,
-  family: string,
-): { ok: true; value: string } | { ok: false; problems: string[] } {
-  const variables: Variables = {
-    '--ink': palette.ink,
-    '--paper': palette.paper,
-    '--muted': palette.muted,
-    [FONT_VARIABLE]: family,
-  };
-  const problems: string[] = [];
-  const resolved = svg.replace(
-    /\b(fill|stroke|font-family|color)="([^"]*)"/g,
-    (match, name: string, value: string) => {
-      if (!/(?:var|color-mix)\(/.test(value)) {
-        return match;
-      }
-      const resolution = resolveVariables(value, variables);
-      if (!resolution.ok) {
-        problems.push(`the drawing is unresolved: ${resolution.unresolved}`);
-        return match;
-      }
-      if (name !== 'font-family' && readColour(resolution.value) === null) {
-        problems.push(`the drawing colour ${name} is not one this subset reads: ${resolution.value.trim()}`);
-        return match;
-      }
-      // A font stack may arrive quoted — `"Kalam", cursive` — so the quotes
-      // have to be escaped before they land inside a double-quoted attribute.
-      return `${name}="${resolution.value.replace(/"/g, '&quot;')}"`;
-    },
-  );
-  return problems.length > 0 ? { ok: false, problems } : { ok: true, value: resolved };
 }
 
 async function rasterise(svg: string, palette: Palette, font: FontFile): Promise<Uint8Array> {
