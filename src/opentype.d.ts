@@ -25,6 +25,17 @@ declare module 'opentype.js' {
     };
     /** The advance width of a line, in the font's units when no size is given. */
     getAdvanceWidth(text: string, fontSize?: number, options?: { kerning?: boolean }): number;
+    /**
+     * One line as the font's own outlines, placed at a baseline: the same curves
+     * resvg draws for the same file, which is what a PNG must be drawn with.
+     */
+    getPath(
+      text: string,
+      x: number,
+      y: number,
+      fontSize?: number,
+      options?: { kerning?: boolean },
+    ): Path;
     /** The file's bytes, for tests that need a font which is valid but unusual. */
     toArrayBuffer(): ArrayBuffer;
   }
@@ -46,6 +57,8 @@ declare module 'opentype.js' {
     moveTo(x: number, y: number): void;
     lineTo(x: number, y: number): void;
     close(): void;
+    /** The path as SVG `d` data, rounded to the given number of decimal places. */
+    toPathData(decimalPlaces?: number): string;
   }
 
   export interface GlyphOptions {

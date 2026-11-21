@@ -2,12 +2,16 @@
  * PNG export: the Scene's own SVG, rasterised by the browser, downloaded.
  *
  * The bytes rasterised are the Renderer's SVG for the saved Scene — the same
- * document `ez render` writes and `ez png` draws — with two additions the
- * browser needs and the CLI does not. Its colours are resolved first, because
- * an SVG loaded as an image has no page around it and would paint `var(--ink)`
- * black; they come from the page's own variables, so the PNG shows the paper and
- * ink the person is looking at. And the hand font travels inside the SVG as a
- * data URL, because an SVG image cannot read the page's `@font-face`.
+ * document `ez render` writes and `ez png` draws — with one change the browser
+ * needs and the CLI does not: its colours are resolved first, because an SVG
+ * loaded as an image has no page around it and would paint `var(--ink)` black;
+ * they come from the page's own variables, so the PNG shows the paper and ink
+ * the person is looking at.
+ *
+ * The words are drawn as the font's own outlines (`../glyphs.ts`), not as
+ * `<text>`: a browser would shape and hint a line its own way, and a page of
+ * dense words would not be the CLI's drawing. Paths leave both rasterisers the
+ * same curves to fill.
  *
  * The canvas draws at one pixel per Scene unit, which is the scale `ez png`
  * rasterises at, so the PNG has the CLI's size and, within the rasteriser's
@@ -15,7 +19,10 @@
  */
 import { colourText, readColour, resolveSvgColours, resolveVariables } from '../css.js';
 import type { Theme, Variables } from '../css.js';
+import { glyphsOf } from '../glyphs.js';
+import type { Glyphs } from '../glyphs.js';
 import type { Layout } from '../layout.js';
+import { outlineText } from '../outlines.js';
 import { renderScene } from '../renderer.js';
 import type { Scene } from '../scene.js';
 
@@ -54,9 +61,27 @@ export async function exportPng(options: PngExport): Promise<void> {
   if (!resolved.ok) {
     throw new Error(resolved.problems[0] ?? 'the drawing cannot be resolved');
   }
-  const svg = withFont(resolved.value, options.font);
-  const drawing = await rasterise(svg, page['--paper'], sizeOf(svg));
+  const outlined = outlineText(resolved.value, glyphsFor(options.font));
+  if (!outlined.ok) {
+    throw new Error(outlined.problems[0] ?? 'the drawing cannot be outlined');
+  }
+  const drawing = await rasterise(outlined.svg, page['--paper'], sizeOf(outlined.svg));
   download(drawing, `${options.name}.${options.theme}.png`);
+}
+
+/**
+ * The glyphs of the page's font, parsed once and kept: an export outlines every
+ * line of a Scene, and a person may export the same Scene more than once.
+ */
+const parsedGlyphs = new WeakMap<SceneFont, Glyphs>();
+
+function glyphsFor(font: SceneFont): Glyphs {
+  let glyphs = parsedGlyphs.get(font);
+  if (glyphs === undefined) {
+    glyphs = glyphsOf(font.bytes);
+    parsedGlyphs.set(font, glyphs);
+  }
+  return glyphs;
 }
 
 /**
@@ -104,28 +129,6 @@ function resolvedColour(name: ColourVariable, variables: Variables): string {
     throw new Error(`the page's ${name} is not a colour: ${resolved.value.trim()}`);
   }
   return colourText(colour);
-}
-
-/**
- * The page's font inside the SVG. An image is drawn with no stylesheet and no
- * fonts of its own, so without this every word would fall back to a system font
- * and the PNG would not be the drawing.
- */
-function withFont(svg: string, font: SceneFont): string {
-  const face =
-    `@font-face{font-family:"${font.family}";` +
-    `src:url(${dataUrl(font)}) format("truetype");}`;
-  return svg.replace(/(<svg\b[^>]*>)/, `$1<defs><style>${face}</style></defs>`);
-}
-
-/** The font bytes as the `data:` URL an SVG can carry with it. */
-function dataUrl(font: SceneFont): string {
-  const chunks: string[] = [];
-  const CHUNK = 0x8000;
-  for (let at = 0; at < font.bytes.length; at += CHUNK) {
-    chunks.push(String.fromCharCode(...font.bytes.subarray(at, at + CHUNK)));
-  }
-  return `data:font/ttf;base64,${btoa(chunks.join(''))}`;
 }
 
 /** Rasterise the SVG on a canvas the size of its page, over the theme's paper. */

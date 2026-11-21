@@ -40,6 +40,7 @@ import {
   UNEVEN_SCENE,
   SNAPPED,
   SNAPPED_SCENE,
+  TEXT_SCENE,
   SPREAD,
   SPREAD_SCENE,
   TETHER,
@@ -85,6 +86,7 @@ const PINNED_SOURCE = JSON.stringify(PINNED_SCENE, null, 2);
 const UNEVEN_SOURCE = JSON.stringify(UNEVEN_SCENE, null, 2);
 const LACED_SOURCE = JSON.stringify(LACED_SCENE, null, 2);
 const SHAFT_SOURCE = JSON.stringify(SHAFT_SCENE, null, 2);
+const TEXT_SOURCE = JSON.stringify(TEXT_SCENE, null, 2);
 
 /** The middle of `b`, the one solid grey box in the fixture. */
 const GREY_BOX: Rect = { x: 700, y: 390, width: 40, height: 40 };
@@ -1527,5 +1529,32 @@ test('Export PNG (dark) draws the paper and ink the page shows, as `ez png --the
   // A dark page draws light ink on dark paper: the two exports are not one PNG.
   const light = await exportFromPalette(ui, 'Export PNG (light)');
   expect(decodePng(light.png).data).not.toEqual(decodePng(dark.png).data);
+});
+
+test('a dense page of words exports as `ez png` draws it, in light and dark', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': TEXT_SOURCE } }, 'scene.json');
+  const scene = await savedScene(ui);
+  // Words at every size and anchor, so this is a text comparison, not a stroke one.
+  expect((await cliPng(scene, 'dark')).length).toBeGreaterThan(0);
+
+  for (const theme of ['light', 'dark'] as const) {
+    const file = await exportFromPalette(ui, `Export PNG (${theme})`);
+    const cli = await cliPng(await savedScene(ui), theme);
+    expect({ width: decodePng(file.png).width, height: decodePng(file.png).height }).toEqual({
+      width: decodePng(cli).width,
+      height: decodePng(cli).height,
+    });
+    const apart = difference(decodePng(file.png), decodePng(cli));
+    // The browser draws the glyph outlines the font carries, so the two
+    // rasterisers agree on the words, not just on the strokes around them.
+    expect(apart.meanDelta, `${theme} mean delta ${apart.meanDelta}`).toBeLessThan(1);
+    expect(apart.movedShare, `${theme} moved share ${apart.movedShare}`).toBeLessThan(0.01);
+    expect(inkShare(file.png)).toBeGreaterThan(0.02);
+  }
 });
 

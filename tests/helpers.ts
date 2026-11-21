@@ -462,6 +462,76 @@ export const POSTER_SCENE = {
   ],
 };
 
+/**
+ * A page of words: dense, small, at every anchor and in both tones, so a PNG
+ * drawn with another font — or with a font pair that is not hinted the same —
+ * shows in every glyph rather than in the antialiasing of a stroke.
+ */
+export const TEXT_SCENE = {
+  version: 1,
+  title: 'Words',
+  defaults: { roughness: 1 },
+  elements: [
+    {
+      id: 'para',
+      type: 'text',
+      x: 40,
+      y: 40,
+      content: 'the quick brown fox\njumps over the lazy dog\nat half past nine',
+      fontSize: 'S',
+      textAlign: 'left',
+    },
+    {
+      id: 'head',
+      type: 'text',
+      x: 260,
+      y: 40,
+      content: 'Editing a Scene\nwrites the bytes',
+      fontSize: 'M',
+      textAlign: 'center',
+    },
+    {
+      id: 'tail',
+      type: 'text',
+      x: 560,
+      y: 40,
+      content: 'right aligned words',
+      fontSize: 'L',
+      textAlign: 'right',
+      tone: 'muted',
+    },
+    {
+      id: 'box',
+      type: 'rectangle',
+      x: 40,
+      y: 200,
+      width: 300,
+      height: 150,
+      label: 'a label that wraps inside the box and keeps going until it is full',
+    },
+    {
+      id: 'oval',
+      type: 'ellipse',
+      x: 380,
+      y: 200,
+      width: 240,
+      height: 150,
+      tone: 'muted',
+      label: 'elliptical words wrap in a square of the sides',
+    },
+    {
+      id: 'shaft',
+      type: 'arrow',
+      points: [
+        { x: 40, y: 420 },
+        { x: 620, y: 500 },
+      ],
+      heads: { start: 'none', end: 'arrow' },
+      label: 'a shaft label sits beside the line it belongs to',
+    },
+  ],
+};
+
 /** Stub folders: a folder name mapped to its `name → text` files. */
 export interface Folders {
   [folder: string]: Record<string, string>;
