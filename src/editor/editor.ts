@@ -115,6 +115,16 @@ const DOUBLE_CLICK_MS = 500;
 const DOUBLE_CLICK_SLOP = 4;
 
 /**
+ * Whether a pointer is still within the click's own slop of where it landed: the
+ * line between a click and a drag, and the only threshold a gesture reads.
+ */
+function withinSlop(from: Point, at: Point): boolean {
+  return (
+    Math.abs(at.x - from.x) <= DOUBLE_CLICK_SLOP && Math.abs(at.y - from.y) <= DOUBLE_CLICK_SLOP
+  );
+}
+
+/**
  * The instance the keys and the clipboard belong to: the last one a person
  * clicked or focused. Two editors on one page are two editors, so a nudge in
  * one is never a nudge in the other.
@@ -183,6 +193,8 @@ type Drag =
       id: string;
       /** The drawn shaft the Label rides, as the press found it. */
       shaft: { start: Point; end: Point };
+      /** Where the press landed on the page: the click's own slop is measured from here. */
+      from: Point;
       /** How far off the words' middle the press landed: the words keep that hold. */
       grab: Point;
       /** Whether the words have moved: until then the Scene is the Scene as it was. */
@@ -2247,6 +2259,7 @@ class EsbozoEditorElement extends HTMLElement {
           kind: 'label',
           id: pick.element.id,
           shaft: { start, end },
+          from: this.#screenPoint(event),
           grab: {
             x: point.x - (label.x + label.width / 2),
             y: point.y - (label.y + label.height / 2),
@@ -2848,8 +2861,10 @@ class EsbozoEditorElement extends HTMLElement {
       // One threshold, and it is the click's own: a press that has not carried
       // the pointer past the slop that separates a click from a drag has moved
       // nothing, so it neither places the words nor costs the press its half of
-      // a double-click. A press that has is a drag, and pairs with nothing.
-      if (this.#press !== null) {
+      // a double-click. A press that has is a drag, and pairs with nothing. The
+      // slop is measured from the press itself: a wheel zoom drops the press it
+      // would otherwise pair with, and that is no reason for the words to jump.
+      if (withinSlop(drag.from, this.#screenPoint(event))) {
         return;
       }
       // The words follow the pointer by the hold they were taken by, so they do
@@ -3053,11 +3068,7 @@ class EsbozoEditorElement extends HTMLElement {
 
   /** Whether a pointer move is still within the press that started it. */
   #near(press: Press, event: { clientX: number; clientY: number }): boolean {
-    const at = this.#screenPoint(event);
-    return (
-      Math.abs(at.x - press.at.x) <= DOUBLE_CLICK_SLOP &&
-      Math.abs(at.y - press.at.y) <= DOUBLE_CLICK_SLOP
-    );
+    return withinSlop(press.at, this.#screenPoint(event));
   }
 
   /**

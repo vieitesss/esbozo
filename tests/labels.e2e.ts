@@ -2454,6 +2454,31 @@ describe('labels', () => {
     });
   });
 
+  test("a wheel zoom under a held Label does not turn two pixels into a drag", async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'labelled.json': LABELLED_SOURCE } }, 'labelled.json');
+    const before = await savedFiles(ui);
+
+    // The words taken by their middle, and then the wheel zooms the page under
+    // the pointer without moving it: the press the zoom drops would have paired
+    // with a click, and the slop the words answer to is the press's own either way.
+    const from = at({ x: 300, y: 139 }, LABELLED);
+    await browser.mouse.move(from.x, from.y);
+    await browser.mouse.down();
+    await browser.mouse.wheel(0, -240);
+    await browser.mouse.move(from.x + 2, from.y);
+    await browser.mouse.up();
+    await settle(ui);
+
+    // Two pixels is inside the click's own slop: the words never left their place,
+    // so the release has nothing to save.
+    expect(await savedFiles(ui)).toEqual(before);
+  });
+
   test('a Label dragged after the shaft moved and reshaped keeps to the side the page draws', async ({
     app,
     browser,
