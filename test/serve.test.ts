@@ -435,6 +435,62 @@ test('a folder where the SVG name is taken fails the write and keeps the old pai
   assert.equal(await readFile(join(folder, 'kept.json'), 'utf8'), first.scene);
 });
 
+/**
+ * The other half of the same check, on the Scene's own name: a folder there
+ * cannot be replaced either. The answer is 409, the code's status for a target
+ * that exists but is not a file, and it comes before anything lands.
+ */
+test('a write whose Scene name holds a folder is refused and the pair stays', async () => {
+  const folder = await sceneFolder(SCENE);
+  const server = await served(folder);
+  const first = sent({ ...SCENE, title: 'Kept' });
+  assert.equal((await request(server, '/api/scenes/kept.json', 'PUT', first)).status, 200);
+
+  await rm(join(folder, 'kept.json'));
+  await mkdir(join(folder, 'kept.json'));
+
+  for (const method of ['PUT', 'POST']) {
+    const answer = await request(server, `/api/scenes/kept.json`, method, sent({ ...SCENE, title: 'Replaced' }));
+    assert.equal(answer.status, 409, `${method} answered ${answer.status}`);
+    assert.match(answer.body, /kept\.json is a folder/);
+  }
+
+  // The folder is still a folder, and the SVG it would have been written with is
+  // the one the last good write left.
+  assert.ok((await stat(join(folder, 'kept.json'))).isDirectory(), 'the folder that refused the writes is still one');
+  assert.equal(await readFile(join(folder, 'kept.svg'), 'utf8'), first.svg);
+  assert.deepEqual((await readdir(folder)).sort(), ['kept.json', 'kept.svg', 'scene.json']);
+  assert.equal((await request(server, '/api/scenes/kept.json')).status, 404);
+});
+
+/** Make a pipe, the non-file a test can stand a name on where the platform allows one. */
+async function makePipe(path: string): Promise<boolean> {
+  try {
+    await run('mkfifo', [path]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** A target that is a file or a folder is the two real shapes; a pipe is the rest. */
+test('a write to a name that holds a pipe is refused, and nothing is written', async (t) => {
+  const folder = await sceneFolder(SCENE);
+  const server = await served(folder);
+  if (!(await makePipe(join(folder, 'pipe.json')))) {
+    t.skip('this platform has no mkfifo');
+    return;
+  }
+
+  const answer = await request(server, '/api/scenes/pipe.json', 'PUT', sent());
+
+  assert.equal(answer.status, 409);
+  assert.match(answer.body, /pipe\.json is not a file/);
+  // Neither the pipe nor an SVG beside it is written, and the read agrees.
+  assert.equal((await request(server, '/api/scenes/pipe.json')).status, 404);
+  assert.deepEqual((await readdir(folder)).sort(), ['pipe.json', 'scene.json']);
+});
+
 test('an invalid Scene is refused and nothing is written', async () => {
   const folder = await sceneFolder(SCENE);
   const server = await served(folder);
