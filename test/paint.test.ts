@@ -85,6 +85,37 @@ test('the file and the SVG in hand are the ones the Renderer writes', async () =
   );
 });
 
+test('a drawn Element keeps the words it placed, so a caret that moves measures nothing', () => {
+  const parsed = parseFontFile(KALAM);
+  const measured: string[] = [];
+  const counted = createLayout({
+    ...parsed,
+    metrics: {
+      ...parsed.metrics,
+      advance: (text, size) => {
+        measured.push(text);
+        return parsed.metrics.advance(text, size);
+      },
+    },
+  });
+  const scene = sceneOf();
+  const paintables = new PaintCache(counted);
+
+  const drawn = paintables.paint(scene.elements);
+  const box = drawn.elements.get('box')!;
+  // The words a caret and a selection sit in are the ones the Element drew:
+  // asking the Renderer for them again would measure the same lines twice.
+  assert.deepEqual(box.words, counted.label(scene.elements[0]!), 'the Block the Element drew');
+  const placed = measured.length;
+  assert.ok(placed > 0, 'the Element measured the words it drew');
+
+  // A caret that moved is a frame the Scene is not asked for: the drawing is the
+  // one already made, and the Block inside it comes with it.
+  const carried = paintables.paint(scene.elements);
+  assert.equal(carried.elements.get('box'), box, 'the frame keeps its SVG');
+  assert.equal(measured.length, placed, 'no line was measured again');
+});
+
 test('an Element that changed is the only one drawn again, and the file follows it', async () => {
   const scene = sceneOf();
   const paintables = new PaintCache(KALAM_LAYOUT);

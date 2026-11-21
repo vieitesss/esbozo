@@ -9,7 +9,7 @@
  */
 import { createLayout } from '../layout.js';
 import type { Block, Layout, LineGlyphs, Metrics } from '../layout.js';
-import { drawnShaft, drawnWords, elementBounds, elementsById, outlineBox } from '../renderer.js';
+import { drawnShaft, elementBounds, elementsById, outlineBox } from '../renderer.js';
 import {
   emptyScene,
   isOutlined,
@@ -1605,7 +1605,10 @@ class EsbozoEditorElement extends HTMLElement {
   /** One frame of the page: a group redrawn for each Element whose drawing changed. */
   #drawElements(shown: readonly SceneElement[]): void {
     const paintables = (this.#paintables ??= new PaintCache(this.#layout));
-    const paint = paintables.paint(shown);
+    // The words drawn for an emptied Label are its empty line, the slot the
+    // next letter would go in: the drawing holds the place the caret stands in,
+    // and so does the frame after the words are committed away.
+    const paint = paintables.paint(shown.map(shownWords));
     this.#painted = paint;
     this.#drawnWords = this.#editing?.element ?? this.#draft;
     this.#drawnMeasurement = paintables.generation;
@@ -2415,10 +2418,9 @@ class EsbozoEditorElement extends HTMLElement {
     if (this.#drawnWords !== element) {
       this.#drawScene();
     }
-    const painted = this.#painted;
-    const words = painted?.byId.get(element.id) ?? element;
-    const byId = painted?.byId ?? elementsById(this.#shownElements());
-    return drawnWords(shownWords(words), byId, this.#layout);
+    // The Block is the one the drawing placed: a caret that moved is drawn on
+    // the words without measuring them again.
+    return this.#painted?.elements.get(element.id)?.words ?? null;
   }
 
   /**

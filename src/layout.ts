@@ -136,6 +136,13 @@ interface Written {
    * caret's offsets are read from them once the line is placed.
    */
   runs: readonly Run[];
+  /**
+   * The advance the line was measured at while it was being wrapped, when it
+   * was: a wrapped line is the candidate that fitted, which the wrap measured
+   * to decide. Measuring it again for its own width would measure the same
+   * words twice.
+   */
+  width?: number;
 }
 
 /** A run of drawn glyphs, and the offset in the words its first glyph came from. */
@@ -346,9 +353,14 @@ interface Measured {
  */
 function measured(text: string, size: number, maxWidth: number | null, metrics: Metrics): Measured {
   const written = maxWidth === null ? writtenLines(text) : breakLines(text, maxWidth, size, metrics);
-  // Each line is measured once here: the Block placed from it reads these
-  // widths, and the lines a Label only has to fit are measured no further.
-  const lines = written.map((line) => ({ ...line, width: metrics.advance(line.text, size) }));
+  // Each line is measured once: the wrap hands over the width it measured to
+  // decide the line, and only a line it never measured is measured here. The
+  // Block placed from these reads them, and the lines a Label only has to fit
+  // are measured no further.
+  const lines = written.map((line) => ({
+    ...line,
+    width: line.width ?? metrics.advance(line.text, size),
+  }));
   const lineHeight = metrics.lineHeight(size);
   return {
     size,
@@ -601,13 +613,16 @@ function breakLines(text: string, maxWidth: number, size: number, metrics: Metri
       };
       for (const word of words.slice(1)) {
         const candidate = `${line.text} ${word.text}`;
-        if (metrics.advance(candidate, size) <= maxWidth) {
+        const width = metrics.advance(candidate, size);
+        if (width <= maxWidth) {
           // The space the run became is one drawn glyph: it has no run of its
           // own, so the boundary before it is the last of the one word and the
-          // one after it is where the next word starts.
+          // one after it is where the next word starts. The width it was
+          // measured at is kept, so the line it became is not measured again.
           line = {
             text: candidate,
             runs: [...line.runs, { at: word.at, length: word.text.length }],
+            width,
           };
         } else {
           lines.push(line);

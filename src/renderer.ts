@@ -110,6 +110,13 @@ export function renderScene(scene: Scene, layout: Layout): string {
 export interface DrawnElement {
   readonly bounds: Box;
   readonly svg: string;
+  /**
+   * The words the drawing placed, as the Block a caret and a selection sit in;
+   * null when the Element draws none. The drawing measured them to draw them,
+   * so an editor that keeps the drawing keeps the placement with it: a caret
+   * that moves reads this Block instead of placing the words again.
+   */
+  readonly words: Block | null;
 }
 
 /**
@@ -472,19 +479,6 @@ function placement(
   }
 }
 
-/**
- * The words an Element draws, as the Renderer placed them: the Block a caret
- * and a selection sit in. A Text's own content, the Label wrapped inside a
- * container, or the Label beside the shaft Snap drew; null when there are none.
- */
-export function drawnWords(
-  element: Element,
-  byId: ReadonlyMap<string, Element>,
-  layout: Layout,
-): Block | null {
-  return placement(element, byId, layout).words;
-}
-
 /** The box a shaft covers, before its words are added. */
 function shaftBox(shaft: Shaft): Box {
   return {
@@ -532,7 +526,7 @@ function drawElement(
   layout: Layout,
 ): DrawnElement {
   const placed = placement(element, byId, layout);
-  return { bounds: joined(placed.box, placed.words), svg: svgOf(placed) };
+  return { bounds: joined(placed.box, placed.words), words: placed.words, svg: svgOf(placed) };
 }
 
 function svgOf(placed: Placement): string {

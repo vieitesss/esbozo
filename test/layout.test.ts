@@ -305,6 +305,40 @@ test('a Label wraps inside the room its outline leaves', () => {
   assert.ok(narrow.lines.length > wide.lines.length, `${narrow.lines.length} lines narrow, ${wide.lines.length} wide`);
 });
 
+test('a line is measured once, as the candidate the wrap fitted it from', () => {
+  const parsed = parseFontFile(KALAM);
+  const measured: string[] = [];
+  const counted = createLayout({
+    ...parsed,
+    metrics: {
+      ...parsed.metrics,
+      advance: (text, size) => {
+        measured.push(text);
+        return parsed.metrics.advance(text, size);
+      },
+    },
+  });
+
+  // The wrap measures the candidate line it is fitting words onto, and the line
+  // that candidate becomes keeps that width: measuring it again for its own
+  // width would measure the same words twice.
+  const wide = counted.label(element(oneElement({ width: 200, label: 'one two three' })))!;
+  assert.deepEqual(wide.lines.map((line) => line.text), ['one two three']);
+  assert.deepEqual(measured, ['one two', 'one two three'], 'each candidate measured once');
+
+  measured.length = 0;
+  const narrow = counted.label(element(oneElement({ width: 120, label: 'one two three' })))!;
+  assert.deepEqual(narrow.lines.map((line) => line.text), ['one two', 'three']);
+  // A line the wrap never fitted — the last one, or the only one — is measured
+  // here, once, for its own width; the line that broke before it was measured
+  // as the candidate it became.
+  assert.deepEqual(measured, ['one two', 'one two three', 'three'], 'every line measured once');
+  assert.ok(
+    Math.abs(narrow.width - kalamAdvance('one two', 18)) < 0.01,
+    'a line is as wide as the words it was measured with',
+  );
+});
+
 test('a Label that does not fit is placed anyway, past its box', () => {
   const box = element(oneElement({ width: 100, height: 40, label: 'this box is far too small for these words' }));
   const block = LAYOUT.label(box)!;
