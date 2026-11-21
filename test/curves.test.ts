@@ -525,3 +525,32 @@ test('labelAt measures a cornered shaft along its legs, corner included', async 
   assert.ok(Math.hypot(centre.x - 100, centre.y) < 4, `the words sit on the corner, got ${centre.x},${centre.y}`);
   assert.ok(Math.hypot(centre.x - 50, centre.y - 50) > 40, 'the words left the chord behind');
 });
+
+test('a bent shaft draws the same bytes at every roughness', async () => {
+  const scene = (roughness: number): unknown => ({
+    version: 1,
+    defaults: { roughness },
+    elements: [
+      { id: 'box', type: 'rectangle', x: 300, y: 0, width: 100, height: 100 },
+      {
+        id: 'a',
+        type: 'arrow',
+        label: 'bent',
+        labelAt: { t: 0.5, offset: 0 },
+        points: [
+          { x: 0, y: 0, snap: 'box' },
+          { x: 150, y: 120, corner: 'round' },
+          { x: 200, y: 0, corner: 'sharp' },
+          { x: 300, y: 50, snap: 'box' },
+        ],
+      },
+    ],
+  });
+
+  for (const roughness of [0, 1, 2]) {
+    const first = await ink(scene(roughness));
+    const second = await ink(scene(roughness));
+    assert.equal(second, first, `roughness ${roughness} draws the same bytes twice`);
+    assert.doesNotMatch(first, /NaN|Infinity/, `roughness ${roughness} draws real numbers`);
+  }
+});
