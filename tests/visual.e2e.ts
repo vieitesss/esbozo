@@ -255,7 +255,7 @@ test('a Label that does not fit its Element is outlined in red, as ez check repo
   const ui = { agent, app, browser, screen };
   await openEditor(ui, { A: { 'overflow.json': OVERFLOW_SOURCE } }, 'overflow.json');
 
-  // The same edit `tests/labels.e2e.ts` makes, so both tests judge the bytes the
+  // The same edit `tests/labels-edit.e2e.ts` makes, so both tests judge the bytes the
   // editor saved: the box shrunk by its east handle until its words no longer
   // fit, the words spilling out above and below it, and a red outline saying so.
   await clickScene(ui, { x: 60, y: 60 }, [], OVERFLOW);
