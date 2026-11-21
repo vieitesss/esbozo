@@ -1208,6 +1208,8 @@ test('Q opens the palette on every action, each with the key that does it', asyn
   await expect(command(ui, 'Select · V · 1')).toBeVisible();
   await expect(command(ui, 'Toggle Grid · G')).toBeVisible();
   await expect(command(ui, 'Zoom to fit · ⌘0')).toBeVisible();
+  await expect(command(ui, 'Redo · ⇧⌘Z')).toBeVisible();
+  await expect(command(ui, 'Copy · ⌘C')).toBeVisible();
   await expect(command(ui, 'Open folder…')).toBeVisible();
   await expect(command(ui, 'Arrange: left')).toBeVisible();
   await expect(command(ui, 'Export PNG (dark)')).toBeVisible();
@@ -1525,7 +1527,17 @@ test('Zoom in, Zoom out and Reset zoom run from the palette', async ({ app, brow
   await browser.keyboard.press('Enter');
   await expect(zoomLabel).toHaveText('100%');
 
-  // A key zoom, then the palette puts the view back to one pixel per unit.
+  // The keys the rows name answer on the canvas too: one list of actions.
+  await browser.keyboard.press('Meta+=');
+  await expect(zoomLabel).toHaveText('120%');
+  await browser.keyboard.press('Meta+-');
+  await expect(zoomLabel).toHaveText('100%');
+  await browser.keyboard.press('Meta+=');
+  await expect(zoomLabel).toHaveText('120%');
+  await browser.keyboard.press('Meta+0');
+  await expect(zoomLabel).toHaveText('100%');
+
+  // And the palette puts the view back to one pixel per unit.
   await browser.keyboard.press('Meta+=');
   await expect(zoomLabel).toHaveText('120%');
   await palette(ui);
