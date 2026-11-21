@@ -42,6 +42,7 @@ import {
   elementsInBox,
   fittedView,
   handlePoint,
+  landingOffset,
   moved,
   resized,
   resizedBox,
@@ -507,7 +508,13 @@ export class EsbozoEditorElement extends HTMLElement {
     if (elements.length === 0) {
       return;
     }
-    const added = copies(elements, idsOf(this.#scene.elements), COPY_OFFSET);
+    const byId = elementsById(elements);
+    const box = boxOf(elements, byId, this.#layout);
+    const offset =
+      box === null
+        ? COPY_OFFSET
+        : landingOffset(box, this.#view, this.#viewportSize(), COPY_OFFSET);
+    const added = copies(elements, idsOf(this.#scene.elements), offset);
     this.#scene.elements = [...this.#scene.elements, ...added];
     this.#selected = added.map((element) => element.id);
     this.#paint();

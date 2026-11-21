@@ -229,6 +229,35 @@ export function toPage(view: View, point: Point): Point {
   return { x: point.x * view.zoom + view.panX, y: point.y * view.zoom + view.panY };
 }
 
+/**
+ * How far to move a fragment so a paste lands where a person can see it: the
+ * usual nudge when its box is already on the page, or the middle of the view
+ * when it comes from somewhere else, so a copy of a Scene point far off the
+ * page does not paste out of sight.
+ */
+export function landingOffset(
+  box: Box,
+  view: View,
+  viewport: { width: number; height: number },
+  nudge: Point,
+): Point {
+  const topLeft = toScene(view, 0, 0);
+  const bottomRight = toScene(view, viewport.width, viewport.height);
+  const onPage =
+    box.x < bottomRight.x &&
+    box.x + box.width > topLeft.x &&
+    box.y < bottomRight.y &&
+    box.y + box.height > topLeft.y;
+  if (onPage) {
+    return nudge;
+  }
+  const middle = toScene(view, viewport.width / 2, viewport.height / 2);
+  return {
+    x: Math.round(middle.x - (box.x + box.width / 2)),
+    y: Math.round(middle.y - (box.y + box.height / 2)),
+  };
+}
+
 /** Zoom keeping the Scene point under the pointer where it is. */
 export function zoomedAt(view: View, factor: number, screenX: number, screenY: number): View {
   const zoom = clampZoom(view.zoom * factor);
