@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "description": "A small canvas for hand-drawn diagrams, drawn by people and written by agents.",
   "license": "MIT",
+  "packageManager": "pnpm@11.24.0",
   "type": "module",
   "bin": {
     "esbozo": "dist/cli.js",
