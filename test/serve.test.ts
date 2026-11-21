@@ -905,8 +905,7 @@ test('the health route answers the build the server was started with', async () 
   const server = await served(await sceneFolder(SCENE));
   const answer = await request(server, '/api/health');
   assert.equal(answer.status, 200);
-  const { id, at } = buildOn(server.startup);
-  assert.equal(answer.body, JSON.stringify({ build: id, builtAt: at }));
+  assert.equal(answer.body, JSON.stringify({ build: server.build, builtAt: server.builtAt }));
 
   // A method other than GET is refused like every other route that only reads.
   assert.deepEqual(await request(server, '/api/health', 'PUT'), {
@@ -915,12 +914,16 @@ test('the health route answers the build the server was started with', async () 
   });
 });
 
-/** The build the startup line ends with: its id, and the time it was made. */
-function buildOn(startup: string): { id: string; at: string } {
-  const found = /\(build (\S+), (\S+)\)$/.exec(startup);
-  assert.ok(found !== null, `the startup line names no build: ${startup}`);
-  return { id: found[1]!, at: found[2]! };
-}
+test('a folder named like a build does not decide which build is served', async () => {
+  const folder = await tempFolder('esbozo-(build deadbee, 2020-01-01T00:00:00Z)-');
+  await writeFile(join(folder, 'scene.json'), SCENE_SOURCE, 'utf8');
+  const server = await served(folder);
+
+  const answer = JSON.parse((await request(server, '/api/health')).body) as { build: string };
+  assert.notEqual(answer.build, 'deadbee', 'the folder name is not the build');
+  assert.equal(server.build, answer.build, 'the line the CLI printed names the build the server answers with');
+  assert.equal(server.builtAt, JSON.parse((await request(server, '/api/health')).body).builtAt);
+});
 
 /**
  * The build is only what it stamps: a repo whose commit nobody has written down
@@ -937,16 +940,19 @@ test('a build stamps the commit it was built from, and the server serves that bu
   const server = await startServe(await sceneFolder(SCENE), [], join(source, 'dist', 'cli.js'));
   running.push(server);
 
-  const { id, at } = buildOn(server.startup);
-  assert.equal(id, commit, 'the stamped id is the commit the build was made from');
-  assert.match(at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/, 'the stamp is ISO-8601 UTC to the second');
+  assert.equal(server.build, commit, 'the stamped id is the commit the build was made from');
+  assert.match(
+    server.builtAt ?? '',
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/,
+    'the stamp is ISO-8601 UTC to the second',
+  );
   assert.ok(
-    Math.abs(Date.parse(at) - built) < 5 * 60_000,
-    `the stamp ${at} is not when this build ran`,
+    Math.abs(Date.parse(server.builtAt ?? '') - built) < 5 * 60_000,
+    `the stamp ${server.builtAt} is not when this build ran`,
   );
   assert.equal(
     (await request(server, '/api/health')).body,
-    JSON.stringify({ build: commit, builtAt: at }),
+    JSON.stringify({ build: commit, builtAt: server.builtAt }),
     'the health route answers the build the CLI was stamped with',
   );
 });
