@@ -12,7 +12,7 @@
 import { drawnShaft, elementBounds, elementsById, inkBounds, labelInkBounds, pageBounds, shaftLabel, strokeWidthOf } from '../renderer.js';
 import type { Layout } from '../layout.js';
 import { MIN_SIZE, isOutlined } from '../scene.js';
-import type { ArrowOrLineElement, Element, Scene } from '../scene.js';
+import type { Element, Scene } from '../scene.js';
 
 export interface Point {
   x: number;
@@ -24,6 +24,13 @@ export interface Box {
   y: number;
   width: number;
   height: number;
+}
+
+/** What a press found: the Element it took, and the words when it landed on a shaft's Label. */
+export interface Pick {
+  readonly element: Element;
+  /** The box a shaft's Label paints, when the press landed on those words rather than on ink. */
+  readonly label: Box | null;
 }
 
 /** The eight resize handles, clockwise from the top left corner. */
@@ -58,41 +65,43 @@ export function unionOf(boxes: readonly Box[]): Box | null {
 }
 
 /**
- * The topmost Element under a point: list order is layer order. An arrow or
- * line is picked by its drawn shaft, `tolerance` Scene units off it; every other
- * Element by its box, grown by the ink a rough outline draws outside it, and then
- * by `tolerance` too. With `words`, a shaft's Label is picked too: its ink sits
- * beside the shaft, further out than a click picks a line by, and it is words a
- * person can see and double-click like any other — the box its paper paints,
- * glyph overhang included.
+ * The topmost thing a press takes: list order is layer order, so a higher
+ * Element's ink answers before a lower Element's Label, and a Label answers
+ * before the shaft it is written about — its words are words a person can press
+ * wherever they sit, over their own shaft included.
+ *
+ * An arrow or line is picked by its drawn shaft, `tolerance` Scene units off it;
+ * a Label by the box its paper paints, glyph overhang included; every other
+ * Element by its box, grown by the ink a rough outline draws outside it, and
+ * then by `tolerance` too.
  *
  * Ink answers before the tolerance does. A press on the border an Element draws
  * is that Element's, even when a higher layer's empty halo reaches it; the halo
  * only answers a press no ink at all received, which is what makes bare canvas
  * near a border still the Element's the way it always was.
  */
-export function elementAt(
+export function pickAt(
   elements: readonly Element[],
   point: Point,
   tolerance: number,
   layout: Layout,
-  { words = false }: { words?: boolean } = {},
-): Element | null {
+): Pick | null {
   const byId = elementsById(elements);
-  let halo: Element | null = null;
+  let halo: Pick | null = null;
   for (let index = elements.length - 1; index >= 0; index--) {
     const element = elements[index]!;
     if (element.type === 'arrow' || element.type === 'line') {
+      const label = shaftLabel(element, byId, layout);
+      if (label !== null) {
+        const box = labelInkBounds(label);
+        if (holds(box, point)) {
+          return { element, label: box };
+        }
+      }
       const [start, end] = drawnShaft(element, byId);
       const reach = Math.max(tolerance, strokeWidthOf(element) / 2);
       if (distanceToSegment(point, start, end) <= reach) {
-        return element;
-      }
-      if (words) {
-        const label = shaftLabel(element, byId, layout);
-        if (label !== null && holds(labelInkBounds(label), point)) {
-          return element;
-        }
+        return { element, label: null };
       }
       continue;
     }
@@ -100,48 +109,23 @@ export function elementAt(
     // past its own: both are the Element, and the tolerance is added on top.
     const ink = inkBounds(element, byId, layout);
     if (holds(ink, point)) {
-      return element;
+      return { element, label: null };
     }
     if (halo === null && holds(grownBy(ink, tolerance), point)) {
-      halo = element;
+      halo = { element, label: null };
     }
   }
   return halo;
 }
 
-/** A shaft's Label a press landed on: the Element it belongs to, and the box its words paint. */
-export interface PressedLabel {
-  readonly element: ArrowOrLineElement;
-  readonly box: Box;
-}
-
-/**
- * The topmost arrow's or line's Label whose words a point lands on, or null.
- * A Label is words a person can press wherever it sits, over its own shaft
- * included, so it answers before the shaft under it: a press on it takes hold
- * of the words, and the shaft is moved by its ink elsewhere.
- */
-export function pressedLabel(
+/** The topmost Element under a point, the words of a shaft's Label counting as its own. */
+export function elementAt(
   elements: readonly Element[],
   point: Point,
+  tolerance: number,
   layout: Layout,
-): PressedLabel | null {
-  const byId = elementsById(elements);
-  for (let index = elements.length - 1; index >= 0; index--) {
-    const element = elements[index]!;
-    if (element.type !== 'arrow' && element.type !== 'line') {
-      continue;
-    }
-    const label = shaftLabel(element, byId, layout);
-    if (label === null) {
-      continue;
-    }
-    const box = labelInkBounds(label);
-    if (holds(box, point)) {
-      return { element, box };
-    }
-  }
-  return null;
+): Element | null {
+  return pickAt(elements, point, tolerance, layout)?.element ?? null;
 }
 
 /** A box grown by `reach` on every side, or the box itself when it has none. */

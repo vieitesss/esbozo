@@ -18,6 +18,8 @@ import {
   LABELLED_SCENE,
   MIXED,
   MIXED_SCENE,
+  OVERLAP,
+  OVERLAP_SCENE,
   OVERFLOW,
   OVERFLOW_SCENE,
   PRESS,
@@ -60,6 +62,7 @@ const BESIDE_SOURCE = JSON.stringify(BESIDE_SCENE, null, 2);
 const SHIFTED_SOURCE = JSON.stringify(SHIFTED_SCENE, null, 2);
 const BLANK_SOURCE = JSON.stringify(BLANK_SCENE, null, 2);
 const LABELLED_SOURCE = JSON.stringify(LABELLED_SCENE, null, 2);
+const OVERLAP_SOURCE = JSON.stringify(OVERLAP_SCENE, null, 2);
 const UNPLACED_SOURCE = JSON.stringify(UNPLACED_SCENE, null, 2);
 const FOLLOW_SOURCE = JSON.stringify(FOLLOW_SCENE, null, 2);
 
@@ -2306,5 +2309,30 @@ describe('labels', () => {
     expect(carried).not.toBeNull();
     expect(Math.abs((carried as Rect).x - (start as Rect).x - 100)).toBeLessThan(1.5);
     expect(Math.abs((carried as Rect).y - (start as Rect).y + 30)).toBeLessThan(1.5);
+  });
+
+  test('a press where a higher shaft crosses a Label takes the shaft, not the words beneath it', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'overlap.json': OVERLAP_SOURCE } }, 'overlap.json');
+
+    // The two arrows cross on the middle of the lower one's words: the upright
+    // shaft's ink is drawn there, over the words it passes.
+    await dragBy(ui, { x: 250, y: 240 }, 60, 0, OVERLAP);
+    const scene = await savedScene(ui, 'overlap.json');
+    // The higher shaft went with the press, both ends of it.
+    expect(scene.elements[1]?.points).toEqual([
+      { x: 310, y: 200 },
+      { x: 310, y: 400 },
+    ]);
+    // The words under it kept their place, and the shaft they belong to kept its own.
+    expect(scene.elements[0]?.labelAt).toEqual({ t: 0.5, offset: 60 });
+    expect(scene.elements[0]?.points).toEqual([
+      { x: 100, y: 300 },
+      { x: 400, y: 300 },
+    ]);
   });
 });

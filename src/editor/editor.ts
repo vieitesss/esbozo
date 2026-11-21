@@ -51,13 +51,12 @@ import {
   boxBetween,
   boxOf,
   clearedView,
-  elementAt,
   elementsInBox,
   fittedView,
   handlePoint,
   landingOffset,
   moved,
-  pressedLabel,
+  pickAt,
   resized,
   resizedBox,
   toScene,
@@ -177,6 +176,8 @@ type Drag =
       shaft: { start: Point; end: Point };
       /** How far off the words' middle the press landed: the words keep that hold. */
       grab: Point;
+      /** Whether the words have moved: until then the Scene is the Scene as it was. */
+      moved: boolean;
       /** The Element as the drag shows its Label placed. */
       shown: SceneElement;
     }
@@ -1069,13 +1070,11 @@ class EsbozoEditorElement extends HTMLElement {
     if (drag.kind === 'move') {
       return this.#scene.elements.map((element) => drag.shown.get(element.id) ?? element);
     }
-    if (drag.kind === 'resize') {
-      return this.#scene.elements.map((element) => (element.id === drag.id ? drag.shown : element));
-    }
-    if (drag.kind === 'end') {
-      return this.#scene.elements.map((element) => (element.id === drag.id ? drag.shown : element));
-    }
-    if (drag.kind === 'label') {
+    if (
+      drag.kind === 'resize' ||
+      drag.kind === 'end' ||
+      (drag.kind === 'label' && drag.moved)
+    ) {
       return this.#scene.elements.map((element) => (element.id === drag.id ? drag.shown : element));
     }
     return this.#scene.elements;
@@ -2168,62 +2167,48 @@ class EsbozoEditorElement extends HTMLElement {
     }
 
     const point = this.#scenePoint(event);
-    // A shaft's Label is words a person can press wherever it sits, over its own
-    // shaft included: taking hold of them places them, and never moves the shaft
-    // they are written about.
-    const label = editing ? pressedLabel(this.#scene.elements, point, this.#layout) : null;
-    if (label !== null) {
-      const id = label.element.id;
-      if (event.shiftKey) {
-        this.#selected = this.#selected.includes(id)
-          ? this.#selected.filter((selected) => selected !== id)
-          : [...this.#selected, id];
-      } else if (!this.#selected.includes(id)) {
-        this.#selected = [id];
-      }
-      this.#press = {
-        id,
-        at: this.#screenPoint(event),
-        time: event.timeStamp,
-        shift: event.shiftKey,
-      };
-      const [start, end] = drawnShaft(label.element, elementsById(this.#scene.elements));
-      this.#drag = {
-        kind: 'label',
-        id,
-        shaft: { start, end },
-        grab: {
-          x: point.x - (label.box.x + label.box.width / 2),
-          y: point.y - (label.box.y + label.box.height / 2),
-        },
-        shown: label.element,
-      };
-      this.#refresh();
-      return;
-    }
-
     const reach = PICK_TOLERANCE / this.#view.zoom;
-    const hit = elementAt(this.#scene.elements, point, reach, this.#layout);
+    // One picker, in layer order: a higher Element's ink answers first, and a
+    // shaft's Label answers before the shaft it is written about.
+    const pick = pickAt(this.#scene.elements, point, reach, this.#layout);
     // A double-click opens the words under its *first* click: selecting what it
     // landed on can dock the note and pan the view, so what the second click
     // sees is not what the person aimed at. The press is recorded before any of
     // that, with a shaft's Label ink counting as words a person can click.
-    const words = elementAt(this.#scene.elements, point, reach, this.#layout, { words: true });
     this.#press = {
-      id: words?.id ?? null,
+      id: pick?.element.id ?? null,
       at: this.#screenPoint(event),
       time: event.timeStamp,
       shift: event.shiftKey,
     };
-    if (hit !== null) {
-      if (event.shiftKey) {
-        this.#selected = this.#selected.includes(hit.id)
-          ? this.#selected.filter((id) => id !== hit.id)
-          : [...this.#selected, hit.id];
-      } else if (!this.#selected.includes(hit.id)) {
-        this.#selected = [hit.id];
+    if (pick === null) {
+      if (!event.shiftKey) {
+        this.#selected = [];
       }
-      if (editing) {
+      this.#drag = { kind: 'box', from: point, to: point, additive: event.shiftKey };
+      this.#refresh();
+      return;
+    }
+
+    this.#selectForPress(pick.element.id, event.shiftKey);
+    if (editing) {
+      const label = pick.label;
+      if (label !== null && isShaft(pick.element)) {
+        // The words are taken by the hold the press took, and placed from it:
+        // a press on them never moves the shaft they are written about.
+        const [start, end] = drawnShaft(pick.element, elementsById(this.#scene.elements));
+        this.#drag = {
+          kind: 'label',
+          id: pick.element.id,
+          shaft: { start, end },
+          grab: {
+            x: point.x - (label.x + label.width / 2),
+            y: point.y - (label.y + label.height / 2),
+          },
+          moved: false,
+          shown: pick.element,
+        };
+      } else {
         // A move frees the ends the selection had, where they draw now, so an
         // arrow that followed its Elements is carried rather than pinned.
         const byId = elementsById(this.#scene.elements);
@@ -2232,16 +2217,24 @@ class EsbozoEditorElement extends HTMLElement {
         );
         this.#drag = { kind: 'move', from: point, origins, shown: new Map(), by: { x: 0, y: 0 } };
       }
-      this.#refresh();
-      return;
     }
-
-    if (!event.shiftKey) {
-      this.#selected = [];
-    }
-    this.#drag = { kind: 'box', from: point, to: point, additive: event.shiftKey };
     this.#refresh();
   };
+
+  /**
+   * A press on an Element: it becomes the selection, or Shift adds it to the
+   * selection or takes it back out. A press on what is already selected keeps
+   * the selection the gesture will carry.
+   */
+  #selectForPress(id: string, shift: boolean): void {
+    if (shift) {
+      this.#selected = this.#selected.includes(id)
+        ? this.#selected.filter((selected) => selected !== id)
+        : [...this.#selected, id];
+    } else if (!this.#selected.includes(id)) {
+      this.#selected = [id];
+    }
+  }
 
   /**
    * A drawing tool is in hand: the press starts a preview Element, and every
@@ -2812,6 +2805,7 @@ class EsbozoEditorElement extends HTMLElement {
       const anchor = { x: point.x - drag.grab.x, y: point.y - drag.grab.y };
       if (isShaft(drag.shown)) {
         drag.shown = { ...drag.shown, labelAt: labelAtFor(drag.shaft, anchor) };
+        drag.moved = true;
       }
       this.#paint();
       return;

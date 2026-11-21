@@ -21,7 +21,6 @@ const {
   pageBounds,
   elementBounds,
   elementAt,
-  pressedLabel,
   shaftLabelAnchor,
   labelAtFor,
   createLayout,
@@ -199,40 +198,6 @@ test('a drag reads back the place the words were put: the fraction along the sha
   assert.deepEqual(place(labelAtFor(upright, { x: 240, y: 250 })), { t: 0.5, offset: 60 });
 });
 
-test('a press takes hold of a shaft Label where its ink is, and no shaft is a Label', () => {
-  const scene = parsed({
-    version: 1,
-    elements: [
-      {
-        id: 'a',
-        type: 'line',
-        points: [
-          { x: 0, y: 100 },
-          { x: 400, y: 100 },
-        ],
-        label: 'words',
-        labelAt: { t: 0.5, offset: 60 },
-      },
-    ],
-  });
-  const paper = paperOf(renderScene(scene, LAYOUT));
-  const pressed = { x: paper.x + paper.width / 2, y: paper.y + paper.height / 2 };
-  const held = pressedLabel(scene.elements, pressed, LAYOUT);
-
-  assert.equal(held?.element.id, 'a', 'the words are taken hold of where they are painted');
-  assert.ok(inside(held!.box, pressed), 'the box a drag moves is the box the paper covers');
-  assert.equal(
-    pressedLabel(scene.elements, { x: 200, y: 100 }, LAYOUT),
-    null,
-    'the shaft itself is no Label',
-  );
-  assert.equal(
-    pressedLabel(scene.elements, { x: 200, y: 60 }, LAYOUT),
-    null,
-    'and neither is the place Layout would have put the words',
-  );
-});
-
 interface Box {
   x: number;
   y: number;
@@ -255,9 +220,9 @@ function inside(box: Box, point: { x: number; y: number }): boolean {
   );
 }
 
-/** The topmost Element a press at `point` finds, words included. */
+/** The topmost Element a press at `point` finds, its Label's words included. */
 function pick(scene: Scene, point: { x: number; y: number }): string | null {
-  return elementAt(scene.elements, point, 0, LAYOUT, { words: true })?.id ?? null;
+  return elementAt(scene.elements, point, 0, LAYOUT)?.id ?? null;
 }
 
 /** The paper the shaft's Label sits on, as the written SVG draws it. */

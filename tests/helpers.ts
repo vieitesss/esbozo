@@ -272,6 +272,42 @@ export const FOLLOW_SCENE = {
 export const FOLLOW: View = { zoom: 1, panX: 375, panY: 88 };
 
 /**
+ * An arrow whose Label sits above its middle, and a second arrow crossing the
+ * words on its way down: the crossing point is the words' middle, Scene
+ * (250, 240), and the higher shaft owns that ink.
+ */
+export const OVERLAP_SCENE = {
+  version: 1,
+  title: 'Overlap',
+  defaults: { roughness: 1 },
+  elements: [
+    {
+      id: 'under',
+      type: 'arrow',
+      points: [
+        { x: 100, y: 300 },
+        { x: 400, y: 300 },
+      ],
+      heads: { start: 'none', end: 'arrow' },
+      label: 'under',
+      labelAt: { t: 0.5, offset: 60 },
+    },
+    {
+      id: 'over',
+      type: 'arrow',
+      points: [
+        { x: 250, y: 200 },
+        { x: 250, y: 400 },
+      ],
+      heads: { start: 'none', end: 'arrow' },
+    },
+  ],
+};
+
+/** The view `OVERLAP_SCENE` lands in, worked out the same way as `VIEW`. */
+export const OVERLAP: View = { zoom: 1, panX: 390, panY: 100 };
+
+/**
  * A thick horizontal line, and a diagonal arrow whose bounding box holds a
  * rectangle: the shapes whose boxes lie about where their ink is.
  */
