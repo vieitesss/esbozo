@@ -766,6 +766,29 @@ test('a bad value for any style field exits 3 and names the Element', async () =
       },
       message: /^a: heads\.start must be one of none, arrow, dot, bar, got "triangle"$/m,
     },
+    {
+      label: 'labelAt fraction',
+      scene: {
+        version: 1,
+        elements: [
+          {
+            id: 'a',
+            type: 'line',
+            points: [
+              { x: 10, y: 10 },
+              { x: 100, y: 10 },
+            ],
+            labelAt: { t: 2, offset: 0 },
+          },
+        ],
+      },
+      message: /^a: labelAt\.t must be between 0 and 1, got 2$/m,
+    },
+    {
+      label: 'labelAt on a box',
+      scene: oneBox({ label: 'words', labelAt: { t: 0.5, offset: 0 } }),
+      message: /^a: labelAt applies only to an arrow or line$/m,
+    },
   ];
 
   for (const { label, scene, message } of cases) {

@@ -12,7 +12,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { loadProjectModules } from './modules.ts';
-import type { RectangleElement, Scene } from '../src/scene.ts';
+import type { ArrowOrLineElement, RectangleElement, Scene } from '../src/scene.ts';
 
 const BOX = {
   version: 1,
@@ -253,6 +253,184 @@ test('a written textAlign wins, in the Scene or in the Element', () => {
   );
 });
 
+test('a shaft Label can say where it sits: a fraction along the shaft, and how far to one side', () => {
+  const scene = parsed({
+    version: 1,
+    elements: [
+      {
+        id: 'line',
+        type: 'line',
+        points: [
+          { x: 0, y: 0 },
+          { x: 200, y: 0 },
+        ],
+        label: 'words',
+        labelAt: { t: 0.25, offset: -20 },
+      },
+    ],
+  });
+
+  assert.deepEqual(shaftOf(scene, 'line').labelAt, { t: 0.25, offset: -20 });
+});
+
+test('labelAt out of range, not a number, or not the keys it knows is a problem', () => {
+  const cases: { labelAt: unknown; message: RegExp }[] = [
+    { labelAt: 0.5, message: /^a: labelAt must be a JSON object$/ },
+    { labelAt: { t: 1.5, offset: 0 }, message: /^a: labelAt\.t must be between 0 and 1, got 1\.5$/ },
+    { labelAt: { t: -0.1, offset: 0 }, message: /^a: labelAt\.t must be between 0 and 1, got -0\.1$/ },
+    { labelAt: { t: 'half', offset: 0 }, message: /^a: labelAt\.t must be a finite number, got "half"$/ },
+    {
+      labelAt: { t: 0.5, offset: 'up' },
+      message: /^a: labelAt\.offset must be a finite number, got "up"$/,
+    },
+    { labelAt: { t: 0.5, offset: 0, side: 1 }, message: /^a: labelAt: unknown key "side"$/ },
+  ];
+
+  for (const { labelAt, message } of cases) {
+    const problems = problemsOf(oneLine({ labelAt }));
+    assert.equal(problems.length, 1, JSON.stringify(labelAt));
+    assert.match(problems[0]!, message, JSON.stringify(labelAt));
+  }
+
+  // JSON cannot write infinity, so the file itself is the only way to reach it.
+  const infinite = problemsOfSource(
+    '{"version":1,"elements":[{"id":"a","type":"line",' +
+      '"points":[{"x":0,"y":0},{"x":200,"y":0}],' +
+      '"labelAt":{"t":1e999,"offset":0}}]}',
+  );
+  assert.deepEqual(infinite, ['a: labelAt.t must be a finite number, got null']);
+});
+
+test('labelAt belongs to an arrow or a line, so a box or a Text carrying one is a problem', () => {
+  const onBox = problemsOf({
+    version: 1,
+    elements: [
+      { id: 'box', type: 'rectangle', x: 0, y: 0, width: 80, height: 80, label: 'words', labelAt: { t: 0.5, offset: 0 } },
+    ],
+  });
+  assert.deepEqual(onBox, ['box: labelAt applies only to an arrow or line']);
+
+  const onText = problemsOf({
+    version: 1,
+    elements: [{ id: 'words', type: 'text', x: 0, y: 0, content: 'words', labelAt: { t: 0.5, offset: 0 } }],
+  });
+  assert.deepEqual(onText, ['words: labelAt applies only to an arrow or line']);
+});
+
+test('labelAt saves four decimals of t and whole-pixel offsets, wherever the value came from', () => {
+  const written = parsed(oneLine({ labelAt: { t: 0.123456789, offset: 12.4 } }));
+  assert.deepEqual(shaftOf(written, 'a').labelAt, { t: 0.1235, offset: 12 });
+
+  // The editor assigns a dragged position in memory, so the same rounding has to
+  // reach it: what it saves, hashes and draws is the Scene that reopens.
+  const dragged = parsed(oneLine({ labelAt: { t: 0.5, offset: 0 } }));
+  shaftOf(dragged, 'a').labelAt = { t: 0.6666666, offset: -7.4 };
+  const saved = parsed(oneLine({ labelAt: { t: 0.6667, offset: -7 } }));
+
+  assert.equal(serialiseScene(dragged), serialiseScene(saved));
+  assert.doesNotMatch(serialiseScene(dragged), /0\.6666666|-7\.4/);
+  assert.equal(hashScene(dragged), hashScene(saved), 'the hash follows the saved position');
+  assert.equal(renderScene(dragged, LAYOUT), renderScene(saved, LAYOUT), 'and so does the SVG');
+});
+
+test('labelAt is written after the Label it places, and an unwritten one is never written', () => {
+  // One shaft with a placed Label and one without, as a file on disk and as the
+  // serialiser keeps it: the key sits after `label`, before `seed`.
+  const FILE = `{
+  "version": 1,
+  "title": "One line",
+  "defaults": {
+    "roughness": 1,
+    "stroke": {
+      "width": "bold",
+      "style": "solid"
+    },
+    "fill": {
+      "kind": "none",
+      "grey": 2
+    },
+    "tone": "ink",
+    "corners": "sharp",
+    "fontSize": "M"
+  },
+  "elements": [
+    {
+      "id": "placed",
+      "type": "line",
+      "points": [
+        {
+          "x": 0,
+          "y": 100
+        },
+        {
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "heads": {
+        "start": "none",
+        "end": "none"
+      },
+      "label": "writes",
+      "labelAt": {
+        "t": 0.25,
+        "offset": -20
+      },
+      "seed": 3,
+      "roughness": 1,
+      "stroke": {
+        "width": "bold",
+        "style": "solid"
+      },
+      "fill": {
+        "kind": "none",
+        "grey": 2
+      },
+      "tone": "ink",
+      "corners": "sharp",
+      "fontSize": "M",
+      "textAlign": "center"
+    },
+    {
+      "id": "plain",
+      "type": "line",
+      "points": [
+        {
+          "x": 0,
+          "y": 200
+        },
+        {
+          "x": 200,
+          "y": 200
+        }
+      ],
+      "heads": {
+        "start": "none",
+        "end": "none"
+      },
+      "label": "writes",
+      "seed": 3,
+      "roughness": 1,
+      "stroke": {
+        "width": "bold",
+        "style": "solid"
+      },
+      "fill": {
+        "kind": "none",
+        "grey": 2
+      },
+      "tone": "ink",
+      "corners": "sharp",
+      "fontSize": "M",
+      "textAlign": "center"
+    }
+  ]
+}
+`;
+
+  assert.equal(serialiseScene(parsed(JSON.parse(FILE))), FILE);
+});
+
 const CONNECTOR = {
   version: 1,
   title: 'One arrow',
@@ -274,6 +452,48 @@ function rectangleOf(scene: Scene): RectangleElement {
   const element = scene.elements[0]!;
   if (element.type !== 'rectangle') {
     throw new Error(`expected a rectangle, got ${element.type}`);
+  }
+  return element;
+}
+
+/** One line with a Label, so a test can vary only where that Label sits. */
+function oneLine(element: Record<string, unknown>): unknown {
+  return {
+    version: 1,
+    elements: [
+      {
+        id: 'a',
+        type: 'line',
+        points: [
+          { x: 0, y: 100 },
+          { x: 200, y: 100 },
+        ],
+        label: 'words',
+        ...element,
+      },
+    ],
+  };
+}
+
+/** The problems a Scene written as JSON raises, as `id: message`. */
+function problemsOf(scene: unknown): string[] {
+  return problemsOfSource(JSON.stringify(scene));
+}
+
+function problemsOfSource(source: string): string[] {
+  const result = parseScene(source);
+  return result.ok
+    ? []
+    : result.problems.map((problem) =>
+        problem.elementId === null ? problem.message : `${problem.elementId}: ${problem.message}`,
+      );
+}
+
+/** One arrow or line of a Scene, narrowed so a test can read and mutate where its Label sits. */
+function shaftOf(scene: Scene, id: string): ArrowOrLineElement {
+  const element = scene.elements.find((candidate) => candidate.id === id);
+  if (element === undefined || (element.type !== 'arrow' && element.type !== 'line')) {
+    throw new Error(`expected an arrow or line ${id}`);
   }
   return element;
 }

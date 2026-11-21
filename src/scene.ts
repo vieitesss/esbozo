@@ -38,7 +38,8 @@
  *         { "x": 200, "y": 140, "snap": "a" }        // Snap target: an Element id
  *       ],
  *       "heads": { "start": "none", "end": "arrow" }, // none | arrow | dot | bar
- *       "label": "then"                            // optional: sits on the shaft
+ *       "label": "then",                           // optional: sits on the shaft
+ *       "labelAt": { "t": 0.5, "offset": 12 }       // optional: where on the shaft
  *     },
  *     {
  *       "id": "c",
@@ -71,7 +72,11 @@
  * ellipse, diamond, arrow or line carries one optional Label, and a Text is
  * only words, so it has `content` and no Label. Where a Label sits and whether
  * it fits is Layout's question: the Scene keeps the words, and the drawing and
- * `ez check` measure them with the same font.
+ * `ez check` measure them with the same font. An arrow or line may also write
+ * `labelAt`: `t` is how far along the drawn shaft its Label sits, and `offset`
+ * is a signed distance to one side, so a shaft's words need not stay where
+ * Layout puts them. Only a shaft has one, and the Renderer draws paper behind
+ * every shaft Label, so a Label over its own shaft stays legible.
  *
  * Geometry is rounded to whole pixels in one place, `canonicalScene`: parsing,
  * serialising, hashing and drawing all go through it, so a Scene mutated in
@@ -152,11 +157,28 @@ interface Heads {
   end: Head;
 }
 
-/** One end of an arrow or line. `snap` is the id of the Element outline it is drawn on. */
+/**
+ * One end of an arrow or line. `snap` is the id of the Element outline it is drawn on.
+ */
 export interface Point {
   x: number;
   y: number;
   snap?: string;
+}
+
+/**
+ * Where a shaft's Label sits instead of the place Layout gives it: a fraction
+ * along the drawn shaft, and a signed distance to one side.
+ */
+export interface LabelAt {
+  /** Fraction along the shaft: 0 at the start, 1 at the end. Four decimals are kept. */
+  t: number;
+  /**
+   * Signed perpendicular distance in pixels, rounded to whole pixels: 0 sits on
+   * the shaft, and a positive value is the side the default Label takes, which
+   * is the side that points up (the left of a vertical shaft).
+   */
+  offset: number;
 }
 
 export interface ElementStyle {
@@ -212,6 +234,8 @@ export type OutlinedElement = RectangleElement | EllipseElement | DiamondElement
 interface ArrowOrLineBase extends LabelledBase {
   points: [Point, Point];
   heads: Heads;
+  /** Where the Label sits on the drawn shaft; a shaft without it lets Layout place its words. */
+  labelAt?: LabelAt;
 }
 
 interface ArrowElement extends ArrowOrLineBase {
@@ -320,6 +344,7 @@ const ARROW_OR_LINE_ELEMENT_KEYS = [
   'points',
   'heads',
   'label',
+  'labelAt',
   ...ELEMENT_STYLE_KEYS,
 ] as const;
 const TEXT_ELEMENT_KEYS = ['id', 'type', 'x', 'y', 'content', ...ELEMENT_STYLE_KEYS] as const;
@@ -330,6 +355,13 @@ const STROKE_KEYS = ['width', 'style'] as const;
 const FILL_KEYS = ['kind', 'grey'] as const;
 const POINT_KEYS = ['x', 'y', 'snap'] as const;
 const HEADS_KEYS = ['start', 'end'] as const;
+const LABEL_AT_KEYS = ['t', 'offset'] as const;
+
+/**
+ * `labelAt.t` keeps four decimals: fine enough that a Label slides along even a
+ * long shaft, short enough that the saved file stays readable.
+ */
+const LABEL_AT_T_DECIMALS = 4;
 
 /** Whole-pixel coordinates keep Scene diffs clean and the SVG small. */
 function wholePixels(value: number): number {
@@ -358,7 +390,11 @@ export function canonicalScene(scene: Scene): Scene {
 export function canonicalElement(element: Element): Element {
   if (element.type === 'arrow' || element.type === 'line') {
     const [start, end] = element.points;
-    return { ...element, points: [wholePoint(start), wholePoint(end)] };
+    return {
+      ...element,
+      points: [wholePoint(start), wholePoint(end)],
+      ...(element.labelAt === undefined ? {} : { labelAt: canonicalLabelAt(element.labelAt) }),
+    };
   }
   if (element.type === 'text') {
     return { ...element, x: wholePixels(element.x), y: wholePixels(element.y) };
@@ -374,6 +410,17 @@ export function canonicalElement(element: Element): Element {
 
 function wholePoint(point: Point): Point {
   return { ...point, x: wholePixels(point.x), y: wholePixels(point.y) };
+}
+
+/**
+ * A Label's place on its shaft, rounded where it is written: the fraction to
+ * `LABEL_AT_T_DECIMALS`, the distance to whole pixels like the geometry around
+ * it, so a position the editor assigns saves and reopens as itself.
+ */
+function canonicalLabelAt(labelAt: LabelAt): LabelAt {
+  const scale = 10 ** LABEL_AT_T_DECIMALS;
+  const rounded = Math.round(labelAt.t * scale) / scale;
+  return { t: rounded === 0 ? 0 : rounded, offset: wholePixels(labelAt.offset) };
 }
 
 /**
@@ -606,6 +653,7 @@ function serialiseElement(element: Element): object {
       })),
       heads: { start: element.heads.start, end: element.heads.end },
       ...(element.label === undefined ? {} : { label: element.label }),
+      ...(element.labelAt === undefined ? {} : { labelAt: element.labelAt }),
       seed: element.seed,
       ...serialiseStyle(element),
     };
@@ -783,7 +831,9 @@ function parseElement(
   if (type === null) {
     report(`type must be one of ${ELEMENT_TYPES.join(', ')}, got ${describe(raw.type)}`);
   }
-  rejectUnknownKeys(raw, elementKeys(type), (unknownKey) => report(`unknown key "${unknownKey}"`));
+  rejectUnknownKeys(raw, elementKeys(type), (unknownKey) =>
+    report(unknownKeyMessage(type, unknownKey)),
+  );
 
   // An alignment neither the Element nor the Scene writes is resolved per type
   // here, so every Element carries the value its words are placed by.
@@ -810,6 +860,7 @@ function parseElement(
     const points = parsePoints(raw.points, report);
     const heads = parseHeads(raw.heads, type, report);
     const label = parseLabel(raw.label, report);
+    const labelAt = parseLabelAt(raw.labelAt, report);
     if (points !== null) {
       element = {
         id,
@@ -819,6 +870,7 @@ function parseElement(
         seed,
         ...style,
         ...(label === undefined ? {} : { label }),
+        ...(labelAt === undefined ? {} : { labelAt }),
       };
     }
   } else if (type !== null) {
@@ -850,6 +902,18 @@ function elementKeys(type: Element['type'] | null): readonly string[] {
     return ALL_ELEMENT_KEYS;
   }
   return OUTLINED_ELEMENT_KEYS;
+}
+
+/**
+ * A key an Element may not carry. `labelAt` is not a misspelling elsewhere: it
+ * is a shaft's key, and only an arrow or line has a shaft, so the problem says
+ * that instead of calling the key unknown.
+ */
+function unknownKeyMessage(type: Element['type'] | null, unknownKey: string): string {
+  if (unknownKey === 'labelAt' && type !== 'arrow' && type !== 'line') {
+    return 'labelAt applies only to an arrow or line';
+  }
+  return `unknown key "${unknownKey}"`;
 }
 
 function parseOutlinedGeometry(
@@ -912,6 +976,47 @@ function parseLabel(
     return undefined;
   }
   return raw;
+}
+
+/**
+ * Where a shaft's Label sits: a fraction along the drawn shaft, and a signed
+ * distance to one side. Both are numbers the drawing uses, so both are checked
+ * here and rounded by `canonicalLabelAt`.
+ */
+function parseLabelAt(
+  raw: unknown,
+  report: (message: string) => void,
+): LabelAt | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (!isRecord(raw)) {
+    report('labelAt must be a JSON object');
+    return undefined;
+  }
+  rejectUnknownKeys(raw, LABEL_AT_KEYS, (unknownKey) =>
+    report(`labelAt: unknown key "${unknownKey}"`),
+  );
+  const t = parseFraction(raw.t, 'labelAt.t', report);
+  const offset = parseWholePixels(raw.offset, 'labelAt.offset', report);
+  return t === null || offset === null ? undefined : canonicalLabelAt({ t, offset });
+}
+
+/** A fraction of a shaft: a finite number from 0 to 1, 0 at its start and 1 at its end. */
+function parseFraction(
+  raw: unknown,
+  field: string,
+  report: (message: string) => void,
+): number | null {
+  const value = parseNumber(raw, field, report);
+  if (value === null) {
+    return null;
+  }
+  if (value < 0 || value > 1) {
+    report(`${field} must be between 0 and 1, got ${value}`);
+    return null;
+  }
+  return value;
 }
 
 function parsePoints(
