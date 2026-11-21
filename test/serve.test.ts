@@ -62,6 +62,50 @@ function sent(scene: unknown = SCENE, svg = SVG): { scene: string; svg: string }
 }
 
 /**
+ * Writes that differ in both files, alternating between two names: the pair on
+ * disk names the request it came from by its bytes alone.
+ */
+function aliasedWrites(
+  count: number,
+  nameFor: (index: number) => string,
+): { readonly name: string; readonly write: ReturnType<typeof sent> }[] {
+  return Array.from({ length: count }, (_, index) => ({
+    name: nameFor(index),
+    write: {
+      scene: JSON.stringify({ ...SCENE, title: `write ${index}` }, null, 2),
+      svg: `<svg xmlns="http://www.w3.org/2000/svg"><title>write ${index}</title><desc>${'x'.repeat(index + 1)}</desc></svg>`,
+    },
+  }));
+}
+
+/** The pair on disk is the Scene and the SVG of one request, byte for byte. */
+async function assertPairFrom(
+  folder: string,
+  name: string,
+  writes: readonly { readonly write: ReturnType<typeof sent> }[],
+): Promise<void> {
+  const savedScene = await readFile(join(folder, name), 'utf8');
+  const winner = writes.find((candidate) => candidate.write.scene === savedScene);
+  assert.ok(winner !== undefined, 'the Scene on disk is one that was sent, byte for byte');
+  const svg = join(folder, name.replace(/\.json$/i, '.svg'));
+  assert.equal(await readFile(svg, 'utf8'), winner.write.svg, 'the SVG beside it is that same request');
+}
+
+/** Whether this folder is on a filesystem that treats two names as one file. */
+async function foldsCase(folder: string): Promise<boolean> {
+  const probe = join(folder, 'case-probe.json');
+  await writeFile(probe, '{}', 'utf8');
+  try {
+    await stat(join(folder, 'CASE-PROBE.JSON'));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    await rm(probe);
+  }
+}
+
+/**
  * A request whose path is sent exactly as written: `fetch` normalises dot
  * segments away before they reach the wire, which is the whole point here.
  */
@@ -206,6 +250,59 @@ test('writes of one Scene that overlap leave the pair from a single request', as
   const saved = JSON.parse(await readFile(join(folder, 'busy.json'), 'utf8')) as { title: string };
   const svg = await readFile(join(folder, 'busy.svg'), 'utf8');
   assert.match(svg, new RegExp(`<title>${saved.title}</title>`), `the SVG beside “${saved.title}” is its own`);
+});
+
+test('two names that are one file here share one write queue', async (t) => {
+  const folder = await sceneFolder(SCENE);
+  if (!(await foldsCase(folder))) {
+    t.skip('this filesystem tells alias.json and alias.JSON apart');
+    return;
+  }
+  const server = await served(folder);
+
+  // Both names open the same two files, so these writes race for one pair: the
+  // pair that survives has to be the two texts of a single request.
+  const writes = aliasedWrites(40, (index) => (index % 2 === 0 ? 'alias.json' : 'alias.JSON'));
+  const answers = await Promise.all(
+    writes.map((one) => request(server, `/api/scenes/${one.name}`, 'PUT', one.write)),
+  );
+  assert.deepEqual(
+    answers.map((answer) => answer.status),
+    answers.map(() => 200),
+    'every write is answered',
+  );
+
+  await assertPairFrom(folder, 'alias.json', writes);
+});
+
+test('aliased writes that all fail keep the previous pair', async (t) => {
+  const folder = await sceneFolder(SCENE);
+  if (!(await foldsCase(folder))) {
+    t.skip('this filesystem tells alias.json and alias.JSON apart');
+    return;
+  }
+  const server = await served(folder);
+  const first = sent({ ...SCENE, title: 'Kept' });
+  assert.equal((await request(server, '/api/scenes/alias.json', 'PUT', first)).status, 200);
+
+  // A folder took the SVG's name, so no write of either name can land.
+  await rm(join(folder, 'alias.svg'));
+  await mkdir(join(folder, 'alias.svg'));
+
+  const writes = aliasedWrites(20, (index) => (index % 2 === 0 ? 'alias.json' : 'alias.JSON'));
+  const answers = await Promise.all(
+    writes.map((one) => request(server, `/api/scenes/${one.name}`, 'PUT', one.write)),
+  );
+  assert.deepEqual(
+    answers.map((answer) => answer.status),
+    answers.map(() => 409),
+    'every write of either name is refused',
+  );
+
+  // Neither name wrote anything: the pair is still the one from the first write.
+  assert.equal(await readFile(join(folder, 'alias.json'), 'utf8'), first.scene);
+  assert.deepEqual((await readdir(folder)).sort(), ['alias.json', 'alias.svg', 'scene.json']);
+  assert.ok((await stat(join(folder, 'alias.svg'))).isDirectory(), 'the folder that refused the writes is still a folder');
 });
 
 test('a folder where the SVG name is taken fails the write and keeps the old pair', async () => {

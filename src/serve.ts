@@ -21,7 +21,8 @@
  *
  * A written Scene is parsed with `parseScene` first and refused with 400 when
  * it is invalid, so the server never stores what `ez check` rejects. A Scene and
- * its SVG are committed together, one write of a name at a time.
+ * its SVG are committed together: one write of a name at a time, and two names
+ * that a case-insensitive filesystem reads as one file share that one write.
  *
  * No auth: the default bind is 127.0.0.1, and a host that reaches further is
  * the caller's choice.
@@ -274,7 +275,7 @@ async function handleScene(
   }
 
   try {
-    await serialised(join(root, name), () => writePair(root, name, written));
+    await serialised(queueKey(root, name), () => writePair(root, name, written));
   } catch (error) {
     if (!(error instanceof WriteRefused)) {
       throw error;
@@ -361,6 +362,15 @@ class WriteRefused extends Error {
 
 /** The writes in flight, one queue per output pair, so two never interleave. */
 const queued = new Map<string, Promise<void>>();
+
+/**
+ * The queue a write belongs to: the pair it will replace, case-folded.
+ * `alias.json` and `alias.JSON` are one Scene on a case-insensitive filesystem,
+ * so they take one queue; two names for one pair must never write at once.
+ */
+function queueKey(root: string, name: string): string {
+  return join(root, name).toLowerCase();
+}
 
 /** Run `job` after every earlier job for `key`, whatever those jobs did. */
 function serialised<T>(key: string, job: () => Promise<T>): Promise<T> {
