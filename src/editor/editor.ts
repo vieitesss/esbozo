@@ -91,6 +91,9 @@ const COPY_OFFSET = { x: 16, y: 16 };
 const NUDGE_BURST_MS = 800;
 /** Breathing room between the Style menu and the selection it must not cover. */
 const MENU_GAP = 16;
+/** How long, and how near, a second click is still the same double-click. */
+const DOUBLE_CLICK_MS = 500;
+const DOUBLE_CLICK_SLOP = 4;
 
 /**
  * The instance the keys and the clipboard belong to: the last one a person
@@ -157,6 +160,21 @@ type Drag =
     }
   | { kind: 'text'; at: Point }
   | { kind: 'box'; from: Point; to: Point; additive: boolean };
+
+/**
+ * A press on the canvas with the Select tool, kept until the next one: what was
+ * under the pointer, where and when. A double-click asks this rather than the
+ * pointer a second time, because the first click's own selection can move the
+ * view before the second one lands.
+ */
+interface Press {
+  /** The Element whose words a double-click would edit, or null for bare canvas. */
+  readonly id: string | null;
+  /** Where on the page the press landed. */
+  readonly at: Point;
+  /** When, on the event's own clock. */
+  readonly time: number;
+}
 
 const SHELL = `
 <div class="board">
@@ -266,6 +284,10 @@ class EsbozoEditorElement extends HTMLElement {
   /** True when the page is served by `ez serve`, so its folder needs no picker. */
   #served = false;
   #drag: Drag | null = null;
+  /** The press in flight with the Select tool, while it is still a click. */
+  #press: Press | null = null;
+  /** The click before it: the first half of a double-click, until something else happens. */
+  #lastClick: Press | null = null;
   #spaceDown = false;
   /** The writes in order; the number each answers with is whether it landed. */
   #saveQueue: Promise<unknown> = Promise.resolve();
@@ -450,7 +472,6 @@ class EsbozoEditorElement extends HTMLElement {
     this.#board.addEventListener('pointerup', this.#onPointerUp);
     this.#board.addEventListener('pointercancel', this.#onPointerCancel);
     this.#board.addEventListener('wheel', this.#onWheel, { passive: false });
-    this.#board.addEventListener('dblclick', this.#onDoubleClick);
     this.#canvas.addEventListener('contextmenu', (event) => event.preventDefault());
     this.#rail.addEventListener('click', this.#onRailClick);
     this.querySelector('.status')!.addEventListener('click', this.#onStatusClick);
@@ -464,6 +485,9 @@ class EsbozoEditorElement extends HTMLElement {
     document.addEventListener('keyup', this.#onKeyUp);
     // A Space held while the page loses the focus never sends its release: the
     // pan has to end here, or the pointer stays a hand on the way back.
+    // A Space held while the page loses the focus never sends its release: the
+    // pan has to end here, or the pointer stays a hand on the way back.
+    document.addEventListener('pointerdown', this.#onAnyPress);
     document.addEventListener('visibilitychange', this.#endGesture);
     window.addEventListener('blur', this.#endGesture);
     window.addEventListener('resize', this.#onResize);
@@ -477,12 +501,12 @@ class EsbozoEditorElement extends HTMLElement {
     this.#board?.removeEventListener('pointerup', this.#onPointerUp);
     this.#board?.removeEventListener('pointercancel', this.#onPointerCancel);
     this.#board?.removeEventListener('wheel', this.#onWheel);
-    this.#board?.removeEventListener('dblclick', this.#onDoubleClick);
     document.removeEventListener('copy', this.#onCopy);
     document.removeEventListener('cut', this.#onCut);
     document.removeEventListener('paste', this.#onPaste);
     document.removeEventListener('keydown', this.#onKeyDown);
     document.removeEventListener('keyup', this.#onKeyUp);
+    document.removeEventListener('pointerdown', this.#onAnyPress);
     document.removeEventListener('visibilitychange', this.#endGesture);
     this.#rail.removeEventListener('click', this.#onRailClick);
     this.querySelector('.status')?.removeEventListener('click', this.#onStatusClick);
@@ -1403,6 +1427,8 @@ class EsbozoEditorElement extends HTMLElement {
    */
   #changedView(view: View): void {
     this.#view = view;
+    // Zoom is not part of a double-click: the next press starts a new one.
+    this.#press = null;
     this.#clearOfMenu();
     this.#plotField();
     this.#paint();
@@ -1845,18 +1871,22 @@ class EsbozoEditorElement extends HTMLElement {
     if (this.#text !== null) {
       // The click that takes the focus off the words commits them, and goes no
       // further: it is not also a click on the canvas.
+      this.#press = null;
+      this.#lastClick = null;
       this.#text.finish();
       return;
     }
     this.#board.setPointerCapture(event.pointerId);
     const target = event.target as Element | null;
     if (this.#spaceDown || event.button === 1) {
+      this.#press = null;
       this.#drag = { kind: 'pan', fromScreen: this.#screenPoint(event), start: { ...this.#view } };
       this.#board.classList.add('panning');
       return;
     }
     const tool = this.#tool;
     if (tool !== 'select') {
+      this.#press = null;
       this.#startDrawing(tool, this.#scenePoint(event));
       return;
     }
@@ -1865,6 +1895,7 @@ class EsbozoEditorElement extends HTMLElement {
     const editing = this.#writable();
     const handle = editing ? (target?.closest('[data-handle]') ?? null) : null;
     if (handle !== null) {
+      this.#press = null;
       const id = handle.getAttribute('data-element') ?? '';
       const which = handle.getAttribute('data-handle');
       const element = this.#scene.elements.find((candidate) => candidate.id === id);
@@ -1899,6 +1930,16 @@ class EsbozoEditorElement extends HTMLElement {
     const point = this.#scenePoint(event);
     const reach = PICK_TOLERANCE / this.#view.zoom;
     const hit = elementAt(this.#scene.elements, point, reach, this.#layout);
+    // A double-click opens the words under its *first* click: selecting what it
+    // landed on can dock the note and pan the view, so what the second click
+    // sees is not what the person aimed at. The press is recorded before any of
+    // that, with a shaft's Label ink counting as words a person can click.
+    const words = elementAt(this.#scene.elements, point, reach, this.#layout, { words: true });
+    this.#press = {
+      id: words?.id ?? null,
+      at: this.#screenPoint(event),
+      time: event.timeStamp,
+    };
     if (hit !== null) {
       if (event.shiftKey) {
         this.#selected = this.#selected.includes(hit.id)
@@ -2218,6 +2259,12 @@ class EsbozoEditorElement extends HTMLElement {
   }
 
   #onPointerMove = (event: PointerEvent): void => {
+    // A press that carries the pointer somewhere is a drag: whatever it started
+    // on, it is not the first half of a double-click any more.
+    const press = this.#press;
+    if (press !== null && !this.#near(press, event)) {
+      this.#press = null;
+    }
     const drag = this.#drag;
     if (drag === null) {
       return;
@@ -2303,6 +2350,29 @@ class EsbozoEditorElement extends HTMLElement {
       this.#board.releasePointerCapture(event.pointerId);
     }
 
+    // A press that did not move is a click. Two of them in a row are a
+    // double-click, and it opens the words the *first* one found: between the
+    // two the note may have made room and carried the view away with it.
+    const click = this.#press;
+    this.#press = null;
+    if (click !== null) {
+      const first = this.#lastClick;
+      this.#lastClick = click;
+      if (first !== null && this.#isDoubleClick(first, click)) {
+        this.#lastClick = null;
+        const opening =
+          first.id === null
+            ? undefined
+            : this.#scene.elements.find((element) => element.id === first.id);
+        if (opening !== undefined) {
+          event.preventDefault();
+          this.#drag = null;
+          this.#openWords(opening);
+          return;
+        }
+      }
+    }
+
     if (drag.kind === 'text') {
       this.#drag = null;
       this.#openTextInput(drag.at);
@@ -2371,6 +2441,8 @@ class EsbozoEditorElement extends HTMLElement {
   #cancelDrag(): void {
     const drag = this.#drag;
     this.#drag = null;
+    this.#press = null;
+    this.#lastClick = null;
     this.#board.classList.remove('panning');
     if (drag !== null && drag.kind === 'draw') {
       // The preview drew under an id the Scene never took.
@@ -2379,22 +2451,19 @@ class EsbozoEditorElement extends HTMLElement {
     this.#refresh();
   }
 
-  /** Double-click opens the words of what it lands on: an Element's Label, or its Text. */
-  #onDoubleClick = (event: MouseEvent): void => {
-    // A field already open takes the keystrokes, and a hand on the canvas — the
-    // Space pan or a drawing tool — is drawing, not picking words.
-    if (this.#text !== null || this.#spaceDown || this.#tool !== 'select') {
-      return;
-    }
-    const hit = elementAt(
-      this.#scene.elements,
-      this.#scenePoint(event),
-      PICK_TOLERANCE / this.#view.zoom,
-      this.#layout,
+  /** Whether a pointer move is still within the press that started it. */
+  #near(press: Press, event: { clientX: number; clientY: number }): boolean {
+    const at = this.#screenPoint(event);
+    return (
+      Math.abs(at.x - press.at.x) <= DOUBLE_CLICK_SLOP &&
+      Math.abs(at.y - press.at.y) <= DOUBLE_CLICK_SLOP
     );
-    if (hit !== null) {
-      event.preventDefault();
-      this.#openWords(hit);
+  }
+
+  /** A press anywhere but the canvas starts a new click sequence, as the browser's own does. */
+  #onAnyPress = (event: PointerEvent): void => {
+    if (!this.#canvas.contains(event.target as Node | null)) {
+      this.#lastClick = null;
     }
   };
 
@@ -2405,12 +2474,21 @@ class EsbozoEditorElement extends HTMLElement {
     this.#changedView(zoomedAt(this.#view, factor, point.x, point.y));
   };
 
+  /** Whether a press is the second half of a double-click: near the first in time and place. */
+  #isDoubleClick(first: Press, second: Press): boolean {
+    return (
+      second.time - first.time <= DOUBLE_CLICK_MS &&
+      Math.abs(second.at.x - first.at.x) <= DOUBLE_CLICK_SLOP &&
+      Math.abs(second.at.y - first.at.y) <= DOUBLE_CLICK_SLOP
+    );
+  }
+
   // ----------------------------------------------------------------- keyboard
 
   #onKeyDown = (event: KeyboardEvent): void => {
+    // A key between two clicks means the person is typing, not double-clicking.
+    this.#lastClick = null;
     if (active !== this || !this.#takesKeys(event.target)) {
-      // The focus is the host page's, so Space and the arrows scroll it: an
-      // embedded editor takes no key a person did not give it.
       return;
     }
     if (event.key === ' ' || event.code === 'Space') {

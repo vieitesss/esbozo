@@ -16,6 +16,8 @@ import {
   OVERFLOW,
   OVERFLOW_SCENE,
   SCENE,
+  SHIFTED,
+  SHIFTED_SCENE,
   SPACED_SCENE,
   WORDS,
   WORDS_SCENE,
@@ -39,6 +41,7 @@ const OVERFLOW_SOURCE = JSON.stringify(OVERFLOW_SCENE, null, 2);
 const WORDS_SOURCE = JSON.stringify(WORDS_SCENE, null, 2);
 const SPACED_SOURCE = JSON.stringify(SPACED_SCENE, null, 2);
 const BESIDE_SOURCE = JSON.stringify(BESIDE_SCENE, null, 2);
+const SHIFTED_SOURCE = JSON.stringify(SHIFTED_SCENE, null, 2);
 
 /** A Label long enough that the box it is typed into has to grow downwards. */
 const LONG_LABEL = 'words that wrap and grow';
@@ -378,7 +381,46 @@ describe('labels', () => {
     expect(await savedFiles(ui)).toEqual(before);
   });
 
+  test('a double-click opens the words under its first click, though the note moved the view', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'shifted.json': SHIFTED_SOURCE } }, 'shifted.json');
 
+    // `far` sits under the Style note: the first click selects it and the view
+    // pans clear, which slides `other` under the pointer for the second click.
+    // The words that open still belong to what the first click found.
+    await doubleClickScene(ui, { x: 765, y: 80 }, SHIFTED);
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.pressSequentially('far away');
+    await label.press('Escape');
+
+    const scene = await savedScene(ui, 'shifted.json');
+    expect(scene.elements.find((element) => element.id === 'far')?.label).toBe('far away');
+    expect(scene.elements.find((element) => element.id === 'other')?.label).toBeUndefined();
+  });
+
+  test("a double-click on an arrow's words edits them, though they are ink beside the shaft", async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'beside.json': BESIDE_SOURCE } }, 'beside.json');
+
+    // The Label sits to the left of a vertical shaft: the words are 13px off the
+    // line, further than a click picks a shaft by, so they have their own hit.
+    await doubleClickScene(ui, { x: 287, y: 220 }, BESIDE);
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await expect(label).toHaveValue('up');
+    await label.pressSequentially('ward');
+    await label.press('Escape');
+
+    const scene = await savedScene(ui, 'beside.json');
+    expect(scene.elements[0]?.label).toBe('upward');
+  });
 
   test('the field writes the words exactly where the Scene draws them', async ({
     app,
@@ -434,6 +476,29 @@ describe('labels', () => {
     expect(typing.bands(interior, DARK)).toBe(1);
   });
 
+  test("an arrow's Label widens away from the shaft, staying centred on it", async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'beside.json': BESIDE_SOURCE } }, 'beside.json');
+
+    await doubleClickScene(ui, { x: 287, y: 220 }, BESIDE);
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.fill('spelled out sideways');
+    const typing = await shot(ui);
+    await label.press('Escape');
+
+    expect((await savedScene(ui, 'beside.json')).elements[0]?.label).toBe('spelled out sideways');
+
+    // The shaft is at page x = 651 and its words hang to their own side: nothing
+    // of them crosses it, however long they get. The words keep the shaft's
+    // middle as their middle, so they stay on the shaft's line vertically too.
+    expect(typing.darkCount({ x: 660, y: 330, width: 140, height: 140 }, DARK)).toBe(0);
+    const words = typing.darkCentre({ x: 480, y: 340, width: 160, height: 120 }, DARK);
+    expect(Math.abs(words.y - 400)).toBeLessThan(5);
+  });
 
   test('words nobody touched keep the spaces the author wrote', async ({ app, browser, screen }) => {
     const ui = { app, browser, screen };

@@ -60,13 +60,16 @@ export function unionOf(boxes: readonly Box[]): Box | null {
 /**
  * The topmost Element under a point: list order is layer order. An arrow or
  * line is picked by its drawn shaft, `tolerance` Scene units off it; every other
- * Element by its box.
+ * Element by its box. With `words`, a shaft's Label is picked too: its ink sits
+ * beside the shaft, further out than a click picks a line by, and it is words a
+ * person can see and double-click like any other.
  */
 export function elementAt(
   elements: readonly Element[],
   point: Point,
   tolerance: number,
   layout: Layout,
+  { words = false }: { words?: boolean } = {},
 ): Element | null {
   const byId = elementsById(elements);
   for (let index = elements.length - 1; index >= 0; index--) {
@@ -77,19 +80,29 @@ export function elementAt(
       if (distanceToSegment(point, start, end) <= reach) {
         return element;
       }
+      if (words) {
+        const label = layout.label(element, { start, end });
+        if (label !== null && holds(label, point)) {
+          return element;
+        }
+      }
       continue;
     }
-    const box = elementBounds(element, byId, layout);
-    if (
-      point.x >= box.x &&
-      point.x <= box.x + box.width &&
-      point.y >= box.y &&
-      point.y <= box.y + box.height
-    ) {
+    if (holds(elementBounds(element, byId, layout), point)) {
       return element;
     }
   }
   return null;
+}
+
+/** Whether a point is inside a box. */
+function holds(box: Box, point: Point): boolean {
+  return (
+    point.x >= box.x &&
+    point.x <= box.x + box.width &&
+    point.y >= box.y &&
+    point.y <= box.y + box.height
+  );
 }
 
 /** How far a point is from the segment `from`-`to`. */
