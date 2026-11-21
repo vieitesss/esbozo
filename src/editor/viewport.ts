@@ -12,15 +12,14 @@
  *
  * The paper the Scene is drawn on is `.board`, not the element's border box: a
  * host may draw its own border and padding around the editor, and the view is a
- * transform *inside* the element. Measuring the element instead would fold pan,
- * zoom and the host's frame into the pointer twice, which is the bug that made
- * this module's box the board's own.
+ * transform *inside* the element. Measure the board to keep the host's border
+ * and padding out of pointer coordinates.
  */
 import { toScene } from './geometry.js';
 import type { Box, Point, Pointer, View } from './geometry.js';
 
 /** The page's box, in the browser's own pixels. */
-export interface PageBox {
+interface PageBox {
   readonly left: number;
   readonly top: number;
   readonly width: number;
@@ -81,8 +80,8 @@ export class Viewport {
 
   /** A pointer's place, in the Scene's own units. */
   scenePoint(pointer: Pointer): Point {
-    const box = this.box();
-    return toScene(this.#view, pointer.clientX - box.left, pointer.clientY - box.top);
+    const { x, y } = this.screenPoint(pointer);
+    return toScene(this.#view, x, y);
   }
 
   /** A pointer's place, in the pixels the overlay draws in. */
@@ -93,13 +92,8 @@ export class Viewport {
 
   /** A Scene box, in the pixels the overlay draws in. */
   pageBox(box: Box): Box {
-    const { zoom, panX, panY } = this.#view;
-    return {
-      x: box.x * zoom + panX,
-      y: box.y * zoom + panY,
-      width: box.width * zoom,
-      height: box.height * zoom,
-    };
+    const { zoom } = this.#view;
+    return { ...this.pagePoint(box), width: box.width * zoom, height: box.height * zoom };
   }
 
   /** A Scene point, in the pixels the overlay draws in. */

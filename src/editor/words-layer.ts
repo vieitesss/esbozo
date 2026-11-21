@@ -25,7 +25,7 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 const PREEDIT_RULE = 1.5;
 
 /** What the words being typed are, and where they were drawn. */
-export interface WordsInk {
+interface WordsInk {
   /** The measurement the words were laid out with. */
   readonly layout: Layout;
   /** The Block the drawing placed the words in. */
@@ -45,7 +45,7 @@ export interface WordsInk {
 }
 
 /** One frame of the words: the layer that holds them, and the washes it put in an Element. */
-export interface DrawnWords {
+interface DrawnWords {
   readonly layer: SVGGElement;
   /** The washes, in the Element's own group, which the next frame has to take out. */
   readonly washes: SVGRectElement[];

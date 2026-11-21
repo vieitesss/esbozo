@@ -14,7 +14,7 @@ import type { ShaftPath } from '../geometry.js';
 import {
   elementBounds,
   elementsById,
-  labelInkBounds,
+  wordsInkBounds,
   pageBounds,
   renderElement,
   shaftInk,
@@ -46,7 +46,7 @@ export interface Pointer {
 }
 
 /** What a press found: the Element it took, and the words when it landed on a shaft's Label. */
-export interface Pick {
+interface Pick {
   readonly element: Element;
   /** The box a shaft's Label paints, when the press landed on those words rather than on ink. */
   readonly label: Box | null;
@@ -95,14 +95,12 @@ export function unionOf(boxes: readonly Box[]): Box | null {
  * paper paints, glyph overhang included; every other Element by its box, grown
  * by the ink a rough outline draws outside it, and then by `tolerance` too.
  *
- * That ink box is the one the drawing already reached, so a caller holding the
- * page's drawings hands the boxes back with `ink` and the pick measures nothing:
- * pressing in a Scene of three hundred draws no Element at all.
+ * For outlined Elements and Text, read the ink box from the page's drawing
+ * when available. Without a drawing to reuse, ask the Renderer for the same box.
  *
  * Ink answers before the tolerance does. A press on the border an Element draws
  * is that Element's, even when a higher layer's empty halo reaches it; the halo
- * only answers a press no ink at all received, which is what makes bare canvas
- * near a border still the Element's the way it always was.
+ * only answers a press that found no ink.
  */
 export function pickAt(
   elements: readonly Element[],
@@ -120,7 +118,7 @@ export function pickAt(
     if (element.type === 'arrow' || element.type === 'line') {
       const label = shaftLabel(element, byId, layout);
       if (label !== null) {
-        const box = labelInkBounds(label);
+        const box = wordsInkBounds(label);
         if (holds(box, point)) {
           return { element, label: box };
         }

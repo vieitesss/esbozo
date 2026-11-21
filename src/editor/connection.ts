@@ -27,6 +27,7 @@ import type { Layout, Metrics } from '../layout.js';
 import { emptyScene, parseScene } from '../scene.js';
 import type { Scene } from '../scene.js';
 import { sceneStem } from '../paths.js';
+import { pickFolder } from './files.js';
 import type { SceneFolder } from './files.js';
 import type { SceneFiles } from './paint.js';
 
@@ -44,7 +45,7 @@ type SavedState = 'idle' | 'saving' | 'saved' | 'new' | 'failed';
  * Scene becomes the page's Scene again. Every call arrives after the token that
  * asked for it was checked.
  */
-export interface ConnectionHost {
+interface ConnectionHost {
   /** The element the page's font and its folder are asked about. */
   readonly element: HTMLElement;
   /** The page holds another Scene: show it, and name where it saves. */
@@ -61,8 +62,6 @@ export interface ConnectionHost {
   status(state: SavedState, detail?: string): void;
   /** List the browsed folder's Scenes in the note. */
   note(): Promise<void>;
-  /** Ask for a folder the page's own picker offers. */
-  pick(): Promise<SceneFolder | null>;
   /** The page's folder is the one it serves: the Scenes button lists it. */
   served(folder: SceneFolder): void;
   /** A Scene's file and its SVG, assembled after the frame that is already due. */
@@ -117,7 +116,7 @@ export class Connection {
   /** The page's font, as the page gets it: one measurement per element. */
   readonly #fonts: FontSource;
   /** Where a folder of Scenes comes from: `ez serve`'s, or the page's own. */
-  #folder: FolderSource;
+  readonly #folder: FolderSource;
   /**
    * The page's font, measured: every Text and Label is placed with it. It is
    * empty until the page's font arrives, and nothing is drawn with it before
@@ -256,7 +255,7 @@ export class Connection {
   /** Ask for a folder and list the Scenes in it, without moving the save target. */
   async pick(): Promise<void> {
     try {
-      const folder = await this.#host.pick();
+      const folder = await pickFolder();
       if (folder === null) {
         return;
       }

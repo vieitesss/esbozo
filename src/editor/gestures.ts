@@ -35,6 +35,7 @@ import type { Box, Handle, Point, Pointer, View } from './geometry.js';
 import type { ToolId } from './actions.js';
 import { drawn, drawnAtClick, freshId, idsOf, isClick } from './elements.js';
 import type { ElementTool } from './elements.js';
+import type { Page } from './page.js';
 import { attachedTo, endPoint, isShaft, otherEnd, released, targetAt, withEnd } from './snap.js';
 import type { End } from './snap.js';
 import type { TextSession } from './text-session.js';
@@ -124,7 +125,7 @@ export type Drag =
  * pointer a second time, because the first click's own selection can move the
  * view before the second one lands.
  */
-export interface Press {
+interface Press {
   /** The Element whose words a double-click would edit, or null for bare canvas. */
   readonly id: string | null;
   /** Where on the page the press landed. */
@@ -143,7 +144,7 @@ export interface Press {
  * change. The editor answers with what the page holds; nothing here keeps a
  * copy of the Scene, the selection or the view.
  */
-export interface GestureHost {
+interface GestureHost {
   /** The paper the pointer is captured on. */
   readonly board: HTMLElement;
   /** The canvas: a press has to be inside it to be a press on the Scene. */
@@ -154,11 +155,8 @@ export interface GestureHost {
   /** The Scene in hand, and the measurement its Labels break with. */
   scene(): Scene;
   layout(): Layout;
-  /** The view the pointer reads, and the one it pans. */
-  view(): View;
-  setView(view: View): void;
-  scenePoint(pointer: Pointer): Point;
-  screenPoint(pointer: Pointer): Point;
+  /** The page supplies pointer coordinates, painted ink and glyph positions. */
+  readonly page: Pick<Page, 'ink' | 'paint' | 'viewport' | 'wordsNearest' | 'wordsOffset'>;
 
   selected(): readonly string[];
   select(ids: readonly string[]): void;
@@ -169,12 +167,6 @@ export interface GestureHost {
 
   /** The words being typed, while a session is open. */
   text(): TextSession | null;
-  /** The ink the page painted for an Element, or null before it is painted. */
-  ink(id: string): Box | null;
-  /** Where a press lands in the words being typed, as an offset, or null off them. */
-  wordsOffset(point: Point): number | null;
-  /** The nearest glyph boundary of the words, wherever the pointer went. */
-  wordsNearest(point: Point): number | null;
   /** An offset among the drawn glyphs, read back into the field's own words. */
   typedOffset(drawn: number): number;
   /** Open the words an Element holds, or place a new Text at a point. */
@@ -185,8 +177,6 @@ export interface GestureHost {
   applyScene(next: Scene, options?: { amend?: boolean; select?: readonly string[] }): void;
   /** The note follows the selection, the view makes room for it, the page repaints. */
   refresh(): void;
-  paint(): void;
-  paintWords(): void;
 }
 
 export class Gestures {
@@ -279,10 +269,10 @@ export class Gestures {
   }
 
   /**
-   * Let go of the pointer, and of the gesture it was making: half a drag is not
-   * a Scene, so the preview leaves the page and the Scene keeps what it held.
+   * Let go of the pointer and discard its preview. Whether the browser or
+   * the editor cancels the gesture, only a finished gesture changes the Scene.
    */
-  cancelDrag(): void {
+  cancel = (): void => {
     const drag = this.#drag;
     this.#drag = null;
     this.#releasePointer();
@@ -293,7 +283,7 @@ export class Gestures {
       this.#host.select([]);
     }
     this.#host.refresh();
-  }
+  };
 
   /**
    * The page lost the focus, or was hidden: no pointer of this gesture will
@@ -305,7 +295,7 @@ export class Gestures {
   release = (): void => {
     this.endSpacePan();
     if (this.#drag !== null) {
-      this.cancelDrag();
+      this.cancel();
       return;
     }
     // A press that started no drag still took the pointer — a read-only page
@@ -325,17 +315,6 @@ export class Gestures {
     this.#press = null;
     this.#releasePointer();
   }
-
-  /**
-   * The browser took the pointer away: a touch became a scroll, or the window
-   * was hidden mid-gesture. Only a finished gesture is a Scene, so nothing of
-   * this one is recorded and nothing is saved; the preview it drew leaves the
-   * page, and the pointer coming up later settles nothing.
-   */
-  cancel = (): void => {
-    this.#releasePointer();
-    this.cancelDrag();
-  };
 
   /**
    * A press anywhere on the page, before it becomes a click: words being typed
@@ -365,6 +344,8 @@ export class Gestures {
   };
 
   down = (event: PointerEvent): void => {
+    const { page } = this.#host;
+    const { viewport } = page;
     if (event.button !== 0 && event.button !== 1) {
       return;
     }
@@ -372,7 +353,7 @@ export class Gestures {
     if (text !== null && event.button === 0) {
       // A press inside the words being typed moves their caret: it is the
       // words', not the canvas's, and the page keeps the focus in the field.
-      const offset = this.#host.wordsOffset(this.#host.scenePoint(event));
+      const offset = page.wordsOffset(viewport.scenePoint(event));
       if (offset !== null) {
         event.preventDefault();
         this.#capture(event);
@@ -400,8 +381,8 @@ export class Gestures {
       this.#lastClick = null;
       this.#drag = {
         kind: 'pan',
-        fromScreen: this.#host.screenPoint(event),
-        start: { ...this.#host.view() },
+        fromScreen: viewport.screenPoint(event),
+        start: { ...viewport.view },
       };
       this.#host.board.classList.add('panning');
       return;
@@ -409,7 +390,7 @@ export class Gestures {
     const tool = this.#host.tool();
     if (tool !== 'select') {
       this.#press = null;
-      this.#startDrawing(tool, this.#host.scenePoint(event));
+      this.#startDrawing(tool, viewport.scenePoint(event));
       return;
     }
     // A read-only page still selects, sweeps and pans; it just cannot change
@@ -428,7 +409,7 @@ export class Gestures {
           kind: 'end',
           id,
           which,
-          from: this.#host.scenePoint(event),
+          from: viewport.scenePoint(event),
           origin,
           target: null,
           moved: false,
@@ -442,15 +423,15 @@ export class Gestures {
           id,
           handle: handle.getAttribute('data-handle') as Handle,
           origin: outlineBox(element),
-          from: this.#host.scenePoint(event),
+          from: viewport.scenePoint(event),
           shown: element,
         };
         return;
       }
     }
 
-    const point = this.#host.scenePoint(event);
-    const reach = PICK_TOLERANCE / this.#host.view().zoom;
+    const point = viewport.scenePoint(event);
+    const reach = PICK_TOLERANCE / viewport.view.zoom;
     // One picker, in layer order: a higher Element's ink answers first, and a
     // shaft's Label answers before the shaft it is written about. The boxes are
     // the ones the page painted, so no Element is drawn to find out.
@@ -459,7 +440,7 @@ export class Gestures {
       point,
       reach,
       this.#host.layout(),
-      (element) => this.#host.ink(element.id),
+      (element) => page.ink(element.id),
     );
     // A double-click opens the words under its *first* click: selecting what it
     // landed on can dock the note and pan the view, so what the second click
@@ -467,7 +448,7 @@ export class Gestures {
     // that, with a shaft's Label ink counting as words a person can click.
     this.#press = {
       id: pick?.element.id ?? null,
-      at: this.#host.screenPoint(event),
+      at: viewport.screenPoint(event),
       time: event.timeStamp,
       shift: event.shiftKey,
     };
@@ -494,7 +475,7 @@ export class Gestures {
           kind: 'label',
           id: pick.element.id,
           shaft: { start, end },
-          from: this.#host.screenPoint(event),
+          from: viewport.screenPoint(event),
           grab: {
             x: point.x - (label.x + label.width / 2),
             y: point.y - (label.y + label.height / 2),
@@ -516,6 +497,8 @@ export class Gestures {
   };
 
   move = (event: PointerEvent): void => {
+    const { page } = this.#host;
+    const { viewport } = page;
     // A press that carries the pointer somewhere is a drag: whatever it started
     // on, it is not the first half of a double-click any more, and neither is the
     // click before it — a drag between two clicks is not a double-click.
@@ -529,18 +512,18 @@ export class Gestures {
       return;
     }
     if (drag.kind === 'pan') {
-      const point = this.#host.screenPoint(event);
-      this.#host.setView({
+      const point = viewport.screenPoint(event);
+      viewport.view = {
         zoom: drag.start.zoom,
         panX: drag.start.panX + (point.x - drag.fromScreen.x),
         panY: drag.start.panY + (point.y - drag.fromScreen.y),
-      });
+      };
       // The words follow the page they are drawn on, caret and all.
-      this.#host.paint();
+      page.paint();
       return;
     }
 
-    const point = this.#host.scenePoint(event);
+    const point = viewport.scenePoint(event);
     if (drag.kind === 'words') {
       // A press that carries the pointer somewhere is a drag, not the first half
       // of a double-click: the next click starts a new sequence, wherever it
@@ -551,7 +534,7 @@ export class Gestures {
       }
       // A drag inside the words takes the caret with it: the other end of the
       // selection stays where the press put it, and the pointer may leave them.
-      const offset = this.#host.wordsNearest(point);
+      const offset = page.wordsNearest(point);
       if (offset !== null) {
         const to = this.#host.typedOffset(offset);
         // A gesture that selected something is a drag, however little the
@@ -567,7 +550,7 @@ export class Gestures {
     }
     if (drag.kind === 'box') {
       drag.to = point;
-      this.#host.paint();
+      page.paint();
       return;
     }
     if (drag.kind === 'draw') {
@@ -577,7 +560,7 @@ export class Gestures {
       drag.target = target;
       const preview = drawn(drag.tool, drag.from, point, drag.id, this.#host.scene().defaults);
       drag.preview = isShaft(preview) ? withEnd(preview, 'end', point, target) : preview;
-      this.#host.paint();
+      page.paint();
       return;
     }
     if (drag.kind === 'text') {
@@ -590,7 +573,7 @@ export class Gestures {
       // a double-click. A press that has is a drag, and pairs with nothing. The
       // slop is measured from the press itself: a wheel zoom drops the press it
       // would otherwise pair with, and that is no reason for the words to jump.
-      if (withinSlop(drag.from, this.#host.screenPoint(event))) {
+      if (withinSlop(drag.from, viewport.screenPoint(event))) {
         return;
       }
       // The words follow the pointer by the hold they were taken by, so they do
@@ -604,7 +587,7 @@ export class Gestures {
         };
         drag.moved = true;
       }
-      this.#host.paint();
+      page.paint();
       return;
     }
     const dx = point.x - drag.from.x;
@@ -620,7 +603,7 @@ export class Gestures {
       drag.moved = drag.moved || dx !== 0 || dy !== 0;
       drag.target = target;
       drag.shown = withEnd(element, drag.which, to, target);
-      this.#host.paint();
+      page.paint();
       return;
     }
     if (drag.kind === 'move') {
@@ -645,10 +628,11 @@ export class Gestures {
       }
       drag.shown = resized(element, resizedBox(drag.origin, drag.handle, dx, dy));
     }
-    this.#host.paint();
+    page.paint();
   };
 
   up = (event: PointerEvent): void => {
+    const { viewport } = this.#host.page;
     const drag = this.#drag;
     this.#host.board.classList.remove('panning');
     // The pointer comes up for this gesture or for one already ended: either way
@@ -715,12 +699,12 @@ export class Gestures {
     }
     if (drag.kind === 'draw') {
       this.#drag = null;
-      this.#finishDrawing(drag, this.#host.scenePoint(event), event.altKey);
+      this.#finishDrawing(drag, viewport.scenePoint(event), event.altKey);
       return;
     }
     if (drag.kind === 'end') {
       this.#drag = null;
-      this.#settleEnd(drag, this.#host.scenePoint(event), event.altKey);
+      this.#settleEnd(drag, viewport.scenePoint(event), event.altKey);
       return;
     }
     if (drag.kind === 'box') {
@@ -760,7 +744,7 @@ export class Gestures {
     }
     const press: Press = {
       id: null,
-      at: this.#host.screenPoint(event),
+      at: this.#host.page.viewport.screenPoint(event),
       time: event.timeStamp,
       shift: event.shiftKey,
     };
@@ -844,7 +828,7 @@ export class Gestures {
       preview: drawn(tool, point, point, id, this.#host.scene().defaults),
       target: null,
     };
-    this.#host.paint();
+    this.#host.page.paint();
   }
 
   /**
@@ -950,7 +934,7 @@ export class Gestures {
     }
     const press: Press = {
       id: null,
-      at: this.#host.screenPoint(event),
+      at: this.#host.page.viewport.screenPoint(event),
       time: event.timeStamp,
       shift: event.shiftKey,
     };
@@ -1015,7 +999,7 @@ export class Gestures {
 
   /** Whether a pointer move is still within the press that started it. */
   #near(press: Press, event: Pointer): boolean {
-    return withinSlop(press.at, this.#host.screenPoint(event));
+    return withinSlop(press.at, this.#host.page.viewport.screenPoint(event));
   }
 
   /**
