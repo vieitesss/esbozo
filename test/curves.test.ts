@@ -218,10 +218,15 @@ function attribute(tag: string, name: string): string | undefined {
   return new RegExp(`\\b${name}="([^"]*)"`).exec(tag)?.[1];
 }
 
+/** The Renderer's ink and paper, with the light theme as the fallback they carry. */
+const INK = 'var(--ink, #1b1a17)';
+const PAPER = 'var(--paper, #fbf8f1)';
+const FONT = "var(--font-hand, 'Kalam', 'Bradley Hand', 'Segoe Print', cursive)";
+
 /** The shaft's own path: the stroked path that starts where the shaft does. */
 function shaftFrom(svg: string, from: Point): string {
   const path = tags(svg, 'path')
-    .filter((tag) => attribute(tag, 'stroke') === 'var(--ink)')
+    .filter((tag) => attribute(tag, 'stroke') === INK)
     .find((tag) => {
       const [start] = drawnPoints(attribute(tag, 'd') ?? '');
       return start !== undefined && near(start.x, from.x) && near(start.y, from.y);
@@ -507,7 +512,7 @@ test('a self-loop leaves its box at one point and comes back at another', async 
     ],
   });
 
-  const shaft = tags(svg, 'path').find((tag) => attribute(tag, 'stroke') === 'var(--ink)');
+  const shaft = tags(svg, 'path').find((tag) => attribute(tag, 'stroke') === INK);
   assert.ok(shaft !== undefined, 'the loop is drawn');
   const d = attribute(shaft, 'd') ?? '';
   const drawn = drawnPoints(d);
@@ -552,7 +557,7 @@ test('a self-loop on a tiny target still leaves and returns at two points', asyn
     ],
   });
 
-  const shaft = tags(svg, 'path').find((tag) => attribute(tag, 'stroke') === 'var(--ink)');
+  const shaft = tags(svg, 'path').find((tag) => attribute(tag, 'stroke') === INK);
   assert.ok(shaft !== undefined, 'the loop is drawn');
   const drawn = drawnPoints(firstPass(attribute(shaft, 'd') ?? ''));
   const start = drawn[0]!;
@@ -591,7 +596,7 @@ test('two targets that share an outline are two targets, not one loop', async ()
     ],
   });
 
-  const shaft = tags(svg, 'path').find((tag) => attribute(tag, 'stroke') === 'var(--ink)');
+  const shaft = tags(svg, 'path').find((tag) => attribute(tag, 'stroke') === INK);
   assert.ok(shaft !== undefined, 'the shaft is drawn');
   const drawn = drawnPoints(firstPass(attribute(shaft, 'd') ?? ''));
   const start = drawn[0]!;
@@ -722,9 +727,9 @@ test('a two-point shaft keeps the whole SVG it always drew, its page included', 
 
   assert.equal(
     svg,
-    `<svg xmlns="http://www.w3.org/2000/svg" width="332" height="32" viewBox="-16 -16 332 32" role="img" font-family="var(--font-hand)" data-scene-hash="sha256:14d52072702e35774f3f5a3238d6244c5f6a3ae1f0d591fd1c2993ffb735aaaa">
+    `<svg xmlns="http://www.w3.org/2000/svg" width="332" height="32" viewBox="-16 -16 332 32" role="img" font-family="${FONT}" data-scene-hash="sha256:14d52072702e35774f3f5a3238d6244c5f6a3ae1f0d591fd1c2993ffb735aaaa">
 <title>Scene</title>
-<g stroke-linecap="round" stroke-linejoin="round"><path d="M0 0 C57.91 -4.3, 118.6 -3.42, 300 0 M0 0 C65.66 -4.09, 128.58 -4.6, 300 0" fill="none" stroke="var(--ink)" stroke-width="2"/></g>
+<g stroke-linecap="round" stroke-linejoin="round"><path d="M0 0 C57.91 -4.3, 118.6 -3.42, 300 0 M0 0 C65.66 -4.09, 128.58 -4.6, 300 0" fill="none" stroke="${INK}" stroke-width="2"/></g>
 </svg>
 `,
   );
@@ -755,7 +760,7 @@ test('a two-point shaft keeps the bytes it always drew, its Snap fraction includ
   // was: a two-point shaft reaches no further than its ends.
   assert.equal(
     svg.slice(0, svg.indexOf('\n')),
-    '<svg xmlns="http://www.w3.org/2000/svg" width="332" height="232" viewBox="-16 -16 332 232" role="img" font-family="var(--font-hand)" data-scene-hash="sha256:1e9fc623956998c47d956f280555a5fd4755fc951221f85bd8db54b4de90360c">',
+    `<svg xmlns="http://www.w3.org/2000/svg" width="332" height="232" viewBox="-16 -16 332 232" role="img" font-family="${FONT}" data-scene-hash="sha256:1e9fc623956998c47d956f280555a5fd4755fc951221f85bd8db54b4de90360c">`,
   );
   assert.equal(
     attribute(shaftFrom(svg, { x: 81.59, y: 52.8 }), 'd'),
@@ -785,7 +790,7 @@ test('a zero-length shaft keeps the bytes it always drew', async () => {
 
   assert.deepEqual(
     tags(svg, 'path')
-      .filter((tag) => attribute(tag, 'fill') === 'var(--ink)')
+      .filter((tag) => attribute(tag, 'fill') === INK)
       .map((tag) => attribute(tag, 'd')),
     ['M700 300 L687 305.85 L687 294.15', 'M700 300 L687 305.85 L687 294.15'],
   );
@@ -925,7 +930,7 @@ test('an arrow head follows the curve it arrives on, not the line between the en
   // The shaft arrives straight down, so the head's base sits above its apex. A
   // head aimed along the chord from (0,0) to (100,100) would lean to the left.
   const head = tags(svg, 'path')
-    .filter((tag) => attribute(tag, 'fill') === 'var(--ink)')
+    .filter((tag) => attribute(tag, 'fill') === INK)
     .map((tag) => drawnPoints(attribute(tag, 'd') ?? ''))
     .find((points) => points.some((point) => near(point.x, 100) && near(point.y, 100, 0.5)));
   assert.ok(head !== undefined, 'a head sits on the end');
@@ -938,7 +943,7 @@ test('an arrow head follows the curve it arrives on, not the line between the en
 
 /** The paper a shaft's Label sits on, read from the written SVG. */
 function paperOf(svg: string): Box {
-  const tag = tags(svg, 'rect').find((candidate) => attribute(candidate, 'fill') === 'var(--paper)');
+  const tag = tags(svg, 'rect').find((candidate) => attribute(candidate, 'fill') === PAPER);
   assert.ok(tag !== undefined, 'the Label paints paper behind its words');
   return {
     x: Number(attribute(tag, 'x')),

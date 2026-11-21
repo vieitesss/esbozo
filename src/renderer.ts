@@ -7,7 +7,9 @@
  * roughness, so nothing depends on Math.random or on the order of runs.
  *
  * Colours and the font are never spelled out: they come from `var(--ink)`,
- * `var(--paper)`, `var(--muted)` and `var(--font-hand)`, which hosts set. Each
+ * `var(--paper)`, `var(--muted)` and `var(--font-hand)`, which hosts set, each
+ * with the light theme as its fallback so a saved SVG nothing styles still
+ * draws. Each
  * grey step is a fixed `color-mix` of ink into paper, an opaque colour, so an
  * overlap never darkens and a host backdrop other than paper never shows
  * through. A hachure or cross-hatch fill takes one step more ink than a solid
@@ -74,10 +76,21 @@ import {
 } from './geometry.js';
 import type { ShaftPath } from './geometry.js';
 
-const INK = 'var(--ink)';
-const MUTED = 'var(--muted)';
-const PAPER = 'var(--paper)';
-const FONT = 'var(--font-hand)';
+/**
+ * The theme's variables, each with the light theme as its own fallback, so a
+ * saved SVG opened on its own — no host page, no stylesheet, or an `<img>` with
+ * nothing around it — still draws paper, ink and the hand's words. A host that
+ * sets the variable still wins: a fallback is only read when the name is not
+ * declared, so an inlined drawing takes the host's theme, light, dark or its
+ * own. The values are `src/editor/editor.css`'s light theme: ink `#1b1a17`,
+ * paper `#fbf8f1`, muted that ink at 52% in that paper (`#878580`), and Kalam
+ * first in the hand's font stack. The stack is single-quoted, which XML allows
+ * inside the double-quoted attribute it lands in.
+ */
+const INK = 'var(--ink, #1b1a17)';
+const MUTED = 'var(--muted, #878580)';
+const PAPER = 'var(--paper, #fbf8f1)';
+const FONT = "var(--font-hand, 'Kalam', 'Bradley Hand', 'Segoe Print', cursive)";
 
 /** Arrow head length per stroke width, in pixels. */
 const HEAD_LENGTH_PX: Record<StrokeWidth, number> = { thin: 9, bold: 13, extra: 18 };

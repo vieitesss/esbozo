@@ -131,10 +131,60 @@ test('the SVG takes every colour and the font from CSS variables', async () => {
   }
 
   const fonts = [...svg.matchAll(/font-family="([^"]*)"/g)].map((match) => match[1]);
-  assert.deepEqual(fonts, ['var(--font-hand)']);
+  assert.deepEqual(fonts, [FONT]);
 
-  assert.doesNotMatch(svg, /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/);
+  // The only colour the SVG spells out is a variable's fallback, so an inlined
+  // drawing always paints the host's ink, paper and muted instead.
+  const inlined = svg.replace(/var\(--[\w-]+, ?[^()]*\)/g, 'var()');
+  assert.doesNotMatch(inlined, /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/);
   assert.doesNotMatch(svg, /\burl\(|blend-mode/i);
+});
+
+test('every variable in the SVG carries the light theme as a fallback', async () => {
+  const svg = await renderOne({
+    version: 1,
+    title: 'Every colour',
+    defaults: { roughness: 0 },
+    elements: [
+      { id: 'paper', type: 'rectangle', x: 20, y: 20, width: 60, height: 40, fill: { kind: 'solid', grey: 0 } },
+      { id: 'mid', type: 'rectangle', x: 100, y: 20, width: 60, height: 40, fill: { kind: 'solid', grey: 3 } },
+      { id: 'words', type: 'text', x: 20, y: 100, content: 'hi', fontSize: 'M' },
+      { id: 'quiet', type: 'text', x: 20, y: 140, content: 'hi', fontSize: 'M', tone: 'muted' },
+      { id: 'shaft', type: 'line', points: [{ x: 20, y: 200 }, { x: 200, y: 200 }], label: 'on paper' },
+    ],
+  });
+
+  // The editor's own light theme (`src/editor/editor.css`), spelled out so a
+  // browser with no stylesheet at all draws the same drawing: ink `#1b1a17`,
+  // paper `#fbf8f1`, muted the 52% srgb mix of the two (`#878580`), and Kalam
+  // first in the hand's font stack.
+  const fallbacks = new Map([
+    ['--ink', '#1b1a17'],
+    ['--paper', '#fbf8f1'],
+    ['--muted', '#878580'],
+    ['--font-hand', "'Kalam', 'Bradley Hand', 'Segoe Print', cursive"],
+  ]);
+
+  const used = [...svg.matchAll(/var\(([^()]*)\)/g)].map((match) => match[1] ?? '');
+  assert.ok(used.length > 0, 'the SVG takes its colours from variables');
+  for (const argument of used) {
+    const name = argument.split(',')[0]!.trim();
+    const fallback = fallbacks.get(name);
+    assert.ok(fallback !== undefined, `${name} is a theme variable`);
+    assert.equal(
+      argument.slice(name.length + 1).trim(),
+      fallback,
+      `${name} falls back to the light theme's ${fallback}`,
+    );
+  }
+  for (const name of fallbacks.keys()) {
+    assert.ok(
+      used.some((argument) => argument.startsWith(name)),
+      `the Scene paints ${name}, so its fallback is what a standalone SVG shows`,
+    );
+  }
+
+  assert.match(svg, /font-family="var\(--font-hand, 'Kalam', 'Bradley Hand', 'Segoe Print', cursive\)"/);
 });
 
 test('every fill colour is paper, ink, or a mix of only those two', async () => {
@@ -413,7 +463,7 @@ test('every shaft Label has paper behind it, and a Scene with none writes no pap
   const svg = await renderOne(lineScene([0, 100], [400, 100]));
   // check-rules: markup of a written SVG file, not the page
   const rect = /<rect\b[^>]*>/.exec(svg)?.[0] ?? '';
-  assert.match(rect, /fill="var\(--paper\)"/, 'the words sit on paper, not on what runs under them');
+  assert.match(rect, /fill="var\(--paper, #fbf8f1\)"/, 'the words sit on paper, not on what runs under them');
   assert.ok(svg.indexOf(rect) < svg.indexOf('<text'), 'and the paper goes under the words');
 
   const words = textOf(svg);
@@ -591,19 +641,28 @@ function decodeXml(text: string): string {
 
 /** The ink percentage a fill colour paints: paper is 0 and ink is 100. */
 function inkPercent(colour: string): number {
-  if (colour === 'var(--paper)') {
+  if (colour === PAPER) {
     return 0;
   }
-  if (colour === 'var(--ink)') {
+  if (colour === INK) {
     return 100;
   }
-  const match = /^color-mix\(in srgb, var\(--ink\) (\d+)%, var\(--paper\)\)$/.exec(colour);
+  const match = MIX.exec(colour);
   assert.ok(match, `not a grey colour: ${colour}`);
   return Number(match[1]);
 }
 
-const CSS_VARIABLE = /^var\(--(?:ink|muted|paper)\)$/;
-const INK_INTO_PAPER = /^color-mix\(in srgb, var\(--ink\) \d{1,3}%, var\(--paper\)\)$/;
+/** The Renderer's light-theme fallbacks, as a standalone SVG spells them. */
+const INK = 'var(--ink, #1b1a17)';
+const PAPER = 'var(--paper, #fbf8f1)';
+const FONT = "var(--font-hand, 'Kalam', 'Bradley Hand', 'Segoe Print', cursive)";
+
+/** A regex that matches `text` literally, so the fallbacks escape once. */
+const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const CSS_VARIABLE = new RegExp(`^var\\(--(?:ink|muted|paper), #(?:[0-9a-f]{6})\\)$`);
+const MIX = new RegExp(`^color-mix\\(in srgb, ${escape(INK)} (\\d{1,3})%, ${escape(PAPER)}\\)$`);
+const INK_INTO_PAPER = new RegExp(`^color-mix\\(in srgb, ${escape(INK)} \\d{1,3}%, ${escape(PAPER)}\\)$`);
 function withSeed(scene: Scene, seed: number): Scene {
   return {
     ...scene,

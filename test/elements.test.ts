@@ -119,7 +119,7 @@ test('the kitchen sink paints only CSS variables and ink-into-paper mixes', asyn
       `colour ${colour} is a Scene variable or a mix of two`,
     );
   }
-  assert.doesNotMatch(svg, /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/);
+  assert.doesNotMatch(svg.replace(/var\(--[\w-]+, ?[^()]*\)/g, 'var()'), /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/);
 });
 
 test('an ellipse is drawn through its own extremes, not its bounding box', async () => {
@@ -701,10 +701,10 @@ test('free-standing Text renders its content, font size and alignment', async ()
   });
 
   const drawn = [
-    { words: 'Small left', size: '14', anchor: 'start', fill: 'var(--ink)' },
-    { words: 'Medium center', size: '18', anchor: 'middle', fill: 'var(--ink)' },
-    { words: 'Large right', size: '24', anchor: 'end', fill: 'var(--ink)' },
-    { words: 'Extra &amp; &lt;large&gt;', size: '32', anchor: 'start', fill: 'var(--muted)' },
+    { words: 'Small left', size: '14', anchor: 'start', fill: INK },
+    { words: 'Medium center', size: '18', anchor: 'middle', fill: INK },
+    { words: 'Large right', size: '24', anchor: 'end', fill: INK },
+    { words: 'Extra &amp; &lt;large&gt;', size: '32', anchor: 'start', fill: MUTED },
   ];
   for (const { words, size, anchor, fill } of drawn) {
     const drawn = textElements(svg).find((candidate) => candidate.includes(words));
@@ -984,7 +984,7 @@ function attribute(tag: string, name: string): string | undefined {
 
 /** The paper a shaft's Label sits on, read from the written SVG. */
 function paperOf(svg: string): Box {
-  const tag = tags(svg, 'rect').find((candidate) => attribute(candidate, 'fill') === 'var(--paper)');
+  const tag = tags(svg, 'rect').find((candidate) => attribute(candidate, 'fill') === PAPER);
   assert.ok(tag !== undefined, 'the Label paints paper');
   return {
     x: Number(attribute(tag, 'x')),
@@ -1164,5 +1164,11 @@ function unit(from: Point, to: Point): Point {
   return { x: dx / length, y: dy / length };
 }
 
-const SCENE_VARIABLE = /^var\(--(?:ink|muted|paper)\)$/;
-const INK_INTO_PAPER = /^color-mix\(in srgb, var\(--ink\) \d{1,3}%, var\(--paper\)\)$/;
+const SCENE_VARIABLE = /^var\(--(?:ink|muted|paper), #[0-9a-f]{6}\)$/;
+const INK_INTO_PAPER =
+  /^color-mix\(in srgb, var\(--ink, #[0-9a-f]{6}\) \d{1,3}%, var\(--paper, #[0-9a-f]{6}\)\)$/;
+
+/** The Renderer's ink, muted and paper, fallbacks and all. */
+const INK = 'var(--ink, #1b1a17)';
+const MUTED = 'var(--muted, #878580)';
+const PAPER = 'var(--paper, #fbf8f1)';
