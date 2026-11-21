@@ -286,10 +286,15 @@ esbozo-editor .text-input {
   -webkit-user-select: text;
 }
 
-/* the caret, drawn on the canvas at the glyphs. It blinks from CSS, so a blink
-   costs no frame, and a person who asked for less motion keeps it still. */
+/* the caret, drawn on the canvas at the glyphs: a hand-drawn line in the ink the
+   Elements are drawn with, so the page holds one black and no bright field. It
+   blinks from CSS, so a blink costs no frame, and a person who asked for less
+   motion keeps it still. */
 esbozo-editor .caret {
-  fill: var(--sel);
+  fill: none;
+  stroke: var(--ink);
+  stroke-linecap: round;
+  pointer-events: none;
   animation: esbozo-caret-blink 1.06s steps(1, end) infinite;
 }
 

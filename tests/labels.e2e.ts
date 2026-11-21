@@ -481,6 +481,36 @@ describe('labels', () => {
     expect(apart(small.x + small.width / 2, 640)).toBeLessThan(4);
   });
 
+  test('the caret is drawn in the ink the Elements are, not the selection’s colour', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'bare.json': BARE_SOURCE } }, 'bare.json');
+    // Bare paper: no Grid dot is dark enough to be mistaken for a drawn line.
+    await browser.keyboard.press('g');
+    await stillCaret();
+
+    await browser.keyboard.press('t');
+    await clickScene(ui, { x: 100, y: 80 }, [], EMPTY);
+    const field = screen.getByRole('textbox', { name: 'Text' });
+    await field.pressSequentially(ONE_LETTER);
+    await field.press('Home');
+    await settle(ui);
+
+    // The letter's own ink is the drawing's ink. The caret stands taller than
+    // it — `w` has no ascender — so the rows at the top of the ink are the
+    // caret's alone, and there the pixels are the ink itself rather than a wash
+    // of the selection's colour.
+    const drawn = await shot(ui);
+    const ink = drawn.darkBounds(TYPED, CARET);
+    expect(ink).not.toBeNull();
+    const above = { x: TYPED.x, y: (ink as Rect).y + 1, width: TYPED.width, height: 4 };
+    expect(drawn.darkBounds(above, CARET)).not.toBeNull();
+    expect(drawn.darkCount(above, INK_ONLY)).toBeGreaterThan(0);
+  });
+
   test('typing a Label grows its Element downwards, keeping the width the author gave it', async ({
     app,
     browser,
@@ -1264,10 +1294,10 @@ describe('labels', () => {
       const drawn = await shot(ui);
       const ink = drawn.darkBounds(INSIDE, GLYPH);
       expect(ink).not.toBeNull();
-      // `abc` has no ascender, so the line above the ink holds the caret and
-      // nothing else: the words drawn there are none.
+      // `abc` has no ascender, so the rows at the top of the ink hold the caret
+      // and nothing else: the words are drawn lower than it reaches.
       const caret = drawn.darkBounds(
-        { x: INSIDE.x, y: (ink as Rect).y - 7, width: INSIDE.width, height: 5 },
+        { x: INSIDE.x, y: (ink as Rect).y + 1, width: INSIDE.width, height: 4 },
         CARET,
       );
       expect(caret).not.toBeNull();
@@ -1320,7 +1350,7 @@ describe('labels', () => {
     expect(landed.indexOf('X')).toBeLessThan('orders and'.length);
   });
 
-  test('a Text placed a half pixel off keeps its caret on the drawn glyphs', async ({
+  test('a Text placed a half pixel off keeps its caret on the pixel the Scene rounds to', async ({
     app,
     browser,
     screen,
@@ -1331,21 +1361,21 @@ describe('labels', () => {
     await browser.keyboard.press('g');
     await stillCaret();
 
-    /** The glyphs' own ink: dark enough to be the words, and not the caret's blue. */
+    /** The ink of the words and the caret, as the one thing drawn on the page. */
     const glyphs = async (room: Rect): Promise<Rect> => {
-      const bounds = (await shot(ui)).darkBounds(room, GLYPH);
+      const bounds = (await shot(ui)).darkBounds(room, DARK);
       expect(bounds).not.toBeNull();
       return bounds as Rect;
     };
 
     /**
-     * Where the caret stands from the glyphs it belongs to, six times over: a
-     * Zoom in about the words themselves, so the page keeps them under the
-     * pointer while half a Scene pixel becomes a visible one. The caret is the
-     * darker-than-paper, lighter-than-ink line the words are drawn beside, and
-     * only the room to the left of the glyphs is measured, where nothing else is.
+     * Where the caret stands, six times over: a Zoom in about the words
+     * themselves, so the page keeps them under the pointer while half a Scene
+     * pixel becomes a visible one. The caret stands taller than the `w` beside
+     * it, so the rows at the top of the ink hold its own column and nothing
+     * else, whatever the colour both are drawn in.
      */
-    const caretFromGlyphs = async (at: Spot): Promise<number> => {
+    const caretColumn = async (at: Spot): Promise<number> => {
       await browser.keyboard.press('t');
       await clickScene(ui, at, [], EMPTY);
       const field = screen.getByRole('textbox', { name: 'Text' });
@@ -1357,11 +1387,11 @@ describe('labels', () => {
       await browser.mouse.wheel(0, -1200);
       await expect(screen.getByText(/^\d+%$/)).toHaveText('605%');
       const drawn = await glyphs(TYPED_ZOOMED);
-      const carets = (await shot(ui)).darkBounds(
-        { x: drawn.x - 40, y: drawn.y + 2, width: 38, height: drawn.height - 4 },
+      const caret = (await shot(ui)).darkBounds(
+        { x: drawn.x - 20, y: drawn.y + 1, width: drawn.width + 40, height: 6 },
         CARET,
       );
-      expect(carets).not.toBeNull();
+      expect(caret).not.toBeNull();
 
       await field.press('Escape');
       // The words are nobody's until the release: one Text lands, and goes.
@@ -1370,11 +1400,11 @@ describe('labels', () => {
       // Back to the view the next Text is placed in, about the same point.
       await browser.mouse.wheel(0, 1200);
       await expect(screen.getByText(/^\d+%$/)).toHaveText('100%');
-      return (carets as Rect).x - drawn.x;
+      return (caret as Rect).x + (caret as Rect).width / 2;
     };
 
-    const halfPixel = await caretFromGlyphs({ x: 100.5, y: 80.5 });
-    const wholePixel = await caretFromGlyphs({ x: 100, y: 80 });
+    const halfPixel = await caretColumn({ x: 100.5, y: 80.5 });
+    const wholePixel = await caretColumn({ x: 100, y: 80 });
 
     // The Scene rounds a Text placed off a whole pixel, and the page draws that
     // Text: the caret has to stand on it at either anchor, not a Scene pixel
@@ -1904,13 +1934,13 @@ describe('labels', () => {
     await settle(ui);
 
     // The words' own ink inside the fill, read without the caret beside it: the
-    // caret's blue is lighter than any glyph of the Scene's ink.
+    // caret stands taller than the glyphs, so the strip below them is the fill
+    // the wash has to darken, alone in the frame before the drag and washed
+    // over in the one after it.
     const before = await shot(ui);
     const ink = before.darkBounds({ x: 520, y: 295, width: 90, height: 45 }, GLYPH) as Rect;
     expect(ink).not.toBeNull();
-    // A strip of the words' line above their ink: fill alone in the frame
-    // before the drag, and the wash over that fill in the one after it.
-    const strip: Rect = { x: ink.x + 3, y: ink.y - 7, width: ink.width - 6, height: 4 };
+    const strip: Rect = { x: ink.x + 3, y: ink.y + ink.height - 5, width: ink.width - 6, height: 4 };
 
     // A drag across the words selects every one of them.
     await browser.mouse.move(ink.x - 4, ink.y + ink.height / 2);
