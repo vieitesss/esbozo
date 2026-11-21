@@ -140,7 +140,7 @@ const SHELL = `
   <span class="where"></span>
   <span class="mode"></span>
   <span class="saved" role="status" data-state="idle"></span>
-  <span class="hint">Space pan · wheel zoom · ⌘ +/− · G Grid</span>
+  <span class="hint">Space pan · wheel zoom · ⌘ +/− · G Grid · Q commands</span>
 </footer>
 <div class="palette" role="dialog" aria-label="Commands" hidden>
   <input

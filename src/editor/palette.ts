@@ -66,6 +66,7 @@ export class CommandPalette {
       return;
     }
     this.#options.root.hidden = true;
+    this.#input.setAttribute('aria-expanded', 'false');
     this.#input.blur();
     this.#options.closed?.();
   }
