@@ -102,17 +102,62 @@ export async function shot(ui: Ui): Promise<Shot> {
   };
 }
 
-interface Image {
+/** A decoded PNG: its size, its channels (3 or 4) and its unfiltered bytes. */
+export interface Bitmap {
   width: number;
   height: number;
   channels: number;
   data: Uint8Array;
 }
 
+/** How far apart two drawings of the same Scene are, as the pixels see it. */
+export interface Difference {
+  /** The mean difference of one channel, 0–255. */
+  meanDelta: number;
+  /** The share of pixels whose strongest channel moved by more than `movedBy`. */
+  movedShare: number;
+  /** The strongest difference of one channel. */
+  worst: number;
+}
+
+/**
+ * The difference between two bitmaps of one page, in the only terms a
+ * rasteriser comparison can honestly use: resvg and a browser antialias a
+ * stroke differently, so the test asks how far apart the drawings are rather
+ * than for the same bytes.
+ */
+export function difference(left: Bitmap, right: Bitmap): Difference {
+  if (left.width !== right.width || left.height !== right.height) {
+    throw new Error(
+      `the PNGs are different sizes: ${left.width}×${left.height} and ${right.width}×${right.height}`,
+    );
+  }
+  const channels = Math.min(left.channels, right.channels);
+  let total = 0;
+  let moved = 0;
+  let worst = 0;
+  for (let at = 0; at < left.width * left.height; at += 1) {
+    let strongest = 0;
+    for (let channel = 0; channel < channels; channel += 1) {
+      const delta = Math.abs(
+        (left.data[at * left.channels + channel] ?? 0) - (right.data[at * right.channels + channel] ?? 0),
+      );
+      total += delta;
+      strongest = Math.max(strongest, delta);
+    }
+    worst = Math.max(worst, strongest);
+    if (strongest > 32) {
+      moved += 1;
+    }
+  }
+  const pixels = left.width * left.height;
+  return { meanDelta: total / (pixels * channels), movedShare: moved / pixels, worst };
+}
+
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] as const;
 
 /** Decode an 8-bit, non-interlaced PNG: the only kind a Chromium screenshot is. */
-function decodePng(png: Buffer): Image {
+export function decodePng(png: Buffer): Bitmap {
   for (const [index, byte] of PNG_SIGNATURE.entries()) {
     if (png[index] !== byte) {
       throw new Error('not a PNG');

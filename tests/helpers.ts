@@ -673,6 +673,50 @@ export async function expectSvgMatchesCli(ui: Ui, name = 'scene.json', folder = 
   expect(saved).toBe(await cliRender(scene));
 }
 
+/** The stylesheet and the font the page draws with: what the CLI needs to draw the same Scene. */
+const PAGE_CSS = fileURLToPath(new URL('../dist/editor.css', import.meta.url));
+const PAGE_FONT = fileURLToPath(new URL('../dist/fonts/Kalam-Regular.ttf', import.meta.url));
+
+/**
+ * `ez png` on the Scene the editor saved, in a temp folder, drawn with the
+ * page's own stylesheet and font: the browser's exported PNG has to be this
+ * PNG, so the two are compared pixel for pixel.
+ */
+export async function cliPng(scene: unknown, theme: 'light' | 'dark'): Promise<Buffer> {
+  const folder = await mkdtemp(join(tmpdir(), 'esbozo-e2e-'));
+  await writeFile(join(folder, 'scene.json'), JSON.stringify(scene, null, 2), 'utf8');
+  await run(process.execPath, [
+    CLI,
+    'png',
+    'scene.json',
+    '--theme',
+    theme,
+    '--css',
+    PAGE_CSS,
+    '--font',
+    PAGE_FONT,
+  ], { cwd: folder });
+  return readFile(join(folder, `scene.${theme}.png`));
+}
+
+/** A file a download left behind, by the name the browser gave it. */
+export interface Downloaded {
+  readonly name: string;
+  readonly png: Buffer;
+}
+
+/** Run a trigger that exports a PNG, and read the file the browser downloaded. */
+export async function exported(
+  ui: Ui,
+  trigger: () => Promise<void>,
+): Promise<Downloaded> {
+  const download = await ui.browser.waitForDownload(trigger);
+  return {
+    name: download.suggestedFilename,
+    png: await readFile(download.absolutePath),
+  };
+}
+
 /** Wait for the next two paints, so a screenshot reads the frame a change made. */
 export async function settle(ui: Ui): Promise<void> {
   await ui.browser.evaluate(

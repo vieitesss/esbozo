@@ -51,10 +51,13 @@ import {
   allowWrites,
   at,
   browseFolder,
+  cliPng,
   clickScene,
   drag,
   dragBy,
   expectSvgMatchesCli,
+  exported,
+  settle,
   holdWrites,
   openEditor,
   openNewScene,
@@ -63,7 +66,7 @@ import {
   savedScene,
 } from './helpers.ts';
 import type { Ui } from './helpers.ts';
-import { shot } from './pixels.ts';
+import { decodePng, difference, shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
 
 const SCENE_SOURCE = JSON.stringify(SCENE, null, 2);
@@ -1166,3 +1169,199 @@ test('Arrange lines mixed types up, and spreads them without reordering them', a
     'tail',
   ]);
 });
+
+// --------------------------------------------------------------- the palette
+
+/** A command palette row, by the name and the shortcut the row shows. */
+function command(ui: Ui, name: string | RegExp) {
+  return ui.screen.getByRole('option', { name });
+}
+
+/** Open the palette the way the rail's left hand does. */
+async function palette(ui: Ui): Promise<void> {
+  await ui.browser.keyboard.press('q');
+  await expect(ui.screen.getByRole('dialog', 'Commands')).toBeVisible();
+}
+
+test('Q opens the palette on every action, each with the key that does it', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+  await palette(ui);
+
+  // A tool, a Scene-wide action and an Arrange action are all reachable here,
+  // and the row says which key picks it: the rail, the menu and the palette are
+  // one list of actions.
+  await expect(command(ui, 'Select · V')).toBeVisible();
+  await expect(command(ui, 'Toggle Grid · G')).toBeVisible();
+  await expect(command(ui, 'Arrange: left')).toBeVisible();
+  await expect(command(ui, 'Export PNG (dark)')).toBeVisible();
+
+  // Nothing is selected, so the actions that need one say they cannot run.
+  await expect(command(ui, 'Delete · X')).toBeDisabled();
+  await expect(command(ui, 'Delete · X')).toContainText('select an Element first');
+
+  await browser.keyboard.press('Escape');
+  await expect(screen.getByRole('dialog', 'Commands')).toBeHidden();
+});
+
+test('⌘K opens the palette, and a query keeps the rows whose name holds its words', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+  await browser.keyboard.press('Meta+k');
+  await expect(screen.getByRole('dialog', 'Commands')).toBeVisible();
+
+  // Words in any order, in any case: the two Exports survive, the tools do not.
+  await browser.keyboard.type('PNG DARK');
+  await expect(command(ui, 'Export PNG (dark)')).toBeVisible();
+  await expect(command(ui, 'Export PNG (light)')).toBeHidden();
+  await expect(command(ui, 'Select · V')).toBeHidden();
+
+  // A query nothing answers leaves the list empty rather than every row back.
+  await browser.keyboard.type('zzz');
+  await expect(command(ui, 'Export PNG (dark)')).toBeHidden();
+});
+
+test('the palette runs a Scene-wide action and the page action by name', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+  // The Grid, by name: the dots go with it, the Scene is untouched.
+  const withGrid = (await shot(ui)).darkCount(GRID, 0.9);
+  await palette(ui);
+  await browser.keyboard.type('grid');
+  await browser.keyboard.press('Enter');
+  await settle(ui);
+  expect((await shot(ui)).darkCount(GRID, 0.9)).toBeLessThan(withGrid - 100);
+
+  // Light and dark belong to the page, so the action asks the page to switch.
+  await palette(ui);
+  await browser.keyboard.type('theme');
+  await browser.keyboard.press('Enter');
+  await expect
+    .poll(async () => (await shot(ui)).meanLuminance(CORNER))
+    .toBeLessThan(0.4);
+  await expect(screen.getByRole('button', 'Light')).toBeVisible();
+});
+
+test('Enter runs the row it landed on, and the Scene carries the change', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+  await clickScene(ui, { x: 100, y: 80 });
+  expect((await savedScene(ui)).elements.length).toBe(2);
+
+  await palette(ui);
+  await browser.keyboard.type('duplicate');
+  await browser.keyboard.press('Enter');
+  await expect(screen.getByRole('dialog', 'Commands')).toBeHidden();
+
+  // The duplicate landed where a C would have put it, and the palette is gone.
+  const scene = await savedScene(ui);
+  expect(scene.elements.map((element) => element.type)).toEqual([
+    'rectangle',
+    'rectangle',
+    'rectangle',
+  ]);
+  expect(scene.elements[2]?.id).not.toBe(scene.elements[0]?.id);
+});
+
+test('the arrows step over an action that cannot run, and Escape leaves the Scene alone', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+  // Nothing has been undone yet, so Undo is listed and greyed with its reason.
+  await palette(ui);
+  await browser.keyboard.type('undo');
+  await expect(command(ui, 'Undo · ⌘Z')).toBeDisabled();
+  await expect(command(ui, 'Undo · ⌘Z')).toContainText('nothing to undo');
+  await browser.keyboard.press('Enter');
+  // Enter ran nothing, so the palette is still open and the Scene untouched.
+  await expect(screen.getByRole('dialog', 'Commands')).toBeVisible();
+
+  await browser.keyboard.press('Escape');
+  await expect(screen.getByRole('dialog', 'Commands')).toBeHidden();
+  const scene = await savedScene(ui);
+  expect(scene.elements.length).toBe(2);
+});
+
+test('the palette stays shut while a Text is being typed', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+  await browser.keyboard.press('t');
+  await clickScene(ui, { x: 100, y: 200 });
+  // `q` would open the palette on the canvas; in the words it is a letter.
+  await screen.getByRole('textbox', { name: 'Text' }).pressSequentially('qk');
+  await expect(screen.getByRole('dialog', 'Commands')).toBeHidden();
+  await screen.getByRole('textbox', { name: 'Text' }).press('Escape');
+
+  const scene = await savedScene(ui);
+  expect(scene.elements.at(-1)?.content).toBe('qk');
+});
+
+// ---------------------------------------------------------------- PNG export
+
+/** Export the open Scene from the palette, and read what the browser downloaded. */
+async function exportFromPalette(ui: Ui, name: string): Promise<{ name: string; png: Buffer }> {
+  await palette(ui);
+  return exported(ui, () => command(ui, name).click());
+}
+
+/** A drawing that must not be an empty sheet: its ink covers a real share of its page. */
+function inkShare(png: Buffer): number {
+  const image = decodePng(png);
+  let inked = 0;
+  for (let at = 0; at < image.width * image.height; at += 1) {
+    const luminance =
+      (0.2126 * (image.data[at * image.channels] ?? 0) +
+        0.7152 * (image.data[at * image.channels + 1] ?? 0) +
+        0.0722 * (image.data[at * image.channels + 2] ?? 0)) /
+      255;
+    if (luminance < 0.5) {
+      inked += 1;
+    }
+  }
+  return inked / (image.width * image.height);
+}
+
+test('Export PNG (light) downloads the drawing `ez png` gives for the same Scene', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  // A Scene with words in it: the SVG the browser rasterises has to carry the
+  // page's font, or the PNG would be the same drawing in another typeface.
+  await openEditor(ui, { A: { 'scene.json': MIXED_SOURCE } }, 'scene.json');
+
+  const file = await exportFromPalette(ui, 'Export PNG (light)');
+  expect(file.name).toBe('scene.light.png');
+
+  const cli = await cliPng(await savedScene(ui), 'light');
+  expect({ width: decodePng(file.png).width, height: decodePng(file.png).height }).toEqual({
+    width: decodePng(cli).width,
+    height: decodePng(cli).height,
+  });
+  const apart = difference(decodePng(file.png), decodePng(cli));
+  // Two rasterisers antialias the same paths differently; the drawings agree.
+  expect(apart.meanDelta).toBeLessThan(1);
+  expect(apart.movedShare).toBeLessThan(0.01);
+  expect(inkShare(file.png)).toBeGreaterThan(0.02);
+});
+
+test('Export PNG (dark) draws the paper and ink the page shows, as `ez png --theme dark`', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+  await clickScene(ui, { x: 100, y: 80 });
+  // The page is dark, and the dark PNG is the drawing that page shows.
+  await screen.getByRole('button', 'Dark').click();
+  await settle(ui);
+
+  const dark = await exportFromPalette(ui, 'Export PNG (dark)');
+  expect(dark.name).toBe('scene.dark.png');
+  const cli = await cliPng(await savedScene(ui), 'dark');
+  const apart = difference(decodePng(dark.png), decodePng(cli));
+  expect(apart.meanDelta).toBeLessThan(1);
+  expect(apart.movedShare).toBeLessThan(0.01);
+
+  // A dark page draws light ink on dark paper: the two exports are not one PNG.
+  const light = await exportFromPalette(ui, 'Export PNG (light)');
+  expect(decodePng(light.png).data).not.toEqual(decodePng(dark.png).data);
+});
+
