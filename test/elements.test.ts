@@ -50,6 +50,26 @@ function oneBox(style: Record<string, unknown> = {}): unknown {
   };
 }
 
+/** A Scene with one line, so a test varies only the Label it carries. */
+function oneLine(style: Record<string, unknown> = {}): unknown {
+  return {
+    version: 1,
+    title: 'One line',
+    defaults: { roughness: 0 },
+    elements: [
+      {
+        id: 'a',
+        type: 'line',
+        points: [
+          { x: 0, y: 100 },
+          { x: 200, y: 100 },
+        ],
+        ...style,
+      },
+    ],
+  };
+}
+
 test('a Scene with every Element type and style value renders', async () => {
   const fixture = JSON.parse(await readFile(KITCHEN_SINK, 'utf8'));
   const svg = await renderOne(fixture);
@@ -768,25 +788,47 @@ test('a bad value for any style field exits 3 and names the Element', async () =
     },
     {
       label: 'labelAt fraction',
-      scene: {
-        version: 1,
-        elements: [
-          {
-            id: 'a',
-            type: 'line',
-            points: [
-              { x: 10, y: 10 },
-              { x: 100, y: 10 },
-            ],
-            labelAt: { t: 2, offset: 0 },
-          },
-        ],
-      },
+      scene: oneLine({ labelAt: { t: 2, offset: 0 } }),
       message: /^a: labelAt\.t must be between 0 and 1, got 2$/m,
+    },
+    {
+      label: 'labelAt fraction below zero',
+      scene: oneLine({ labelAt: { t: -0.1, offset: 0 } }),
+      message: /^a: labelAt\.t must be between 0 and 1, got -0\.1$/m,
+    },
+    {
+      label: 'labelAt fraction not a number',
+      scene: oneLine({ labelAt: { t: 'half', offset: 0 } }),
+      message: /^a: labelAt\.t must be a finite number, got "half"$/m,
+    },
+    {
+      label: 'labelAt offset not a number',
+      scene: oneLine({ labelAt: { t: 0.5, offset: 'up' } }),
+      message: /^a: labelAt\.offset must be a finite number, got "up"$/m,
+    },
+    {
+      label: 'labelAt not an object',
+      scene: oneLine({ labelAt: 0.5 }),
+      message: /^a: labelAt must be a JSON object$/m,
+    },
+    {
+      label: 'labelAt unknown key',
+      scene: oneLine({ labelAt: { t: 0.5, offset: 0, side: 1 } }),
+      message: /^a: labelAt: unknown key "side"$/m,
     },
     {
       label: 'labelAt on a box',
       scene: oneBox({ label: 'words', labelAt: { t: 0.5, offset: 0 } }),
+      message: /^a: labelAt applies only to an arrow or line$/m,
+    },
+    {
+      label: 'labelAt on a Text',
+      scene: {
+        version: 1,
+        elements: [
+          { id: 'a', type: 'text', x: 0, y: 0, content: 'words', labelAt: { t: 0.5, offset: 0 } },
+        ],
+      },
       message: /^a: labelAt applies only to an arrow or line$/m,
     },
   ];
@@ -805,6 +847,40 @@ test('a fractional roughness in the Scene defaults is a parse problem too', asyn
   assert.equal(result.code, 3);
   assert.match(result.stderr, /^roughness must be an integer, got 1\.5$/m);
   assert.equal(result.svg, '');
+});
+
+test('a written labelAt draws where it says: a fraction along the shaft, and how far to one side', async () => {
+  const svg = await renderOne(oneLine({ label: 'words', labelAt: { t: 0.25, offset: -20 } }));
+  const paper = paperOf(svg);
+
+  assert.ok(near(paper.x + paper.width / 2, 50), 'a quarter along a 200px shaft');
+  assert.ok(near(paper.y + paper.height / 2, 120), 'and 20px below it');
+});
+
+test('a written labelAt draws as the position it saves as', async () => {
+  const drafted = await renderOne(
+    oneLine({ label: 'words', labelAt: { t: 0.123456789, offset: 12.4 } }),
+  );
+  const saved = await renderOne(oneLine({ label: 'words', labelAt: { t: 0.1235, offset: 12 } }));
+
+  assert.equal(drafted, saved, 'finer precision draws the same Scene, hash included');
+});
+
+test('labelAt in a file must be finite, and a file is the only way to write infinity', async () => {
+  const folder = await tempFolder();
+  await writeFile(
+    join(folder, 'scene.json'),
+    '{"version":1,"elements":[{"id":"a","type":"line",' +
+      '"points":[{"x":0,"y":0},{"x":200,"y":0}],' +
+      '"labelAt":{"t":1e999,"offset":0}}]}',
+    'utf8',
+  );
+
+  const result = await ez(['render', 'scene.json'], folder);
+
+  assert.equal(result.code, 3);
+  assert.match(result.stderr, /^a: labelAt\.t must be a finite number, got null$/m);
+  assert.equal(existsSync(join(folder, 'scene.svg')), false, 'nothing is drawn');
 });
 
 test('a Snap target that does not exist exits 3 and names the arrow', async () => {
@@ -911,6 +987,18 @@ function tags(svg: string, name: string): string[] {
 
 function attribute(tag: string, name: string): string | undefined {
   return new RegExp(`\\b${name}="([^"]*)"`).exec(tag)?.[1];
+}
+
+/** The paper a shaft's Label sits on, read from the written SVG. */
+function paperOf(svg: string): Box {
+  const tag = tags(svg, 'rect').find((candidate) => attribute(candidate, 'fill') === 'var(--paper)');
+  assert.ok(tag !== undefined, 'the Label paints paper');
+  return {
+    x: Number(attribute(tag, 'x')),
+    y: Number(attribute(tag, 'y')),
+    width: Number(attribute(tag, 'width')),
+    height: Number(attribute(tag, 'height')),
+  };
 }
 
 /** Each `<text>` Element with its content, so a test can ask what one Text drew. */
