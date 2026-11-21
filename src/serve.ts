@@ -390,10 +390,11 @@ const queued = new Map<string, Promise<void>>();
 /**
  * The queue a write belongs to: the two files it will replace, case-folded.
  * `alias.json` and `alias.JSON` are one Scene on a case-insensitive filesystem,
- * so they take one queue; otherwise two names for one pair could write at once.
+ * and `flow.json` and `flow.esbozo` both replace `flow.svg`, so a name and its
+ * SVG take one queue; otherwise two writes for one file could race.
  */
 function queueKey(root: string, name: string): string {
-  return join(root, name).toLowerCase();
+  return join(root, svgFileName(name)).toLowerCase();
 }
 
 /** Run `job` after every earlier job for `key`, whatever those jobs did. */
