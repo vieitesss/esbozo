@@ -357,9 +357,9 @@ esbozo-editor::before {
 .note .new button:hover { border-color: var(--line-strong); background: var(--line); }
 
 /* Style menu: a note taped to the right edge, and only there with a selection.
-   The editor pans the view to keep it off the selection, so nothing here has to
-   follow the pointer. Rows are grouped into look, words and arrange, which is
-   what keeps the note inside a 768px-high window. */
+   The editor pans or zooms the view to keep it off the selection, so nothing
+   here has to follow the pointer. Rows are grouped into look, words and
+   arrange, which is what keeps the note inside a 768px-high window. */
 .style-note {
   position: absolute;
   z-index: 30;
