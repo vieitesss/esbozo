@@ -137,6 +137,17 @@ esbozo-editor .selection {
   pointer-events: none;
 }
 
+/* A selected shaft's Label: faint, so the words read as something a press
+   carries and not as another Element the selection chose. The pointer over them
+   says what a press there does. */
+esbozo-editor .label-cue {
+  fill: none;
+  stroke: var(--sel);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+  cursor: grab;
+}
+
 esbozo-editor .handle {
   fill: var(--paper);
   stroke: var(--sel);

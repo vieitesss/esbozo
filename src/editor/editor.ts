@@ -10,7 +10,14 @@
 import { createLayout } from '../layout.js';
 import type { Block, Layout, LineGlyphs, Metrics } from '../layout.js';
 import { labelAtFor } from '../geometry.js';
-import { drawnShaft, elementBounds, elementsById, outlineBox } from '../renderer.js';
+import {
+  drawnShaft,
+  elementBounds,
+  elementsById,
+  labelInkBounds,
+  outlineBox,
+  shaftLabel,
+} from '../renderer.js';
 import {
   canonicalElement,
   emptyScene,
@@ -84,6 +91,8 @@ const SELECTION_PADDING = 5;
 const HANDLE_SIZE = 8;
 /** How far a Snap target's highlight stands off the target's outline, in screen pixels. */
 const SNAP_GROW = 4;
+/** How far the mark on a selected Label's words stands off the box they paint, in screen pixels. */
+const LABEL_CUE_GAP = 2;
 const NUDGE = 1;
 const NUDGE_WITH_SHIFT = 10;
 const ZOOM_STEP = 1.2;
@@ -1788,6 +1797,7 @@ class EsbozoEditorElement extends HTMLElement {
       });
       if (this.#selected.length === 1 && first !== undefined) {
         this.#drawHandles(overlay, first);
+        this.#drawLabelCue(overlay, first);
       }
     }
     if (drag !== null && drag.kind === 'box') {
@@ -1943,6 +1953,31 @@ class EsbozoEditorElement extends HTMLElement {
       node.setAttribute('data-handle', handle.name);
       node.setAttribute('data-element', id);
     }
+  }
+
+  /**
+   * A lone shaft's Label, marked as something a press can carry. The selection's
+   * own outline is the Element's, and its hands resize it; the words are taken
+   * on their own, by a press on them, so the selection says which box that is.
+   */
+  #drawLabelCue(overlay: SVGGElement, id: string): void {
+    const element = this.#shownElement(id);
+    if (element === undefined || !isShaft(element)) {
+      return;
+    }
+    const byId = this.#painted?.byId ?? elementsById(this.#scene.elements);
+    const words = shaftLabel(element, byId, this.#layout);
+    if (words === null) {
+      return;
+    }
+    const box = this.#pageBox(labelInkBounds(words));
+    this.#appendRect(overlay, {
+      x: box.x - LABEL_CUE_GAP,
+      y: box.y - LABEL_CUE_GAP,
+      width: box.width + LABEL_CUE_GAP * 2,
+      height: box.height + LABEL_CUE_GAP * 2,
+      class: 'label-cue',
+    });
   }
 
   #appendRect(

@@ -2390,4 +2390,28 @@ describe('labels', () => {
     expect(drawn).not.toBeNull();
     expect(Math.abs(drawn!.x + drawn!.width / 2 - (carried.x + carried.width / 2))).toBeLessThan(6);
   });
+  test('a selected shaft marks its Label as something a press can carry, and only while it is selected', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'labelled.json': LABELLED_SOURCE } }, 'labelled.json');
+
+    // The rule the words are marked with runs under the box they paint, clear of
+    // the glyphs above it and of the shaft below: the only ink that can be in
+    // this band is a mark on the words themselves.
+    const under: Rect = { x: 610, y: 392, width: 60, height: 3 };
+    expect((await shot(ui)).darkCount(under, DARK)).toBe(0);
+
+    // A press on the shaft selects it, and the selection says the words can be
+    // taken on their own.
+    await clickScene(ui, { x: 150, y: 200 }, [], LABELLED);
+    await settle(ui);
+    expect((await shot(ui)).darkCount(under, DARK)).toBeGreaterThan(10);
+
+    // It belongs to the selection: with the selection gone, so is the mark.
+    await browser.keyboard.press('Escape');
+    expect((await shot(ui)).darkCount(under, DARK)).toBe(0);
+  });
 });
