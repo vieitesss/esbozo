@@ -228,6 +228,25 @@ test('a Scene that is not there opens empty and is saved as Scene and SVG', asyn
   expect(view.meanLuminance(GREY_BOX)).toBeGreaterThan(0.85);
 });
 
+test('a new Scene takes .esbozo when the name is bare', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openNewScene(ui, { A: {} }, 'fresh');
+
+  await expect(ui.screen.getByRole('status')).toHaveText('saved');
+  const files = await savedFiles(ui);
+  expect(Object.keys(files).sort()).toEqual(['fresh.esbozo', 'fresh.svg']);
+  expect(JSON.parse(files['fresh.esbozo'] ?? '{}').title).toBe('fresh');
+});
+
+test('a new Scene with no name is scene.esbozo', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openNewScene(ui, { A: {} }, '');
+
+  await expect(ui.screen.getByRole('status')).toHaveText('saved');
+  const files = await savedFiles(ui);
+  expect(Object.keys(files).sort()).toEqual(['scene.esbozo', 'scene.svg']);
+});
+
 test('dragging an Element moves it smoothly and autosaves Scene plus SVG', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   const prompts: string[] = [];

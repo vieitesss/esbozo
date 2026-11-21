@@ -29,7 +29,7 @@ import {
   serialiseScene,
 } from '../scene.js';
 import type { Element as SceneElement, Scene, TextElement } from '../scene.js';
-import { sceneStem } from '../paths.js';
+import { sceneExtension, sceneStem } from '../paths.js';
 import {
   copies,
   drawn,
@@ -274,7 +274,7 @@ const SHELL = `
   <div class="note-head"><b>Scenes</b><span class="folder"></span></div>
   <ul class="files"></ul>
   <form class="new">
-    <input name="name" placeholder="new-scene.json" aria-label="New Scene name" spellcheck="false" autocomplete="off" />
+    <input name="name" placeholder="new-scene.esbozo" aria-label="New Scene name" spellcheck="false" autocomplete="off" />
     <button type="submit">New</button>
   </form>
 </div>
@@ -1358,7 +1358,7 @@ class EsbozoEditorElement extends HTMLElement {
   async #exportPng(theme: 'light' | 'dark'): Promise<void> {
     // The file name the Scene saves under, and the one a too-large page tells a
     // person to hand to the CLI.
-    const file = this.#target?.name ?? `${this.#scene.title}.json`;
+    const file = this.#target?.name ?? `${this.#scene.title}.esbozo`;
     try {
       await exportPng({
         scene: this.#scene,
@@ -3582,9 +3582,11 @@ function stemOf(fileName: string): string {
 function normaliseSceneName(raw: string): string {
   const trimmed = raw.trim();
   if (trimmed === '') {
-    return 'scene.json';
+    return 'scene.esbozo';
   }
-  return /\.json$/i.test(trimmed) ? trimmed : `${trimmed}.json`;
+  // A typed extension is kept as typed, `.json` included; a bare name takes the
+  // primary one.
+  return sceneExtension(trimmed) === null ? `${trimmed}.esbozo` : trimmed;
 }
 
 /**

@@ -134,7 +134,7 @@ async function ask(url: string, init: RequestInit): Promise<Response> {
 function fileNameOf(url: string): string {
   const path = url.split(/[?#]/)[0] ?? '';
   const last = path.split('/').filter((segment) => segment !== '').pop();
-  return last === undefined ? 'scene.json' : decodeName(last);
+  return last === undefined ? 'scene.esbozo' : decodeName(last);
 }
 
 function decodeName(segment: string): string {
