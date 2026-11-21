@@ -229,6 +229,8 @@ export class EsbozoEditorElement extends HTMLElement {
   #focused = false;
   /** True for an embedded editor, whose keys are its own only while it has the focus. */
   #ownsKeysWhenFocused = false;
+  /** Whether this page can export a PNG: a PNG is the page's, and the bundle has none. */
+  #pngExport = true;
   /** True once a save was refused with `403`: this page may not write any more. */
   #refused = false;
   #scene: Scene = emptyScene();
@@ -309,6 +311,7 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#fonts = fonts;
     this.#folder = folder;
     this.#ownsKeysWhenFocused = options.focusInside === true;
+    this.#pngExport = options.pngExport !== false;
   }
 
   connectedCallback(): void {
@@ -1076,6 +1079,7 @@ export class EsbozoEditorElement extends HTMLElement {
       canUndo: this.#history.canUndo,
       canRedo: this.#history.canRedo,
       clipboard: clipboardApi() !== null,
+      png: this.#pngExport,
       folder: this.#served || canPickFolder(),
     };
   }
@@ -2201,11 +2205,19 @@ export type FolderSource = (element: HTMLElement) => Promise<SceneFolder | null>
 /**
  * What a page configures about every element it makes. The bundle sets
  * `focusInside`, because an embedded editor is one box on someone else's page:
- * its keys and its clipboard are the page's until a person clicks into it.
+ * its keys and its clipboard are the page's until a person clicks into it, and
+ * `pngExport`, because the page a PNG is drawn for is not there.
  */
 export interface EditorOptions {
   /** True when the keys and the clipboard belong to the element only while the focus is inside it. */
   readonly focusInside?: boolean;
+  /**
+   * Whether this page can export a PNG, which it can unless it says otherwise. A
+   * PNG draws its words from the font's outlines and its paper and ink from the
+   * served page's palette; the bundle reads the metrics alone and brings its own
+   * scoped variables, so its Export rows say where a PNG comes from.
+   */
+  readonly pngExport?: boolean;
 }
 
 /**

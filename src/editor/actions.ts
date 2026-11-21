@@ -51,6 +51,8 @@ export interface ActionState {
   readonly canRedo?: boolean;
   /** Whether the page has the async Clipboard API: an insecure origin has none. */
   readonly clipboard?: boolean;
+  /** Whether the page can export a PNG at all: the bundle cannot, and says so. */
+  readonly png?: boolean;
   /** Whether the page can open a folder at all: a served one lists Scenes, a static one needs the picker. */
   readonly folder?: boolean;
 }
@@ -196,6 +198,17 @@ function needsSelection(state: ActionState): string | null {
  */
 function needsClipboard(state: ActionState): string | null {
   return state.clipboard === false ? 'use ⌘C / ⌘V' : null;
+}
+
+/**
+ * A PNG is the page's drawing: the font's outlines for its words and the page's
+ * own paper and ink. An embedded editor has neither the outlines nor the page,
+ * so its rows stay in the list, greyed out, saying where a PNG comes from.
+ */
+function needsPngPage(state: ActionState): string | null {
+  return state.png === false
+    ? 'PNG export is not available in the embedded editor; use ez png'
+    : null;
 }
 
 /** One Arrange button: the menu's row, the palette's name, and the act it runs. */
@@ -380,7 +393,7 @@ const OTHER_ACTIONS: readonly ActionSpec[] = [
     group: 'Export',
     bindings: [],
     minSelected: 0,
-    reason: always,
+    reason: needsPngPage,
     run: (host) => host.exportPng('light'),
   },
   {
@@ -389,7 +402,7 @@ const OTHER_ACTIONS: readonly ActionSpec[] = [
     group: 'Export',
     bindings: [],
     minSelected: 0,
-    reason: always,
+    reason: needsPngPage,
     run: (host) => host.exportPng('dark'),
   },
   {
