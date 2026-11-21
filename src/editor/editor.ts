@@ -1003,7 +1003,9 @@ export class EsbozoEditorElement extends HTMLElement {
   /**
    * Copy for a named action: the palette has no copy event to carry the data,
    * so it writes the same Scene text the event would. A page without the async
-   * Clipboard API — a non-secure origin — says so instead of doing nothing.
+   * Clipboard API — a non-secure origin — says so instead of doing nothing. The
+   * clipboard answers later, so what it says speaks only for the connection that
+   * asked: a page that moved on while it wrote is told nothing.
    */
   async #copySelection(): Promise<void> {
     const clipboard = clipboardApi();
@@ -1011,10 +1013,13 @@ export class EsbozoEditorElement extends HTMLElement {
       this.#setSaved('failed', 'this page cannot use the clipboard: press ⌘C');
       return;
     }
+    const connection = this.#connection;
     try {
       await clipboard.writeText(serialiseFragment(this.#scene, this.#selectedElements()));
     } catch (error) {
-      this.#setSaved('failed', `cannot copy: ${(error as Error).message}`);
+      if (connection === this.#connection) {
+        this.#setSaved('failed', `cannot copy: ${(error as Error).message}`);
+      }
     }
   }
 
@@ -1034,12 +1039,20 @@ export class EsbozoEditorElement extends HTMLElement {
     if (selected.length === 0) {
       return;
     }
+    const connection = this.#connection;
     const copied = new Set(selected.map((element) => element.id));
     const before = serialiseScene(this.#scene);
     try {
       await clipboard.writeText(serialiseFragment(this.#scene, selected));
     } catch (error) {
-      this.#setSaved('failed', `cannot cut: ${(error as Error).message}`);
+      if (connection === this.#connection) {
+        this.#setSaved('failed', `cannot cut: ${(error as Error).message}`);
+      }
+      return;
+    }
+    if (connection !== this.#connection) {
+      // Another instance of the element owns the page now: the ids are its
+      // Scene's, not this one's, so nothing is deleted.
       return;
     }
     if (serialiseScene(this.#scene) !== before) {
@@ -1049,18 +1062,31 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#remove(copied);
   }
 
-  /** Paste for a named action: the clipboard, read on the spot, with new ids. */
+  /**
+   * Paste for a named action: the clipboard, read on the spot, with new ids.
+   *
+   * The clipboard is a promise, and a page can name another Scene while it is
+   * still answering. So the edit belongs to the connection that asked for it: an
+   * answer that arrives after the page moved on lands nowhere — no Element in
+   * the Scene in hand and no word about the one it was for.
+   */
   async #pasteClipboard(): Promise<void> {
     const clipboard = clipboardApi();
     if (clipboard === null) {
       this.#setSaved('failed', 'this page cannot use the clipboard: press ⌘V');
       return;
     }
+    const connection = this.#connection;
     let text: string;
     try {
       text = await clipboard.readText();
     } catch (error) {
-      this.#setSaved('failed', `cannot paste: ${(error as Error).message}`);
+      if (connection === this.#connection) {
+        this.#setSaved('failed', `cannot paste: ${(error as Error).message}`);
+      }
+      return;
+    }
+    if (connection !== this.#connection) {
       return;
     }
     this.#insertCopies(parseFragment(text, this.#scene.defaults) ?? []);
