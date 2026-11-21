@@ -39,6 +39,12 @@ export interface Box {
   height: number;
 }
 
+/** A pointer's place on the page, in the browser's own pixels. */
+export interface Pointer {
+  readonly clientX: number;
+  readonly clientY: number;
+}
+
 /** What a press found: the Element it took, and the words when it landed on a shaft's Label. */
 export interface Pick {
   readonly element: Element;
