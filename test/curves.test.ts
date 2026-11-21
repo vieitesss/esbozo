@@ -77,19 +77,17 @@ test('a Snap belongs to an end, so a middle point cannot hold one', async () => 
 });
 
 test('a corner belongs to a bend point, so an end cannot hold one', async () => {
-  for (const index of [0, 2]) {
-    const points = [
-      { x: 100, y: 0, corner: 'round' },
-      { x: 140, y: 80 },
-      { x: 180, y: 0, corner: 'sharp' },
-    ];
-    const result = await check(sceneWith(points));
-    assert.equal(result.code, 3, `points[${index}] is an end`);
-    assert.match(
-      result.stderr,
-      new RegExp(`^a: points\\[${index}\\]\\.corner applies only to a middle point$`, 'm'),
-    );
-  }
+  const start = await check(
+    sceneWith([{ x: 100, y: 0, corner: 'round' }, { x: 140, y: 80 }, { x: 180, y: 0 }]),
+  );
+  assert.equal(start.code, 3, 'the first point is an end');
+  assert.match(start.stderr, /^a: points\[0\]\.corner applies only to a middle point$/m);
+
+  const end = await check(
+    sceneWith([{ x: 100, y: 0 }, { x: 140, y: 80 }, { x: 180, y: 0, corner: 'sharp' }]),
+  );
+  assert.equal(end.code, 3, 'the last point is an end');
+  assert.match(end.stderr, /^a: points\[2\]\.corner applies only to a middle point$/m);
 });
 
 test('a corner is sharp or round, and nothing else', async () => {
@@ -145,6 +143,19 @@ test('a two-point shaft saves as it always has, and a bend point saves its corne
   ]);
   assert.deepEqual(Object.keys(bent[1]!), ['x', 'y', 'corner'], 'the corner is written after y');
   assert.deepEqual(Object.keys(bent[0]!), ['x', 'y'], 'an unwritten corner is never written');
+
+  const inherited = savedPoints(
+    sceneWith(
+      [
+        { x: 10, y: 20 },
+        { x: 50, y: 60 },
+        { x: 90, y: 20 },
+      ],
+      { corners: 'round' },
+    ),
+  );
+  assert.deepEqual(inherited[1], { x: 50, y: 60 }, "a bend point that writes no corner takes the Element's");
+  assert.deepEqual(Object.keys(inherited[1]!), ['x', 'y'], 'so the file writes none');
 });
 
 test('a Scene of bent shafts reopens as the Scene it saved', () => {
@@ -179,13 +190,22 @@ async function ink(scene: unknown): Promise<string> {
   return result.svg;
 }
 
-/** A Scene of one arrow at roughness 0, so every drawn number is the model's own. */
-function oneArrow(points: unknown[], extra: Record<string, unknown> = {}): unknown {
+/** A Scene of one shaft at roughness 0, so every drawn number is the model's own. */
+function oneShaft(
+  type: 'arrow' | 'line',
+  points: unknown[],
+  extra: Record<string, unknown> = {},
+): unknown {
   return {
     version: 1,
     defaults: { roughness: 0 },
-    elements: [{ id: 'a', type: 'arrow', points, ...extra }],
+    elements: [{ id: 'a', type, points, ...extra }],
   };
+}
+
+/** A Scene of one arrow at roughness 0, so every drawn number is the model's own. */
+function oneArrow(points: unknown[], extra: Record<string, unknown> = {}): unknown {
+  return oneShaft('arrow', points, extra);
 }
 
 /** Every `<tag ...>` of one kind, in document order. */
@@ -493,6 +513,23 @@ test('a self-loop leaves its box at one point and comes back at another', async 
   assert.ok(Math.max(...ink_.map((point) => point.x)) >= Math.max(start.x, end.x), 'the ink reaches both ends');
 });
 
+test('a line bends and softens its corners the same way an arrow does', async () => {
+  const points = [
+    { x: 0, y: 0 },
+    { x: 100, y: 100, corner: 'round' },
+    { x: 200, y: 0, corner: 'sharp' },
+    { x: 300, y: 100 },
+  ];
+  const arrow = await ink(oneShaft('arrow', points, { heads: { start: 'none', end: 'none' } }));
+  const line = await ink(oneShaft('line', points));
+
+  assert.equal(
+    attribute(shaftFrom(line, { x: 0, y: 0 }), 'd'),
+    attribute(shaftFrom(arrow, { x: 0, y: 0 }), 'd'),
+    'one shaft, drawn by either Element',
+  );
+});
+
 test('a curved shaft bulges inside the page it is drawn on', async () => {
   const svg = await ink(
     oneArrow([
@@ -503,7 +540,9 @@ test('a curved shaft bulges inside the page it is drawn on', async () => {
   );
 
   const page = viewBoxOf(svg);
-  const bulge = Math.max(...allInk(svg).map((point) => point.y));
+  const bulge = Math.max(
+    ...inkSamples(attribute(shaftFrom(svg, { x: 0, y: 0 }), 'd') ?? '', 64).map((point) => point.y),
+  );
   assert.ok(bulge > 100, `the curve reaches past its ends (got ${bulge})`);
   assert.ok(page.y <= 0 && page.y + page.height >= bulge, 'the page holds the whole bulge');
 });
@@ -820,6 +859,29 @@ test('labelAt puts the words on the middle of a long curve, not the middle of it
   const centre = wordsCentre(svg);
   const missed = Math.hypot(centre.x - middle.x, centre.y - middle.y);
   assert.ok(missed < 0.5, `the words sit on the middle of the ink, ${missed}px off`);
+});
+
+test('labelAt places a shaft Label by arc length on uneven legs too', async () => {
+  // Legs of 100px and 20px: a tenth of the ink is 12px along the long one, a
+  // long way from the middle of the line between the two ends.
+  const svg = await ink(
+    oneArrow(
+      [
+        { x: 0, y: 0 },
+        { x: 100, y: 0 },
+        { x: 100, y: 20 },
+      ],
+      { label: 'middle', labelAt: { t: 0.1, offset: 0 } },
+    ),
+  );
+
+  const centre = wordsCentre(svg);
+  assert.ok(near(centre.x, 12, 1), `a tenth of the ink in, got x ${centre.x}`);
+  assert.ok(near(centre.y, 0, 1), `on the long leg, got y ${centre.y}`);
+  assert.ok(
+    Math.hypot(centre.x - 50, centre.y - 10) > 30,
+    'nowhere near the middle of the line between the ends',
+  );
 });
 
 test('labelAt measures a cornered shaft along its legs, corner included', async () => {
