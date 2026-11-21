@@ -42,8 +42,24 @@ import type { SceneFolder } from './files.js';
 import { sceneFolder } from './scene-url.js';
 import STYLES from './editor.css';
 
-defineEditorElement(pageFont, folderAt, { focusInside: true });
+defineEditorElement(pageFont, folderAt, { focusInside: true, pngExport: false });
 addStylesheet();
+
+/**
+ * The URL an attribute names, resolved against the document's base now.
+ *
+ * An element's attributes are read once, when the connection is made: a page
+ * that moves its `<base>` afterwards — a router, a re-render — must not move
+ * where the Scene it already read is written back to. So the folder and the font
+ * hold absolute URLs from the moment they are made.
+ */
+function absolute(what: string, url: string): string {
+  try {
+    return new URL(url, document.baseURI).href;
+  } catch {
+    throw new Error(`esbozo-editor's ${what} is not a URL: ${url}`);
+  }
+}
 
 /** The element's `scene`, or null when the attribute does not name one. */
 function attributeOf(element: Element, name: string): string | null {
@@ -61,14 +77,17 @@ function attributeOf(element: Element, name: string): string | null {
  * element shows in its status line.
  */
 async function pageFont(element: HTMLElement): Promise<PageFont> {
-  const url = attributeOf(element, 'font');
-  if (url === null) {
+  const named = attributeOf(element, 'font');
+  if (named === null) {
     return { ok: false, problem: 'esbozo-editor needs a font attribute: the URL of Kalam' };
   }
   try {
+    const url = absolute('font', named);
     const response = await fetch(url);
     if (!response.ok) {
-      return { ok: false, problem: `cannot load ${url}: ${response.status} ${response.statusText}` };
+      // The status line names the file the way the page wrote it, not the URL
+      // the document's base made of it.
+      return { ok: false, problem: `cannot load ${named}: ${response.status} ${response.statusText}` };
     }
     const bytes = new Uint8Array(await response.arrayBuffer());
     // One set of bytes for both: the metrics every word is placed with and the
@@ -82,17 +101,21 @@ async function pageFont(element: HTMLElement): Promise<PageFont> {
     const layout = createLayout({ family: face.family, metrics: measureFontBytes(bytes) });
     return { ok: true, layout, family: face.family, face: () => useFace(element, face) };
   } catch (error) {
-    return { ok: false, problem: `cannot load ${url}: ${(error as Error).message}` };
+    return { ok: false, problem: `cannot load ${named}: ${(error as Error).message}` };
   }
 }
 
 /** The single Scene the element names, read and written through the URLs it has now. */
 async function folderAt(element: HTMLElement): Promise<SceneFolder | null> {
-  const scene = attributeOf(element, 'scene');
-  if (scene === null) {
+  const named = attributeOf(element, 'scene');
+  if (named === null) {
     throw new Error('esbozo-editor needs a scene attribute: a URL that answers a Scene');
   }
-  return sceneFolder({ scene, save: attributeOf(element, 'save') });
+  const save = attributeOf(element, 'save');
+  return sceneFolder({
+    scene: absolute('scene', named),
+    save: save === null ? null : absolute('save', save),
+  });
 }
 
 /** How many faces this page has made: each one is a family of its own. */
