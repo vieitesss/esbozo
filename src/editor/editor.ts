@@ -2203,7 +2203,10 @@ class EsbozoEditorElement extends HTMLElement {
     if (!hasXmlInvalidChars(words)) {
       // The Scene keeps the words without their outer blank lines, and the page
       // shows that: what is drawn while typing is what the commit will save.
-      const kept = keptWords(words);
+      // Words nobody changed are no edit at all — the Element keeps them as it
+      // holds them — so the page goes on drawing exactly those, and the ink does
+      // not move when the session ends.
+      const kept = words === wordsOf(element) ? words : keptWords(words);
       this.#editing = { id: element.id, element: withWords(element, kept, this.#layout) };
       // The grown Element is what the note must not cover, and the box follows it.
       this.#clearOfMenu();

@@ -1195,4 +1195,36 @@ describe('labels', () => {
     expect(Math.abs(live.y - saved.darkCentre(inside, DARK).y)).toBeLessThan(0.5);
     expect((await savedScene(ui, 'blank.json')).elements[0]?.label).toBe('Keep!');
   });
+
+  test('the words a person puts back are the ones they leave, with no jump and no write', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'blank.json': BLANK_SOURCE } }, 'blank.json');
+
+    // The Label begins with a blank line. The person types a word after it and
+    // presses Backspace, so the field holds the words the Element already had:
+    // a commit of those is no edit, and nothing is saved.
+    await doubleClickScene(ui, { x: 100, y: 80 }, WORDS);
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    const before = await savedFiles(ui);
+    await label.press('End');
+    await label.pressSequentially('!');
+    await label.press('Backspace');
+    await expect(label).toHaveValue('\nKeep');
+
+    const typing = await shot(ui);
+    await label.press('Escape');
+    const left = await shot(ui);
+
+    // Escape leaves the words exactly as they were, so the ink it leaves is the
+    // ink the page drew while they were typed: no jump back as the session ends.
+    const inside: Rect = { x: 556, y: 356, width: 184, height: 104 };
+    const live = typing.darkCentre(inside, DARK);
+    expect(live.count).toBeGreaterThan(100);
+    expect(Math.abs(live.y - left.darkCentre(inside, DARK).y)).toBeLessThan(0.5);
+    expect(await savedFiles(ui)).toEqual(before);
+  });
 });
