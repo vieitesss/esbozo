@@ -5,7 +5,7 @@
 The bundled editor ([embed.md](embed.md)) speaks the write half of this API wherever its `save` attribute points, so a page can take a save with its own handler as long as it reads and answers it the way the routes below say. A page with no server at all leaves `save` out and the editor stays read-only.
 
 ```sh
-ez serve ./diagrams --port 4320     # prints: serving /abs/path/diagrams on http://127.0.0.1:4320/
+ez serve ./diagrams --port 4320     # prints: serving /abs/path/diagrams on http://127.0.0.1:4320/ (build 1a2b3c4)
 ```
 
 Flags:
@@ -35,6 +35,15 @@ The SVG of a Scene is `<name without its extension>.svg` beside it: `a.esbozo` g
 ## Routes
 
 Every response carries `cache-control: no-store`. Every API response, and every failure on any route, is JSON (`content-type: application/json; charset=utf-8`), and every failure is `{ "error": "<message>" }`. Only the successful body of a page file (see The page) is HTML, CSS, JavaScript or a font.
+
+### `GET /api/health`
+
+```sh
+curl http://127.0.0.1:4320/api/health
+# {"build":"1a2b3c4"}
+```
+
+The build this server is: the commit the CLI was built from, with `-dirty` when the folder it was built in had changes, `dev` when the CLI runs from source, and `unknown` when the build found no git checkout. It is the same id the startup line ends with, so a server someone finds running can say whether it is the one they started. Any other method answers `405`.
 
 ### `GET /api/scenes`
 
@@ -77,7 +86,7 @@ These run before any route-specific work, in this order. The first that fails an
 | Status | When |
 | --- | --- |
 | `400` | Broken percent-encoding, or a `.` or `..` segment in the path (`%2e%2e` too). |
-| `405` | The listing or a page file with a method other than `GET`: `use GET`. |
+| `405` | The listing, the health route or a page file with a method other than `GET`: `use GET`. |
 | `404` | A path outside `/api/scenes` that is not a page file: `no page file <path>`. |
 
 A Scene route (`/api/scenes/<name>`) then checks the name and its place before the method: a name the rules refuse is `400`, and a symlink that leaves the folder is `403` (`<name> leaves the folder`). After that, `GET` answers `200` or `404` (`no Scene named <name>`), and a method other than `GET`, `PUT` or `POST` is `405` (`use GET, PUT or POST`).

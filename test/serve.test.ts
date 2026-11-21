@@ -13,6 +13,7 @@ import { request as httpRequest } from 'node:http';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { brotliDecompressSync, gunzipSync } from 'node:zlib';
+import { buildId } from '../src/build-id.ts';
 import { PAGE_ASSETS } from '../src/page-assets.ts';
 import { MAX_LISTED_SCENE_BYTES } from '../src/paths.ts';
 import { promisify } from 'node:util';
@@ -886,6 +887,41 @@ test('a folder it cannot read, a taken port and a bad argument are told apart', 
     assert.equal(run_.code, 2, `${argv.join(' ')} is a usage mistake`);
     assert.match(run_.stderr, /usage: ez serve/);
   }
+});
+
+test('the startup line names the build it serves, so a stale server is told apart', async () => {
+  const server = await served(await sceneFolder(SCENE));
+  assert.match(server.startup, /^serving .+ on http:\/\/\S+ \(build \S+\)$/);
+});
+
+test('the health route answers the build the server was started with', async () => {
+  const server = await served(await sceneFolder(SCENE));
+  const answer = await request(server, '/api/health');
+  assert.equal(answer.status, 200);
+  assert.equal(answer.body, JSON.stringify({ build: buildOn(server.startup) }));
+
+  // A method other than GET is refused like every other route that only reads.
+  assert.deepEqual(await request(server, '/api/health', 'PUT'), {
+    status: 405,
+    body: '{"error":"use GET"}',
+  });
+});
+
+/** The build id the startup line carries, from its trailing `(build <id>)`. */
+function buildOn(startup: string): string {
+  const found = /\(build (\S+)\)/.exec(startup);
+  assert.ok(found !== null, `the startup line names no build: ${startup}`);
+  return found[1]!;
+}
+
+test('a build outside a git checkout is unknown, not a failed build', () => {
+  assert.equal(buildId(() => null), 'unknown');
+
+  const answers = (commit: string, status: string | null) => (args: readonly string[]) =>
+    args[0] === 'rev-parse' ? commit : status;
+  assert.equal(buildId(answers('abc1234\n', '')), 'abc1234');
+  assert.equal(buildId(answers('abc1234\n', ' M src/serve.ts\n')), 'abc1234-dirty');
+  assert.equal(buildId(answers('abc1234\n', null)), 'unknown');
 });
 
 async function assertMissing(path: string): Promise<void> {
