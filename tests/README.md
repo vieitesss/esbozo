@@ -28,11 +28,14 @@ synthetic `compositionstart`/`compositionend` events.
 keeps its `web()` handle there, and e2e loads the config in each worker process,
 so a test reads back the live page of the run it is in. It exports
 `imeCompose(text)`, `imeCommit()`, `throttleCpu(rate)`, and `livePage()` for a
-test's own page setup. `cdp.e2e.ts` is the proof, on a plain `<textarea>` and not
-the editor: the preedit is the field's value while the composition is open, the
-commit and the click-away each end it, and 4× throttling measurably slows the
-page. Driving the page out of band is the harness's documented escape hatch;
-reach for it for input no event can fake, not to shortcut a role click.
+test's own page setup. `imeCommit()` confirms a preedit that is still open, and
+refuses one the browser already ended (a blur ends a composition) rather than
+typing the words a second time. `cdp.e2e.ts` is the proof, on a plain
+`<textarea>` and not the editor: the preedit is the field's value while the
+composition is open, the commit and the click-away each end it, and 4×
+throttling measurably slows the page. Driving the page out of band is the
+harness's documented escape hatch; reach for it for input no event can fake, not
+to shortcut a role click.
 
 ## Why the agent suite is separate
 

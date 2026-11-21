@@ -119,6 +119,17 @@ test('an input method leaves unconfirmed words in the field until the compositio
     'compositionend',
     'blur',
   ]);
+
+  // The composition is over, so confirming it now would type the words a second
+  // time: the helper refuses instead of putting stale text in the field.
+  const refused = await imeCommit().then(
+    () => undefined,
+    (error: unknown) => error,
+  );
+  expect(refused instanceof Error ? refused.message : String(refused)).toMatch(
+    /composition ended/,
+  );
+  expect((await state(browser)).value).toBe('日本だめ');
 });
 
 test('the CPU runs as slow as the helper asks', async ({ browser }) => {

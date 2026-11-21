@@ -35,8 +35,34 @@ interface Cdp {
 
 let live: PlaywrightLiveSurface | undefined;
 let held: { readonly page: unknown; readonly session: Cdp } | undefined;
-/** The words the last `imeCompose` left unconfirmed, for `imeCommit`. */
+/**
+ * The words the last `imeCompose` left unconfirmed, for `imeCommit`. It belongs
+ * to the page the compose was sent to, and is dropped when the page changes.
+ */
 let composing: string | undefined;
+
+/**
+ * Marks the page's own composition state on `globalThis`, so `imeCommit` can
+ * tell a preedit still open from one the browser ended (a blur ends it).
+ * Installed per page, as text: this module is typechecked without the DOM,
+ * because `e2e.config.ts` imports it.
+ */
+const WATCH_COMPOSITION = `(() => {
+  globalThis.__esbozoComposition = 'idle';
+  const mark = (state) => () => { globalThis.__esbozoComposition = state; };
+  document.addEventListener('compositionstart', mark('open'), true);
+  document.addEventListener('compositionend', mark('ended'), true);
+})()`;
+
+/** What the page made of its own composition events: `open`, `ended`, or neither known. */
+async function compositionState(cdp: Cdp): Promise<string> {
+  const answer = (await cdp.send('Runtime.evaluate', {
+    expression: 'globalThis.__esbozoComposition ?? null',
+    returnByValue: true,
+  })) as { result?: { value?: unknown } };
+  const state = answer.result?.value;
+  return typeof state === 'string' ? state : 'unknown';
+}
 
 /**
  * Keeps the engine `e2e.config.ts` builds, so a test can reach its live page.
@@ -67,6 +93,9 @@ async function session(): Promise<Cdp> {
   if (held?.page === page) return held.session;
   const opened = (await surface.context().newCDPSession(page)) as Cdp;
   held = { page, session: opened };
+  // A preedit is the page's, not the module's: a new page has none.
+  composing = undefined;
+  await opened.send('Runtime.evaluate', { expression: WATCH_COMPOSITION });
   return opened;
 }
 
@@ -90,12 +119,24 @@ export async function imeCompose(text: string): Promise<void> {
  * `chosen` is the word the person picked, when it is not the preedit itself
  * (`にほん` shown, `日本` committed) — the case where reading the field's value
  * while the composition is open gets the words wrong.
+ *
+ * Precondition: the composition `imeCompose` opened is still open. It has to
+ * be, or the words are typed after the composition the editor was reading
+ * ended. A composition the browser ended itself (a blur ends one) is refused;
+ * one this module could not see — the page navigated, so its marker is gone —
+ * is confirmed on this module's own record.
  */
 export async function imeCommit(chosen?: string): Promise<void> {
+  const cdp = await session();
   if (composing === undefined) {
     throw new Error('imeCommit without imeCompose: there is no preedit to confirm');
   }
-  const cdp = await session();
+  if ((await compositionState(cdp)) === 'ended') {
+    composing = undefined;
+    throw new Error(
+      'imeCommit after the composition ended (a blur ends a composition): there is no preedit to confirm',
+    );
+  }
   const text = chosen ?? composing;
   composing = undefined;
   await cdp.send('Input.insertText', { text });
