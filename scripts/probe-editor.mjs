@@ -25,7 +25,7 @@
  * It serves `dist/` as it finds it: `pnpm probe` does not build.
  */
 import { createReadStream, rmSync } from 'node:fs';
-import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -231,9 +231,10 @@ async function main() {
   }
 
   const built = join(folder, EDITOR_PAGE.file);
-  try {
-    await access(built);
-  } catch {
+  // A build puts a file there: a folder that happens to be named `editor.html`
+  // is no page, and serving it would boot a browser to fail on navigation.
+  const found = await stat(built).catch(() => undefined);
+  if (found?.isFile() !== true) {
     throw new Error(`no built page at ${built}: run pnpm build first`);
   }
 

@@ -13,7 +13,7 @@
  */
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
-import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -269,6 +269,22 @@ test('a stdin probe with no built page boots nothing and leaves no temporary mod
   assert.equal(run.stdout, '');
   assert.deepEqual(await strays(empty), []);
   assert.deepEqual(run.browsers, [], 'a run with no built page started a browser');
+});
+
+test('a folder whose editor.html is a directory is no built page: nothing boots', async (t) => {
+  const empty = await mkdtemp(join(tmpdir(), 'esbozo-probe-empty-'));
+  t.after(() => rm(empty, { recursive: true, force: true }));
+  // A folder that has the page's name but not the page: the guard has to look
+  // at what the file is, not only that something answers to the name.
+  await mkdir(join(empty, 'editor.html'));
+  const file = await probeSource(t, 'export default async () => null;\n');
+  const run = await helper(['--folder', empty, file]);
+
+  assert.notEqual(run.code, 0);
+  assert.match(run.stderr, /pnpm build/);
+  assert.doesNotMatch(run.stderr, /probing http:\/\//);
+  assert.equal(run.stdout, '');
+  assert.deepEqual(run.browsers, [], 'a folder with no built page started a browser');
 });
 
 test('an interrupted setup leaves no probe folder, no server, and no browser', async (t) => {
