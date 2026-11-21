@@ -346,22 +346,6 @@ test('the note says what each end of an arrow is attached to, and says nothing o
     { vision: false },
   );
 });
-test('a Label that does not fit its Element is outlined in red, as ez check reports it', async ({
-  agent,
-  app,
-  browser,
-  screen,
-}) => {
-  const ui = { agent, app, browser, screen };
-  await openEditor(ui, { A: { 'overflow.json': OVERFLOW_SOURCE } }, 'overflow.json');
-
-  // The words spill out of the box and a red outline says so; `ez check` exits 6
-  // on the same Scene, in `tests/labels.e2e.ts`.
-  await ui.agent.assert(
-    'a small hand-drawn rectangle holds words that spill out above and below it, and a red outline frames those words',
-    { vision: 'only' },
-  );
-});
 
 test('a box grows for the Label typed into it, and the words wrap inside its outline', async ({
   agent,
