@@ -91,7 +91,7 @@ async function savedPaper(ui: Ui, name: string, view: View): Promise<Rect> {
     throw new Error(`${name} was not saved`);
   }
   // check-rules: markup of a written SVG file, not the page
-  const found = /<rect x="([-\d.]+)" y="([-\d.]+)" width="([-\d.]+)" height="([-\d.]+)" fill="var\(--paper[^"]*\)"\/>/.exec(
+  const found = /<rect x="([-\d.]+)" y="([-\d.]+)" width="([-\d.]+)" height="([-\d.]+)" fill="var\(--paper, #fbf8f1\)"\/>/.exec(
     svg,
   );
   if (found === null) {
@@ -177,6 +177,9 @@ const UNDER_FILL: Rect = { x: 700, y: 388, width: 10, height: 27 };
 const UNDER_CARET: Rect = { x: 646, y: 388, width: 2, height: 27 };
 const UNDER_CARET_BESIDE: Rect = { x: 652, y: 388, width: 2, height: 27 };
 
+/** A word with no ascender: the rows its ink leaves bare hold the caret and nothing else. */
+const NO_ASCENDER = 'ace';
+
 /** A single letter: enough words to have ink, and no more. */
 const ONE_LETTER = 'w';
 
@@ -234,9 +237,6 @@ async function labelLines(ui: Ui): Promise<[Rect, Rect]> {
   return [top as Rect, bottom as Rect];
 }
 
-/** How far apart two places are on each axis: a glyph's own bearing is under a pixel. */
-const apart = (a: number, b: number): number => Math.abs(a - b);
-
 /** Words that read right to left, in a font Kalam has no glyphs for. */
 const RTL_WORDS = 'שלום עולם';
 
@@ -259,15 +259,16 @@ const HUGE_WORD = LONG_WORD + LONG_WORD;
 const DARK = 0.5;
 
 /**
- * The caret's blue is lighter than ink, and a column of it is a pixel or two of
- * antialiasing; a Grid dot is fainter still. So a caret is looked for between
- * the two: darker than paper and a dot, lighter than ink.
+ * What counts as a drawn line: darker than bare paper, the Grid's dots and a
+ * wash of the selection, so a stroke and the antialiasing along it are all in.
+ * The caret is drawn in the Elements' own ink, so what keeps it apart from the
+ * glyphs beside it is where it stands, not how dark it is.
  */
 const CARET = 0.7;
 
 /**
- * Darker than the caret's blue and lighter than paper: the glyphs' own ink,
- * read without the caret that stands beside them.
+ * The core of a stroke rather than the fringes of it: darker than the
+ * antialiasing either side, so a box read with it is the ink's own pixels.
  */
 const GLYPH = 0.3;
 
@@ -457,8 +458,8 @@ describe('labels', () => {
     // Nothing is selected, so no cue is drawn around the words: their own ink is
     // all there is to measure. Centred is what an unwritten alignment means.
     const [wide, narrow] = await labelLines(ui);
-    expect(apart(wide.x + wide.width / 2, 640)).toBeLessThan(3);
-    expect(apart(narrow.x + narrow.width / 2, 640)).toBeLessThan(3);
+    expect(Math.abs(wide.x + wide.width / 2 - 640)).toBeLessThan(3);
+    expect(Math.abs(narrow.x + narrow.width / 2 - 640)).toBeLessThan(3);
 
     // A shaft's Label takes an alignment from the Style menu like any other
     // words, and the pick is what the Scene keeps.
@@ -471,7 +472,7 @@ describe('labels', () => {
     await browser.keyboard.press('Escape');
     await settle(ui);
     const [leftWide, leftNarrow] = await labelLines(ui);
-    expect(apart(leftWide.x, leftNarrow.x)).toBeLessThan(3);
+    expect(Math.abs(leftWide.x - leftNarrow.x)).toBeLessThan(3);
     expect(leftWide.x).toBeLessThan(620);
 
     await clickScene(ui, { x: 300, y: 240 }, [], ALIGNED_SHAFT);
@@ -482,7 +483,9 @@ describe('labels', () => {
     await browser.keyboard.press('Escape');
     await settle(ui);
     const [rightWide, rightNarrow] = await labelLines(ui);
-    expect(apart(rightWide.x + rightWide.width, rightNarrow.x + rightNarrow.width)).toBeLessThan(3);
+    expect(
+      Math.abs(rightWide.x + rightWide.width - (rightNarrow.x + rightNarrow.width)),
+    ).toBeLessThan(3);
     expect(rightWide.x + rightWide.width).toBeGreaterThan(660);
 
     // The size is the Label's too: the words draw larger, and the Scene keeps it.
@@ -501,8 +504,8 @@ describe('labels', () => {
     const [large, small] = await labelLines(ui);
     expect(large.height).toBeGreaterThan(wide.height * 1.4);
     expect(large.width).toBeGreaterThan(wide.width * 1.4);
-    expect(apart(large.x + large.width / 2, 640)).toBeLessThan(4);
-    expect(apart(small.x + small.width / 2, 640)).toBeLessThan(4);
+    expect(Math.abs(large.x + large.width / 2 - 640)).toBeLessThan(4);
+    expect(Math.abs(small.x + small.width / 2 - 640)).toBeLessThan(4);
   });
 
   test('the caret is drawn in the ink the Elements are, not the selection’s colour', async ({
@@ -1307,7 +1310,7 @@ describe('labels', () => {
 
     await doubleClickScene(ui, { x: 100, y: 80 });
     const label = screen.getByRole('textbox', { name: 'Label' });
-    await label.pressSequentially('abc');
+    await label.pressSequentially(NO_ASCENDER);
     // Back to the gap after the first letter, where the refused character goes.
     await label.press('ArrowLeft');
     await label.press('ArrowLeft');
@@ -1318,8 +1321,8 @@ describe('labels', () => {
       const drawn = await shot(ui);
       const ink = drawn.darkBounds(INSIDE, GLYPH);
       expect(ink).not.toBeNull();
-      // `abc` has no ascender, so the rows at the top of the ink hold the caret
-      // and nothing else: the words are drawn lower than it reaches.
+      // The rows above the letters are the caret's alone — none of these
+      // letters has an ascender — so the column read there is the caret's.
       const caret = drawn.darkBounds(
         { x: INSIDE.x, y: (ink as Rect).y + 1, width: INSIDE.width, height: 4 },
         CARET,
@@ -1330,7 +1333,7 @@ describe('labels', () => {
 
     const before = await caretX();
     // U+0001 is a character the Scene cannot hold: the page goes on drawing
-    // `abc`, and the caret must go on standing where it was typed.
+    // the same letters, and the caret must go on standing where it was typed.
     await insertText('\u0001');
     await settle(ui);
     const after = await caretX();
@@ -1340,7 +1343,7 @@ describe('labels', () => {
     // words are the ones that were there — and the words save as they were.
     await label.press('Backspace');
     await label.press('Escape');
-    expect((await savedScene(ui)).elements[0]?.label).toBe('abc');
+    expect((await savedScene(ui)).elements[0]?.label).toBe(NO_ASCENDER);
   });
 
   test('a press inside the drawn words puts the caret on the glyph under it', async ({
@@ -1957,10 +1960,10 @@ describe('labels', () => {
     await label.pressSequentially('orders');
     await settle(ui);
 
-    // The words' own ink inside the fill, read without the caret beside it: the
-    // caret stands taller than the glyphs, so the strip below them is the fill
-    // the wash has to darken, alone in the frame before the drag and washed
-    // over in the one after it.
+    // The words' own ink inside the fill, read without the caret beside it. The
+    // caret stands taller than the glyphs, so the lowest rows of the ink's own
+    // box hold what the wash has to darken between the strokes — alone in the
+    // frame before the drag, and washed over in the one after it.
     const before = await shot(ui);
     const ink = before.darkBounds({ x: 520, y: 295, width: 90, height: 45 }, GLYPH) as Rect;
     expect(ink).not.toBeNull();
