@@ -1,13 +1,16 @@
 /**
- * Seam 2: the listing the save API sends, as the page reads it.
+ * Seam 2: the listing the save API sends, as the page reads it — and the write
+ * it takes back.
  *
  * The page has no other guard: a server that answers 200 with anything else has
  * to reach the status line, not become a folder the editor shows as writable. So
- * every field is checked here, and a wrong type is no listing at all.
+ * every field is checked here, and a wrong type is no listing at all. The write
+ * is the same contract from the other end: what the editor sends is exactly what
+ * the server stores, in both directions.
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { listingOf } from '../src/scenes-api.ts';
+import { listingOf, sceneWrite, problemIn, Refusal } from '../src/scenes-api.ts';
 
 test('a listing reads back as its folder, its Scenes and whether writes are refused', () => {
   const listing = { folder: 'sketches', readOnly: true, scenes: ['a.json', 'b.json'] };
@@ -36,4 +39,37 @@ test('a body that is not a listing is nothing, never a writable folder', () => {
   ]) {
     assert.equal(listingOf(body), null, `${body} is not a listing`);
   }
+});
+
+test('a write reads back as the Scene and the SVG it carries', () => {
+  const written = { scene: '{"version":1}', svg: '<svg></svg>' };
+  assert.deepEqual(sceneWrite(JSON.stringify(written)), written);
+
+  for (const body of [
+    'not json at all',
+    'null',
+    '[]',
+    JSON.stringify({ scene: '{}' }),
+    JSON.stringify({ svg: '<svg></svg>' }),
+    JSON.stringify({ scene: {}, svg: '<svg></svg>' }),
+    JSON.stringify({ scene: '{}', svg: 1 }),
+  ]) {
+    assert.equal(sceneWrite(body), null, `${body} is not a write`);
+  }
+});
+
+test('a refusal reads back as the server worded it, or as the status it came with', () => {
+  assert.equal(problemIn('{"error":"the folder is unreadable"}', 500, 'the folder'), 'the folder is unreadable');
+  assert.equal(problemIn('not json', 404, 'scene.json'), 'scene.json: 404 not json');
+  assert.equal(problemIn('{}', 500, 'the folder'), 'the folder: 500 {}');
+  assert.equal(problemIn('{"error":""}', 500, 'the folder'), 'the folder: 500 {"error":""}');
+});
+
+test('a refusal carries the status that refused it, so a page can act on it', () => {
+  // The status line reads the same words either way; what the editor needs is
+  // the number, because a `403` makes the page read-only rather than retry.
+  const refused = new Refusal('{"error":"this folder is served read-only"}', 403, 'scene.json');
+  assert.equal(refused.message, 'this folder is served read-only');
+  assert.equal(refused.status, 403);
+  assert.ok(refused instanceof Error);
 });

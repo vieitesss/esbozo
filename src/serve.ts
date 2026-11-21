@@ -37,8 +37,8 @@ import { basename, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PAGE_ASSETS } from './page-assets.js';
 import { svgFileName } from './paths.js';
-import { SCENES_API } from './scenes-api.js';
-import type { SceneListing } from './scenes-api.js';
+import { SCENES_API, sceneWrite } from './scenes-api.js';
+import type { SceneListing, SceneWrite } from './scenes-api.js';
 import { parseScene } from './scene.js';
 
 /** The biggest write the server reads: a Scene is text, and a page of it is small. */
@@ -261,7 +261,7 @@ async function handleScene(
     sendJson(response, 413, { error: `the body is over ${BODY_LIMIT} bytes` });
     return;
   }
-  const written = parseWrite(body);
+  const written = sceneWrite(body);
   if (written === null) {
     sendJson(response, 400, { error: 'the body must be { "scene": "<text>", "svg": "<text>" }' });
     return;
@@ -337,28 +337,6 @@ async function readScene(path: string): Promise<string | null> {
     return null;
   }
   return readFile(path, 'utf8');
-}
-
-interface SceneWrite {
-  readonly scene: string;
-  readonly svg: string;
-}
-
-function parseWrite(body: string): SceneWrite | null {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(body);
-  } catch {
-    return null;
-  }
-  if (typeof raw !== 'object' || raw === null) {
-    return null;
-  }
-  const { scene, svg } = raw as { scene?: unknown; svg?: unknown };
-  if (typeof scene !== 'string' || typeof svg !== 'string') {
-    return null;
-  }
-  return { scene, svg };
 }
 
 /** A write the folder itself refuses, with the answer it deserves. */

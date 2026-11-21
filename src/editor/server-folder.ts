@@ -7,7 +7,7 @@
  * folder, and the editor lists, opens and autosaves over http without a picker.
  */
 import type { SceneFolder } from './files.js';
-import { listingOf, sceneApiPath, SCENES_API } from '../scenes-api.js';
+import { listingOf, problemIn, sceneApiPath, SCENES_API } from '../scenes-api.js';
 import type { SceneListing } from '../scenes-api.js';
 
 /**
@@ -92,16 +92,4 @@ async function textOf(response: Response, what: string): Promise<string> {
     throw new Error(problemIn(text, response.status, what));
   }
   return text;
-}
-
-function problemIn(text: string, status: number, what: string): string {
-  try {
-    const parsed = JSON.parse(text) as { error?: unknown };
-    if (typeof parsed.error === 'string' && parsed.error !== '') {
-      return parsed.error;
-    }
-  } catch {
-    // Not JSON: fall through to the status line.
-  }
-  return `${what}: ${status} ${text}`.trim();
 }
