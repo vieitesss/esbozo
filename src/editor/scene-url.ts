@@ -28,28 +28,28 @@ export interface SceneEndpoints {
 /**
  * The one Scene behind `endpoints`, as the editor's storage seam.
  *
- * The endpoints are asked for on every call, never kept: an element's `scene`
- * and `save` attributes may change under a running editor, and a write has to
- * go where the page points it *now*, not where it pointed when it was queued.
- * A `save` that went away mid-write leaves the Scene unwritten, which is what
- * read-only means.
+ * The endpoints are a snapshot, taken when the element makes the folder: a
+ * `scene` or `save` that changes afterwards is another instance of the element
+ * with a folder of its own, so a write can never be aimed at a URL it was not
+ * made for, and the Scene is identified by its full URL rather than by a file
+ * name two folders may share.
  */
-export function sceneFolder(endpoints: () => SceneEndpoints): SceneFolder {
+export function sceneFolder(endpoints: SceneEndpoints): SceneFolder {
   return {
     // The Scene's own host, so the status line says where what it shows came from.
     get name(): string {
-      return hostOf(endpoints().scene);
+      return hostOf(endpoints.scene);
     },
     get readOnly(): boolean {
-      return endpoints().save === null;
+      return endpoints.save === null;
     },
 
     async listScenes(): Promise<string[]> {
-      return [fileNameOf(endpoints().scene)];
+      return [fileNameOf(endpoints.scene)];
     },
 
     async read(): Promise<string | null> {
-      const { scene } = endpoints();
+      const { scene } = endpoints;
       const name = fileNameOf(scene);
       const response = await ask(scene, { method: 'GET', headers: { accept: 'application/json' } });
       if (response.status === 404) {
@@ -65,7 +65,7 @@ export function sceneFolder(endpoints: () => SceneEndpoints): SceneFolder {
     },
 
     async write(name: string, scene: string, svg: string): Promise<void> {
-      const { save } = endpoints();
+      const { save } = endpoints;
       if (save === null) {
         // The editor asks `readOnly` before it writes, so this is the page
         // being told to write where nothing may be written.

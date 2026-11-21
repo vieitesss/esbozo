@@ -97,21 +97,6 @@ interface SaveTarget {
 }
 
 /**
- * What an instance is connected to, and which generation of it.
- *
- * A change of `scene`, `save` or `font` is a new connection: the generation
- * moves, and every answer still in flight for the old one — a Scene read, a
- * font, a write — is dropped when it lands. One number for the whole
- * connection, so no two of them can land in each other's order.
- */
-interface Connection {
-  /** Bumped by every attribute change: an answer for an older one is never used. */
-  generation: number;
-  /** The Scene the connection opened, once one is open. */
-  target: SaveTarget | null;
-}
-
-/**
  * A gesture in flight. A gesture that changes the Scene keeps its result here,
  * not in the Scene: the press, the moves and the release are one action, and
  * only the release settles it into the Scene the history and autosave see.
@@ -186,17 +171,17 @@ export class EsbozoEditorElement extends HTMLElement {
   readonly #fonts: FontSource;
   /** Where a folder of Scenes comes from: `ez serve`'s, or the page's own. */
   #folder: FolderSource;
-  /** The connection in hand, and the generation every answer is checked against. */
-  #connection: Connection = { generation: 0, target: null };
   /**
-   * The generation whose connection is fully established: font measured, folder
-   * joined, Scene open. A newer generation with no Scene yet is a connection the
-   * page is still bringing up, and every answer that finds it unsettled opens
-   * the Scene the attributes name then.
+   * Which connection the element is on: every attribute change makes a new one,
+   * and an answer for an older number is dropped, never drawn.
    */
-  #settled = 0;
+  #generation = 0;
+  /** The Scene this connection opened, once one is open: where its writes go. */
+  #target: SaveTarget | null = null;
   /** True once the page's font is measured and the editor is drawing. */
   #ready = false;
+  /** True once the editor's listeners are on the page. */
+  #wired = false;
   /**
    * True while the focus is inside the element. An embedded editor only takes
    * the keys and the clipboard then: the page around it is someone else's, and
@@ -221,7 +206,8 @@ export class EsbozoEditorElement extends HTMLElement {
   #served = false;
   #drag: Drag | null = null;
   #spaceDown = false;
-  #saveQueue: Promise<void> = Promise.resolve();
+  /** The writes in order; the number each answers with is whether it landed. */
+  #saveQueue: Promise<unknown> = Promise.resolve();
   #paintQueued = false;
   #paintedFor: string | null = null;
   /** The selection the Style menu was built for, so a rebuild only happens on a change. */
@@ -261,9 +247,12 @@ export class EsbozoEditorElement extends HTMLElement {
 
   connectedCallback(): void {
     if (this.#canvas !== undefined) {
-      // Back on the page: the listeners left with it the last time.
+      // Back on the page: the listeners left with it the last time, and an
+      // editor that never got as far as drawing tries its connection again.
       if (this.#ready) {
         this.#listen();
+      } else {
+        void this.#connect(++this.#generation);
       }
       return;
     }
@@ -292,10 +281,6 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#dots.id = dots;
     this.#gridRect.setAttribute('fill', `url(#${dots})`);
 
-    // The keys and the clipboard go to the instance a person touched last.
-    this.addEventListener('pointerdown', this.#takeFocus);
-    this.addEventListener('focusin', this.#onFocusIn);
-    this.addEventListener('focusout', this.#onFocusOut);
     if (this.#ownsKeysWhenFocused) {
       // An embedded editor is one box on someone else's page: a click into it
       // is what makes its keys its own, and the host keeps Space and the arrows
@@ -309,11 +294,19 @@ export class EsbozoEditorElement extends HTMLElement {
 
     // Nothing can be placed without the font's measurement, so the editor waits
     // for it and says so in the status line when the page has none to give.
-    void this.#measure(++this.#connection.generation);
+    void this.#connect(++this.#generation);
   }
 
   /** Wire the editor to the page, once it has a measurement to draw with. */
   #listen(): void {
+    if (this.#wired) {
+      return;
+    }
+    this.#wired = true;
+    // The keys and the clipboard go to the instance a person touched last.
+    this.addEventListener('pointerdown', this.#takeFocus);
+    this.addEventListener('focusin', this.#onFocusIn);
+    this.addEventListener('focusout', this.#onFocusOut);
     this.#canvas.addEventListener('pointerdown', this.#onPointerDown);
     this.#canvas.addEventListener('pointermove', this.#onPointerMove);
     this.#canvas.addEventListener('pointerup', this.#onPointerUp);
@@ -358,25 +351,20 @@ export class EsbozoEditorElement extends HTMLElement {
     this.removeEventListener('focusout', this.#onFocusOut);
     window.removeEventListener('resize', this.#onResize);
     window.removeEventListener('blur', this.#endSpacePan);
+    this.#wired = false;
     if (active === this) {
       active = null;
     }
   }
 
   /**
-   * Read the page's font and measure with it. A failure leaves the shell in
-   * place, saying in the status line what the page has to fix: without metrics
-   * there is no editor, because its words cannot be placed. A change to any
-   * attribute measures again, so a font that was missing can be fixed.
+   * Bring the element up on the attributes it names now: read the page's font,
+   * then join the folder and open the Scene it holds. The first connect runs
+   * this, and so does every change of `scene` or `save`.
    */
-  async #measure(generation: number): Promise<void> {
-    let font: PageFont;
-    try {
-      font = await this.#fonts(this);
-    } catch (error) {
-      font = { ok: false, problem: (error as Error).message };
-    }
-    if (generation !== this.#connection.generation || !this.isConnected) {
+  async #connect(generation: number): Promise<void> {
+    const font = await this.#fontOf();
+    if (generation !== this.#generation) {
       return;
     }
     if (!font.ok) {
@@ -387,53 +375,89 @@ export class EsbozoEditorElement extends HTMLElement {
     // that arrived late never draws words it did not measure.
     font.face?.();
     this.#layout = font.layout;
-    const first = !this.#ready;
     this.#ready = true;
-    if (first) {
-      this.#listen();
-      this.#showDefaultRoughness();
-    }
-    // A new font under a running editor: the same Scene, measured again.
+    this.#listen();
+    this.#showDefaultRoughness();
     this.#paintedFor = null;
     this.#view = fittedView(this.#scene, this.#viewportSize(), this.#layout);
     this.#paint();
-    // Nothing is open until the folder has answered, and a read that a newer
-    // connection dropped is opened here: whatever the attributes name now.
-    if (first || !this.#isSettled(generation)) {
+    await this.#joinFolder(generation);
+  }
+
+  /** Read the page's font again and draw the Scene in hand in it: a font that
+   * will not load leaves the face and the metrics that did. */
+  async #measureFont(generation: number): Promise<void> {
+    const font = await this.#fontOf();
+    if (generation !== this.#generation) {
+      return;
+    }
+    if (!font.ok) {
+      this.#setSaved('failed', font.problem);
+      return;
+    }
+    font.face?.();
+    this.#layout = font.layout;
+    this.#paintedFor = null;
+    this.#view = fittedView(this.#scene, this.#viewportSize(), this.#layout);
+    this.#paint();
+    if (this.#target === null) {
+      // The font changed before the Scene it names was open, so this connection
+      // is still on its way, and this is the font it gets.
       await this.#joinFolder(generation);
     }
   }
 
+  /** The page's font, with a source that will not answer reported as the problem it is. */
+  async #fontOf(): Promise<PageFont> {
+    try {
+      return await this.#fonts(this);
+    } catch (error) {
+      return { ok: false, problem: (error as Error).message };
+    }
+  }
+
   /**
-   * An attribute changed under an embedded editor: every change is a new
-   * connection, so the generation moves and answers for the old one are
-   * dropped. What is re-done is what the attribute changed — `font` measures,
-   * `scene` reads, `save` only moves where a write goes — and a change made
-   * before the font arrived measures again, because nothing is drawn without
-   * it.
+   * An attribute changed under a running editor. `font` is only the font, and
+   * the Scene in hand stays. `scene` and `save` are another instance of the
+   * element, so the connection in hand is dropped first.
    */
   attributeChangedCallback(name: string): void {
-    if (name === 'save') {
-      // A destination this page was never refused by is a new question.
-      this.#refused = false;
-    }
-    const generation = ++this.#connection.generation;
-    if (!this.#ready) {
-      void this.#measure(generation);
+    const generation = ++this.#generation;
+    if (this.#canvas === undefined) {
+      // Attributes written before the element was connected: nothing to drop,
+      // and `connectedCallback` brings it up on them.
       return;
     }
-    if (name === 'font') {
-      void this.#measure(generation);
+    if (name === 'font' && this.#ready) {
+      void this.#measureFont(generation);
       return;
     }
-    if (name === 'scene') {
-      // Another Scene: the requests in flight belong to the old one, and so
-      // does anything half-typed into it.
-      this.#endEdits();
-      void this.#joinFolder(generation);
-      return;
+    if (name !== 'font') {
+      this.#rebuild();
     }
-    this.#retarget(generation);
+    void this.#connect(generation);
+  }
+
+  /**
+   * Let go of the connection in hand: half a gesture, half-typed words, the tool
+   * armed for the Scene it held, its selection, its history and its writes. The
+   * read still on its way is dropped where it lands.
+   */
+  #rebuild(): void {
+    this.#drag = null;
+    this.#endEdits();
+    this.#scene = emptyScene();
+    this.#selected = [];
+    this.#target = null;
+    this.#browsed = null;
+    this.#refused = false;
+    this.#history.reset(serialiseScene(this.#scene));
+    this.#saveQueue = Promise.resolve();
+    this.#menu.hidden = true;
+    this.#note.hidden = true;
+    this.#whereLabel.textContent = '';
+    this.#setSaved('idle');
+    this.#paint();
   }
 
   /** The instance a person last touched holds the keys and the clipboard. */
@@ -465,34 +489,26 @@ export class EsbozoEditorElement extends HTMLElement {
     }
   };
 
-  /** Whether this connection has brought up what it names: its font and its Scene. */
-  #isSettled(generation: number): boolean {
-    return this.#settled === generation;
-  }
-
   /**
    * Join the folder the page hands this element: `ez serve`'s, or the single
-   * Scene its attributes name. It lists what it holds and opens the first, or
-   * keeps the Scene in hand when the folder still holds it, so a new `save` URL
-   * or a new font is not another Scene. A static page gets `null` and keeps its
-   * Open folder button.
+   * Scene its attributes name. It lists what it holds and opens the first. A
+   * static page gets `null` and keeps its Open folder button.
    */
   async #joinFolder(generation: number): Promise<void> {
     let folder: SceneFolder | null;
     try {
       folder = await this.#folder(this);
     } catch (error) {
-      if (generation === this.#connection.generation) {
+      if (generation === this.#generation) {
         this.#setSaved('failed', (error as Error).message);
       }
       return;
     }
-    if (generation !== this.#connection.generation) {
+    if (generation !== this.#generation) {
       return;
     }
     if (folder === null) {
       // A page with no folder to join keeps its picker, and has nothing to open.
-      this.#settled = generation;
       return;
     }
     this.#served = true;
@@ -503,52 +519,22 @@ export class EsbozoEditorElement extends HTMLElement {
     try {
       names = await folder.listScenes();
     } catch (error) {
-      if (generation === this.#connection.generation) {
-        this.#settled = generation;
+      if (generation === this.#generation) {
         this.#setSaved('failed', (error as Error).message);
       }
       return;
     }
-    if (generation !== this.#connection.generation) {
+    if (generation !== this.#generation) {
       return;
     }
-    const open = this.#connection.target?.name ?? null;
-    if (open !== null && names.includes(open)) {
-      // The same Scene through the folder the connection names now.
-      this.#connection.target = { folder, name: open };
-      this.#settled = generation;
-      return;
-    }
+    // A folder of Scenes opens its first; the bundle's folder holds the one
+    // Scene its attributes name, so that is the one it opens.
     const first = names[0];
     if (first === undefined) {
-      this.#settled = generation;
       await this.#showNote();
       return;
     }
     await this.#openScene(first, generation);
-  }
-
-  /**
-   * Point writes at the folder the attributes name now, without reading or
-   * writing anything: the Scene in hand stays on the canvas. A `save` that went
-   * away leaves a read-only editor, not one that quietly writes nowhere.
-   */
-  #retarget(generation: number): void {
-    if (!this.#isSettled(generation)) {
-      // The page is still bringing its connection up: the folder says where the
-      // Scene it names lives, and opens it if nothing is open yet.
-      void this.#joinFolder(generation);
-      return;
-    }
-    const folder = this.#connection.target?.folder ?? this.#browsed;
-    if (folder === null) {
-      return;
-    }
-    this.#showMode(folder);
-    if (!this.#writable()) {
-      // Nothing is going to answer the writes already queued.
-      this.#setSaved('idle');
-    }
   }
 
   /** The status bar's word for what this page may do with the Scene. */
@@ -577,7 +563,7 @@ export class EsbozoEditorElement extends HTMLElement {
    * this one question, so read-only is one rule and not one per tool.
    */
   #writable(): boolean {
-    const target = this.#connection.target;
+    const target = this.#target;
     return target !== null && !target.folder.readOnly && !this.#refused;
   }
 
@@ -608,7 +594,7 @@ export class EsbozoEditorElement extends HTMLElement {
    */
   async #openScene(
     name: string,
-    generation = this.#connection.generation,
+    generation = this.#generation,
     options: { create?: boolean } = {},
   ): Promise<void> {
     const folder = this.#browsed;
@@ -617,25 +603,23 @@ export class EsbozoEditorElement extends HTMLElement {
       return;
     }
     await this.#saveQueue;
-    if (generation !== this.#connection.generation) {
+    if (generation !== this.#generation) {
       return;
     }
     let source: string | null;
     try {
       source = await folder.read(name);
     } catch (error) {
-      if (generation !== this.#connection.generation) {
+      if (generation !== this.#generation) {
         return;
       }
-      this.#settled = generation;
-      this.#connection.target = null;
+      this.#target = null;
       this.#setSaved('failed', `cannot read ${name}: ${(error as Error).message}`);
       return;
     }
-    if (generation !== this.#connection.generation) {
+    if (generation !== this.#generation) {
       return;
     }
-    this.#settled = generation;
     if (source === null) {
       this.#load(emptyScene(stemOf(name)), { folder, name });
       if (options.create === true) {
@@ -652,7 +636,7 @@ export class EsbozoEditorElement extends HTMLElement {
       const first = parsed.problems[0];
       const where = first === undefined ? '' : first.elementId === null ? '' : `${first.elementId}: `;
       const message = first === undefined ? 'invalid Scene' : `${where}${first.message}`;
-      this.#connection.target = null;
+      this.#target = null;
       this.#setSaved('failed', `${name}: ${message}`);
       return;
     }
@@ -662,45 +646,59 @@ export class EsbozoEditorElement extends HTMLElement {
   }
 
   /**
-   * Write the Scene and the SVG beside it, in the folder the Scene came from.
-   * Writes land in order, and the status says `saved` only for the last one
-   * queued, so it never claims a Scene that a newer edit has overtaken.
+   * Write the Scene and the SVG beside it, to the Scene they were made for.
    *
-   * A write asks the connection where it saves when it is its turn, not when it
-   * was queued: a `save` that went away leaves nothing to send, and a `403`
-   * stops the writes behind it instead of trying each of them.
+   * The destination is fixed here, when the write is queued: a `save` or a
+   * `scene` that changes afterwards is another connection, and a write already
+   * queued is a person's edit to *this* Scene, so it goes where it was made and
+   * never to a URL the page names later. Writes land in order, and the status
+   * says `saved` only for the newest one, so it never claims a Scene that a
+   * newer edit has overtaken.
    */
   async #save(): Promise<void> {
+    const target = this.#target;
+    if (target === null || target.folder.readOnly || this.#refused) {
+      // Nothing is open, or this page may only read: nothing is sent.
+      return;
+    }
     const sceneSource = serialiseScene(this.#scene);
     const svgSource = renderScene(this.#scene, this.#layout);
     this.#setSaved('saving');
-    const writing = this.#saveQueue.then(async () => {
-      const target = this.#connection.target;
-      if (target === null || target.folder.readOnly || this.#refused) {
-        // A read-only page says so in the status bar; nothing is sent.
-        return;
-      }
-      const generation = this.#connection.generation;
-      try {
-        await target.folder.write(target.name, sceneSource, svgSource);
-        if (this.#saveQueue === writing) {
-          this.#setSaved('saved');
-        }
-      } catch (error) {
-        // Only the destination the connection points at now may make this page
-        // read-only: a refusal for the one it moved away from is not about it.
-        if (
-          (error as { status?: unknown }).status === 403 &&
-          generation === this.#connection.generation
-        ) {
-          this.#refused = true;
-          this.#showMode(target.folder);
-        }
-        this.#setSaved('failed', (error as Error).message);
-      }
-    });
+    const writing = this.#saveQueue.then(() => this.#write(target, sceneSource, svgSource));
     this.#saveQueue = writing;
-    await writing;
+    if (await writing && this.#saveQueue === writing) {
+      this.#setSaved('saved');
+    }
+  }
+
+  /**
+   * One write, to the Scene it was queued for. Its answer speaks for this page
+   * only: the destination has to be the Scene in hand now, or it is an old
+   * connection's answer and changes nothing — no `403` made read-only here, no
+   * words about a Scene the page has moved away from.
+   */
+  async #write(target: SaveTarget, sceneSource: string, svgSource: string): Promise<boolean> {
+    if (this.#refused || target.folder.readOnly) {
+      // A refusal, or write access that ended, stops the writes already queued
+      // behind it: a page that may only read does not ask again per edit.
+      return false;
+    }
+    try {
+      await target.folder.write(target.name, sceneSource, svgSource);
+      return true;
+    } catch (error) {
+      if (this.#target !== target) {
+        return false;
+      }
+      if ((error as { status?: unknown }).status === 403) {
+        // The server says this page may only read: it stops writing, and stops
+        // every edit, rather than trying again per change.
+        this.#refused = true;
+        this.#showMode(target.folder);
+      }
+      this.#setSaved('failed', (error as Error).message);
+      return false;
+    }
   }
 
   /** Toggle the dot Grid, as `G` does. */
@@ -712,7 +710,7 @@ export class EsbozoEditorElement extends HTMLElement {
 
   #load(scene: Scene, target: SaveTarget): void {
     this.#scene = scene;
-    this.#connection.target = target;
+    this.#target = target;
     this.#selected = [];
     this.#paintedFor = null;
     this.#history.reset(serialiseScene(scene));
@@ -1700,7 +1698,7 @@ export class EsbozoEditorElement extends HTMLElement {
     const name = normaliseSceneName(input.value);
     // Asked for by name, so it is a Scene now: Scene and SVG are written at
     // once, as the served and picked-folder editors always have.
-    void this.#openScene(name, this.#connection.generation, { create: true });
+    void this.#openScene(name, this.#generation, { create: true });
   };
 
   #onFileClick = (event: Event): void => {
