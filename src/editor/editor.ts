@@ -2834,8 +2834,15 @@ class EsbozoEditorElement extends HTMLElement {
       return;
     }
     if (drag.kind === 'label') {
+      // One threshold, and it is the click's own: a press that has not carried
+      // the pointer past the slop that separates a click from a drag has moved
+      // nothing, so it neither places the words nor costs the press its half of
+      // a double-click. A press that has is a drag, and pairs with nothing.
+      if (this.#press !== null) {
+        return;
+      }
       // The words follow the pointer by the hold they were taken by, so they do
-      // not jump to it. The place is the drawing's own, so what the frame shows
+      // not jump to it. The place is the Scene's own, so what the frame shows
       // is what the release saves.
       const anchor = { x: point.x - drag.grab.x, y: point.y - drag.grab.y };
       if (isShaft(drag.shown)) {
@@ -3206,6 +3213,15 @@ class EsbozoEditorElement extends HTMLElement {
         event.preventDefault();
         this.#palette.close();
       }
+      return;
+    }
+    if (event.key === 'Escape' && this.#drag !== null && this.#drag.kind === 'label') {
+      // Half a Label is not a Scene: Escape drops the words back to the place the
+      // Scene holds, and the release that follows settles nothing. It answers
+      // here, before the gesture that holds the Scene, because that guard is
+      // about edits — and an Escape is what keeps one from landing.
+      event.preventDefault();
+      this.#cancelDrag();
       return;
     }
     if (this.#gestureHoldsScene()) {

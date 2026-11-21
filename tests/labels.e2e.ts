@@ -2414,4 +2414,61 @@ describe('labels', () => {
     await browser.keyboard.press('Escape');
     expect((await shot(ui)).darkCount(under, DARK)).toBe(0);
   });
+  test("a nudge inside the click's own slop moves no Label, and the click still pairs", async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'labelled.json': LABELLED_SOURCE } }, 'labelled.json');
+    const before = await savedFiles(ui);
+
+    // A press on the words that carries the pointer two pixels: too little to be
+    // a drag, and little enough that the press is still a click.
+    const from = at({ x: 300, y: 139 }, LABELLED);
+    await browser.mouse.move(from.x, from.y);
+    await browser.mouse.down();
+    await browser.mouse.move(from.x + 2, from.y);
+    await browser.mouse.up();
+
+    // The next press in the same place pairs with it, and opens the words.
+    await browser.mouse.move(from.x, from.y);
+    await browser.mouse.down();
+    await browser.mouse.up();
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await expect(label).toHaveValue('moving');
+    await label.press('Escape');
+
+    // Nothing was placed: a press that never left the click's own slop is no drag,
+    // so the words are the Scene's own and the file is the file.
+    await settle(ui);
+    expect(await savedFiles(ui)).toEqual(before);
+  });
+  test('Escape drops a Label drag in flight instead of saving it on the release', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'labelled.json': LABELLED_SOURCE } }, 'labelled.json');
+    const before = await savedFiles(ui);
+
+    const from = at({ x: 300, y: 139 }, LABELLED);
+    await browser.mouse.move(from.x, from.y);
+    await browser.mouse.down();
+    await browser.mouse.move(from.x + 60, from.y - 20);
+    await settle(ui);
+    // Room the words reach only while they are where the pointer took them: the
+    // Scene's own place is behind them, and the selection's edges are outside.
+    const dragged: Rect = { x: 676, y: 360, width: 60, height: 30 };
+    expect((await shot(ui)).darkCount(dragged, DARK)).toBeGreaterThan(20);
+
+    // Escape is the person saying no: the words go back to the place the Scene
+    // holds, and the release that follows settles nothing.
+    await browser.keyboard.press('Escape');
+    await browser.mouse.up();
+    await settle(ui);
+    expect((await shot(ui)).darkCount(dragged, DARK)).toBe(0);
+    expect(await savedFiles(ui)).toEqual(before);
+  });
 });
