@@ -3538,20 +3538,6 @@ function unmeasured(): Layout {
 }
 
 /**
- * The async Clipboard API, when the page has one: a non-secure origin has none,
- * and the palette says to use the keys instead of offering a command that
- * cannot run. The cast keeps the check honest: the type says it is always there.
- */
-function clipboardApi(): Clipboard | null {
-  return (navigator as Navigator & { clipboard?: Clipboard }).clipboard ?? null;
-}
-
-/**
- * One Element's drawing as the group the page holds: the unit a move moves with
- * a transform, and the unit a redraw replaces. The Renderer writes the same
- * nodes into the saved SVG, so what the page shows is the file it saves.
- */
-/**
  * The caret as the page draws it: one hand-drawn line down the slot the next
  * letter goes in, in the same ink as the Elements around it. It wanders by
  * under a screen pixel either way, the way a drawn line does, and it is one
@@ -3576,6 +3562,20 @@ function caretLine(slot: Box): SVGPathElement {
   return node;
 }
 
+/**
+ * The async Clipboard API, when the page has one: a non-secure origin has none,
+ * and the palette says to use the keys instead of offering a command that
+ * cannot run. The cast keeps the check honest: the type says it is always there.
+ */
+function clipboardApi(): Clipboard | null {
+  return (navigator as Navigator & { clipboard?: Clipboard }).clipboard ?? null;
+}
+
+/**
+ * One Element's drawing as the group the page holds: the unit a move moves with
+ * a transform, and the unit a redraw replaces. The Renderer writes the same
+ * nodes into the saved SVG, so what the page shows is the file it saves.
+ */
 function groupOf(id: string, svg: string): SVGGElement {
   const group = document.createElementNS(SVG_NS, 'g');
   group.setAttribute('data-element', id);
