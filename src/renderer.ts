@@ -124,7 +124,7 @@ export function renderElement(
  * the drawings it already made assembles the same bytes from them.
  */
 export function sceneSvg(
-  canonical: Scene,
+  scene: Scene,
   hash: string,
   drawings: readonly ElementDrawing[],
 ): string {
@@ -135,7 +135,7 @@ export function sceneSvg(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${page.width}" height="${page.height}"` +
       ` viewBox="${page.x} ${page.y} ${page.width} ${page.height}"` +
       ` role="img" font-family="${FONT}" data-scene-hash="sha256:${hash}">`,
-    `<title>${escapeXml(canonical.title)}</title>`,
+    `<title>${escapeXml(scene.title)}</title>`,
     body,
     '</svg>',
     '',
@@ -153,7 +153,7 @@ export function pageBounds(scene: Scene, layout: Layout): Box {
 }
 
 /** The page a set of Element boxes occupies: the box around them, padded. */
-export function pageOfBounds(bounds: readonly Box[]): Box {
+function pageOfBounds(bounds: readonly Box[]): Box {
   if (bounds.length === 0) {
     return { x: 0, y: 0, ...EMPTY_PAGE };
   }
