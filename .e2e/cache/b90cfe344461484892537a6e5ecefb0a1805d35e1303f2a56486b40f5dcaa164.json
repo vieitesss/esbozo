@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-11-21T01:09:59.384Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "tapAt",
+        "summary": "tap the point (108, 765) on button \"Grid\"",
+        "point": {
+          "x": 108,
+          "y": 765
+        },
+        "viewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "within": {
+          "target": {
+            "role": "button",
+            "name": "Grid"
+          },
+          "fx": 0.3006,
+          "fy": 0.125
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/visual.e2e.ts::the%20dot%20Grid%20is%20there%2C%20a%20person%20turns%20it%20off%2C%20and%20the%20canvas%20goes%20plain",
+      "targetId": "web",
+      "instructionDigest": "43ae6e88b8eb4d10b5ff3a2f7a0ef65ebc34b154f5a1889fdbff283e9f8d4fb0",
+      "paramsDigest": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "callIndex": 0,
+      "agent": "default"
+    },
+    "recordedBy": {
+      "provider": "opencode.go",
+      "model": "muse-spark-1.3-contributor"
+    },
+    "summary": "Tapped Grid button in status bar (n20). Button changed from pressed to unpressed and screenshot confirms dot grid covering canvas is gone, leaving plain canvas with the two drawings still visible.",
+    "startPath": "/editor.html",
+    "endPath": "/editor.html",
+    "endAnchors": [
+      {
+        "role": "button",
+        "name": "Grid"
+      }
+    ],
+    "goneAnchors": [
+      {
+        "role": "button",
+        "name": "Grid",
+        "states": [
+          "pressed"
+        ]
+      }
+    ],
+    "endWaitMs": 16023,
+    "keyedBy": {
+      "cacheSchema": "trace-1",
+      "policyVersion": "conservative/6",
+      "project": "51ed6003a0e653ac9b8f9a68cd08cb9371597c33caa4dddfbcf2b792772cd8df",
+      "platform": "web",
+      "engineName": "web",
+      "engineSpiVersion": 1,
+      "appIdentity": "f9f49ed79c2662c7f6e0522da33af26cd0588919fce8b674530ba7c83e5d217c",
+      "agentContextDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  }
+}
