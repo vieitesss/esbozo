@@ -26,7 +26,7 @@
  *       "stroke": { "width": "bold", "style": "solid" },
  *       "fill": { "kind": "hachure", "grey": 2 },   // kind: none | solid | hachure | cross-hatch
  *       "tone": "ink",                              // ink | muted
- *       "corners": "sharp",                         // sharp | round: rectangles and diamonds
+ *       "corners": "sharp",                         // sharp | round: outlines and bend points
  *       "fontSize": "M",                            // S | M | L | XL
  *       "label": "Orders and invoices"              // optional: wraps inside the box
  *     },
@@ -203,7 +203,11 @@ export interface ElementStyle {
   stroke: Stroke;
   fill: Fill;
   tone: Tone;
-  /** Rounds a rectangle's or a diamond's vertices; an ellipse has none to round. */
+  /**
+   * Rounds a rectangle's or a diamond's vertices, and is the corner an arrow's
+   * or line's bend point turns by unless the point writes its own; an ellipse
+   * has none to round.
+   */
   corners: Corners;
   /** Font size of a Text or a Label. */
   fontSize: FontSize;

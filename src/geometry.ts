@@ -553,12 +553,6 @@ function piecesOf(nodes: readonly CorneredPoint[]): ShaftPiece[] {
     }
     const before = softened(nodes[index - 1]!.point, node.point);
     const after = softened(nodes[index + 1]!.point, node.point);
-    if (before === null || after === null) {
-      // Too short to soften — a doubled-back or zero-length leg — so the shaft
-      // turns on the point itself rather than inverting the fillet around it.
-      run.push(node.point);
-      continue;
-    }
     run.push(before);
     appendRun(pieces, run);
     pieces.push(
@@ -613,14 +607,15 @@ function curve(from: Point, control1: Point, control2: Point, to: Point): ShaftP
   return { ...piece, length: curveLength(piece) };
 }
 
-/** The point `FILLET_RADIUS` back from a `sharp` vertex, or null when the leg leaves no room. */
-function softened(neighbour: Point, vertex: Point): Point | null {
+/**
+ * The point the fillet leaves a `sharp` vertex at: `FILLET_RADIUS` back along the
+ * leg, and never past its middle, so two legs of a tight corner cannot cross
+ * each other and invert the arc. `gathered` dropped repeated points, so the leg
+ * always has a length to take a share of.
+ */
+function softened(neighbour: Point, vertex: Point): Point {
   const length = Math.hypot(vertex.x - neighbour.x, vertex.y - neighbour.y);
-  if (length === 0) {
-    return null;
-  }
-  const reach = Math.min(FILLET_RADIUS, length / 2);
-  return lerp(vertex, neighbour, reach / length);
+  return lerp(vertex, neighbour, Math.min(FILLET_RADIUS, length / 2) / length);
 }
 
 /** `fraction` of the way from `from` to `to`. */
@@ -644,18 +639,12 @@ function samePoint(left: Point | undefined, right: Point): boolean {
  */
 function shaftPointAt(path: ShaftPath, t: number): Point {
   const found = placeOn(path, t);
-  if (found === null) {
-    return { ...path.start };
-  }
   return pointOf(found.piece, found.u);
 }
 
 /** The unit direction the shaft points in at a fraction of the way along it. */
 export function shaftTangentAt(path: ShaftPath, t: number): Point {
   const found = placeOn(path, t);
-  if (found === null) {
-    return { x: 1, y: 0 };
-  }
   const piece = found.piece;
   if (piece.control1 === undefined || piece.control2 === undefined) {
     return unit(piece.from, piece.to);
@@ -664,17 +653,15 @@ export function shaftTangentAt(path: ShaftPath, t: number): Point {
 }
 
 /** A piece and how far along it a fraction of the shaft lands. */
-function placeOn(path: ShaftPath, t: number): { piece: ShaftPiece; u: number } | null {
-  const wanted = Math.min(1, Math.max(0, t)) * path.length;
-  let remained = wanted;
+function placeOn(path: ShaftPath, t: number): { piece: ShaftPiece; u: number } {
+  let remained = Math.min(1, Math.max(0, t)) * path.length;
   for (const [index, piece] of path.pieces.entries()) {
-    const last = index === path.pieces.length - 1;
-    if (remained <= piece.length || last) {
+    if (remained <= piece.length || index === path.pieces.length - 1) {
       return { piece, u: uAt(piece, remained) };
     }
     remained -= piece.length;
   }
-  return null;
+  return { piece: path.pieces[0]!, u: 0 };
 }
 
 /** How far along a piece, as its own parameter, a distance from its start lands. */

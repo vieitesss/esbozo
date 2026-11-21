@@ -52,13 +52,17 @@ Every Element has these keys.
 | `points` | array of two or more points | none, required | The first and last are the ends; every point between them is a bend point. |
 | `heads` | object | arrow: `{ "start": "none", "end": "arrow" }`; line: both `none` | Keys `start` and `end` only, each `none`, `arrow`, `dot` or `bar`. A missing key takes the default. |
 | `label` | string | none | As above. It does not wrap: it breaks only at `\n`. Without `labelAt` it is centred on the middle of the shaft, on the side that points up (left of a vertical shaft); `textAlign` does not apply to it. Every arrow's or line's Label has paper behind it. `ez check` does not measure it. |
-| `labelAt` | object | none: Layout's own place | Keys `t` and `offset` only. `t` is the fraction along the drawn shaft: `0` at the start, `1` at the end, between `0` and `1`. `offset` is a signed distance in pixels to one side, rounded to whole pixels: `0` sits on the shaft, and a positive value is the side the default Label takes, which is the side that points up (the left of a vertical shaft). Only an arrow or line carries one. |
+| `labelAt` | object | none: Layout's own place | Keys `t` and `offset` only. `t` is the fraction of the drawn shaft's length: `0` at the start, `1` at the end, between `0` and `1`. `offset` is a signed distance in pixels to one side, rounded to whole pixels: `0` sits on the shaft, and a positive value is the side the default Label takes, which is the side that points up (the left of a vertical shaft). Only an arrow or line carries one. |
 
 A Label with `labelAt` is centred on the point that fraction of the way along the
-shaft the Renderer draws, then moved `offset` pixels to that side. It follows the
-ends a Snap moves, so it stays where the author put it on the arrow as its
-targets move. A Scene that writes no `labelAt` places the Label where Layout
-always has: centred above the middle of the shaft.
+ink the Renderer draws — measured along the shaft, not across the gap between its
+ends, so `0.5` is the true middle of a bent or curved shaft — then moved `offset`
+pixels to the side of the shaft the curve is on there. It follows the ends a Snap
+moves, so it stays where the author put it on the arrow as its targets move. A
+Scene that writes no `labelAt` places the Label where Layout always has: centred
+above the middle of the line between the two ends, which is the middle of the
+shaft for a two-point arrow or line. Place the words with `labelAt` on a bent
+one.
 
 Every shaft Label sits on paper: the Renderer draws `var(--paper)` behind its
 words, so a Label placed over its own shaft — or over anything else — is read
@@ -123,4 +127,4 @@ Colours are never written in a Scene. The look comes from the host's CSS variabl
 
 A Label wraps at spaces inside the largest centred box its Element holds, less padding. The box is the whole Element for a rectangle, `1/√2` of each side for an ellipse and half of each side for a diamond, minus `8` pixels plus the stroke width on every side. A word wider than the box is not split. What does not fit overflows: the SVG still draws it, and `ez check` reports it and exits `6`. The Scene keeps the size you gave the Element; widen or heighten it, or shorten the words.
 
-A Label that belongs to an arrow or line has no box to wrap in and no overflow to report: it sits on the shaft, where `labelAt` puts it or above the middle when the Scene writes none, and the Renderer draws paper behind it so it never reads through the shaft.
+A Label that belongs to an arrow or line has no box to wrap in and no overflow to report: it sits on the shaft, where `labelAt` puts it or above the middle of the line between the ends when the Scene writes none, and the Renderer draws paper behind it so it never reads through the shaft.

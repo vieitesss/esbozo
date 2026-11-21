@@ -451,3 +451,77 @@ test('an arrow head follows the curve it arrives on, not the line between the en
   assert.ok(near(middle.x, 100, 1), `the base centres under the apex, got ${middle.x}`);
   assert.ok(near(middle.y, 87, 1.5), `the base sits one head length back, got ${middle.y}`);
 });
+
+/** The paper a shaft's Label sits on, read from the written SVG. */
+function paperOf(svg: string): Box {
+  const tag = tags(svg, 'rect').find((candidate) => attribute(candidate, 'fill') === 'var(--paper)');
+  assert.ok(tag !== undefined, 'the Label paints paper behind its words');
+  return {
+    x: Number(attribute(tag, 'x')),
+    y: Number(attribute(tag, 'y')),
+    width: Number(attribute(tag, 'width')),
+    height: Number(attribute(tag, 'height')),
+  };
+}
+
+/** Where the words of a Label sit: the middle of the paper behind them. */
+function wordsCentre(svg: string): Point {
+  const paper = paperOf(svg);
+  return { x: paper.x + paper.width / 2, y: paper.y + paper.height / 2 };
+}
+
+test('labelAt places a shaft Label by arc length along the curve', async () => {
+  const svg = await ink(
+    oneArrow(
+      [
+        { x: 0, y: 0 },
+        { x: 100, y: 150, corner: 'round' },
+        { x: 200, y: 0 },
+      ],
+      { label: 'middle', labelAt: { t: 0.5, offset: 0 } },
+    ),
+  );
+
+  // The middle of this curve is its bend, at (100,150). The middle of the line
+  // between the two ends is (100,0), so this is the arc length, not the chord.
+  const centre = wordsCentre(svg);
+  assert.ok(near(centre.x, 100, 1), `the words sit on the bend, got x ${centre.x}`);
+  assert.ok(near(centre.y, 150, 1.5), `the words sit on the ink, got y ${centre.y}`);
+});
+
+test('labelAt offsets along the side the curve is on at that fraction', async () => {
+  const svg = await ink(
+    oneArrow(
+      [
+        { x: 0, y: 0 },
+        { x: 100, y: 150, corner: 'round' },
+        { x: 200, y: 0 },
+      ],
+      { label: 'middle', labelAt: { t: 0.5, offset: 12 } },
+    ),
+  );
+
+  // The curve is level where it passes the bend, so the upper side is up.
+  const centre = wordsCentre(svg);
+  assert.ok(near(centre.x, 100, 1), `the words stay on the bend, got x ${centre.x}`);
+  assert.ok(near(centre.y, 138, 1.5), `the words move up by the offset, got y ${centre.y}`);
+});
+
+test('labelAt measures a cornered shaft along its legs, corner included', async () => {
+  const svg = await ink(
+    oneArrow(
+      [
+        { x: 0, y: 0 },
+        { x: 100, y: 0 },
+        { x: 100, y: 100 },
+      ],
+      { label: 'middle', labelAt: { t: 0.5, offset: 0 } },
+    ),
+  );
+
+  // Two legs of 100px each: the middle of the ink is the corner, and the middle
+  // of the line between the ends is (50,50), where no ink runs.
+  const centre = wordsCentre(svg);
+  assert.ok(Math.hypot(centre.x - 100, centre.y) < 4, `the words sit on the corner, got ${centre.x},${centre.y}`);
+  assert.ok(Math.hypot(centre.x - 50, centre.y - 50) > 40, 'the words left the chord behind');
+});
