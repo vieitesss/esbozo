@@ -111,4 +111,4 @@ Every other path is a page file: `GET /` and `/editor.html`, `/editor.css`, `/ed
 
 ## Security
 
-There is no authentication. The server listens on `127.0.0.1`, so only this machine reaches it; the Content-Type rule stops a web page you visit from writing to the folder through your browser, and the name rules keep every read and write inside the folder. Pass `--host` only for a network you trust, and add `--read-only` when the folder should not change. In the container the image passes `--host 0.0.0.0` itself, so the exposure is the publish side of `docker run`: see [docker.md](docker.md).
+There is no authentication. The server listens on `127.0.0.1`, so only this machine reaches it; the Content-Type rule stops a web page you visit from writing to the folder through your browser, and the name rules keep every read and write inside the folder. Pass `--host` only for a network you trust, and add `--read-only` when the folder should not change. The image changes what "this machine" means: [docker.md](docker.md#where-the-folder-is-reachable) covers who reaches it there.
