@@ -82,9 +82,12 @@ function snapSignature(elements: readonly Element[]): string {
   return JSON.stringify(ENDS.map((end) => endPoint(first, end).snap ?? null));
 }
 
-/** The status bar's Scene-wide default, in the hand: `rough · artist`. */
+/**
+ * The status bar's Scene-wide default, in the hand: `rough` for the label and the
+ * value in ink, so the word the button cycles reads as the answer, not more copy.
+ */
 export function roughnessNote(roughness: number): string {
-  return `rough · ${roughnessLabel(roughness)}`;
+  return `rough <b>${roughnessLabel(roughness)}</b>`;
 }
 
 function styleRows(elements: readonly Element[]): string {

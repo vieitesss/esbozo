@@ -1378,7 +1378,7 @@ class EsbozoEditorElement extends HTMLElement {
   }
 
   #showDefaultRoughness(): void {
-    this.#roughButton.textContent = roughnessNote(this.#scene.defaults.roughness);
+    this.#roughButton.innerHTML = roughnessNote(this.#scene.defaults.roughness);
   }
 
   #onMenuClick = (event: Event): void => {

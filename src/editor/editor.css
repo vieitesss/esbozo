@@ -393,6 +393,9 @@ esbozo-editor .status button {
 esbozo-editor .status button:hover { color: var(--ink); border-bottom-color: var(--line-strong); }
 esbozo-editor .status button[aria-pressed="true"] { color: var(--ink); border-bottom-color: var(--line-strong); }
 esbozo-editor .status .zoom { font-family: var(--font-mono); font-size: 10px; color: var(--muted); }
+
+/* the roughness the next Element takes: the label quiet, the value in ink */
+esbozo-editor .status [data-act="roughness"] b { font-weight: 400; color: var(--ink); }
 esbozo-editor .status .where {
   font-family: var(--font-mono);
   font-size: 9.5px;

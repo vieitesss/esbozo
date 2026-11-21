@@ -1474,8 +1474,8 @@ test('the status bar sets the Scene default roughness, and only new Elements tak
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
 
-  await ui.screen.getByRole('button', 'rough · artist').click();
-  await expect(ui.screen.getByRole('button', 'rough · cartoonist')).toBeVisible();
+  await ui.screen.getByRole('button', 'rough artist').click();
+  await expect(ui.screen.getByRole('button', 'rough cartoonist')).toBeVisible();
 
   const scene = await savedScene(ui);
   expect(scene.defaults?.roughness).toBe(2);
@@ -1495,15 +1495,32 @@ test('a style pick is one undo step', async ({ app, browser, screen }) => {
   expect((await savedScene(ui)).elements[0]?.roughness).toBe(1);
 });
 
+test('the roughness label stays quiet and the value is in ink', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await ui.browser.setViewport({ width: 1366, height: 768 });
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+  await expect(ui.screen.getByRole('button', 'rough artist')).toBeVisible();
+
+  // The bottom left corner, one line of what the view is doing: Grid — pressed,
+  // so in ink too — then `rough artist`. The label is the page's quiet grey and
+  // the value is the near black of the ink, so a threshold between the two counts
+  // the word that answers and nothing of the word that asks.
+  const LABEL: Rect = { x: 50, y: 730, width: 34, height: 20 };
+  const VALUE: Rect = { x: 84, y: 730, width: 34, height: 20 };
+  const page = await shot(ui);
+  expect(page.darkCount(LABEL, 0.3)).toBe(0);
+  expect(page.darkCount(VALUE, 0.3)).toBeGreaterThan(0);
+});
+
 test('undoing the Scene default roughness puts the status bar back', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
 
-  await ui.screen.getByRole('button', 'rough · artist').click();
-  await expect(ui.screen.getByRole('button', 'rough · cartoonist')).toBeVisible();
+  await ui.screen.getByRole('button', 'rough artist').click();
+  await expect(ui.screen.getByRole('button', 'rough cartoonist')).toBeVisible();
 
   await ui.browser.keyboard.press('Meta+z');
-  await expect(ui.screen.getByRole('button', 'rough · artist')).toBeVisible();
+  await expect(ui.screen.getByRole('button', 'rough artist')).toBeVisible();
   expect((await savedScene(ui)).defaults?.roughness).toBe(1);
 });
 
@@ -1523,7 +1540,7 @@ test('the status line keeps the Scene top left, the view bottom left and no mode
     ui.screen.getByText('A / scene.json'),
     ui.screen.getByRole('status'),
     ui.screen.getByRole('button', 'Grid'),
-    ui.screen.getByRole('button', 'rough · artist'),
+    ui.screen.getByRole('button', 'rough artist'),
     ui.screen.getByText(/^\d+%$/),
   ]) {
     await expect(drawn).toBeVisible();
