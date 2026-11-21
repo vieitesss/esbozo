@@ -23,10 +23,13 @@ import { expect } from 'e2e';
 import {
   BROKEN_SCENE,
   EDGE,
+  EDGE_1366,
   EDGE_SCENE,
   MIXED,
   MIXED_SCENE,
   SCENE,
+  WIDE_1366,
+  WIDE_SCENE,
   at,
   clickScene,
   drag,
@@ -41,6 +44,7 @@ const PAPER = { x: 420, y: 40 };
 const MIXED_SOURCE = JSON.stringify(MIXED_SCENE, null, 2);
 const BROKEN_SOURCE = JSON.stringify(BROKEN_SCENE, null, 2);
 const EDGE_SOURCE = JSON.stringify(EDGE_SCENE, null, 2);
+const WIDE_SOURCE = JSON.stringify(WIDE_SCENE, null, 2);
 
 test('a Scene that will not parse is reported, naming the box-a width problem', async ({ agent, app, browser, screen }) => {
   const ui = { agent, app, browser, screen };
@@ -213,12 +217,39 @@ test('the Style menu is a note taped to the right edge, and it leaves the select
     { vision: 'only' },
   );
 
-  await ui.screen.getByRole('group', 'Rough').getByRole('button', 'cartoonist').click();
-  await ui.screen.getByRole('group', 'Fill').getByRole('button', 'solid').click();
-  await ui.screen.getByRole('group', 'Grey').getByRole('button', 'grey 6').click();
+  await ui.screen.getByRole('button', { name: 'Rough: cartoonist' }).click();
+  await ui.screen.getByRole('button', { name: 'Fill: solid' }).click();
+  await ui.screen.getByRole('button', { name: 'Grey: grey 6' }).click();
 
   await ui.agent.assert(
     'the selected rectangle is filled flat solid near-black ink, with no hatch lines inside it, and its outline is a wandering hand-drawn line rather than a ruler-straight one',
+    { vision: 'only' },
+  );
+});
+
+test('the Style menu fits a 1366×768 window beside the selection', async ({ agent, app, browser, screen }) => {
+  const ui = { agent, app, browser, screen };
+  await ui.browser.setViewport({ width: 1366, height: 768 });
+  await openEditor(ui, { A: { 'edge.json': EDGE_SOURCE } }, 'edge.json');
+
+  await clickScene(ui, { x: 80, y: 70 }, [], EDGE_1366);
+
+  await ui.agent.assert(
+    'a pale paper note held by a strip of tape sits against the right edge of the window, and its whole shape is inside the window: there is painted page above it, below it and to its left, and no edge of the note is cut off by the window',
+    { vision: 'only' },
+  );
+});
+
+test('a selection too wide to pan clear of the note is zoomed out to fit beside it', async ({ agent, app, browser, screen }) => {
+  const ui = { agent, app, browser, screen };
+  await ui.browser.setViewport({ width: 1366, height: 768 });
+  await openEditor(ui, { A: { 'wide.json': WIDE_SOURCE } }, 'wide.json');
+
+  // A bar wider than everything left of the note: panning cannot clear it.
+  await clickScene(ui, { x: 200, y: 80 }, [], WIDE_1366);
+
+  await ui.agent.assert(
+    'one wide dark filled bar lies across the canvas and its right end stops clear of the pale paper note at the right edge: no part of the bar is hidden behind the note, and the bar is whole rather than cut off by the left side of the window',
     { vision: 'only' },
   );
 });
