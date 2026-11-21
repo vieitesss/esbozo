@@ -21,8 +21,9 @@ Judgement-call rules for code and tests. Mechanical checks (lint, unused exports
 ## Invariants and boundaries
 
 - **Single owner:** schema choices and ranges, canonical geometry, font loading, save target (`{ folder, name }`), and filename rules each have one owner; import it rather than duplicating or shadowing it.
+- **One canonical rendered geometry:** paint, bounds, Snap resolution, hit-testing, drag projection, and caret placement all consume `Renderer`'s canonical geometry (including glyph overhang and drawn strokes) — never raw Elements or Editor-side approximations.
 - **Fail loudly:** return `null` only for expected absence (such as HTTP 404); surface malformed input, invalid Snaps, and I/O errors directly rather than falling back silently.
-- **One adversarial test per contract:** probe a failure or edge boundary for each contract — mutated Scenes, overlapping or zero-size geometry, XML control characters, 404 assets, concurrent paired writes, encoded dot segments, and cross-origin writes.
+- **One red adversarial test per contract:** prove each contract or regression test goes **red** when the guarded behaviour is removed (using contrasting backgrounds/ink, visible UI states, and fixture-derived expectations rather than self-referential helpers), probing mutated Scenes, overlapping or zero-size geometry, XML control characters, 404 assets, concurrent paired writes, encoded dot segments, and cross-origin writes.
 
 ## Async & gesture lifecycle
 

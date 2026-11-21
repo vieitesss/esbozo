@@ -212,6 +212,38 @@ const ALIGNED_SHAFT_SOURCE = JSON.stringify(
 const ALIGNED_SHAFT: View = { zoom: 1, panX: 340, panY: 191 };
 
 /**
+ * A two-line shaft Label the Scene places itself: `t: 0.8` along a shaft that
+ * runs right to left puts its middle at Scene (180, 239), well left of where
+ * Layout first placed it. The lines are at Scene y 210 and 239, so the second
+ * one, `second line`, is pressed at Scene (180, 253).
+ */
+const PLACED_SHAFT_SOURCE = JSON.stringify(
+  {
+    version: 1,
+    title: 'Placed shaft',
+    defaults: { roughness: 1 },
+    elements: [
+      {
+        id: 'shaft',
+        type: 'arrow',
+        points: [
+          { x: 500, y: 300 },
+          { x: 100, y: 300 },
+        ],
+        heads: { start: 'none', end: 'arrow' },
+        label: 'first line\nsecond line',
+        labelAt: { t: 0.8, offset: 61 },
+      },
+    ],
+  },
+  null,
+  2,
+);
+
+/** The view `PLACED_SHAFT_SOURCE` lands in: the page fitted with an 80px margin, 1:1. */
+const PLACED_SHAFT: View = { zoom: 1, panX: 340, panY: 145 };
+
+/**
  * Room on the page for the Label at any alignment and size: above the shaft's
  * own ink, and left of the head that ends it.
  */
@@ -1724,6 +1756,29 @@ describe('labels', () => {
     // The letter lands at the end of the first drawn line, before the space the
     // wrap broke on — not a letter back inside the last word.
     expect((await savedScene(ui)).elements[0]?.label).toBe('waxwaxwaxX waxwaxwax');
+  });
+
+  test('End on a placed two-line Label stands at the end of its second line', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'shaft.json': PLACED_SHAFT_SOURCE } }, 'shaft.json');
+
+    // A press on the second line, then End: the caret ends where that line does,
+    // and the letter typed there lands on it. What a Line draws is where the
+    // glyphs went; the offsets beside them are offsets into the words, so
+    // translating the words for `labelAt` must not move them too.
+    await doubleClickScene(ui, { x: 180, y: 253 }, PLACED_SHAFT);
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.press('End');
+    await label.pressSequentially('X');
+    await label.press('Escape');
+
+    expect((await savedScene(ui, 'shaft.json')).elements[0]?.label).toBe(
+      'first line\nsecond lineX',
+    );
   });
 
   test('a drag right to left selects the words it crosses, and a letter replaces them', async ({
