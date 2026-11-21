@@ -329,6 +329,7 @@ export interface SavedElement {
   fill?: { kind: string; grey: number };
   stroke?: { width: string; style: string };
   tone?: string;
+  roughness?: number;
 }
 
 export interface SavedScene {

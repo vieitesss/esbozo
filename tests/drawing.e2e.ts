@@ -128,6 +128,40 @@ describe('drawing', () => {
     ]);
   });
 
+  test('a drawn Element takes the Scene defaults of roughness and fill, not the editor latest look', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    // An empty Scene: the page is the empty page, so the view is known here.
+    const ROUGH_SCENE = {
+      version: 1,
+      title: 'Rough',
+      defaults: { roughness: 0, fill: { kind: 'none' } },
+      elements: [],
+    };
+    await openEditor(
+      ui,
+      { A: { 'rough.json': JSON.stringify(ROUGH_SCENE, null, 2) } },
+      'rough.json',
+    );
+    const EMPTY = { zoom: 1, panX: 480, panY: 280 };
+
+    await browser.keyboard.press('d');
+    await drag(ui, at({ x: 40, y: 40 }, EMPTY), at({ x: 160, y: 120 }, EMPTY));
+
+    const scene = await savedScene(ui, 'rough.json');
+    const drawn = scene.elements[0];
+    expect({
+      type: drawn?.type,
+      x: drawn?.x,
+      y: drawn?.y,
+      roughness: drawn?.roughness,
+      fill: drawn?.fill,
+    }).toEqual({ type: 'diamond', x: 40, y: 40, roughness: 0, fill: { kind: 'none', grey: 2 } });
+  });
+
   test('a plain click with a box tool draws a default box, and with a stroke tool draws nothing', async ({
     app,
     browser,
