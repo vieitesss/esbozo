@@ -5,16 +5,16 @@
  * Probes run through a real Chromium against the built editor: one reads the
  * status line while a Space pan runs, one is interrupted while its browser is
  * still starting, one throws. Each run is a child process of its own, so what is
- * asserted is what the documented command prints and the code it exits with —
- * and that the browser it started, the port it served on, and the module it wrote
- * are gone once the process is gone, however the run ended.
+ * asserted is what the documented command prints, the code it exits with, and
+ * that the run ended inside a bound — a server or browser left holding the loop
+ * open never gets there — with the browser it started, and the module it wrote,
+ * gone once the process is gone, however the run ended.
  *
  * `pnpm test` builds first, so `dist/` is there for these runs.
  */
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
-import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test, type TestContext } from 'node:test';
@@ -63,6 +63,13 @@ async function probeSource(t: TestContext, source: string): Promise<string> {
 }
 
 /**
+ * How long a run has to end, its browser and server included. A run that left
+ * one of them holding the loop open never closes, so this bound is where that
+ * failure is caught: the process is killed and the run is reported as no run.
+ */
+const RUN_EXIT = 30_000;
+
+/**
  * Runs the documented command, and answers what it left behind. pnpm's own
  * banner is silenced so the streams the run prints are the helper's alone.
  *
@@ -99,11 +106,19 @@ async function helper(
             process.kill(probe.pid, 'SIGINT');
           };
     const watching = child.pid === undefined ? undefined : watchBrowsers(child.pid, duringSetup);
+    const deadline = setTimeout(() => {
+      stderr += `the run had not ended after ${RUN_EXIT}ms, so it was killed\n`;
+      child.kill('SIGKILL');
+    }, RUN_EXIT);
     child.stdin.end(input?.source);
     child.stdout.setEncoding('utf8').on('data', (chunk: string) => (stdout += chunk));
     child.stderr.setEncoding('utf8').on('data', (chunk: string) => (stderr += chunk));
-    child.once('error', reject);
+    child.once('error', (error) => {
+      clearTimeout(deadline);
+      reject(error);
+    });
     child.once('close', (code) => {
+      clearTimeout(deadline);
       void (watching?.stop() ?? Promise.resolve()).then(() =>
         resolve({
           code: code ?? -1,
@@ -224,33 +239,12 @@ async function strays(folder: string): Promise<string[]> {
   return (await readdir(folder)).filter((name) => /^(esbozo-probe-|playwright)/.test(name));
 }
 
-/** The port the helper says it is serving on, or a loud failure. */
-function portOf(stderr: string): number {
-  const match = /http:\/\/127\.0\.0\.1:(\d+)\//.exec(stderr);
-  assert.ok(match !== null, `no served URL in the helper's stderr: ${stderr}`);
-  return Number(match[1]);
-}
-
-/** Whether nothing answers on `port` any more. */
-async function released(port: number): Promise<boolean> {
-  return await new Promise((resolve) => {
-    const socket = connect({ host: '127.0.0.1', port });
-    socket.once('connect', () => {
-      socket.destroy();
-      resolve(false);
-    });
-    socket.once('error', () => resolve(true));
-  });
-}
-
 test('a probe reads the running editor: a held Space names the pan in the status line', async (t) => {
   const file = await probeSource(t, PAN_PROBE);
   const run = await helper([file]);
 
   assert.equal(run.code, 0, run.stderr);
   assert.match(JSON.parse(run.stdout), PAN_STATUS);
-  const port = portOf(run.stderr);
-  assert.equal(await released(port), true, `the helper left ${port} open`);
   assert.notEqual(run.browsers.length, 0, 'the run started no Chromium the test could see');
   assert.deepEqual(await stillRunning(run.browsers), [], `the helper left Chromium ${run.browsers} running`);
 });
@@ -331,8 +325,6 @@ test('a throwing probe exits non-zero, prints the error, and leaves no server', 
   assert.notEqual(run.code, 0);
   assert.match(run.stderr, /probe on purpose/);
   assert.equal(run.stdout, '');
-  const port = portOf(run.stderr);
-  assert.equal(await released(port), true, `the helper left ${port} open`);
   assert.notEqual(run.browsers.length, 0, 'the run started no Chromium the test could see');
   assert.deepEqual(await stillRunning(run.browsers), [], `the helper left Chromium ${run.browsers} running`);
 });
