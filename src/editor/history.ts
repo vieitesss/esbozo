@@ -7,15 +7,33 @@
  * newest step with `amend`, because holding an arrow key would otherwise fill
  * the history a pixel at a time.
  */
+/** How many steps the history keeps. */
 const LIMIT = 200;
+
+/**
+ * What the whole history may cost, in UTF-8 bytes, so 200 Scenes of any size
+ * cannot hold the tab's memory. 4 MiB is a few hundred ordinary Scenes: a
+ * session that reaches it loses its oldest undo, not its newest.
+ */
+const BYTE_BUDGET = 4 * 1024 * 1024;
+
+const ENCODER = new TextEncoder();
+
+function bytesOf(source: string): number {
+  return ENCODER.encode(source).length;
+}
 
 export class History {
   #past: string[] = [];
   #future: string[] = [];
   #present: string;
+  #pastBytes = 0;
+  #futureBytes = 0;
+  #presentBytes: number;
 
   constructor(present: string) {
     this.#present = present;
+    this.#presentBytes = bytesOf(present);
   }
 
   /**
@@ -27,11 +45,11 @@ export class History {
       return false;
     }
     this.#past.push(this.#present);
-    if (this.#past.length > LIMIT) {
-      this.#past.shift();
-    }
-    this.#present = after;
+    this.#pastBytes += this.#presentBytes;
+    this.#setPresent(after);
     this.#future = [];
+    this.#futureBytes = 0;
+    this.#trim();
     return true;
   }
 
@@ -43,8 +61,10 @@ export class History {
     if (this.#past.length === 0) {
       return this.record(after);
     }
-    this.#present = after;
+    this.#setPresent(after);
     this.#future = [];
+    this.#futureBytes = 0;
+    this.#trim();
     return true;
   }
 
@@ -54,8 +74,10 @@ export class History {
     if (previous === undefined) {
       return null;
     }
+    this.#pastBytes -= bytesOf(previous);
     this.#future.push(this.#present);
-    this.#present = previous;
+    this.#futureBytes += this.#presentBytes;
+    this.#setPresent(previous);
     return previous;
   }
 
@@ -65,8 +87,11 @@ export class History {
     if (next === undefined) {
       return null;
     }
+    this.#futureBytes -= bytesOf(next);
     this.#past.push(this.#present);
-    this.#present = next;
+    this.#pastBytes += this.#presentBytes;
+    this.#setPresent(next);
+    this.#trim();
     return next;
   }
 
@@ -74,6 +99,27 @@ export class History {
   reset(present: string): void {
     this.#past = [];
     this.#future = [];
-    this.#present = present;
+    this.#pastBytes = 0;
+    this.#futureBytes = 0;
+    this.#setPresent(present);
+  }
+
+  #setPresent(source: string): void {
+    this.#present = source;
+    this.#presentBytes = bytesOf(source);
+  }
+
+  /** The oldest steps go first: a long session keeps the undo it is about to need. */
+  #trim(): void {
+    while (
+      this.#past.length > LIMIT ||
+      this.#pastBytes + this.#futureBytes + this.#presentBytes > BYTE_BUDGET
+    ) {
+      const dropped = this.#past.shift();
+      if (dropped === undefined) {
+        return;
+      }
+      this.#pastBytes -= bytesOf(dropped);
+    }
   }
 }
