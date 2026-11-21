@@ -466,6 +466,14 @@ export function toScene(view: View, screenX: number, screenY: number): Point {
 }
 
 /**
+ * A Scene point, in the pixels the page draws in: the inverse of `toScene`, and
+ * the one mapping every screen-space drawing and measurement goes through.
+ */
+export function toScreen(view: View, point: Point): Point {
+  return { x: point.x * view.zoom + view.panX, y: point.y * view.zoom + view.panY };
+}
+
+/**
  * How far to move a fragment so a paste lands where a person can see it: the
  * usual nudge when the box it would place is on the page, or the middle of the
  * view when it would not be, so a copy of a Scene point far off the page — or of
@@ -583,9 +591,10 @@ export function clearedView(view: View, room: Clearance): View {
     return view;
   }
   const shown = footprintOf(selection, view);
+  const corner = toScreen(view, shown);
   const box: Box = {
-    x: shown.x * view.zoom + view.panX,
-    y: shown.y * view.zoom + view.panY,
+    x: corner.x,
+    y: corner.y,
     width: shown.width * view.zoom,
     height: shown.height * view.zoom,
   };

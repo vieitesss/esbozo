@@ -55,7 +55,7 @@ interface ConnectionHost {
   /** A connection has a Scene to start on: its defaults, a fitted view, one frame. */
   start(): void;
   /** Say what this page may do with the Scene in hand, and drop what it may not. */
-  mode(folder: SceneFolder): void;
+  mode(readOnly: boolean): void;
   /** A measurement arrived: every drawing keyed on the last one is stale. */
   measure(): void;
   /** The status line's word for what the writes are doing. */
@@ -187,11 +187,6 @@ export class Connection {
   /** True when the page is served by `ez serve`, so its folder needs no picker. */
   get served(): boolean {
     return this.#served;
-  }
-
-  /** True once a save was refused with `403`: nothing here writes any more. */
-  get refused(): boolean {
-    return this.#refused;
   }
 
   /**
@@ -418,6 +413,9 @@ export class Connection {
     this.#served = true;
     this.#browsed = folder;
     this.#host.served(folder);
+    // The folder's own read-only and a refusal earned before this join are the
+    // one answer to what the page may do, and the page is told it once.
+    this.#host.mode(folder.readOnly || this.#refused);
     let names: string[];
     try {
       names = await folder.listScenes();
@@ -476,7 +474,7 @@ export class Connection {
         // The server says this page may only read: it stops writing, and stops
         // every edit, rather than trying again per change.
         this.#refused = true;
-        this.#host.mode(target.folder);
+        this.#host.mode(true);
       }
       this.#host.status('failed', (error as Error).message);
       return false;

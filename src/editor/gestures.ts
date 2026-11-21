@@ -120,6 +120,29 @@ export type Drag =
   | { kind: 'box'; from: Point; to: Point; additive: boolean };
 
 /**
+ * The gestures whose preview is a swap of Elements: the groups a move carries,
+ * the one Element a resize or a dragged end draws, and a Label the pointer has
+ * taken off its shaft. Those are shown as the pointer has made them, and only
+ * those: the rest of the Scene is the Scene.
+ */
+export type ShownDrag = Extract<Drag, { kind: 'move' | 'resize' | 'end' | 'label' }>;
+
+/**
+ * The Scene's Elements as the gesture in flight shows them. The ink the pointer
+ * leaves and the Scene the release settles are this one projection, so a drag
+ * can never show one thing and save another.
+ */
+export function shownElements(elements: SceneElement[], drag: ShownDrag): SceneElement[] {
+  if (drag.kind === 'move') {
+    return elements.map((element) => drag.shown.get(element.id) ?? element);
+  }
+  if (drag.kind === 'label' && !drag.moved) {
+    return elements;
+  }
+  return elements.map((element) => (element.id === drag.id ? drag.shown : element));
+}
+
+/**
  * A press on the canvas with the Select tool, kept until the next one: what was
  * under the pointer, where and when. A double-click asks this rather than the
  * pointer a second time, because the first click's own selection can move the
@@ -456,13 +479,14 @@ export class Gestures {
     const reach = PICK_TOLERANCE / viewport.view.zoom;
     // One picker, in layer order: a higher Element's ink answers first, and a
     // shaft's Label answers before the shaft it is written about. The boxes are
-    // the ones the page painted, so no Element is drawn to find out.
+    // the ones the page painted for the Scene it holds, so no Element is drawn
+    // to find out.
     const pick = pickAt(
       this.#host.scene().elements,
       point,
       reach,
       this.#host.layout(),
-      (element) => page.ink(element.id),
+      (element) => page.ink(element),
     );
     // A double-click opens the words under its *first* click: selecting what it
     // landed on can dock the note and pan the view, so what the second click
@@ -740,7 +764,7 @@ export class Gestures {
     }
     if (drag.kind === 'move' || drag.kind === 'resize') {
       // The gesture is over: what the page showed becomes the Scene, as one step.
-      const settled = this.#shownScene();
+      const settled = this.#shownScene(drag);
       this.#drag = null;
       // The whole gesture is one history step, and the note may make room for
       // where the selection ended up.
@@ -980,25 +1004,9 @@ export class Gestures {
   }
 
   /** The Scene as the page shows it: committed Elements plus the gesture in flight. */
-  #shownScene(): Scene {
+  #shownScene(drag: ShownDrag): Scene {
     const scene = this.#host.scene();
-    const drag = this.#drag;
-    if (drag === null) {
-      return scene;
-    }
-    if (drag.kind === 'move') {
-      return {
-        ...scene,
-        elements: scene.elements.map((element) => drag.shown.get(element.id) ?? element),
-      };
-    }
-    if (drag.kind === 'resize' || drag.kind === 'end' || (drag.kind === 'label' && drag.moved)) {
-      return {
-        ...scene,
-        elements: scene.elements.map((element) => (element.id === drag.id ? drag.shown : element)),
-      };
-    }
-    return scene;
+    return { ...scene, elements: shownElements(scene.elements, drag) };
   }
 
   /** The Elements the selection holds, as the page shows them. */

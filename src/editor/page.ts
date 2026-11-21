@@ -32,7 +32,7 @@ import type { Block, Layout, LineGlyphs } from '../layout.js';
 import { HANDLES, boxBetween, boxOf, clearedView, handlePoint, unionOf } from './geometry.js';
 import type { Box, Point } from './geometry.js';
 import type { Drag } from './gestures.js';
-import { PaintCache } from './paint.js';
+import { PaintCache, paintedInk } from './paint.js';
 import type { Paint, SceneFiles } from './paint.js';
 import { isShaft } from './snap.js';
 import { drawnBox, drawnGlyphs } from './drawn-glyphs.js';
@@ -65,13 +65,23 @@ interface Typing {
   readonly shift: WordsShift;
 }
 
+/**
+ * The Elements the page draws, and whether they are still a preview: a settled
+ * page draws the Scene it holds, so the drawings kept between frames stand.
+ */
+export interface Shown {
+  /** True when these are the Scene's own Elements: no gesture and no words change them. */
+  readonly settled: boolean;
+  readonly elements: readonly SceneElement[];
+}
+
 /** What the page may show, and the measurement it lays everything out with. */
 interface PageHost {
   layout(): Layout;
   /** The Scene's own Elements, in the Scene's order. */
   scene(): Scene;
   /** The Scene as the page shows it: committed Elements, the gesture and the words. */
-  shown(): readonly SceneElement[];
+  shown(): Shown;
   /** The selection the overlay marks. */
   selected(): readonly string[];
   /** The gesture in flight, as the drawing and the overlay read it. */
@@ -154,10 +164,13 @@ export class Page {
   /**
    * The ink the page painted for an Element: the box a press answers to, read
    * from the drawing already made instead of made again, so a pick measures
-   * nothing.
+   * nothing. Only the frame drawn for this very Scene answers, and only for the
+   * very Element it drew: a Scene edited since — a nudge, a move, an undo,
+   * another Scene under the same ids — holds Elements the page has not drawn
+   * yet, and a press on those measures.
    */
-  ink(id: string): Box | null {
-    return this.#painted?.elements.get(id)?.ink ?? null;
+  ink(element: SceneElement): Box | null {
+    return paintedInk(this.#painted, this.#paintedScene, this.#host.scene(), element);
   }
 
   /**
@@ -209,7 +222,7 @@ export class Page {
       return;
     }
     const canvas = this.viewport.box();
-    const shown = this.#host.shown();
+    const { elements: shown } = this.#host.shown();
     const selected = new Set(this.#host.selected());
     this.viewport.view = clearedView(this.viewport.view, {
       selection: boxOf(
@@ -374,7 +387,7 @@ export class Page {
         // A font landed while the pointer was down: every Label may break
         // differently, so the drawings this gesture carries are made again —
         // once, here, before the transforms go back on. A move frame that
-        // changed no measurement draws nothing, as before.
+        // changed no measurement draws nothing.
         this.#drawElements(this.#host.scene().elements);
       }
       this.#moveGroups(drag);
@@ -387,9 +400,8 @@ export class Page {
       }
       return;
     }
-    const shown = this.#host.shown();
+    const { settled, elements: shown } = this.#host.shown();
     const scene = this.#host.scene();
-    const settled = shown === scene.elements;
     if (settled && this.#paintedScene === scene) {
       return;
     }
@@ -543,7 +555,7 @@ export class Page {
     const layout = this.#host.layout();
     // A Label that does not fit its Element is outlined in red, on the rule
     // `ez check` reports: one function, so the page and the CLI cannot disagree.
-    for (const element of this.#host.shown()) {
+    for (const element of this.#host.shown().elements) {
       if (layout.overflow(element) === null) {
         continue;
       }

@@ -15,7 +15,7 @@
  * for it: an edit writes the blocks it already holds, and the hash of those
  * bytes comes from the platform's digest, off the task that asked for it too.
  */
-import type { Layout } from '../layout.js';
+import type { Box, Layout } from '../layout.js';
 import { elementsById, renderElement, sceneSvg } from '../renderer.js';
 import type { DrawnElement } from '../renderer.js';
 import { canonicalElement, sceneJson, serialiseElementJson } from '../scene.js';
@@ -40,8 +40,31 @@ export interface SceneFiles {
 export interface Paint {
   readonly elements: ReadonlyMap<string, PaintedElement>;
   readonly order: readonly string[];
+  /** The Element each drawing was made from, by id: its box answers for that object alone. */
+  readonly drawn: ReadonlyMap<string, Element>;
   /** The Elements by id, so a Snapped end of what is shown resolves its target. */
   readonly byId: ReadonlyMap<string, Element>;
+}
+
+/**
+ * The ink a press answers to, from the frame the page has already drawn: that
+ * frame's own box, for the Scene it was drawn for and the very Element it drew
+ * it from. Anything else is not the page's drawing of what it shows — a Scene
+ * edited since (a nudge, a move, an undo, another Scene under the same ids), a
+ * measurement that landed after the frame, a preview of one, or the words being
+ * typed, which are drawn for the words — so a press there measures instead of
+ * reading a box of a place its Element no longer has.
+ */
+export function paintedInk(
+  paint: Paint | null,
+  drawnFor: Scene | null,
+  scene: Scene,
+  element: Element,
+): Box | null {
+  if (paint === null || drawnFor !== scene || paint.drawn.get(element.id) !== element) {
+    return null;
+  }
+  return paint.elements.get(element.id)?.ink ?? null;
 }
 
 /**
@@ -132,7 +155,13 @@ export class PaintCache {
     // Only what this Scene holds is kept: an Element that left the page is not
     // held for a return that may never come.
     this.#elements = elements;
-    return { elements, order, byId };
+    // The Elements these boxes were drawn from, by id: a box answers for the
+    // very object it was drawn from, and for no other that takes its place.
+    const drawn = new Map<string, Element>();
+    for (const element of shown) {
+      drawn.set(element.id, element);
+    }
+    return { elements, order, byId, drawn };
   }
 
   /**

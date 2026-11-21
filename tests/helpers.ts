@@ -15,6 +15,7 @@ import { promisify } from 'node:util';
 import { expect } from 'e2e';
 import type { App, Screen } from 'e2e';
 import type { Browser } from '@e2e-dev/web';
+import { livePage } from './cdp.ts';
 
 const run = promisify(execFile);
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
@@ -1256,14 +1257,30 @@ export interface SavedScene {
 const DRAG_MOVES = 5;
 
 /** A press, a few moves and a release, which is what a drag looks like. */
-export async function drag(ui: Ui, from: Point, to: Point): Promise<void> {
-  await ui.browser.mouse.move(from.x, from.y);
-  await ui.browser.mouse.down();
+export async function drag(
+  ui: Ui,
+  from: Point,
+  to: Point,
+  button: 'left' | 'middle' = 'left',
+  during?: () => Promise<void>,
+): Promise<void> {
+  // e2e's fixture presses the primary button only, so the middle press a pan
+  // needs is the page's own mouse (see `tests/cdp.ts`), held through every move
+  // so the browser sees one drag rather than a press and loose moves.
+  const middle = button === 'middle';
+  const mouse = middle ? livePage().mouse : ui.browser.mouse;
+  await mouse.move(from.x, from.y);
+  if (middle) await livePage().mouse.down({ button });
+  else await mouse.down();
   for (let step = 1; step <= DRAG_MOVES; step += 1) {
     const share = step / DRAG_MOVES;
-    await ui.browser.mouse.move(from.x + (to.x - from.x) * share, from.y + (to.y - from.y) * share);
+    await mouse.move(from.x + (to.x - from.x) * share, from.y + (to.y - from.y) * share);
   }
-  await ui.browser.mouse.up();
+  // `during` sees the drag half-done: the pointer has carried everything it is
+  // going to and the button is still down.
+  await during?.();
+  if (middle) await livePage().mouse.up({ button });
+  else await mouse.up();
 }
 
 /** Click a Scene point. */

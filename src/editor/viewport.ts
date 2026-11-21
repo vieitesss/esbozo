@@ -15,7 +15,7 @@
  * transform *inside* the element. Measure the board to keep the host's border
  * and padding out of pointer coordinates.
  */
-import { toScene } from './geometry.js';
+import { toScene, toScreen } from './geometry.js';
 import type { Box, Point, Pointer, View } from './geometry.js';
 
 /** The page's box, in the browser's own pixels. */
@@ -93,13 +93,12 @@ export class Viewport {
   /** A Scene box, in the pixels the overlay draws in. */
   pageBox(box: Box): Box {
     const { zoom } = this.#view;
-    return { ...this.pagePoint(box), width: box.width * zoom, height: box.height * zoom };
+    return { ...toScreen(this.#view, box), width: box.width * zoom, height: box.height * zoom };
   }
 
   /** A Scene point, in the pixels the overlay draws in. */
   pagePoint(point: Point): Point {
-    const { zoom, panX, panY } = this.#view;
-    return { x: point.x * zoom + panX, y: point.y * zoom + panY };
+    return toScreen(this.#view, point);
   }
 
   /** Move the painted Scene: one transform on the wrapper, and the counter-moves. */
