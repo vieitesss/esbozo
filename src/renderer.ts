@@ -551,7 +551,9 @@ function roughenedInk(element: ArrowOrLineElement, path: ShaftPath): Extent | nu
  * The shaft's words: where Layout wrapped them, moved to the `labelAt` the Scene
  * wrote. A shaft that writes none keeps the place Layout gives it, so a Scene
  * that never asks for a position keeps the position it always had; only the
- * paper behind the words is new.
+ * paper behind the words is new. What moves is where the words draw: a Line's
+ * boundaries are offsets into its words, not x, and they stay where Layout put
+ * them so a caret names the glyph it always named.
  */
 function shaftWords(
   element: ArrowOrLineElement,
@@ -573,7 +575,6 @@ function shaftWords(
       ...line,
       x: line.x + dx,
       baseline: line.baseline + dy,
-      boundaries: line.boundaries.map((x) => x + dx),
       top: line.top + dy,
     })),
   };
