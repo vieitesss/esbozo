@@ -22,6 +22,8 @@ import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import {
   BROKEN_SCENE,
+  EDGE,
+  EDGE_SCENE,
   MIXED,
   MIXED_SCENE,
   SCENE,
@@ -38,6 +40,7 @@ const SCENE_SOURCE = JSON.stringify(SCENE, null, 2);
 const PAPER = { x: 420, y: 40 };
 const MIXED_SOURCE = JSON.stringify(MIXED_SCENE, null, 2);
 const BROKEN_SOURCE = JSON.stringify(BROKEN_SCENE, null, 2);
+const EDGE_SOURCE = JSON.stringify(EDGE_SCENE, null, 2);
 
 test('a Scene that will not parse is reported, naming the box-a width problem', async ({ agent, app, browser, screen }) => {
   const ui = { agent, app, browser, screen };
@@ -194,6 +197,28 @@ test('a new Text is typed in place, in the hand it draws in, and stays as words 
   await screen.getByRole('textbox', { name: 'Text' }).press('Escape');
   await ui.agent.assert(
     'the words "draw me" are still on the empty paper, in the same hand, and there is no cursor or input field beside them',
+    { vision: 'only' },
+  );
+});
+
+test('the Style menu is a note taped to the right edge, and it leaves the selection in view', async ({ agent, app, browser, screen }) => {
+  const ui = { agent, app, browser, screen };
+  await openEditor(ui, { A: { 'edge.json': EDGE_SOURCE } }, 'edge.json');
+
+  // The right-hand box, which the note would cover if the view did not pan.
+  await clickScene(ui, { x: 760, y: 80 }, [], EDGE);
+
+  await ui.agent.assert(
+    'a pale paper note held by a strip of tape at its top is docked against the right edge of the window; inside it are short rows of small buttons in a hand-written style; the selected rectangle is fully visible in the canvas beside the note and no part of it is hidden behind the note',
+    { vision: 'only' },
+  );
+
+  await ui.screen.getByRole('group', 'Rough').getByRole('button', 'cartoonist').click();
+  await ui.screen.getByRole('group', 'Fill').getByRole('button', 'solid').click();
+  await ui.screen.getByRole('group', 'Grey').getByRole('button', 'grey 6').click();
+
+  await ui.agent.assert(
+    'the selected rectangle is filled flat solid near-black ink, with no hatch lines inside it, and its outline is a wandering hand-drawn line rather than a ruler-straight one',
     { vision: 'only' },
   );
 });
