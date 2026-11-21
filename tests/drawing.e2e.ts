@@ -318,6 +318,61 @@ describe('drawing', () => {
     // The tool drew instead of panning, so the pan is over.
     expect((await savedScene(ui)).elements.length).toBe(3);
   });
+
+  test('a Space pan ends on blur, with the pointer still down', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    const hand = { x: 700, y: 600 };
+    await browser.keyboard.down('Space');
+    await browser.mouse.move(hand.x, hand.y);
+    await browser.mouse.down();
+    // 100 page pixels of pan, and then the focus goes: the pointer never came up.
+    await browser.mouse.move(hand.x + 100, hand.y);
+    await browser.evaluate(() => {
+      window.dispatchEvent(new Event('blur'));
+      return true;
+    });
+    await browser.mouse.move(hand.x + 300, hand.y);
+    await browser.mouse.up();
+    await browser.keyboard.up('Space');
+
+    // What the view is left at is read back through the pointer: a box drawn at
+    // page x = 900 lands at Scene x = 900 - 470 - 100. Had the pan gone on, it
+    // would sit 300 pixels further out.
+    await browser.keyboard.press('r');
+    await drag(ui, { x: 900, y: 500 }, { x: 960, y: 540 });
+    const drawn = (await savedScene(ui)).elements[2];
+    expect({ x: drawn?.x, y: drawn?.y }).toEqual({ x: 330, y: 200 });
+  });
+
+  test('a Space pan ends when the page is hidden, with the pointer still down', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    const hand = { x: 700, y: 600 };
+    await browser.keyboard.down('Space');
+    await browser.mouse.move(hand.x, hand.y);
+    await browser.mouse.down();
+    await browser.mouse.move(hand.x + 100, hand.y);
+    await browser.evaluate(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+      return true;
+    });
+    await browser.mouse.move(hand.x + 300, hand.y);
+    await browser.mouse.up();
+    await browser.keyboard.up('Space');
+
+    // The same read back: one 100-pixel pan, and not a pixel more.
+    await browser.keyboard.press('r');
+    await drag(ui, { x: 900, y: 500 }, { x: 960, y: 540 });
+    const drawn = (await savedScene(ui)).elements[2];
+    expect({ x: drawn?.x, y: drawn?.y }).toEqual({ x: 330, y: 200 });
+  });
 });
 
 describe('Text typed in place', () => {

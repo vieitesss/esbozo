@@ -1032,8 +1032,16 @@ export class EsbozoEditorElement extends HTMLElement {
     }
   };
 
-  /** End a Space pan: the key came up, or the page lost the focus that held it. */
+  /**
+   * End a Space pan: the key came up, or the page lost the focus that held it.
+   * A pan the pointer is still in the middle of ends here too, so a move after
+   * the event cannot carry the view any further.
+   */
   #endSpacePan = (): void => {
+    if (this.#drag !== null && this.#drag.kind === 'pan') {
+      this.#drag = null;
+      this.#canvas.classList.remove('panning');
+    }
     if (!this.#spaceDown) {
       return;
     }
