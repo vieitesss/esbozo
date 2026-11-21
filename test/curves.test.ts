@@ -840,7 +840,9 @@ test('a curved shaft draws its dash pattern along an unbroken stroke', async () 
 test('clustered round bends never reverse or overshoot the points they run through', async () => {
   // A bend point 1px from its neighbour must not swing the curve like a lever:
   // the whole run is one smooth curve, so the ink stays between the points it
-  // passes through instead of stopping and doubling back over them.
+  // passes through instead of stopping and doubling back over them. A run that
+  // reversed on its middle span would still fit between the two ends, so every
+  // step of the ink is checked, not just its extremes.
   for (const [points, last] of [
     [
       [
@@ -866,6 +868,21 @@ test('clustered round bends never reverse or overshoot the points they run throu
     const right = Math.max(...drawn.map((point) => point.x));
     assert.ok(left >= -0.01, `the ink never backs up behind the start (got ${left})`);
     assert.ok(right <= last + 0.01, `and never overshoots the end (got ${right})`);
+    // Each stroke pass runs the whole shaft one way — Rough.js draws the second
+    // from the far end — so the run is checked in the direction it goes.
+    const passes = (attribute(shaftFrom(svg, { x: 0, y: 0 }), 'd') ?? '').split('M').slice(1);
+    for (const pass of passes) {
+      const xs = inkSamples(`M${pass}`).map((point) => point.x);
+      const forward = xs[xs.length - 1]! >= xs[0]!;
+      for (let index = 1; index < xs.length; index += 1) {
+        const behind = xs[index - 1]!;
+        const ahead = xs[index]!;
+        assert.ok(
+          forward ? ahead >= behind - 0.01 : ahead <= behind + 0.01,
+          `the ink never backs up along the run, at x ${ahead} after x ${behind}`,
+        );
+      }
+    }
   }
 });
 
