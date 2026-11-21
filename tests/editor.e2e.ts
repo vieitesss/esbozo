@@ -21,7 +21,6 @@ import {
   CROSSED,
   CROSSED_SCENE,
   EDGE,
-  EMPTY,
   EDGE_1366,
   EDGE_SCENE,
   LONG_1366,
@@ -117,30 +116,23 @@ test('a Scene that will not parse is reported and left alone on disk', async ({ 
   expect(files['broken.svg']).toBeUndefined();
 });
 
-test('a Scene that is not there opens empty and says so, and the first edit writes it', async ({ app, browser, screen }) => {
+test('a Scene that is not there opens empty and is saved as Scene and SVG', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
+  // Asked for by name, so it is a Scene at once: empty, and on disk with its SVG.
   await openNewScene(ui, { A: {} }, 'fresh.json');
-
-  // Opening a name nobody has drawn is not a Scene yet, so nothing is written.
-  await expect(ui.screen.getByRole('status')).toHaveText('new Scene');
-  expect(await savedFiles(ui)).toEqual({});
-
-  // An empty Scene paints nothing where the grey box would have been.
-  const view = await shot(ui);
-  expect(view.meanLuminance(GREY_BOX)).toBeGreaterThan(0.85);
-
-  // The first edit is what makes it a Scene, SVG and all.
-  await browser.keyboard.press('r');
-  await drag(ui, at({ x: 420, y: 40 }, EMPTY), at({ x: 540, y: 140 }, EMPTY));
 
   await expect(ui.screen.getByRole('status')).toHaveText('saved');
   const files = await savedFiles(ui);
   expect(Object.keys(files).sort()).toEqual(['fresh.json', 'fresh.svg']);
 
   const scene = JSON.parse(files['fresh.json'] ?? '{}');
-  expect(scene.elements).toHaveLength(1);
+  expect(scene.elements).toEqual([]);
   expect(scene.title).toBe('fresh');
   expect(files['fresh.svg']).toMatch(/<title[^>]*>fresh<\/title>/);
+
+  // An empty Scene paints nothing where the grey box would have been.
+  const view = await shot(ui);
+  expect(view.meanLuminance(GREY_BOX)).toBeGreaterThan(0.85);
 });
 
 test('dragging an Element moves it smoothly and autosaves Scene plus SVG', async ({ app, browser, screen }) => {
