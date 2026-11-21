@@ -11,11 +11,11 @@
  */
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test, type TestContext } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const PROBE = fileURLToPath(new URL('../scripts/probe-editor.mjs', import.meta.url));
@@ -31,17 +31,20 @@ interface Run {
 }
 
 /** Writes one probe module in a folder of its own, and answers its path. */
-async function probeSource(name: string, source: string): Promise<string> {
+async function probeSource(t: TestContext, source: string): Promise<string> {
   const folder = await mkdtemp(join(tmpdir(), 'esbozo-probe-test-'));
-  const file = join(folder, name);
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const file = join(folder, 'probe.mjs');
   await writeFile(file, source, 'utf8');
   return file;
 }
 
 /** Runs the helper as a person runs it, and answers what it left behind. */
-async function helper(args: readonly string[]): Promise<Run> {
+async function helper(args: readonly string[], input?: { source: string; folder: string }): Promise<Run> {
   return await new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [PROBE, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const env = input && { ...process.env, TMPDIR: input.folder, TEMP: input.folder };
+    const child = spawn(process.execPath, [PROBE, ...args], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+    child.stdin.end(input?.source);
     let stdout = '';
     let stderr = '';
     child.stdout.setEncoding('utf8').on('data', (chunk: string) => (stdout += chunk));
@@ -49,11 +52,6 @@ async function helper(args: readonly string[]): Promise<Run> {
     child.once('error', reject);
     child.once('close', (code) => resolve({ code: code ?? -1, stdout, stderr }));
   });
-}
-
-/** One probe module, run through the helper. */
-async function probe(name: string, source: string): Promise<Run> {
-  return await helper([await probeSource(name, source)]);
 }
 
 /** The port the helper says it is serving on, or a loud failure. */
@@ -75,11 +73,9 @@ async function released(port: number): Promise<boolean> {
   });
 }
 
-test('a probe reads the live page and the helper prints what it returned', async () => {
-  const run = await probe(
-    'title.mjs',
-    'export default async ({ page }) => await page.title();\n',
-  );
+test('a probe reads the live page and the helper prints what it returned', async (t) => {
+  const file = await probeSource(t, 'export default async ({ page }) => await page.title();\n');
+  const run = await helper([file]);
 
   assert.equal(run.code, 0, run.stderr);
   assert.equal(JSON.parse(run.stdout), EDITOR_TITLE);
@@ -87,21 +83,27 @@ test('a probe reads the live page and the helper prints what it returned', async
   assert.equal(await released(port), true, `the helper left ${port} open`);
 });
 
-test('a probe with no built page is refused before anything boots', async () => {
+test('a stdin probe with no built page boots nothing and leaves no temporary module', async (t) => {
   const empty = await mkdtemp(join(tmpdir(), 'esbozo-probe-empty-'));
-  const file = await probeSource('title.mjs', 'export default async () => null;\n');
-  const run = await helper(['--folder', empty, file]);
+  t.after(() => rm(empty, { recursive: true, force: true }));
+  const run = await helper(['--folder', empty], {
+    source: 'export default async () => null;\n',
+    folder: empty,
+  });
 
   assert.notEqual(run.code, 0);
   assert.match(run.stderr, /pnpm build/);
+  assert.doesNotMatch(run.stderr, /probing http:\/\//);
   assert.equal(run.stdout, '');
+  assert.deepEqual(await readdir(empty), []);
 });
 
-test('a throwing probe exits non-zero, prints the error, and leaves no server', async () => {
-  const run = await probe(
-    'throws.mjs',
+test('a throwing probe exits non-zero, prints the error, and leaves no server', async (t) => {
+  const file = await probeSource(
+    t,
     "export default async () => {\n  throw new Error('probe on purpose');\n};\n",
   );
+  const run = await helper([file]);
 
   assert.notEqual(run.code, 0);
   assert.match(run.stderr, /probe on purpose/);
