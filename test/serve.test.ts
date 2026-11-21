@@ -276,6 +276,23 @@ test('the list offers only names the API opens', async () => {
   assert.equal((await request(server, '/api/scenes/.hidden.json')).status, 400);
 });
 
+test('a Scene named .esbozo is listed, read and saved like any other', async () => {
+  const folder = await sceneFolder(SCENE, 'flow.esbozo');
+  const server = await served(folder);
+
+  const listed = JSON.parse((await request(server, '/api/scenes')).body) as { scenes: string[] };
+  assert.deepEqual(listed.scenes, ['flow.esbozo']);
+
+  const found = await request(server, '/api/scenes/flow.esbozo');
+  assert.equal(found.status, 200);
+  assert.equal(found.body, SCENE_SOURCE);
+
+  const write = sent({ ...SCENE, title: 'Saved' });
+  assert.equal((await request(server, '/api/scenes/flow.esbozo', 'PUT', write)).status, 200);
+  assert.equal(await readFile(join(folder, 'flow.esbozo'), 'utf8'), write.scene);
+  assert.equal(await readFile(join(folder, 'flow.svg'), 'utf8'), write.svg);
+});
+
 test('a Scene reads back byte for byte, and a missing one is not found', async () => {
   const folder = await sceneFolder(SCENE, 'sketch.json');
   const server = await served(folder);

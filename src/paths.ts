@@ -15,7 +15,7 @@ const SCENE_EXTENSIONS = ['.esbozo', '.json'] as const;
 type SceneExtension = (typeof SCENE_EXTENSIONS)[number];
 
 /** The extension this name ends in, in any letter case, or `null` for any other file. */
-function sceneExtension(sceneFileName: string): SceneExtension | null {
+export function sceneExtension(sceneFileName: string): SceneExtension | null {
   const folded = sceneFileName.toLowerCase();
   return SCENE_EXTENSIONS.find((extension) => folded.endsWith(extension)) ?? null;
 }

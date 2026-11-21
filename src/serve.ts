@@ -36,7 +36,7 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { basename, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PAGE_ASSETS } from './page-assets.js';
-import { svgFileName } from './paths.js';
+import { sceneExtension, svgFileName } from './paths.js';
 import { SCENES_API, sceneWrite } from './scenes-api.js';
 import type { SceneListing, SceneWrite } from './scenes-api.js';
 import { parseScene } from './scene.js';
@@ -307,8 +307,8 @@ function nameProblem(name: string): string | null {
   if (name === '.' || name === '..' || name.startsWith('.')) {
     return `${name}: name a Scene file, not a hidden or relative one`;
   }
-  if (!/\.json$/i.test(name)) {
-    return `${name}: a Scene file ends in .json`;
+  if (sceneExtension(name) === null) {
+    return `${name}: a Scene file ends in .esbozo or .json`;
   }
   return null;
 }
