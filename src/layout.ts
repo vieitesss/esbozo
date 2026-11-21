@@ -129,7 +129,18 @@ interface Caret {
 /** One line of words before it is placed: what it draws, and where in the words it came from. */
 interface Written {
   text: string;
-  boundaries: number[];
+  /**
+   * The runs of the words this line draws, and where each starts in them: a
+   * wrapped line's space swallowed a run, so its glyphs are several runs. A
+   * caret's offsets are read from them once the line is placed.
+   */
+  runs: readonly Run[];
+}
+
+/** A run of drawn glyphs, and the offset in the words its first glyph came from. */
+interface Run {
+  at: number;
+  length: number;
 }
 
 /** A Label that does not fit the Element it belongs to. */
@@ -269,10 +280,15 @@ export function createLayout(parsed: ParsedFont): Layout {
   return layout;
 }
 
+/** A measured line, and how wide its own ink is: the one measurement the placed Block reads. */
+interface MeasuredLine extends Written {
+  width: number;
+}
+
 /** Words measured once: how they break, how big they are and how far apart the lines sit. */
 interface Measured {
   size: number;
-  lines: Written[];
+  lines: MeasuredLine[];
   width: number;
   height: number;
   lineHeight: number;
@@ -285,12 +301,15 @@ interface Measured {
  * newline: free-standing Text and the Label of an arrow or line.
  */
 function measured(text: string, size: number, maxWidth: number | null, metrics: Metrics): Measured {
-  const lines = maxWidth === null ? writtenLines(text) : breakLines(text, maxWidth, size, metrics);
+  const written = maxWidth === null ? writtenLines(text) : breakLines(text, maxWidth, size, metrics);
+  // Each line is measured once here: the Block placed from it reads these
+  // widths, and the lines a Label only has to fit are measured no further.
+  const lines = written.map((line) => ({ ...line, width: metrics.advance(line.text, size) }));
   const lineHeight = metrics.lineHeight(size);
   return {
     size,
     lines,
-    width: widestLine(lines, size, metrics),
+    width: lines.reduce((widest, line) => Math.max(widest, line.width), 0),
     height: lines.length * lineHeight,
     lineHeight,
     inkCentre: metrics.inkCentre(size),
@@ -303,7 +322,6 @@ function placed(
   anchor: Block['anchor'],
   alignX: number,
   top: number,
-  metrics: Metrics,
 ): Block {
   return {
     x: leftOf(alignX, words.width, anchor),
@@ -314,12 +332,12 @@ function placed(
     anchor,
     lines: words.lines.map((line, index) => ({
       text: line.text,
-      boundaries: line.boundaries,
+      boundaries: line.runs.flatMap((run) => boundaryRun(run.at, run.length)),
       x: alignX,
       baseline: top + words.lineHeight * (index + 0.5) + words.inkCentre,
       top: top + words.lineHeight * index,
       height: words.lineHeight,
-      width: metrics.advance(line.text, words.size),
+      width: line.width,
     })),
   };
 }
@@ -330,7 +348,7 @@ function textBlock(element: TextElement, metrics: Metrics): Block {
   const anchor = anchorFor(element.textAlign);
   // `x` is the aligned edge whatever the alignment: the left edge, the centre
   // or the right edge the author placed.
-  return placed(words, anchor, element.x, element.y, metrics);
+  return placed(words, anchor, element.x, element.y);
 }
 
 /** A Label in its Element, or null when there is nothing to place. */
@@ -359,7 +377,7 @@ function labelBlock(
       x: middle.x + side.x * reach,
       y: middle.y + side.y * reach,
     };
-    return placed(words, 'middle', centre.x, centre.y - words.height / 2, metrics);
+    return placed(words, 'middle', centre.x, centre.y - words.height / 2);
   }
 
   const area = labelArea(element);
@@ -372,7 +390,7 @@ function labelBlock(
         ? area.x + area.width / 2
         : area.x + area.width;
   const top = area.y + (area.height - words.height) / 2;
-  return placed(words, anchor, alignX, top, metrics);
+  return placed(words, anchor, alignX, top);
 }
 
 /**
@@ -497,7 +515,7 @@ function writtenLines(text: string): Written[] {
   const lines: Written[] = [];
   let start = 0;
   for (const line of text.split('\n')) {
-    lines.push({ text: line, boundaries: boundaryRun(start, line.length) });
+    lines.push({ text: line, runs: [{ at: start, length: line.length }] });
     start += line.length + 1;
   }
   return lines;
@@ -530,29 +548,27 @@ function breakLines(text: string, maxWidth: number, size: number, metrics: Metri
     const words = wordRuns(paragraph, paragraphStart);
     const first = words[0];
     if (first === undefined) {
-      lines.push({ text: '', boundaries: [paragraphStart] });
+      // An empty paragraph is one empty run, so the line still has the boundary
+      // a caret sits at.
+      lines.push({ text: '', runs: [{ at: paragraphStart, length: 0 }] });
     } else {
       let line: Written = {
         text: first.text,
-        boundaries: boundaryRun(first.at, first.text.length),
+        runs: [{ at: first.at, length: first.text.length }],
       };
       for (const word of words.slice(1)) {
         const candidate = `${line.text} ${word.text}`;
         if (metrics.advance(candidate, size) <= maxWidth) {
-          // The space the run became is one drawn glyph: the boundary before it
-          // is the last one the line had, and the one after it is where the next
-          // word starts.
+          // The space the run became is one drawn glyph: it has no run of its
+          // own, so the boundary before it is the last of the one word and the
+          // one after it is where the next word starts.
           line = {
             text: candidate,
-            boundaries: [
-              ...line.boundaries,
-              word.at,
-              ...boundaryRun(word.at, word.text.length).slice(1),
-            ],
+            runs: [...line.runs, { at: word.at, length: word.text.length }],
           };
         } else {
           lines.push(line);
-          line = { text: word.text, boundaries: boundaryRun(word.at, word.text.length) };
+          line = { text: word.text, runs: [{ at: word.at, length: word.text.length }] };
         }
       }
       lines.push(line);
@@ -560,10 +576,6 @@ function breakLines(text: string, maxWidth: number, size: number, metrics: Metri
     paragraphStart += paragraph.length + 1;
   }
   return lines;
-}
-
-function widestLine(lines: readonly Written[], size: number, metrics: Metrics): number {
-  return lines.reduce((widest, line) => Math.max(widest, metrics.advance(line.text, size)), 0);
 }
 
 /** Where the caret for an offset sits: the glyph boundary on the line that holds it. */
