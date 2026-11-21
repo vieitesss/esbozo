@@ -41,7 +41,17 @@ test('a rebase that folds two commits into one is refused, and names what it los
     /^rebase squashed 2 commits into 1: 1111111 2222222 -> 3333333$/m,
     'the commits are named, old ones whole, the one they became short',
   );
-  assert.match(run.stderr, /git reset --hard ORIG_HEAD/, 'the message says how to get them back');
+  assert.match(run.stderr, /git reflog/, 'the message points at the log that holds the prior tip');
+  assert.match(
+    run.stderr,
+    /git reset --hard <that tip>/,
+    'and says to reset to the tip a person found there, not to a name git guessed',
+  );
+  assert.doesNotMatch(
+    run.stderr,
+    /ORIG_HEAD/,
+    'ORIG_HEAD is the rewritten commit after a rebase, so it is never the one to go back to',
+  );
 });
 
 test('a rebase that keeps every commit says nothing', () => {

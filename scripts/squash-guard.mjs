@@ -8,9 +8,9 @@
  * or `--squash` todo entry maps several old commits onto the same new one, and
  * the per-commit history a green-each-step branch is built from is gone.
  *
- * A hook cannot undo the rewrite it is told about, so the loud part is the exit
- * code every tool in the chain sees, the commits named, and the reflog entry to
- * restore them from.
+ * A hook cannot undo the rewrite it is told about, and git still completes the
+ * rebase whatever happens here: the hook's exit status does not stop it. So the
+ * loud part is the commits named and the reflog entry to restore them from.
  *
  * Usage: `.githooks/post-rewrite` runs `node scripts/squash-guard.mjs "$1"`.
  *        Enable both hooks once per clone: `git config core.hooksPath .githooks`.
@@ -47,10 +47,12 @@ function judge(pairs) {
       `rebase squashed ${lost} commits into ${squashed.length}: ${groups}`,
       '',
       'This branch keeps one commit per green step, so a rebase must not squash,',
-      'fixup or --squash. The rewrite already happened; restore it and rebase again',
-      'without a squash:',
+      'fixup or --squash. Git completed the rebase anyway; this hook cannot undo it.',
+      'Find the tip from before it in the reflog, save local changes, and reset:',
       '',
-      '  git reset --hard ORIG_HEAD',
+      '  git reflog',
+      '  git stash',
+      '  git reset --hard <that tip>',
       '  git rebase <base>',
       '',
     ].join('\n'),

@@ -6,7 +6,9 @@
 #   git config core.hooksPath .githooks
 #
 # The judgement is `scripts/squash-guard.mjs`, proved by
-# `test/squash-guard.test.ts`; this only hands it the reason and the pairs.
+# `test/squash-guard.test.ts`; this only hands it the reason and the pairs. Git
+# still completes the rebase whatever the judgement says: a `post-rewrite` hook
+# cannot stop one, only print the diagnostic that it happened.
 set -e
 
 exec node "$(git rev-parse --show-toplevel)/scripts/squash-guard.mjs" "$@"
