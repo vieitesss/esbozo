@@ -623,6 +623,38 @@ test('a shaft’s box and page reach the ink Rough.js draws', () => {
   assert.ok(page.x <= left + written && page.x + page.width >= right - written, `and x ${page.x}..${page.x + page.width} for ${left}..${right}`);
 });
 
+test('a two-point shaft keeps the whole SVG it always drew, its page included', async () => {
+  // A straight shaft reaches no further than its two ends: roughening its one
+  // run wobbles the stroke inside the box those ends make. Growing the page for
+  // ink a bend would have left behind would redraw every Scene that never bent,
+  // so the bytes below are the ones 132dfa9 wrote, viewBox and all.
+  const svg = await ink({
+    version: 1,
+    defaults: { roughness: 2 },
+    elements: [
+      {
+        id: 'a',
+        type: 'line',
+        seed: 3,
+        heads: { start: 'none', end: 'none' },
+        points: [
+          { x: 0, y: 0 },
+          { x: 300, y: 0 },
+        ],
+      },
+    ],
+  });
+
+  assert.equal(
+    svg,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="332" height="32" viewBox="-16 -16 332 32" role="img" font-family="var(--font-hand)" data-scene-hash="sha256:14d52072702e35774f3f5a3238d6244c5f6a3ae1f0d591fd1c2993ffb735aaaa">
+<title>Scene</title>
+<g stroke-linecap="round" stroke-linejoin="round"><path d="M0 0 C57.91 -4.3, 118.6 -3.42, 300 0 M0 0 C65.66 -4.09, 128.58 -4.6, 300 0" fill="none" stroke="var(--ink)" stroke-width="2"/></g>
+</svg>
+`,
+  );
+});
+
 test('a two-point shaft keeps the bytes it always drew, its Snap fraction included', async () => {
   // The Snap lands on a fraction of a pixel of the ellipse, and the ink is
   // roughened from that fraction: rounding it on the way into Rough.js moves a
@@ -644,6 +676,12 @@ test('a two-point shaft keeps the bytes it always drew, its Snap fraction includ
     ],
   });
 
+  // The page this Scene is drawn on is the two ends' box padded, as it always
+  // was: a two-point shaft reaches no further than its ends.
+  assert.equal(
+    svg.slice(0, svg.indexOf('\n')),
+    '<svg xmlns="http://www.w3.org/2000/svg" width="332" height="232" viewBox="-16 -16 332 232" role="img" font-family="var(--font-hand)" data-scene-hash="sha256:1e9fc623956998c47d956f280555a5fd4755fc951221f85bd8db54b4de90360c">',
+  );
   assert.equal(
     attribute(shaftFrom(svg, { x: 81.59, y: 52.8 }), 'd'),
     'M81.59 52.8 C161.38 106.61, 242.21 158.16, 300 200 M81.59 52.8 C157.09 106.34, 231.16 157.81, 300 200',

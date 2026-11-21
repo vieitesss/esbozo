@@ -477,13 +477,18 @@ function placement(
 }
 
 /**
- * The box a shaft covers: the curve it is drawn along, and the ink Rough.js
- * roughens that curve into. On a long shaft a roughness pushes the stroke a long
- * way past the curve it was measured from, and a page or a box measured by the
- * curve alone would clip the ink it was measured for.
+ * The box a shaft covers: the curve it is drawn along, and — once it bends — the
+ * ink Rough.js roughens that curve into. On a long bent shaft a roughness pushes
+ * the stroke a long way past the curve it was measured from, and a page or a box
+ * measured by the curve alone would clip the ink it was measured for.
+ *
+ * A two-point shaft's box is the rectangle between its two ends and nothing
+ * else, as it always has been: it draws one straight run, so roughening it
+ * cannot reach past the ends it runs between, and a Scene that never bent keeps
+ * the page it always had.
  */
 function shaftBox(element: ArrowOrLineElement, path: ShaftPath): Box {
-  const ink = shaftInk(element, path);
+  const ink = element.points.length > 2 ? shaftInk(element, path) : null;
   if (ink === null) {
     return path.bounds;
   }
