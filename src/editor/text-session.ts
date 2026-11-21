@@ -10,7 +10,7 @@
 import type { Point } from './geometry.js';
 
 /** Where the input sits and how big its words are. */
-export interface TextSessionPlace {
+interface TextSessionPlace {
   /** The page point the Text's top-left corner sits at. */
   readonly page: Point;
   /** The zoom the page is at, so the words read at the size they will draw. */
@@ -19,7 +19,7 @@ export interface TextSessionPlace {
   readonly fontSize: number;
 }
 
-export interface TextSessionOptions {
+interface TextSessionOptions {
   /** Where the input is put: the editor, above the canvas. */
   readonly host: HTMLElement;
   readonly place: TextSessionPlace;
@@ -50,12 +50,11 @@ export class TextSession {
     input.focus();
   }
 
-  /** Whether the input still holds the focus and the keys. */
-  get open(): boolean {
-    return this.#open;
-  }
-
-  /** End the session: the words, or nothing, and the input goes. */
+  /**
+   * End the session: the words, or nothing, and the input goes. The click that
+   * takes the focus off the words is followed by a blur that ends the same
+   * session again, so a second call does nothing.
+   */
   finish(): void {
     if (!this.#open) {
       return;
