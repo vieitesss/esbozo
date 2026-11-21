@@ -119,6 +119,48 @@ test('a shaft Label is picked where it is painted, not where Layout first put it
   assert.equal(pick(scene, { x: 200, y: 90 }), null, 'and not where Layout first put it');
 });
 
+test('a press on the glyph overhang of a shaft Label finds it, as the ink paints it', () => {
+  // Kalam's `j` is the widest hang in the bundled font: its hook reaches left
+  // of the advance box Layout measures the words by, and the renderer paints
+  // paper under it. The press below lands inside that hook — the font's own
+  // outline says so — and left of the box, so picking has to reach as far as
+  // the paint does.
+  const scene = parsed({
+    version: 1,
+    elements: [
+      {
+        id: 'a',
+        type: 'line',
+        points: [
+          { x: 0, y: 100 },
+          { x: 400, y: 100 },
+        ],
+        label: 'j',
+        fontSize: 'XL',
+        labelAt: { t: 0.5, offset: 60 },
+      },
+    ],
+  });
+  const words = wordsOf(renderScene(scene, LAYOUT));
+  const font = parseFontFile(KALAM);
+  const outline = font.glyphs!.path('j', words.size, words.x, words.baseline, 'middle');
+  assert.ok(outline !== null && outline !== '', 'the font draws the hook');
+  const hook = leftmostInk(outline!);
+  const advanceBoxLeft = words.x - font.metrics.advance('j', words.size) / 2;
+
+  assert.ok(hook.x + 1 < advanceBoxLeft, `the hook hangs left of the advance box: ${hook.x}`);
+  assert.equal(
+    pick(scene, { x: hook.x + 1, y: hook.y }),
+    'a',
+    'a press on the painted overhang finds the shaft',
+  );
+  assert.equal(
+    pick(scene, { x: hook.x - 2, y: hook.y }),
+    null,
+    'a press on bare paper beside it finds nothing',
+  );
+});
+
 interface Box {
   x: number;
   y: number;
@@ -164,6 +206,39 @@ function viewBoxOf(svg: string): Box {
     .split(' ')
     .map(Number);
   return { x: x!, y: y!, width: width!, height: height! };
+}
+
+/** The words a painted `<text>` tag writes: its anchor point, baseline and size. */
+function wordsOf(svg: string): { x: number; baseline: number; size: number } {
+  const at = svg.indexOf('<text ');
+  assert.ok(at >= 0, 'the Label paints words');
+  const tag = svg.slice(at, svg.indexOf('>', at));
+  return { x: numberIn(tag, 'x'), baseline: numberIn(tag, 'y'), size: numberIn(tag, 'font-size') };
+}
+
+/**
+ * The leftmost point of a glyph outline, read back from the `d` the font writes
+ * for it: the point whose x is smallest, with its own y. Every coordinate pair
+ * the outline names is a point on the ink or on the curve it turns through, so
+ * the leftmost of them is where the ink begins.
+ */
+function leftmostInk(path: string): { x: number; y: number } {
+  let leftmost = { x: Number.POSITIVE_INFINITY, y: 0 };
+  for (const match of path.matchAll(/([MLQCZ])([^MLQCZ]*)/g)) {
+    const values = (match[2] ?? '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map(Number);
+    for (let index = 0; index + 1 < values.length; index += 2) {
+      const point = { x: values[index]!, y: values[index + 1]! };
+      if (point.x < leftmost.x) {
+        leftmost = point;
+      }
+    }
+  }
+  assert.ok(Number.isFinite(leftmost.x), 'the outline names a point');
+  return leftmost;
 }
 
 /** One number the tag writes under `name`. */

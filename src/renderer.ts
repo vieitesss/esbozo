@@ -220,8 +220,8 @@ export function drawnShaft(
 
 /**
  * Where a shaft's Label is drawn, or null when the shaft has none: Layout's own
- * place, moved to the `labelAt` the Scene wrote, which is the box both the ink
- * and a press on it share.
+ * place, moved to the `labelAt` the Scene wrote. These are the words themselves;
+ * what they paint, and what a press on them covers, is `labelInkBounds`.
  */
 export function shaftLabel(
   element: ArrowOrLineElement,
@@ -247,6 +247,17 @@ export function strokeWidthOf(element: Element): number {
 const GLYPH_HANG_EM = 0.25;
 
 /**
+ * The box one Block of words paints: the advance box Layout measured, grown by
+ * that hang on both sides. It is the box the paper behind a shaft's Label
+ * covers, the ink a Text is picked by and the box a shaft's Label is pressed
+ * on, so a painted pixel is a pixel a person can press.
+ */
+export function labelInkBounds(words: Block): Box {
+  const hang = words.size * GLYPH_HANG_EM;
+  return { x: words.x - hang, y: words.y, width: words.width + hang * 2, height: words.height };
+}
+
+/**
  * The box an Element's ink is picked by. An outline draws its stroke centred on
  * the paths Rough.js roughens, so the box covers what those paths draw; a Text
  * has no outline, but its glyphs hang past the advance box that holds their
@@ -259,13 +270,7 @@ export function inkBounds(
 ): Box {
   const box = elementBounds(element, byId, layout);
   if (element.type === 'text') {
-    const hang = layout.text(element).size * GLYPH_HANG_EM;
-    return {
-      x: box.x - hang,
-      y: box.y,
-      width: box.width + hang * 2,
-      height: box.height,
-    };
+    return labelInkBounds(layout.text(element));
   }
   const ink = drawnInk(element);
   if (ink === null) {
@@ -749,10 +754,10 @@ function paperBehind(words: Block | null): string {
   if (words === null) {
     return '';
   }
-  const hang = words.size * GLYPH_HANG_EM;
+  const paper = labelInkBounds(words);
   return (
-    `<rect x="${formatNumber(words.x - hang)}" y="${formatNumber(words.y)}"` +
-    ` width="${formatNumber(words.width + hang * 2)}" height="${formatNumber(words.height)}"` +
+    `<rect x="${formatNumber(paper.x)}" y="${formatNumber(paper.y)}"` +
+    ` width="${formatNumber(paper.width)}" height="${formatNumber(paper.height)}"` +
     ` fill="${PAPER}"/>`
   );
 }

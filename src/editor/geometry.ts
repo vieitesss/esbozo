@@ -9,7 +9,7 @@
  * diagonal arrow's empty corner is bare canvas. Box-select still works on boxes,
  * because a box sweeps up only what it encloses.
  */
-import { drawnShaft, elementBounds, elementsById, inkBounds, pageBounds, shaftLabel, strokeWidthOf } from '../renderer.js';
+import { drawnShaft, elementBounds, elementsById, inkBounds, labelInkBounds, pageBounds, shaftLabel, strokeWidthOf } from '../renderer.js';
 import type { Layout } from '../layout.js';
 import { MIN_SIZE, isOutlined } from '../scene.js';
 import type { Element, Scene } from '../scene.js';
@@ -63,7 +63,8 @@ export function unionOf(boxes: readonly Box[]): Box | null {
  * Element by its box, grown by the ink a rough outline draws outside it, and then
  * by `tolerance` too. With `words`, a shaft's Label is picked too: its ink sits
  * beside the shaft, further out than a click picks a line by, and it is words a
- * person can see and double-click like any other.
+ * person can see and double-click like any other — the box its paper paints,
+ * glyph overhang included.
  *
  * Ink answers before the tolerance does. A press on the border an Element draws
  * is that Element's, even when a higher layer's empty halo reaches it; the halo
@@ -89,7 +90,7 @@ export function elementAt(
       }
       if (words) {
         const label = shaftLabel(element, byId, layout);
-        if (label !== null && holds(label, point)) {
+        if (label !== null && holds(labelInkBounds(label), point)) {
           return element;
         }
       }
