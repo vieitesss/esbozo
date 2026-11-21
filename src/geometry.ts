@@ -494,6 +494,17 @@ function drawnPoints(
     return settledEnds([points[0], points[1]], startTarget, endTarget);
   }
   const drawn = points.map((point) => ({ x: point.x, y: point.y }));
+  if (
+    last === 2 &&
+    startTarget !== undefined &&
+    endTarget !== undefined &&
+    sameOutline(startTarget, endTarget)
+  ) {
+    // A loop: both ends Snap to the same target, so both aim at the one bend
+    // point between them and would land on one point of its outline.
+    [drawn[0], drawn[last]] = loopEnds(startTarget, points[1]);
+    return drawn;
+  }
   if (startTarget !== undefined) {
     drawn[0] = pointOnOutline(startTarget, points[1]);
   }
@@ -501,6 +512,34 @@ function drawnPoints(
     drawn[last] = pointOnOutline(endTarget, points[last - 1]!);
   }
   return drawn;
+}
+
+/**
+ * The two outline points a three-point loop leaves and returns at. Both ends
+ * aim past the one bend point, spread either side of it across the direction the
+ * loop leaves in, so the shaft leaves the outline at one point, loops through
+ * the bend and comes back at another instead of retracing one line.
+ */
+function loopEnds(target: Outline, bend: Point): [Point, Point] {
+  const through = unit(centreOf(target), bend);
+  const across = { x: -through.y, y: through.x };
+  const spread = Math.min(target.width, target.height) / 2;
+  return [
+    pointOnOutline(target, { x: bend.x + across.x * spread, y: bend.y + across.y * spread }),
+    pointOnOutline(target, { x: bend.x - across.x * spread, y: bend.y - across.y * spread }),
+  ];
+}
+
+/** Whether two Snap targets are one outline: the same shape in the same place. */
+function sameOutline(left: Outline, right: Outline): boolean {
+  return (
+    left.type === right.type &&
+    left.x === right.x &&
+    left.y === right.y &&
+    left.width === right.width &&
+    left.height === right.height &&
+    left.corners === right.corners
+  );
 }
 
 /**

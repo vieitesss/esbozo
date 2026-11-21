@@ -422,15 +422,16 @@ test('a bend point unwritten takes the Element corners, and a written one wins',
   assert.ok(inkDistance(written, { x: 100, y: 100 }) > 1, 'the point makes its own bend sharp');
 });
 
-test('a self-loop arrow leaves its box and comes back to it', async () => {
+test('a self-loop leaves its box at one point and comes back at another', async () => {
   const svg = await ink({
     version: 1,
     defaults: { roughness: 0 },
     elements: [
-      { id: 'box', type: 'rectangle', x: 100, y: 100, width: 100, height: 100 },
+      { id: 'box', type: 'rectangle', x: 100, y: 100, width: 100, height: 100, tone: 'muted' },
       {
         id: 'loop',
         type: 'arrow',
+        heads: { start: 'none', end: 'none' },
         points: [
           { x: 150, y: 100, snap: 'box' },
           { x: 150, y: 30 },
@@ -440,9 +441,25 @@ test('a self-loop arrow leaves its box and comes back to it', async () => {
     ],
   });
 
-  const ink_ = allInk(svg);
-  assert.ok(ink_.some((point) => near(point.y, 35, 8) && near(point.x, 150, 8)), 'the loop reaches its bend point');
-  assert.ok(ink_.every((point) => point.y >= 25), 'both ends stop on the box outline');
+  const shaft = tags(svg, 'path').find((tag) => attribute(tag, 'stroke') === 'var(--ink)');
+  assert.ok(shaft !== undefined, 'the loop is drawn');
+  const d = attribute(shaft, 'd') ?? '';
+  const drawn = drawnPoints(d);
+  const start = drawn[0]!;
+  const end = drawn[drawn.length - 1]!;
+  assert.ok(near(start.y, 100) && near(end.y, 100), 'both ends stop on the box outline');
+  assert.ok(
+    [start.x, end.x].every((x) => x >= 100 && x <= 200),
+    `both ends sit on the box's top edge, got x ${start.x} and ${end.x}`,
+  );
+  assert.ok(
+    Math.abs(start.x - end.x) > 20,
+    `the shaft leaves and returns at two points, got ${start.x} and ${end.x}`,
+  );
+
+  const ink_ = inkSamples(d);
+  assert.ok(Math.min(...ink_.map((point) => point.y)) < 40, 'and loops through its bend point');
+  assert.ok(Math.max(...ink_.map((point) => point.x)) >= Math.max(start.x, end.x), 'the ink reaches both ends');
 });
 
 test('a curved shaft bulges inside the page it is drawn on', async () => {
