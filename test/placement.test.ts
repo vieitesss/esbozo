@@ -21,6 +21,7 @@ const {
   pageBounds,
   elementBounds,
   elementAt,
+  caretLine,
   createLayout,
   parseFontFile,
   KALAM,
@@ -168,6 +169,35 @@ test('a press on the glyph overhang of a shaft Label finds it, as the ink paints
     'a press on bare paper beside it finds nothing',
   );
 });
+
+test('the caret’s line fits the slot it is drawn in, at every zoom a page offers', () => {
+  // A slot is one line of a Label's words on the page, so Zoom is what sizes
+  // it: the page's own floor is 10%, and the clearance that keeps a wide
+  // selection out from under the note goes below it, to a slot under two
+  // pixels. A line laid over such a slot would run its round caps outside it
+  // and turn upward, so the line narrows with the slot and stays inside it.
+  const ordinary = caretLine({ x: 100, y: 50, width: 0, height: 27 });
+  assert.equal(ordinary.stroke, 2, 'a line of words at 100% draws the caret it always did');
+
+  for (const height of [27, 13.5, 4, 2, 1.49, 0.8]) {
+    const slot = { x: 100, y: 50, width: 0, height };
+    const caret = caretLine(slot);
+    const ys = ysOf(caret.path);
+    const half = caret.stroke / 2;
+
+    assert.ok(ys[0]! < ys[ys.length - 1]!, `the caret runs down a ${height}-pixel slot`);
+    assert.ok(
+      Math.min(...ys) - half >= slot.y && Math.max(...ys) + half <= slot.y + height,
+      `and its stroke stays inside the slot`,
+    );
+  }
+});
+
+/** The y of every point a path names, in the order it names them. */
+function ysOf(path: string): number[] {
+  const values = [...path.matchAll(/-?\d+(?:\.\d+)?/g)].map((found) => Number(found[0]));
+  return values.filter((_value, index) => index % 2 === 1);
+}
 
 interface Box {
   x: number;

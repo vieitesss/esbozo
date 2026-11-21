@@ -58,6 +58,7 @@ import {
   boxBetween,
   boxOf,
   clearedView,
+  caretLine,
   elementsInBox,
   fittedView,
   handlePoint,
@@ -100,10 +101,6 @@ const ZOOM_STEP = 1.2;
 const PICK_TOLERANCE = 6;
 /** How far off the drawn words a press is still a press in them, in screen pixels. */
 const WORDS_TOLERANCE = 8;
-/** How wide the caret's stroke is drawn, in screen pixels: the drawing is the ink, not a field's own. */
-const CARET_WIDTH = 2;
-/** How far the hand-drawn caret wanders from a straight line, in screen pixels. */
-const CARET_WOBBLE = 0.6;
 /** How thick the rule under a preedit is, in screen pixels. */
 const PREEDIT_RULE = 1.5;
 /** How far a copy, a pasted Element or a duplicate lands from what it copies, in Scene units. */
@@ -1895,7 +1892,7 @@ class EsbozoEditorElement extends HTMLElement {
 
     const caret = this.#layout.caret(block, at(state.caret), glyphs);
     const page = this.#pageBox({ x: caret.x, y: caret.y, width: 0, height: caret.height });
-    layer.append(caretLine(page));
+    layer.append(caretPath(page));
     text.spot(page);
   }
 
@@ -3538,27 +3535,15 @@ function unmeasured(): Layout {
 }
 
 /**
- * The caret as the page draws it: one hand-drawn line down the slot the next
- * letter goes in, in the same ink as the Elements around it. It wanders by
- * under a screen pixel either way, the way a drawn line does, and it is one
- * path, so a blink costs a CSS rule and no drawing at all.
+ * The caret on the page, as the drawing gives it: the line and the stroke its
+ * slot takes, made into the one path the overlay holds.
  */
-function caretLine(slot: Box): SVGPathElement {
+function caretPath(slot: Box): SVGPathElement {
+  const line = caretLine(slot);
   const node = document.createElementNS(SVG_NS, 'path');
   node.setAttribute('class', 'caret');
-  node.setAttribute('stroke-width', String(CARET_WIDTH));
-  // The line stops half a stroke short of each end, so its round caps close on
-  // the slot's own edges rather than past them.
-  const top = slot.y + CARET_WIDTH / 2;
-  const bottom = slot.y + slot.height - CARET_WIDTH / 2;
-  const across = (wander: number): number => slot.x + CARET_WOBBLE * wander;
-  const down = (share: number): number => top + (bottom - top) * share;
-  node.setAttribute(
-    'd',
-    `M${across(-0.5)} ${top}` +
-      `C${across(0.7)} ${down(0.25)}, ${across(-0.4)} ${down(0.35)}, ${across(0.3)} ${down(0.5)}` +
-      `C${across(0.9)} ${down(0.65)}, ${across(-0.2)} ${down(0.8)}, ${across(0.1)} ${bottom}`,
-  );
+  node.setAttribute('stroke-width', String(line.stroke));
+  node.setAttribute('d', line.path);
   return node;
 }
 

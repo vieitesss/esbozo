@@ -1,7 +1,7 @@
 /**
- * The editing maths behind the editor: boxes, hit testing, moves, resizes and
- * the viewport transform. Pure functions over plain values, so the same code
- * serves the pointer handlers and the tests.
+ * The editing maths behind the editor: boxes, hit testing, moves, resizes, the
+ * caret's line and the viewport transform. Pure functions over plain values, so
+ * the same code serves the pointer handlers and the tests.
  *
  * Where an Element is comes from the Renderer (`elementBounds`, `pageBounds`),
  * so the editor and a drawn page can never disagree. An arrow or line is picked
@@ -391,6 +391,40 @@ export function handlePoint(box: Box, handle: Handle): Point {
       ? box.y + box.height
       : box.y + box.height / 2;
   return { x, y };
+}
+
+/** How wide the caret's stroke is on a line of words at 100%, in screen pixels. */
+const CARET_WIDTH = 2;
+
+/** How far the caret wanders either side of its slot, in screen pixels. */
+const CARET_WOBBLE = 0.6;
+
+/**
+ * The caret as the page draws it: one hand-drawn line down the slot the next
+ * letter goes in, in the same ink as the Elements around it. It wanders by under
+ * a screen pixel either way, the way a drawn line does, and it is one path, so a
+ * blink costs a CSS rule and no drawing at all.
+ *
+ * A zoom small enough — the clearance that keeps a wide selection clear of the
+ * note goes well under the page's own floor — leaves a slot narrower than the
+ * stroke, and a stroke that wide would put its round caps outside the slot and
+ * turn the path upward. So the stroke narrows with the slot: the caps close on
+ * the slot's own edges, and the line runs down and stays inside it at every
+ * zoom.
+ */
+export function caretLine(slot: Box): { stroke: number; path: string } {
+  const stroke = Math.min(CARET_WIDTH, slot.height / 2);
+  const top = slot.y + stroke / 2;
+  const bottom = slot.y + slot.height - stroke / 2;
+  const across = (wander: number): number => slot.x + CARET_WOBBLE * wander;
+  const down = (share: number): number => top + (bottom - top) * share;
+  return {
+    stroke,
+    path:
+      `M${across(-0.5)} ${top}` +
+      `C${across(0.7)} ${down(0.25)}, ${across(-0.4)} ${down(0.35)}, ${across(0.3)} ${down(0.5)}` +
+      `C${across(0.9)} ${down(0.65)}, ${across(-0.2)} ${down(0.8)}, ${across(0.1)} ${bottom}`,
+  };
 }
 
 /** Pan and zoom, in the units the canvas uses. */

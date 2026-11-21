@@ -26,6 +26,7 @@ export interface ProjectModules {
   pageBounds: typeof import('../src/renderer.ts').pageBounds;
   elementBounds: typeof import('../src/renderer.ts').elementBounds;
   elementAt: typeof import('../src/editor/geometry.ts').elementAt;
+  caretLine: typeof import('../src/editor/geometry.ts').caretLine;
   PaintCache: typeof import('../src/editor/paint.ts').PaintCache;
   sceneFile: typeof import('../src/editor/paint.ts').sceneFile;
   createLayout: typeof import('../src/layout.ts').createLayout;
@@ -47,7 +48,7 @@ export async function loadProjectModules(): Promise<ProjectModules> {
       `export { History } from ${source('editor/history.ts')};`,
       `export { wordsShift } from ${source('editor/words.ts')};`,
       `export { renderScene, pageBounds, elementBounds } from ${source('renderer.ts')};`,
-      `export { elementAt } from ${source('editor/geometry.ts')};`,
+      `export { elementAt, caretLine } from ${source('editor/geometry.ts')};`,
       `export { PaintCache, sceneFile } from ${source('editor/paint.ts')};`,
       `export { createLayout, parseFontFile } from ${source('layout.ts')};`,
       `export { default as KALAM } from ${JSON.stringify(
