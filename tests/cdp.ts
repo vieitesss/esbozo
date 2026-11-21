@@ -142,14 +142,17 @@ async function session(): Promise<Cdp> {
 /**
  * Types `text` as an input method's preedit: the words are in the field and
  * unconfirmed, exactly as they are while a person still picks a candidate.
+ * `caret` is where the composition's own caret sits in it, which is not always
+ * its end: a person reading a preedit can leave it anywhere inside the words
+ * being composed.
  */
-export async function imeCompose(text: string): Promise<void> {
+export async function imeCompose(text: string, caret = text.length): Promise<void> {
   const cdp = await session();
   composing = text;
   await cdp.send('Input.imeSetComposition', {
     text,
-    selectionStart: text.length,
-    selectionEnd: text.length,
+    selectionStart: caret,
+    selectionEnd: caret,
   });
 }
 

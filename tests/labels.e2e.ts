@@ -1281,6 +1281,33 @@ describe('labels', () => {
     expect((await savedScene(ui)).elements[0]?.label).toBe('abc');
   });
 
+  test("an input method's preedit is underlined whole, wherever its own caret is", async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    // Composed with the input method's caret at its first letter: the person is
+    // still choosing, and the rule under the words is what says they are not
+    // confirmed — all of them, not only the letters the caret is behind.
+    await imeCompose('abc', 0);
+
+    const composing = await shot(ui);
+    const ink = composing.darkBounds({ x: INSIDE.x, y: 371, width: INSIDE.width, height: 20 }, DARK) as Rect;
+    const rule = composing.darkBounds({ x: INSIDE.x, y: 391, width: INSIDE.width, height: 3 }, DARK) as Rect;
+    expect(ink).not.toBeNull();
+    expect(rule).not.toBeNull();
+    expect(rule.width).toBeGreaterThan(ink.width - 6);
+
+    await imeCommit();
+    await label.press('Escape');
+    expect((await savedScene(ui)).elements[0]?.label).toBe('abc');
+  });
+
   test('the canvas shows the words as they will save, on every keystroke', async ({
     app,
     browser,

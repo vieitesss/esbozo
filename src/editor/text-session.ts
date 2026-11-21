@@ -99,8 +99,12 @@ export class TextSession {
   #composing = false;
   /** What the field held before the composition started: the words a finish would keep. */
   #confirmed = '';
-  /** Where in the value the preedit an input method is composing begins. */
-  #preeditFrom: number | null = null;
+  /**
+   * The run of the value the open composition took over when it started. What
+   * the value holds beyond the rest of it is the preedit, wherever the input
+   * method's own caret happens to be inside it.
+   */
+  #composed = { from: 0, to: 0 };
 
   constructor(options: TextSessionOptions) {
     const { host, name, words, typed, moved, line, commit, ended } = options;
@@ -144,17 +148,25 @@ export class TextSession {
   /** What the field holds now: the words, the caret and the selection in them, and any preedit. */
   state(): TextSessionState {
     const input = this.#input;
-    const from = this.#preeditFrom;
     return {
       words: input.value,
       start: input.selectionStart,
       end: input.selectionEnd,
       caret: input.selectionDirection === 'backward' ? input.selectionStart : input.selectionEnd,
-      preedit:
-        this.#composing && from !== null
-          ? { from, to: Math.max(from, input.selectionEnd) }
-          : null,
+      preedit: this.#composing ? this.#preedit() : null,
     };
+  }
+
+  /**
+   * The run of the value the open composition made: everything the value holds
+   * that the field held before it, from where the composition began. It is the
+   * whole preedit and not the part of it before the input method's caret, which
+   * a person reading a candidate can put anywhere in the words.
+   */
+  #preedit(): { from: number; to: number } {
+    const { from, to } = this.#composed;
+    const untouched = this.#confirmed.length - (to - from);
+    return { from, to: Math.max(from, this.#input.value.length - untouched) };
   }
 
   /**
@@ -246,15 +258,17 @@ export class TextSession {
   #onCompositionStart = (): void => {
     this.#composing = true;
     this.#confirmed = this.#input.value;
-    // The preedit begins where the caret was: a composition replaces nothing on
-    // the way in, and everything an input method adds is drawn from here.
-    this.#preeditFrom = this.#input.selectionStart;
+    // The preedit takes over the run the caret was in: a composition replaces
+    // what a person had chosen, and everything it adds is drawn from there.
+    const start = this.#input.selectionStart;
+    const end = this.#input.selectionEnd;
+    this.#composed = { from: Math.min(start, end), to: Math.max(start, end) };
     this.#moved();
   };
 
   #onCompositionEnd = (): void => {
     this.#composing = false;
-    this.#preeditFrom = null;
+    this.#composed = { from: 0, to: 0 };
     this.#moved();
   };
 
