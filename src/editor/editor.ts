@@ -68,7 +68,8 @@ import { attachedTo, endPoint, freedEnd, isShaft, otherEnd, released, targetAt, 
 import type { End } from './snap.js';
 import { TextSession } from './text-session.js';
 import type { LineKey, TextSessionState } from './text-session.js';
-import { drawnOffset, keptWords, shownWords, typedOffset, withWords, wordAt, wordsOf } from './words.js';
+import { keptWords, shownWords, withWords, wordAt, wordsOf, wordsShift } from './words.js';
+import type { WordsShift } from './words.js';
 import { PaintCache, sceneFile } from './paint.js';
 import type { SceneFiles } from './paint.js';
 import type { Paint } from './paint.js';
@@ -376,6 +377,12 @@ class EsbozoEditorElement extends HTMLElement {
    * page but it is not in the Scene until the words are committed.
    */
   #draft: TextElement | null = null;
+  /**
+   * The step between the field's words and the drawn ones, made whenever the page
+   * accepts a preview: a caret is mapped through the very words its Block was
+   * drawn from, and input the page refused maps through the last it accepted.
+   */
+  #shift: WordsShift = wordsShift('', '');
   #note!: HTMLElement;
   #files!: HTMLUListElement;
   #newScene!: HTMLFormElement;
@@ -1750,8 +1757,7 @@ class EsbozoEditorElement extends HTMLElement {
       return;
     }
     const state = text.state();
-    const drawn = this.#drawnWords();
-    const at = (offset: number): number => drawnOffset(state.words, drawn, offset);
+    const at = (offset: number): number => this.#shift.drawn(offset);
 
     for (const box of this.#layout.selection(block, at(state.start), at(state.end))) {
       this.#appendRect(behind, { ...box, class: 'words-selection' });
@@ -2235,6 +2241,7 @@ class EsbozoEditorElement extends HTMLElement {
     // The Text the words will make, drawn on the page as they arrive: the page
     // shows what saving would render, and the field is only the caret and the keys.
     this.#draft = newText(at, '', freshId('text', idsOf(this.#scene.elements)), this.#scene.defaults);
+    this.#shift = wordsShift('', '');
     this.#text = new TextSession({
       host: this,
       name: 'Text',
@@ -2267,6 +2274,7 @@ class EsbozoEditorElement extends HTMLElement {
       id: element.id,
       element: withWords(element, wordsOf(element), this.#layout),
     };
+    this.#shift = wordsShift(wordsOf(element), wordsOf(element));
     // The note follows the selection, and the view makes room for it before the
     // field takes the focus: the words stay clear of the note under the caret.
     this.#refresh();
@@ -2298,6 +2306,7 @@ class EsbozoEditorElement extends HTMLElement {
       // not move when the session ends.
       const kept = words === wordsOf(element) ? words : keptWords(words);
       this.#editing = { id: element.id, element: withWords(element, kept, this.#layout) };
+      this.#shift = wordsShift(words, kept);
       // The grown Element is what the note must not cover.
       this.#clearOfMenu();
     }
@@ -2311,7 +2320,9 @@ class EsbozoEditorElement extends HTMLElement {
       return;
     }
     if (!hasXmlInvalidChars(words)) {
-      this.#draft = { ...draft, content: keptWords(words) };
+      const kept = keptWords(words);
+      this.#draft = { ...draft, content: kept };
+      this.#shift = wordsShift(words, kept);
     }
     this.#paint();
   }
@@ -2331,12 +2342,6 @@ class EsbozoEditorElement extends HTMLElement {
     return drawnWords(shownWords(element), byId, this.#layout);
   }
 
-  /** The words the page is drawing while they are typed: what the field's offsets are read against. */
-  #drawnWords(): string {
-    const element = this.#editing?.element ?? this.#draft;
-    return element === null ? '' : wordsOf(element);
-  }
-
   /**
    * Where Up, Down, Home and End put the caret in the words being typed: the
    * drawn line above or below at the same column, or the start or end of the
@@ -2348,8 +2353,7 @@ class EsbozoEditorElement extends HTMLElement {
     if (block === null) {
       return null;
     }
-    const drawn = this.#drawnWords();
-    const caret = this.#layout.caret(block, drawnOffset(state.words, drawn, state.caret));
+    const caret = this.#layout.caret(block, this.#shift.drawn(state.caret));
     const middle = caret.y + caret.height / 2;
     // The lines are the Layout's own boxes, one line height each: half a line
     // above or below the caret's middle is the middle of its neighbour. Home
@@ -2363,7 +2367,7 @@ class EsbozoEditorElement extends HTMLElement {
           : key === 'home'
             ? { x: block.x - 1, y: middle }
             : { x: block.x + block.width + 1, y: middle };
-    return typedOffset(state.words, drawn, this.#layout.offsetAt(block, point));
+    return this.#shift.typed(this.#layout.offsetAt(block, point));
   }
 
   /**
@@ -2392,8 +2396,7 @@ class EsbozoEditorElement extends HTMLElement {
 
   /** An offset among the drawn glyphs, read back into the field's own words. */
   #typedOffset(drawn: number): number {
-    const text = this.#text;
-    return typedOffset(text?.state().words ?? '', this.#drawnWords(), drawn);
+    return this.#shift.typed(drawn);
   }
 
   /**
@@ -2485,6 +2488,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#editing = null;
     this.#draft = null;
     this.#wordsClick = null;
+    this.#shift = wordsShift('', '');
     text?.discard();
     this.#paint();
   }

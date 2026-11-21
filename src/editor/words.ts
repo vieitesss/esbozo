@@ -38,26 +38,29 @@ export function keptWords(typed: string): string {
 }
 
 /**
- * How much of what a person typed is not drawn: the blank space at the start,
- * which `keptWords` trims off the words the page shows. Zero when the page is
- * drawing the very words the field holds.
+ * The step between the words a field holds and the words the page draws: the
+ * drawn ones are the typed ones without the blank a trim drops, so where they
+ * begin is the whole of the step, read both ways.
+ *
+ * It is made once, when the page accepts what was typed, so a caret is mapped
+ * through the very words a Block was drawn from. Words the page refused keep the
+ * step they had: no offset is made up for glyphs nobody drew.
  */
-function trimmedStart(typed: string, drawn: string): number {
-  return drawn === typed ? 0 : typed.length - typed.trimStart().length;
+export interface WordsShift {
+  /** Where a caret offset in the field's words lands among the drawn glyphs. */
+  drawn(offset: number): number;
+  /** Where a caret offset among the drawn glyphs lands in the field's words. */
+  typed(offset: number): number;
 }
 
-/**
- * Where a caret offset in what a person typed lands in the words the page draws.
- * The field is the truth about the caret and the drawing is the truth about the
- * glyphs; this is the one step between them.
- */
-export function drawnOffset(typed: string, drawn: string, offset: number): number {
-  return clamp(offset - trimmedStart(typed, drawn), 0, drawn.length);
-}
-
-/** The other way: where a caret offset among the drawn glyphs lands in the field. */
-export function typedOffset(typed: string, drawn: string, offset: number): number {
-  return clamp(offset + trimmedStart(typed, drawn), 0, typed.length);
+/** The one step between what a field holds and the words the page drew from it. */
+export function wordsShift(typed: string, drawn: string): WordsShift {
+  const at = typed.indexOf(drawn);
+  const lead = at < 0 ? 0 : at;
+  return {
+    drawn: (offset) => clamp(offset - lead, 0, drawn.length),
+    typed: (offset) => clamp(offset + lead, 0, typed.length),
+  };
 }
 
 /** What a double-click counts as one word: letters, digits and the marks that go with them. */
