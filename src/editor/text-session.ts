@@ -311,14 +311,14 @@ export class TextSession {
     if (event.altKey || event.ctrlKey || event.metaKey) {
       return false;
     }
-    const at = this.#line(key, this.state());
+    const state = this.state();
+    const at = this.#line(key, state);
     if (at === null) {
       return false;
     }
     event.preventDefault();
     // Shift keeps the end of the selection that is not the caret, so the walk
     // grows the selection instead of throwing it away.
-    const state = this.state();
     const anchor = state.caret === state.end ? state.start : state.end;
     this.select(event.shiftKey ? anchor : at, at);
     return true;
