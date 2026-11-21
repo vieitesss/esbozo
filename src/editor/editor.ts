@@ -194,19 +194,6 @@ export class EsbozoEditorElement extends HTMLElement {
   #menu!: HTMLElement;
   #roughButton!: HTMLButtonElement;
 
-  /**
-   * Where the given Elements cover, in Scene units, measured once for the whole
-   * operation: the Renderer's own bounds, so an alignment lands where the drawing
-   * is rather than where a stored box says. A Snapped end and a Label are
-   * measured, not guessed.
-   */
-  #boundsOf(elements: readonly SceneElement[]): Map<string, Box> {
-    const byId = elementsById(elements);
-    return new Map(
-      elements.map((element) => [element.id, elementBounds(element, byId, this.#layout)]),
-    );
-  }
-
   constructor(layout: Layout) {
     super();
     this.#layout = layout;
@@ -593,14 +580,22 @@ export class EsbozoEditorElement extends HTMLElement {
     });
   }
 
-  /** Reorder, align or spread the selected Elements. */
+  /**
+   * Reorder, align or spread the selected Elements. Arrange asks for the bounds
+   * of what it can move as it needs them, so Order measures nothing and the id
+   * index is built only when something is measured at all. The bounds are the
+   * Renderer's own, so an alignment lands where the drawing is rather than where
+   * a stored box says: a Snapped end and a Label are measured, not guessed.
+   */
   #arrangeSelection(act: ArrangeAct): void {
-    const boxes = this.#boundsOf(this.#scene.elements);
+    const elements = this.#scene.elements;
+    let byId: ReadonlyMap<string, SceneElement> | undefined;
     this.#applyScene({
       ...this.#scene,
-      elements: arranged(this.#scene.elements, this.#selected, act, (element) =>
-        boxes.get(element.id),
-      ),
+      elements: arranged(elements, this.#selected, act, (element) => {
+        byId ??= elementsById(elements);
+        return elementBounds(element, byId, this.#layout);
+      }),
     });
   }
 
