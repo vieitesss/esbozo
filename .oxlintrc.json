@@ -1,0 +1,10 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "ignorePatterns": ["dist/**", ".e2e/**"],
+  "overrides": [
+    {
+      "files": ["src/editor/editor.ts"],
+      "rules": { "typescript/no-this-alias": "off" }
+    }
+  ]
+}
