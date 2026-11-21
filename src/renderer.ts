@@ -221,17 +221,55 @@ const ROUGH_BOW_SHARE = 0.01;
 const ROUGH_FIT_SHARE = 0.05;
 
 /**
+ * How far a hand font's glyphs hang past the advance box Layout measures their
+ * words by, as a share of the font size: Kalam's `j`, the widest hang in the
+ * bundled font, puts its hook 0.22 em left of the origin. The ink is the ink a
+ * person sees, so a press on that hook is a press on the words.
+ */
+const GLYPH_HANG_EM = 0.25;
+
+/**
  * How far past its outline box an Element's ink may reach, in Scene units: a
  * rough stroke wobbles every vertex by up to its randomness, bows a long straight
  * side outward, and on an ellipse grows the ring while fitting curves. The ink is
  * the Element, so `elementAt` grows the box by this much and a press on the
  * border lands.
  */
-export function inkReach(element: OutlinedElement): number {
+function inkReach(element: OutlinedElement): number {
   const longest = Math.max(element.width, element.height);
   const shape =
     element.type === 'ellipse' ? (longest * ROUGH_FIT_SHARE) / 2 : longest * ROUGH_BOW_SHARE;
   return element.roughness * (ROUGH_VERTEX_PX + shape);
+}
+
+/**
+ * The box an Element's ink is picked by. An outline draws its stroke centred on
+ * the path Rough.js roughens, so the box grows by the stroke's half width and by
+ * the stray that path makes; a Text has no outline, but its glyphs hang past the
+ * advance box that holds their words.
+ */
+export function inkBounds(
+  element: OutlinedElement | TextElement,
+  byId: ReadonlyMap<string, Element>,
+  layout: Layout,
+): Box {
+  const box = elementBounds(element, byId, layout);
+  if (element.type === 'text') {
+    const hang = layout.text(element).size * GLYPH_HANG_EM;
+    return {
+      x: box.x - hang,
+      y: box.y,
+      width: box.width + hang * 2,
+      height: box.height,
+    };
+  }
+  const reach = strokeWidthOf(element) / 2 + inkReach(element);
+  return {
+    x: box.x - reach,
+    y: box.y - reach,
+    width: box.width + reach * 2,
+    height: box.height + reach * 2,
+  };
 }
 
 /**

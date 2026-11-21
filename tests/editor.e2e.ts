@@ -369,6 +369,27 @@ function leftEdgeOf(box: { x: number; y: number; height: number }): Point {
   return at({ x: box.x, y: box.y + box.height / 2 }, BORDERS);
 }
 
+/**
+ * The ink that reaches furthest left in `region`, from the page's pixels: the
+ * row that gets furthest left and the pixel on it, centred where a press lands.
+ * A glyph's hook or a rough outline's lobe is not on the row through the middle
+ * of its box, so the row is found rather than assumed.
+ */
+async function leftmostInk(ui: Ui, region: Rect): Promise<Point> {
+  const image = await shot(ui);
+  let leftmost: Point | null = null;
+  for (let y = Math.ceil(region.y); y < region.y + region.height; y += 1) {
+    const row = image.darkBounds({ x: region.x, y, width: region.width, height: 1 }, DRAWN);
+    if (row !== null && (leftmost === null || row.x < leftmost.x)) {
+      leftmost = { x: row.x + 0.5, y: y + 0.5 };
+    }
+  }
+  if (leftmost === null) {
+    throw new Error(`no ink in ${JSON.stringify(region)}`);
+  }
+  return leftmost;
+}
+
 /** A press and a release where the pointer lands, through the browser's own mouse. */
 async function press(point: Point): Promise<void> {
   const mouse = livePage().mouse;
@@ -504,6 +525,41 @@ test('a press on a lower Element\u2019s border ink is not taken by the halo abov
     ['left', 50],
     ['right', 144],
   ]);
+});
+
+/**
+ * One XL Kalam `j`: a hand font's hook hangs past the advance box its words are
+ * measured by, so the ink a person sees and the box the words occupy differ.
+ */
+const HANG_SCENE = {
+  version: 1,
+  title: 'Hang',
+  defaults: { roughness: 1 },
+  elements: [{ id: 'hang', type: 'text', x: 40, y: 40, content: 'j', fontSize: 'XL', textAlign: 'left' }],
+};
+const HANG_SOURCE = JSON.stringify(HANG_SCENE, null, 2);
+
+/** The view `HANG_SCENE` lands in: its 41×84 page fitted one to one. */
+const HANG = { zoom: 1, panX: 595.5, panY: 334 };
+
+/** Room around the drawn `j` on the page, clear of the rail and the status line. */
+const HANG_REGION: Rect = { x: HANG.panX + 10, y: HANG.panY + 30, width: 60, height: 60 };
+
+test('a press on the ink a glyph hangs outside its words selects the Text', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'hang.json': HANG_SOURCE } }, 'hang.json');
+
+  // The hook of the `j`, from the page's pixels: it is outside the box Layout
+  // measures the words in, and it is ink a person can see and press.
+  const ink = await leftmostInk(ui, HANG_REGION);
+  const advance = at({ x: 40, y: 0 }, HANG);
+  expect(ink.x, 'the hook hangs left of the advance box').toBeLessThan(advance.x - 4);
+
+  await press(ink);
+  await browser.keyboard.press('Shift+ArrowRight');
+
+  const scene = await savedScene(ui, 'hang.json');
+  expect(scene.elements[0]?.x).toBe(50);
 });
 
 test('a press inside two overlapping boxes picks the topmost Element', async ({ app, browser, screen }) => {

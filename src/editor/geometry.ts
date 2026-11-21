@@ -9,7 +9,7 @@
  * diagonal arrow's empty corner is bare canvas. Box-select still works on boxes,
  * because a box sweeps up only what it encloses.
  */
-import { drawnShaft, elementBounds, elementsById, inkReach, pageBounds, strokeWidthOf } from '../renderer.js';
+import { drawnShaft, elementBounds, elementsById, inkBounds, pageBounds, strokeWidthOf } from '../renderer.js';
 import type { Layout } from '../layout.js';
 import { MIN_SIZE, isOutlined } from '../scene.js';
 import type { Element, Scene } from '../scene.js';
@@ -95,12 +95,11 @@ export function elementAt(
       }
       continue;
     }
-    // An outlined Element's ink strays outside its box: the box it is picked by
-    // grows by that stray and the stroke's half width, and then by the tolerance.
-    const reach = isOutlined(element)
-      ? strokeWidthOf(element) / 2 + inkReach(element)
-      : 0;
-    const ink = grownBy(elementBounds(element, byId, layout), reach);
+    // An outlined Element's ink strays outside its box and a Text's glyphs hang
+    // past its own: both are the Element, and the tolerance is added on top.
+    const ink = isOutlined(element) || element.type === 'text'
+      ? inkBounds(element, byId, layout)
+      : elementBounds(element, byId, layout);
     if (holds(ink, point)) {
       return element;
     }
