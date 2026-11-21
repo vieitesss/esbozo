@@ -138,8 +138,8 @@ export function newText(
 
 /**
  * The first id of a kind that this Scene does not use: `rectangle-1`,
- * `rectangle-2`, and so on. Ids are Scene labels, so they only have to be
- * stable and unique, and a readable one makes a Scene easier to hand-edit.
+ * `rectangle-2`, and so on. Element ids only have to be stable and unique, and
+ * a readable one makes a Scene easier to hand-edit.
  */
 export function freshId(type: DrawableType, taken: ReadonlySet<string>): string {
   for (let count = 1; ; count += 1) {
