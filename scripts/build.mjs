@@ -26,6 +26,10 @@ await build({
 
 await chmod(cliOutfile, 0o755);
 
+/**
+ * The served page: minified, because it crosses the wire, and `ez serve`
+ * compresses what it sends. The page is read once per load, not edited.
+ */
 await build({
   entryPoints: ['src/editor/main.ts'],
   outfile: 'dist/editor.js',
@@ -33,6 +37,7 @@ await build({
   platform: 'browser',
   format: 'esm',
   target: 'es2022',
+  minify: true,
   logLevel: 'info',
 });
 
@@ -54,13 +59,13 @@ await build({
 });
 
 await mkdir('dist/fonts', { recursive: true });
-// The served page's stylesheet: the font face, the editor's look (scoped to the
-// element, the same text the bundle carries), and then the page's own chrome,
-// last so it can make the element fill the window.
+// The served page's stylesheet: the editor's look (scoped to the element, the
+// same text the bundle carries), and then the page's own chrome, last so it can
+// make the element fill the window. No `@font-face`: the page installs the face
+// it measured from the one file it fetched, so the font is fetched once.
 await writeFile(
   'dist/editor.css',
   [
-    await readFile('src/editor/font-face.css', 'utf8'),
     await readFile('src/editor/editor.css', 'utf8'),
     await readFile('src/editor/page.css', 'utf8'),
   ].join('\n'),

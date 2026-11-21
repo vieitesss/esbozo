@@ -13,7 +13,7 @@ import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import { cliRender, MIXED, MIXED_SCENE, SCENE, clickScene } from './helpers.ts';
+import { cliRender, dragBy, MIXED, MIXED_SCENE, SCENE, clickScene } from './helpers.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
 import { startServe, tempFolder } from '../test/cli.ts';
@@ -181,6 +181,55 @@ test('a folder served read-only says so and refuses every save', async ({ app, b
     expect(await readFile(join(folder, 'scene.json'), 'utf8')).toBe(SCENE_SOURCE);
     expect((await readdir(folder)).sort()).toEqual(['scene.json']);
     await expect(screen.getByText('read-only')).toBeVisible();
+  } finally {
+    await server.stop();
+  }
+});
+
+test('a drag saves the SVG the CLI draws for the Scene it saved', async ({ app, browser, screen }) => {
+  const folder = await folderWith({ 'two.json': MIXED_SOURCE });
+  const server = await startServe(folder);
+  try {
+    await app.open(`${server.url}/editor.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+
+    // One gesture: the press selects the ellipse, the drag moves it.
+    await dragBy({ app, browser, screen }, { x: 120, y: 110 }, 40, 30, MIXED);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+
+    // The moved Element is where the drag put it, and the SVG beside it is the
+    // one `ez render` writes for that Scene — no bytes left over from the frame
+    // the gesture was drawn with.
+    const saved = JSON.parse(await readFile(join(folder, 'two.json'), 'utf8')) as {
+      elements: Array<{ id: string; x?: number; y?: number }>;
+    };
+    expect(saved.elements.find((element) => element.id === 'oval')).toMatchObject({ x: 100, y: 90 });
+    await expect
+      .poll(() => readFile(join(folder, 'two.svg'), 'utf8'))
+      .toBe(await cliRender(saved));
+  } finally {
+    await server.stop();
+  }
+});
+
+test('the page fetches the hand font once', async ({ app, browser, screen }) => {
+  const folder = await folderWith({ 'scene.json': SCENE_SOURCE });
+  const server = await startServe(folder);
+  try {
+    await app.open(`${server.url}/editor.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+
+    // One file: the metrics that place the words and the face the page draws in
+    // are the same fetch. A second request would be the `@font-face` the page
+    // no longer declares.
+    const fetched = async (): Promise<string[]> =>
+      browser.evaluate(() =>
+        performance
+          .getEntriesByType('resource')
+          .map((entry) => entry.name)
+          .filter((name) => name.endsWith('Kalam-Regular.ttf')),
+      );
+    await expect.poll(async () => (await fetched()).length).toBe(1);
   } finally {
     await server.stop();
   }

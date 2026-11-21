@@ -35,6 +35,7 @@ import { createServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { basename, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { brotliCompressSync, gzipSync } from 'node:zlib';
 import { PAGE_ASSETS } from './page-assets.js';
 import { svgFileName } from './paths.js';
 import { SCENES_API, sceneWrite } from './scenes-api.js';
@@ -544,11 +545,84 @@ async function servePageAsset(
     sendJson(response, 404, { error: `no page file ${pathname}` });
     return;
   }
+  const encoding = compresses(asset.mime) ? encodingFor(request.headers['accept-encoding']) : null;
+  if (encoding !== null) {
+    const body = await compressedBody(path, encoding);
+    response.writeHead(200, {
+      'content-type': asset.mime,
+      'cache-control': 'no-store',
+      'content-encoding': encoding,
+      'content-length': String(body.length),
+      vary: 'accept-encoding',
+    });
+    response.end(body);
+    return;
+  }
   response.writeHead(200, {
     'content-type': asset.mime,
     'cache-control': 'no-store',
+    ...(compresses(asset.mime) ? { vary: 'accept-encoding' } : {}),
   });
   createReadStream(path).pipe(response);
+}
+
+/**
+ * Whether a page file is worth compressing. The page is text — HTML, CSS, JS,
+ * the font's licence — and the font itself is a font: its own format is the
+ * compression, and every browser that wants it would fetch it anyway.
+ */
+function compresses(mime: string): boolean {
+  return mime.startsWith('text/');
+}
+
+/**
+ * What a request will take of what this server offers, best first. A header
+ * with no weight, or a weight of zero, means the client does not accept the
+ * encoding; `*` stands for the ones it does not name.
+ */
+function encodingFor(header: string | undefined): 'br' | 'gzip' | null {
+  if (header === undefined || header.trim() === '') {
+    return null;
+  }
+  const weights = new Map<string, number>();
+  for (const part of header.split(',')) {
+    const [rawName, ...parameters] = part.trim().toLowerCase().split(';');
+    const name = (rawName ?? '').trim();
+    if (name === '') {
+      continue;
+    }
+    let weight = 1;
+    for (const parameter of parameters) {
+      const [key, value] = parameter.trim().split('=');
+      if (key === 'q') {
+        const asked = Number(value);
+        weight = Number.isFinite(asked) ? asked : 0;
+      }
+    }
+    weights.set(name, weight);
+  }
+  const weightOf = (name: string): number => weights.get(name) ?? weights.get('*') ?? 0;
+  const best = (['br', 'gzip'] as const)
+    .map((name) => ({ name, weight: weightOf(name) }))
+    .filter((offer) => offer.weight > 0)
+    .sort((left, right) => right.weight - left.weight)[0];
+  return best?.name ?? null;
+}
+
+/** Compressed page files, by path: a page load pays for the compression once. */
+const compressed = new Map<string, { readonly stamp: string; readonly body: Buffer }>();
+
+async function compressedBody(path: string, encoding: 'br' | 'gzip'): Promise<Buffer> {
+  const file = await stat(path);
+  const stamp = `${encoding}:${file.size}:${file.mtimeMs}`;
+  const held = compressed.get(path);
+  if (held !== undefined && held.stamp === stamp) {
+    return held.body;
+  }
+  const source = await readFile(path);
+  const body = encoding === 'br' ? brotliCompressSync(source) : gzipSync(source);
+  compressed.set(path, { stamp, body });
+  return body;
 }
 
 function sendJson(response: ServerResponse, status: number, body: unknown): void {

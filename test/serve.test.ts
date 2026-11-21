@@ -12,6 +12,7 @@ import { mkdir, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/
 import { request as httpRequest } from 'node:http';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
+import { brotliCompressSync, gzipSync } from 'node:zlib';
 import { promisify } from 'node:util';
 import { ez, sceneFolder, startServe, tempFolder } from './cli.ts';
 import type { Serve } from './cli.ts';
@@ -109,6 +110,51 @@ test('the served page is the editor, its styles, its script, its font and its li
 
   // The folder path, so a page opened at / works the same.
   assert.equal((await request(server, '/')).status, 200);
+});
+
+test('the page transfers compressed when the client asks, in the best encoding it takes', async () => {
+  const server = await served(await sceneFolder(SCENE));
+  /** The built file, as the server reads it. */
+  const file = async (path: string): Promise<Buffer> =>
+    readFile(new URL(`../dist${path}`, import.meta.url));
+
+  const script = await file('/editor.js');
+  const br = brotliCompressSync(script);
+  const gzip = gzipSync(script);
+
+  for (const [asked, encoding, size] of [
+    ['br', 'br', br.byteLength],
+    ['gzip', 'gzip', gzip.byteLength],
+    ['gzip;q=0.4, br;q=0.9', 'br', br.byteLength],
+    ['br;q=0, gzip;q=1', 'gzip', gzip.byteLength],
+    ['*', 'br', br.byteLength],
+  ] as const) {
+    const answer = await fetch(`${server.url}/editor.js`, { headers: { 'accept-encoding': asked } });
+    assert.equal(answer.status, 200);
+    assert.equal(answer.headers.get('content-encoding'), encoding, `${asked} is answered in ${encoding}`);
+    // One byte count the test made itself, so a header alone cannot pass this.
+    assert.equal(answer.headers.get('content-length'), String(size));
+    assert.equal(answer.headers.get('vary'), 'accept-encoding');
+    // `fetch` decodes the answer: what the page runs is the built script.
+    assert.deepEqual(Buffer.from(await answer.arrayBuffer()), script);
+  }
+  assert.ok(br.byteLength < script.byteLength / 2, 'the page is not mostly identifiers on the wire');
+  assert.ok(gzip.byteLength < script.byteLength / 2);
+
+  // A client that asks for no compression, or accepts none of what is offered,
+  // gets the file itself.
+  for (const asked of ['identity', 'br;q=0, gzip;q=0', '']) {
+    const answer = await fetch(`${server.url}/editor.js`, { headers: { 'accept-encoding': asked } });
+    assert.equal(answer.headers.get('content-encoding'), null, `${asked} gets the file`);
+    assert.deepEqual(Buffer.from(await answer.arrayBuffer()), script);
+  }
+
+  // The font is not text: its own format is the compression, so it travels as it is.
+  const font = await fetch(`${server.url}/fonts/Kalam-Regular.ttf`, {
+    headers: { 'accept-encoding': 'br, gzip' },
+  });
+  assert.equal(font.headers.get('content-encoding'), null);
+  assert.deepEqual(Buffer.from(await font.arrayBuffer()), await file('/fonts/Kalam-Regular.ttf'));
 });
 
 test('the page is all that is served: nothing else in the built folder is', async () => {
