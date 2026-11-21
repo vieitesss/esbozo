@@ -54,6 +54,17 @@ The page also works from any static host that serves `dist/`. Without `ez serve`
 
 [docs/architecture.md](docs/architecture.md) explains how Scene, Layout, Renderer and Editor fit together.
 
+## Docker
+
+To run `ez serve` next to other services instead of from a clone:
+
+```sh
+docker build -t esbozo .
+docker run --rm -p 127.0.0.1:4320:4320 -v "$PWD/diagrams:/scenes" esbozo
+```
+
+Open <http://127.0.0.1:4320/>. The CLI keeps `127.0.0.1` as its default; inside the container nothing outside reaches loopback, so the image passes `--host 0.0.0.0` and the publish side decides the exposure you get: `-p 127.0.0.1:4320:4320` for this machine, `-p 4320:4320` for every interface, with no authentication behind it. Arguments after the image name are the CLI's own, so `esbozo --read-only` works. The multi-arch build, the port, the user id and `pnpm test:docker` are in [docs/docker.md](docs/docker.md).
+
 ## Licences
 
 The code is MIT: see [LICENSE](LICENSE). The bundled font, Kalam, is under the SIL Open Font License: see [fonts/OFL.txt](fonts/OFL.txt).
