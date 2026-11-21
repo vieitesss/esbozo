@@ -715,6 +715,39 @@ describe('labels', () => {
     await expect(screen.getByRole('textbox', { name: 'Text' })).toHaveValue('hi');
   });
 
+  test('a pan the keyboard ends carries nothing into the next gesture', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': MIXED_SOURCE } }, 'scene.json');
+    const shaft: Rect = { x: 800, y: 500, width: 200, height: 160 };
+
+    // A hand on the page, ended by the Space key coming up while the button is
+    // still down: the pointer in hand ends with it, and the move that follows
+    // moves nothing.
+    const from = at({ x: 200, y: 280 }, MIXED);
+    await browser.mouse.move(from.x, from.y);
+    await browser.keyboard.down('Space');
+    await browser.mouse.down();
+    await browser.mouse.move(from.x + 60, from.y + 40);
+    await browser.keyboard.up('Space');
+    const panned = (await shot(ui)).darkCentre(shaft, DARK);
+    await browser.mouse.move(from.x + 140, from.y + 120);
+    expect((await shot(ui)).darkCentre(shaft, DARK)).toEqual(panned);
+    await browser.mouse.up();
+
+    // The next press is the next gesture: it selects the ellipse, and the
+    // arrow keys move it.
+    await clickScene(ui, { x: 120, y: 110 }, [], MIXED);
+    await browser.keyboard.press('Shift+ArrowRight');
+    const moved = (await savedScene(ui, 'scene.json')).elements.find(
+      (element) => element.id === 'oval',
+    );
+    expect(moved?.x).toBe(70);
+  });
+
   test("a double-click on an arrow's words edits them, though they are ink beside the shaft", async ({
     app,
     browser,

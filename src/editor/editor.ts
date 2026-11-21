@@ -284,6 +284,8 @@ class EsbozoEditorElement extends HTMLElement {
   /** True when the page is served by `ez serve`, so its folder needs no picker. */
   #served = false;
   #drag: Drag | null = null;
+  /** The pointer the board holds, while a gesture holds it: the one thing an exit must let go. */
+  #captured: number | null = null;
   /** The press in flight with the Select tool, while it is still a click. */
   #press: Press | null = null;
   /** The click before it: the first half of a double-click, until something else happens. */
@@ -524,8 +526,10 @@ class EsbozoEditorElement extends HTMLElement {
     window.removeEventListener('resize', this.#onResize);
     window.removeEventListener('blur', this.#endGesture);
     // A page that takes the editor away takes the words with it: the field is a
-    // child that left with the element.
+    // child that left with the element, and no gesture of this pointer survives
+    // the DOM it was pressed on.
     this.#endEdits();
+    this.#releasePointer();
     this.#drag = null;
     this.#wired = false;
     if (active === this) {
@@ -639,6 +643,7 @@ class EsbozoEditorElement extends HTMLElement {
    */
   #rebuild(): void {
     this.#drag = null;
+    this.#releasePointer();
     this.#endEdits();
     this.#replaceScene(emptyScene());
     this.#selected = [];
@@ -2440,11 +2445,11 @@ class EsbozoEditorElement extends HTMLElement {
   #onPointerUp = (event: PointerEvent): void => {
     const drag = this.#drag;
     this.#board.classList.remove('panning');
+    // The pointer comes up for this gesture or for one already ended: either way
+    // it is the browser's again.
+    this.#releasePointer();
     if (drag === null) {
       return;
-    }
-    if (this.#board.hasPointerCapture(event.pointerId)) {
-      this.#board.releasePointerCapture(event.pointerId);
     }
 
     // A press that did not move is a click. Two of them in a row are a
@@ -2514,10 +2519,8 @@ class EsbozoEditorElement extends HTMLElement {
    * this one is recorded and nothing is saved; the preview it drew leaves the
    * page, and the pointer coming up later settles nothing.
    */
-  #onPointerCancel = (event: PointerEvent): void => {
-    if (this.#board.hasPointerCapture(event.pointerId)) {
-      this.#board.releasePointerCapture(event.pointerId);
-    }
+  #onPointerCancel = (): void => {
+    this.#releasePointer();
     this.#cancelDrag();
   };
 
@@ -2538,6 +2541,7 @@ class EsbozoEditorElement extends HTMLElement {
   #cancelDrag(): void {
     const drag = this.#drag;
     this.#drag = null;
+    this.#releasePointer();
     this.#press = null;
     this.#lastClick = null;
     this.#board.classList.remove('panning');
@@ -2563,10 +2567,33 @@ class EsbozoEditorElement extends HTMLElement {
    * it gets, so a capture that is no longer there is not a failure.
    */
   #capture(event: PointerEvent): void {
+    this.#releasePointer();
     try {
       this.#board.setPointerCapture(event.pointerId);
+      this.#captured = event.pointerId;
     } catch {
       // Nothing to take: the gesture runs on the events the board still gets.
+    }
+  }
+
+  /**
+   * Let the pointer go. Every way a gesture can end — a release, a cancel, a key
+   * coming up, the page losing its focus, a rebuild, a page that takes the
+   * editor off its DOM — ends here, so no exit can leave the board holding a
+   * pointer nobody will release.
+   */
+  #releasePointer(): void {
+    const id = this.#captured;
+    this.#captured = null;
+    if (id === null) {
+      return;
+    }
+    try {
+      if (this.#board.hasPointerCapture(id)) {
+        this.#board.releasePointerCapture(id);
+      }
+    } catch {
+      // The pointer was already the browser's: no capture left to let go of.
     }
   }
 
@@ -2725,6 +2752,7 @@ class EsbozoEditorElement extends HTMLElement {
   #endSpacePan = (): void => {
     if (this.#drag !== null && this.#drag.kind === 'pan') {
       this.#drag = null;
+      this.#releasePointer();
       this.#board.classList.remove('panning');
     }
     if (!this.#spaceDown) {
