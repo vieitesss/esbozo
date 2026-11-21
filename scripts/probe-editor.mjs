@@ -24,14 +24,14 @@
  *
  * It serves `dist/` as it finds it: `pnpm probe` does not build.
  */
-import { createReadStream, rmSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { PAGE_ASSETS } from '../src/page-assets.ts';
+import { PAGE_ASSETS, answerPageAsset } from '../src/page-assets.ts';
 
 /**
  * Playwright, as the e2e stack installed it. `playwright-core` arrives with
@@ -75,24 +75,11 @@ function options(argv) {
 /**
  * The built page on an ephemeral port, so two probes — or two worktrees — never
  * fight over one. Answers exactly the table `ez serve` and `scripts/serve.mjs`
- * answer, and holds every connection so `closeAllConnections` can end a run that
- * left the page loading something.
+ * answer, through the response handler they share, and holds every connection so
+ * `closeAllConnections` can end a run that left the page loading something.
  */
 function serve(folder) {
-  const server = createServer((request, response) => {
-    const pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
-    const asset = PAGE_ASSETS.find((entry) => entry.path === pathname);
-    if (asset === undefined) {
-      response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }).end('not found');
-      return;
-    }
-    response.writeHead(200, { 'content-type': asset.mime, 'cache-control': 'no-store' });
-    const file = createReadStream(join(folder, asset.file));
-    // A build that lost a file mid-run ends that answer, not the probe: the run
-    // still has to close the browser and the port it opened.
-    file.on('error', () => response.destroy());
-    file.pipe(response);
-  });
+  const server = createServer((request, response) => answerPageAsset(folder, request, response));
   return new Promise((started, failed) => {
     server.once('error', failed);
     // Listening is what makes an address: the bound port is the one to read.

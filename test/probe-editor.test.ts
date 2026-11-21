@@ -66,8 +66,10 @@ async function probeSource(t: TestContext, source: string): Promise<string> {
  * How long a run has to end, its browser and server included. A run that left
  * one of them holding the loop open never closes, so this bound is where that
  * failure is caught: the process is killed and the run is reported as no run.
+ * It is loose enough for a probe that shares the machine with the whole suite
+ * launching browsers of its own.
  */
-const RUN_EXIT = 30_000;
+const RUN_EXIT = 60_000;
 
 /**
  * Runs the documented command, and answers what it left behind. pnpm's own
