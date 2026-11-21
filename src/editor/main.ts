@@ -1,6 +1,6 @@
 /**
  * The editor page's entry: fetch the font the page draws with, measure it, and
- * put one editor on the page.
+ * let the element read it.
  *
  * Kalam is served beside the page (`fonts/Kalam-Regular.ttf`), so the browser
  * measures the Scene's words with exactly the font the CSS draws them in. The
@@ -18,8 +18,9 @@ import { defineEditorElement } from './editor.js';
 import type { PageFont } from './editor.js';
 
 const FONT_URL = 'fonts/Kalam-Regular.ttf';
+const font = await loadFont();
 
-defineEditorElement(await loadFont());
+defineEditorElement(async () => font);
 
 /** The page's font, measured, or the plain-text reason it has none. */
 async function loadFont(): Promise<PageFont> {
