@@ -15,7 +15,9 @@ pnpm install && pnpm build
 node dist/cli.js check scene.json
 ```
 
-Everywhere below, `ez` stands for `node dist/cli.js` (or for the `ez` bin, if you link the package into your path). The npm package, which will make `npx esbozo <command>` and a global `ez` work, arrives with #13; until then neither command exists on the registry.
+Everywhere below, `ez` stands for `node dist/cli.js` (or for the `ez` bin, if you link the package into your path).
+
+The package itself is not on the registry yet. `npm pack` builds the tarball — `prepack` runs `pnpm build` — and installing that tarball gives the `ez` and `esbozo` commands, so `npx esbozo --help` works from it. It carries the bundled CLI, the editor page and its assets, the one-file editor bundle `ez bundle` writes, and Kalam with its OFL licence.
 
 ## Commands
 
@@ -27,6 +29,7 @@ Everywhere below, `ez` stands for `node dist/cli.js` (or for the `ez` bin, if yo
 | `ez render <scene>` | Writes `<name>.svg` beside the Scene and prints its path. The same Scene and the same font file give the same bytes. |
 | `ez png <scene> --theme light\|dark` | Writes `<name>.<theme>.png` beside the Scene and prints its path. |
 | `ez serve <dir>` | Serves the editor on a folder of Scenes, and a save API for them. Runs until stopped. See [The editor](#the-editor). |
+| `ez bundle <dir>` | Writes the editor as one ES module, `<dir>/esbozo-<version>.js`, for a page of your own. An existing file of that name is replaced, so a page pins it with a one-file diff. See [Embedding the editor](#embedding-the-editor). |
 
 Flags take a separate value: `--theme dark`, never `--theme=dark`.
 
@@ -51,6 +54,20 @@ ez serve ./diagrams --read-only
 Open the printed URL in a browser. The page lists the folder's Scenes (top-level `*.json` files), opens the first, and every change saves the Scene and its SVG. `--read-only` shows the Scenes and saves nothing. The server listens on `127.0.0.1`, so only this machine reaches it; `--host` changes that, and nothing protects the folder from whoever then reaches it. Stop it with Ctrl+C. [docs/save-api.md](docs/save-api.md) holds the flags, the HTTP contract and what a save guarantees, for a client that is not the editor.
 
 The page also works from any static host that serves `dist/`. Without `ez serve` behind it, the page needs a browser with the File System Access API (Chrome or Edge): open a folder, pick or create a Scene, and every change saves the Scene and its SVG back to that folder.
+
+## Embedding the editor
+
+`ez bundle public/` writes the same editor as one file, `esbozo-0.0.0.js`, and a page of your own uses it with no esbozo page and no build step:
+
+```html
+<esbozo-editor
+  scene="/sketches/flow.json"
+  save="/api/scenes/flow.json"
+  font="/fonts/Kalam-Regular.ttf"></esbozo-editor>
+<script type="module" src="/esbozo-0.0.0.js"></script>
+```
+
+`scene` is a URL a `GET` answers the Scene's source on, `save` a URL a `PUT` takes `{ scene, svg }` on — the write [docs/save-api.md](docs/save-api.md) describes — and `font` the URL of the Kalam file the page draws and measures with, since the bundle never carries the font. Without `save` the editor is read-only and its status line says so; a `404` on `scene` opens an empty canvas that says `new Scene` and writes nothing until the first edit. The element is a 480px box in the page's content, every rule the bundle writes is rooted at it, and two elements on one page are two editors. [docs/embed.md](docs/embed.md) has the details: live attributes, the theme, the size, and what the bundle does and does not do.
 
 [docs/architecture.md](docs/architecture.md) explains how Scene, Layout, Renderer and Editor fit together.
 

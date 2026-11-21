@@ -1,6 +1,8 @@
 # The save API
 
-`ez serve <dir>` serves the editor page and a small HTTP API over one folder of Scenes. The editor speaks it; so can any client that cannot open the folder itself. A client that can (an agent on the same machine) writes the Scene file and runs `ez render`, and never needs this page. The code is `src/serve.ts`; the routes and the listing shape are shared with the editor in `src/scenes-api.ts`.
+`ez serve <dir>` serves the editor page and a small HTTP API over one folder of Scenes. The editor speaks it; so can any client that cannot open the folder itself. A client that can (an agent on the same machine) writes the Scene file and runs `ez render`, and never needs this page. The code is `src/serve.ts`; the routes, the listing shape and the write body are shared with the editors in `src/scenes-api.ts`.
+
+The bundled editor ([embed.md](embed.md)) speaks the write half of this API wherever its `save` attribute points, so a page can take a save with its own handler as long as it reads and answers it the way the routes below say. A page with no server at all leaves `save` out and the editor stays read-only.
 
 ```sh
 ez serve ./diagrams --port 4320     # prints: serving /abs/path/diagrams on http://127.0.0.1:4320/
