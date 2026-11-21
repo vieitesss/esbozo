@@ -404,6 +404,14 @@ export function parseScene(source: string): ParseResult {
   } catch (error) {
     return { ok: false, problems: [sceneProblem(`not valid JSON: ${(error as Error).message}`)] };
   }
+  return parseSceneObject(raw);
+}
+
+/**
+ * The same parse, on a value that is already JSON: the one validation a Scene
+ * and a clipboard fragment share, so neither has to write JSON to be read.
+ */
+function parseSceneObject(raw: unknown): ParseResult {
   if (!isRecord(raw)) {
     return { ok: false, problems: [sceneProblem('must be a JSON object')] };
   }
@@ -436,14 +444,23 @@ export function parseScene(source: string): ParseResult {
  * same Scene always hashes and diffs the same way.
  */
 export function serialiseScene(scene: Scene): string {
+  return `${JSON.stringify(sceneObject(scene), null, 2)}\n`;
+}
+
+/** A Scene as the plain object both a Scene file and a fragment are written from. */
+function sceneObject(scene: Scene): {
+  version: number;
+  title: string;
+  defaults: SceneStyle;
+  elements: object[];
+} {
   const canonical = canonicalScene(scene);
-  const out = {
+  return {
     version: canonical.version,
     title: canonical.title,
     defaults: serialiseStyle(canonical.defaults),
     elements: canonical.elements.map(serialiseElement),
   };
-  return `${JSON.stringify(out, null, 2)}\n`;
 }
 
 /** The Scene hash written into the SVG: sha256 of the serialised Scene. */
@@ -459,10 +476,7 @@ export function hashScene(scene: Scene): string {
  * free-standing arrow, not a broken Scene.
  */
 export function serialiseFragment(scene: Scene, elements: readonly Element[]): string {
-  const written = JSON.parse(serialiseScene({ ...scene, elements: [...elements] })) as {
-    version: number;
-    elements: unknown[];
-  };
+  const written = sceneObject({ ...scene, elements: [...elements] });
   return JSON.stringify({ version: written.version, elements: localised(written.elements) }, null, 2);
 }
 
@@ -490,16 +504,13 @@ export function parseFragment(source: string, defaults: SceneStyle): Element[] |
   if (!Array.isArray(elements)) {
     return null;
   }
-  const parsed = parseScene(
-    JSON.stringify({
-      // An omitted version is the current one; a version that is there is left
-      // for Scene validation to judge, so `null` is refused like any other.
-      ...('version' in raw ? { version: raw['version'] } : { version: SCENE_VERSION }),
-      title: DEFAULT_TITLE,
-      defaults,
-      elements: localised(elements),
-    }),
-  );
+  const parsed = parseSceneObject({
+    // An omitted version is the current one; a version that is there is left
+    // for Scene validation to judge, so `null` is refused like any other.
+    ...('version' in raw ? { version: raw['version'] } : { version: SCENE_VERSION }),
+    defaults,
+    elements: localised(elements),
+  });
   return parsed.ok ? parsed.scene.elements : null;
 }
 
