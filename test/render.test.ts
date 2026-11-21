@@ -11,6 +11,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { ez, sceneFolder, tempFolder } from './cli.ts';
+import { FONT, assertOnlyThemeColours, inkPercent, isThemeColour } from './palette.ts';
 
 interface SceneElement {
   id: string;
@@ -125,7 +126,7 @@ test('the SVG takes every colour and the font from CSS variables', async () => {
   assert.ok(colours.length > 0, 'the SVG paints something');
   for (const colour of colours) {
     assert.ok(
-      colour === 'none' || CSS_VARIABLE.test(colour ?? '') || INK_INTO_PAPER.test(colour ?? ''),
+      colour === 'none' || isThemeColour(colour ?? ''),
       `colour ${colour} is not a Scene CSS variable or a mix of two`,
     );
   }
@@ -133,10 +134,7 @@ test('the SVG takes every colour and the font from CSS variables', async () => {
   const fonts = [...svg.matchAll(/font-family="([^"]*)"/g)].map((match) => match[1]);
   assert.deepEqual(fonts, [FONT]);
 
-  // The only colour the SVG spells out is a variable's fallback, so an inlined
-  // drawing always paints the host's ink, paper and muted instead.
-  const inlined = svg.replace(/var\(--[\w-]+, ?[^()]*\)/g, 'var()');
-  assert.doesNotMatch(inlined, /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/);
+  assertOnlyThemeColours(svg);
   assert.doesNotMatch(svg, /\burl\(|blend-mode/i);
 });
 
@@ -193,7 +191,7 @@ test('every fill colour is paper, ink, or a mix of only those two', async () => 
   const fills = fillsOf(svg);
   assert.equal(fills.length, 7, 'one solid fill per grey step');
   for (const fill of fills) {
-    assert.match(fill, new RegExp(`${CSS_VARIABLE.source}|${INK_INTO_PAPER.source}`), fill);
+    assert.ok(isThemeColour(fill), fill);
     assert.doesNotMatch(fill, /--(?:muted|font-hand|anything)/, fill);
   }
 
@@ -639,30 +637,6 @@ function decodeXml(text: string): string {
   return text.replace(/&(?:amp|lt|gt|quot|apos);/g, (entity) => XML_ENTITIES[entity] ?? entity);
 }
 
-/** The ink percentage a fill colour paints: paper is 0 and ink is 100. */
-function inkPercent(colour: string): number {
-  if (colour === PAPER) {
-    return 0;
-  }
-  if (colour === INK) {
-    return 100;
-  }
-  const match = MIX.exec(colour);
-  assert.ok(match, `not a grey colour: ${colour}`);
-  return Number(match[1]);
-}
-
-/** The Renderer's light-theme fallbacks, as a standalone SVG spells them. */
-const INK = 'var(--ink, #1b1a17)';
-const PAPER = 'var(--paper, #fbf8f1)';
-const FONT = "var(--font-hand, 'Kalam', 'Bradley Hand', 'Segoe Print', cursive)";
-
-/** A regex that matches `text` literally, so the fallbacks escape once. */
-const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-const CSS_VARIABLE = new RegExp(`^var\\(--(?:ink|muted|paper), #(?:[0-9a-f]{6})\\)$`);
-const MIX = new RegExp(`^color-mix\\(in srgb, ${escape(INK)} (\\d{1,3})%, ${escape(PAPER)}\\)$`);
-const INK_INTO_PAPER = new RegExp(`^color-mix\\(in srgb, ${escape(INK)} \\d{1,3}%, ${escape(PAPER)}\\)$`);
 function withSeed(scene: Scene, seed: number): Scene {
   return {
     ...scene,

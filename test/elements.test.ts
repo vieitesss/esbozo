@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { ez, sceneFolder, tempFolder } from './cli.ts';
 import type { Run } from './cli.ts';
+import { INK, MUTED, PAPER, assertOnlyThemeColours, isThemeColour } from './palette.ts';
 
 const KITCHEN_SINK = fileURLToPath(new URL('./fixtures/every-element.json', import.meta.url));
 
@@ -115,11 +116,11 @@ test('the kitchen sink paints only CSS variables and ink-into-paper mixes', asyn
   assert.ok(colours.length > 0);
   for (const colour of colours) {
     assert.ok(
-      colour === 'none' || SCENE_VARIABLE.test(colour) || INK_INTO_PAPER.test(colour),
+      colour === 'none' || isThemeColour(colour),
       `colour ${colour} is a Scene variable or a mix of two`,
     );
   }
-  assert.doesNotMatch(svg.replace(/var\(--[\w-]+, ?[^()]*\)/g, 'var()'), /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/);
+  assertOnlyThemeColours(svg);
 });
 
 test('an ellipse is drawn through its own extremes, not its bounding box', async () => {
@@ -1163,12 +1164,3 @@ function unit(from: Point, to: Point): Point {
   const length = Math.hypot(dx, dy);
   return { x: dx / length, y: dy / length };
 }
-
-const SCENE_VARIABLE = /^var\(--(?:ink|muted|paper), #[0-9a-f]{6}\)$/;
-const INK_INTO_PAPER =
-  /^color-mix\(in srgb, var\(--ink, #[0-9a-f]{6}\) \d{1,3}%, var\(--paper, #[0-9a-f]{6}\)\)$/;
-
-/** The Renderer's ink, muted and paper, fallbacks and all. */
-const INK = 'var(--ink, #1b1a17)';
-const MUTED = 'var(--muted, #878580)';
-const PAPER = 'var(--paper, #fbf8f1)';
