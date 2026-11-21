@@ -2374,10 +2374,12 @@ class EsbozoEditorElement extends HTMLElement {
 
   #onPointerMove = (event: PointerEvent): void => {
     // A press that carries the pointer somewhere is a drag: whatever it started
-    // on, it is not the first half of a double-click any more.
+    // on, it is not the first half of a double-click any more, and neither is the
+    // click before it — a drag between two clicks is not a double-click.
     const press = this.#press;
     if (press !== null && !this.#near(press, event)) {
       this.#press = null;
+      this.#lastClick = null;
     }
     const drag = this.#drag;
     if (drag === null) {

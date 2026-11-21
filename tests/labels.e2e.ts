@@ -510,6 +510,25 @@ describe('labels', () => {
     expect(far?.tone).toBe('muted');
   });
 
+  test('a click, a drag of another Element and another click are not a double-click', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+    // `a` is pressed once; then the pointer carries `b` somewhere else and comes
+    // back to `a` for another click. Between the two clicks the pointer was
+    // busy with a drag, so the second click is a new sequence, not the second
+    // half of a double-click on what the first one found.
+    await clickScene(ui, { x: 100, y: 80 });
+    await dragBy(ui, { x: 250, y: 110 }, 40, 40);
+    await clickScene(ui, { x: 100, y: 80 });
+
+    await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveCount(0);
+  });
+
   test('a click, a zoom and another click are not a double-click', async ({
     app,
     browser,
