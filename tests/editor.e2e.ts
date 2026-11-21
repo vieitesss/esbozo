@@ -673,7 +673,7 @@ test('the docked note never covers the selection: the view pans clear of it', as
   await openEditor(ui, { A: { 'edge.json': EDGE_SOURCE } }, 'edge.json');
 
   /** Everything left of the note, over the right-hand box. */
-  const LEFT_OF_NOTE: Rect = { x: 600, y: 340, width: 360, height: 120 };
+  const LEFT_OF_NOTE: Rect = { x: 600, y: 340, width: 340, height: 120 };
   const before = (await shot(ui)).darkCentre(LEFT_OF_NOTE, 0.6);
   expect(before.count).toBeGreaterThan(0);
 
@@ -753,7 +753,7 @@ test('Arrange lines the selection up on each edge and in each middle', async ({ 
   };
 
   // A box around all three, clear of the rail and the note.
-  await drag(ui, at({ x: 400, y: 270 }), at({ x: 880, y: 530 }));
+  await drag(ui, at({ x: 10, y: 10 }, THREE), at({ x: 490, y: 270 }, THREE));
   await expect(row(ui, 'Arrange')).toBeVisible();
 
   await row(ui, 'Arrange').getByRole('button', 'left').click();
@@ -802,7 +802,8 @@ test('Arrange lines the selection up on each edge and in each middle', async ({ 
 test('Arrange spreads the selection with equal gaps on each axis', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'three.json': THREE_SOURCE } }, 'three.json');
-  await drag(ui, at({ x: 400, y: 270 }), at({ x: 880, y: 530 }));
+  // A box around all three: Arrange needs two, Spread needs three.
+  await drag(ui, at({ x: 10, y: 10 }, THREE), at({ x: 490, y: 270 }, THREE));
 
   // Left to right: 40, 400 and 40 wide 100, 80, 60. The outer two stay put and
   // the gaps even out at 90, so the middle one moves from 160 to 230.

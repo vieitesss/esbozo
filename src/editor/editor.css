@@ -364,7 +364,7 @@ esbozo-editor::before {
   right: 16px;
   top: 50%;
   transform: translateY(-50%) rotate(-0.45deg);
-  width: 300px;
+  width: 312px;
   max-height: calc(100vh - 44px);
   padding: 13px 14px;
   background: color-mix(in srgb, var(--paper) 96%, var(--ink));
@@ -414,12 +414,13 @@ esbozo-editor::before {
 .style-note .row { display: flex; align-items: center; gap: 8px; margin: 5px 0; }
 
 .style-note .row-label {
-  width: 52px;
+  width: 60px;
   flex: none;
   color: var(--muted);
   font-size: 9.5px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .style-note .seg,
