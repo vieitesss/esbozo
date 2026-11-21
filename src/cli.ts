@@ -113,7 +113,7 @@ const CSS_SUBSET = [
 
 const USAGE = `${RENDER_USAGE}\n${CHECK_USAGE}\n${PNG_USAGE}\n${SERVE_USAGE}\n${BUNDLE_USAGE}\n${CSS_SUBSET}\n${EXIT_CODES}\n`;
 
-export async function main(argv: readonly string[]): Promise<number> {
+async function main(argv: readonly string[]): Promise<number> {
   const [command, ...rest] = argv;
   if (command === 'render') {
     return runRender(rest);
@@ -531,7 +531,7 @@ async function loadScene(scenePath: string): Promise<LoadedScene> {
 }
 
 /** `<name>.svg` beside the Scene, named by the rule the editor's autosave uses. */
-export function svgPathFor(scenePath: string): string {
+function svgPathFor(scenePath: string): string {
   return resolve(dirname(scenePath), svgFileName(basename(scenePath)));
 }
 

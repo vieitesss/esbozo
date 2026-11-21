@@ -51,6 +51,10 @@ const JUDGMENT_TIMEOUT_MS = 60_000;
  */
 const ATTEMPT_TIMEOUT_MS = 240_000;
 
+/**
+ * @public The `e2e` runner loads this file by name, so nothing in the project
+ * imports the config it exports.
+ */
 export default {
   // Room for every judgement a test makes, not for a slower page.
   timeout: ATTEMPT_TIMEOUT_MS,

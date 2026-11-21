@@ -8,14 +8,16 @@
     "e2e.config.ts",
     "tests/fake-file-system.js",
     "test/*.test.ts",
-    "tests/*.e2e.ts",
-    "tests/helpers.ts",
-    "tests/pixels.ts"
+    "tests/*.e2e.ts"
   ],
   "project": [
     "src/**/*.ts",
     "scripts/*.mjs",
     "test/**/*.ts",
     "tests/**/*.{ts,js}"
+  ],
+  "includeEntryExports": true,
+  "tags": [
+    "-public"
   ]
 }

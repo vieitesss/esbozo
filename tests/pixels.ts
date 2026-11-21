@@ -23,7 +23,7 @@ export interface Rect {
 }
 
 /** Where the dark pixels of a region sit, on average, in page CSS pixels. */
-export interface Centre {
+interface Centre {
   x: number;
   y: number;
   count: number;

@@ -631,7 +631,7 @@ export const BIG_SCENE = {
  * glyph path loses the rest of every line, and a page of one word per line says
  * so at a glance.
  */
-export const XL_WORDS = 'Kalam is meant to match.';
+const XL_WORDS = 'Kalam is meant to match.';
 export const XL_WORDS_SCENE = {
   version: 1,
   title: 'XL words',
@@ -677,7 +677,7 @@ export interface Folders {
 }
 
 /** The folder every test that does not name one seeds and reads. */
-export const FOLDER = 'A';
+const FOLDER = 'A';
 
 interface Stub {
   __esbozoFolders: Folders;
@@ -831,7 +831,7 @@ export async function savedScene(ui: Ui, name = 'scene.json', folder = FOLDER): 
   return JSON.parse(source) as SavedScene;
 }
 
-export interface SavedElement {
+interface SavedElement {
   id: string;
   type: string;
   x?: number;
