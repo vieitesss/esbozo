@@ -72,6 +72,12 @@ const DARK = 0.5;
 const CARET = 0.7;
 
 /**
+ * Darker than paper under the selection's wash, and darker than the wash laid
+ * over ink: the pixels that are the ink itself, whatever is behind them.
+ */
+const INK_ONLY = 0.13;
+
+/**
  * The inside of `SCENE`'s left-hand box on the page, clear of its outline and of
  * the resize handles of the selection around it. The box's own words are the
  * only ink that can be in here.
@@ -1145,6 +1151,39 @@ describe('labels', () => {
     expect((await savedScene(ui)).elements[0]?.label).toBe('Xabc def ghi');
   });
 
+  test('a drag across the words being typed keeps them drawn', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+    // A new Text is not in the Scene until its words land, so the only reason
+    // its words are on the page is the preview a drag inside them has to keep.
+    await browser.keyboard.press('t');
+    await clickScene(ui, { x: 420, y: 300 });
+    const text = screen.getByRole('textbox', { name: 'Text' });
+    await text.pressSequentially('orders and');
+    await settle(ui);
+
+    const drawn: Rect = { x: 880, y: 592, width: 130, height: 40 };
+    const ink = await shot(ui);
+    const words = ink.darkBounds(drawn, DARK) as Rect;
+    const typed = ink.darkCount(drawn, DARK);
+    expect(typed).toBeGreaterThan(100);
+
+    await browser.mouse.move(words.x + 1, words.y + words.height / 2);
+    await browser.mouse.down();
+    await browser.mouse.move(words.x + words.width / 2, words.y + words.height / 2);
+    await settle(ui);
+    const midway = await shot(ui);
+
+    // The drag draws a wash over the words it crosses and never takes them off
+    // the page: the pointer is still down, and they are still the ink it typed.
+    expect(midway.darkCount(drawn, DARK)).toBeGreaterThan(typed * 0.9);
+
+    await browser.mouse.up();
+    await text.press('Escape');
+    expect((await savedScene(ui)).elements.at(-1)?.content).toBe('orders and');
+  });
+
   test('a drag inside the drawn words selects them, and the selection is drawn behind the glyphs', async ({
     app,
     browser,
@@ -1168,10 +1207,13 @@ describe('labels', () => {
     await browser.mouse.up();
     await expect(label).toHaveValue('orders');
 
-    // The highlight is a wash behind the glyphs, drawn on the canvas.
+    // The highlight is a wash behind the glyphs, drawn on the canvas: the paper
+    // around them darkens, and the ink itself keeps the colour it had, which a
+    // wash above it would have lifted.
     const selected = await shot(ui);
     const glyphs: Rect = { x: words.x, y: words.y, width: words.width, height: words.height };
     expect(before.meanLuminance(glyphs)).toBeGreaterThan(selected.meanLuminance(glyphs) + 0.02);
+    expect(selected.darkCount(glyphs, INK_ONLY)).toBeGreaterThan(before.darkCount(glyphs, INK_ONLY) * 0.9);
 
     // Typing replaces what was selected: the words the press took in are gone.
     await label.pressSequentially('X');

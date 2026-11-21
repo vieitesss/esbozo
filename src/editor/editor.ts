@@ -200,6 +200,7 @@ const SHELL = `
       <rect class="grid-rect" x="-100000" y="-100000" width="200000" height="200000"></rect>
     </g>
     <g class="viewport">
+      <g class="highlight"></g>
       <g class="painted"></g>
     </g>
     <g class="overlay"></g>
@@ -351,6 +352,11 @@ class EsbozoEditorElement extends HTMLElement {
   #surface!: HTMLElement;
   #canvas!: SVGSVGElement;
   #paintedLayer!: SVGGElement;
+  /**
+   * What is drawn under the words rather than over them: the selection's wash
+   * and an input method's, so the glyphs keep the ink they are drawn in.
+   */
+  #highlight!: SVGGElement;
   #overlay!: SVGGElement;
   #gridRect!: SVGRectElement;
   #gridLayer!: SVGGElement;
@@ -436,6 +442,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#surface = this.querySelector('.surface')!;
     this.#canvas = this.querySelector('.canvas')!;
     this.#paintedLayer = this.querySelector('.painted')!;
+    this.#highlight = this.querySelector('.highlight')!;
     this.#overlay = this.querySelector('.overlay')!;
     this.#gridRect = this.querySelector('.grid-rect')!;
     this.#gridLayer = this.querySelector('.grid')!;
@@ -1006,9 +1013,10 @@ class EsbozoEditorElement extends HTMLElement {
     const drag = this.#drag;
     const editing = this.#editing;
     const draft = this.#draft;
-    // A pan moves the page the Scene is drawn on, not the Scene: what is being
-    // typed is still what the page shows, and it travels with everything else.
-    if (drag === null || drag.kind === 'pan') {
+    // A drag that only moves the pointer inside the words is still the same
+    // page: a pan moves the page, and so does carrying the caret through the
+    // words being typed, whose preview must stay drawn under the pointer.
+    if (drag === null || drag.kind === 'pan' || drag.kind === 'words') {
       const words =
         editing === null
           ? this.#scene.elements
@@ -1671,6 +1679,7 @@ class EsbozoEditorElement extends HTMLElement {
   #drawOverlay(): void {
     const overlay = this.#overlay;
     overlay.replaceChildren();
+    this.#highlight.replaceChildren();
     // A Label that does not fit its Element is outlined in red, on the rule
     // `ez check` reports: one function, so the page and the CLI cannot disagree.
     for (const element of this.#shownElements()) {
@@ -1721,7 +1730,7 @@ class EsbozoEditorElement extends HTMLElement {
         });
       }
     }
-    this.#drawWords(overlay);
+    this.#drawWords(overlay, this.#highlight);
   }
 
   /**
@@ -1729,8 +1738,12 @@ class EsbozoEditorElement extends HTMLElement {
    * Renderer put the glyphs. The page is the only ink, so the field's own caret
    * and highlight are never on screen; it is moved over the caret instead, which
    * is where a browser opens the candidate window of an input method.
+   *
+   * The washes go in the layer under the glyphs, in Scene coordinates, so the
+   * ink inside them keeps its own colour; the caret and the preedit's rule go in
+   * the overlay, in screen pixels, so they keep their width at every zoom.
    */
-  #drawWords(overlay: SVGGElement): void {
+  #drawWords(overlay: SVGGElement, behind: SVGGElement): void {
     const text = this.#text;
     const block = this.#wordsBlock();
     if (text === null || block === null) {
@@ -1741,14 +1754,14 @@ class EsbozoEditorElement extends HTMLElement {
     const at = (offset: number): number => drawnOffset(state.words, drawn, offset);
 
     for (const box of this.#layout.selection(block, at(state.start), at(state.end))) {
-      this.#appendRect(overlay, { ...this.#pageBox(box), class: 'words-selection' });
+      this.#appendRect(behind, { ...box, class: 'words-selection' });
     }
 
     const preedit = state.preedit;
     if (preedit !== null) {
       for (const box of this.#layout.selection(block, at(preedit.from), at(preedit.to))) {
+        this.#appendRect(behind, { ...box, class: 'preedit' });
         const page = this.#pageBox(box);
-        this.#appendRect(overlay, { ...page, class: 'preedit' });
         this.#appendRect(overlay, {
           x: page.x,
           y: page.y + page.height - PREEDIT_RULE,
