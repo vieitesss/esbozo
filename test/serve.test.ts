@@ -8,10 +8,11 @@
  */
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { chmod, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, cp, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { request as httpRequest } from 'node:http';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import { BUILD, BUILT_AT, buildId, buildTime } from '../src/build-id.ts';
 import { PAGE_ASSETS } from '../src/page-assets.ts';
@@ -21,6 +22,9 @@ import { ez, sceneFolder, startServe, tempFolder } from './cli.ts';
 import type { Serve } from './cli.ts';
 
 const run = promisify(execFile);
+
+/** The repository these sources live in, which a build of its own is copied from. */
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 const SCENE = {
   version: 1,
@@ -916,6 +920,59 @@ function buildOn(startup: string): { id: string; at: string } {
   const found = /\(build (\S+), (\S+)\)$/.exec(startup);
   assert.ok(found !== null, `the startup line names no build: ${startup}`);
   return { id: found[1]!, at: found[2]! };
+}
+
+/**
+ * The build is only what it stamps: a repo whose commit nobody has written down
+ * here answers with the commit git names and the moment the build ran. The
+ * sources are built in a copy with a git history of their own, so the answer
+ * cannot come from this checkout's HEAD.
+ */
+test('a build stamps the commit it was built from, and the server serves that build', async () => {
+  const source = await committedSources();
+  const commit = (await run('git', ['rev-parse', '--short', 'HEAD'], { cwd: source })).stdout.trim();
+  const built = Date.now();
+  await run('node', ['scripts/build.mjs'], { cwd: source });
+
+  const server = await startServe(await sceneFolder(SCENE), [], join(source, 'dist', 'cli.js'));
+  running.push(server);
+
+  const { id, at } = buildOn(server.startup);
+  assert.equal(id, commit, 'the stamped id is the commit the build was made from');
+  assert.match(at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/, 'the stamp is ISO-8601 UTC to the second');
+  assert.ok(
+    Math.abs(Date.parse(at) - built) < 5 * 60_000,
+    `the stamp ${at} is not when this build ran`,
+  );
+  assert.equal(
+    (await request(server, '/api/health')).body,
+    JSON.stringify({ build: commit, builtAt: at }),
+    'the health route answers the build the CLI was stamped with',
+  );
+});
+
+/**
+ * The sources committed to a git repo of their own, with this repository's
+ * dependencies linked in: the build runs for real, and the one every other
+ * suite spawns from is never rewritten underneath it.
+ */
+async function committedSources(): Promise<string> {
+  const folder = await tempFolder('esbozo-build-');
+  for (const path of ['package.json', 'scripts', 'src', 'fonts']) {
+    await cp(join(ROOT, path), join(folder, path), { recursive: true });
+  }
+  await symlink(join(ROOT, 'node_modules'), join(folder, 'node_modules'), 'dir');
+  // What the build writes and what it reads are not the commit: a tree with a
+  // `dist` in it would stamp the build `-dirty`.
+  await writeFile(join(folder, '.gitignore'), 'node_modules\ndist\n', 'utf8');
+  await run('git', ['init', '-q'], { cwd: folder });
+  await run('git', ['add', '-A'], { cwd: folder });
+  await run(
+    'git',
+    ['-c', 'user.name=esbozo', '-c', 'user.email=esbozo@example.invalid', 'commit', '-q', '-m', 'the sources'],
+    { cwd: folder },
+  );
+  return folder;
 }
 
 test('a build outside a git checkout is unknown, not a failed build', () => {
