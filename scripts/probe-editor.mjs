@@ -26,7 +26,7 @@
  * It serves `dist/` as it finds it: `pnpm probe` does not build.
  */
 import { createReadStream } from 'node:fs';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, access } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -90,7 +90,11 @@ function serve(folder) {
       return;
     }
     response.writeHead(200, { 'content-type': asset.mime, 'cache-control': 'no-store' });
-    createReadStream(join(folder, asset.file)).pipe(response);
+    const file = createReadStream(join(folder, asset.file));
+    // A build that lost a file mid-run ends that answer, not the probe: the run
+    // still has to close the browser and the port it opened.
+    file.on('error', () => response.destroy());
+    file.pipe(response);
   });
   return new Promise((started, failed) => {
     server.once('error', failed);
@@ -183,6 +187,14 @@ async function main() {
       throw new Error(`no probe at "${chosen.probe}": ${error.message}`);
     }
     throw error;
+  }
+
+  const builtPage = PAGE_ASSETS.find((entry) => entry.path === '/editor.html');
+  const built = join(folder, builtPage.file);
+  try {
+    await access(built);
+  } catch {
+    throw new Error(`no built page at ${built}: run pnpm build first`);
   }
 
   browser = await chromium.launch();
