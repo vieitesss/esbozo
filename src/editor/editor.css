@@ -243,7 +243,8 @@ esbozo-editor .rail button[aria-pressed="true"] svg .ghost { opacity: 0.45; }
    keep working, and nothing of what it holds is ever seen. The canvas draws the
    words, the caret, the selection and the preedit where the Renderer put the
    glyphs; this sits over the caret, invisible, and takes no pointer, so a press
-   in the words is the words'. */
+   in the words is the words'. Nothing it holds is painted at all: `opacity: 0`
+   hides its text, its caret and its own selection in one rule. */
 esbozo-editor .text-input {
   position: absolute;
   z-index: 30;
@@ -257,18 +258,12 @@ esbozo-editor .text-input {
   overflow: hidden;
   opacity: 0;
   pointer-events: none;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-  caret-color: transparent;
   font-family: var(--font-ui);
   font-size: 12px;
   line-height: 1.4;
   user-select: text;
   -webkit-user-select: text;
 }
-
-/* a selection inside the field must not paint itself: the canvas draws it */
-esbozo-editor .text-input::selection { background: transparent; }
 
 /* the caret, drawn on the canvas at the glyphs. It blinks from CSS, so a blink
    costs no frame, and a person who asked for less motion keeps it still. */

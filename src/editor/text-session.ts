@@ -205,11 +205,6 @@ export class TextSession {
     this.#moved();
   }
 
-  /** Whether this press is the field's own: a press in it moves its caret, and nothing else. */
-  holds(target: Node | null): boolean {
-    return this.#input.contains(target);
-  }
-
   /**
    * End the session: the words, or nothing, and the input goes. The click that
    * takes the focus off the words is followed by a blur that ends the same

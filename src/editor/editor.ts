@@ -2823,11 +2823,7 @@ class EsbozoEditorElement extends HTMLElement {
     // focus off the field just the same, and Chromium confirms a preedit into it
     // as it goes. A press on the canvas is the board's own (a pan keeps the
     // words), so only a press elsewhere ends the session.
-    if (
-      text !== null &&
-      !this.#canvas.contains(event.target as Node | null) &&
-      !text.holds(event.target as Node | null)
-    ) {
+    if (text !== null && !this.#canvas.contains(event.target as Node | null)) {
       text.finish();
     }
     if (!this.#canvas.contains(event.target as Node | null)) {
