@@ -11,12 +11,12 @@ import { expect } from 'e2e';
 import {
   BESIDE,
   BESIDE_SCENE,
-  EDGE,
-  EDGE_SCENE,
   MIXED,
   MIXED_SCENE,
   OVERFLOW,
   OVERFLOW_SCENE,
+  PRESS,
+  PRESS_SCENE,
   ROOM,
   ROOM_SCENE,
   SCENE,
@@ -43,12 +43,12 @@ import type { Rect } from './pixels.ts';
 const SCENE_SOURCE = JSON.stringify(SCENE, null, 2);
 const MIXED_SOURCE = JSON.stringify(MIXED_SCENE, null, 2);
 const OVERFLOW_SOURCE = JSON.stringify(OVERFLOW_SCENE, null, 2);
+const PRESS_SOURCE = JSON.stringify(PRESS_SCENE, null, 2);
 const WORDS_SOURCE = JSON.stringify(WORDS_SCENE, null, 2);
 const ROOM_SOURCE = JSON.stringify(ROOM_SCENE, null, 2);
 const SPACED_SOURCE = JSON.stringify(SPACED_SCENE, null, 2);
 const BESIDE_SOURCE = JSON.stringify(BESIDE_SCENE, null, 2);
 const SHIFTED_SOURCE = JSON.stringify(SHIFTED_SCENE, null, 2);
-const EDGE_SOURCE = JSON.stringify(EDGE_SCENE, null, 2);
 
 /** A Label long enough that the box it is typed into has to grow downwards. */
 const LONG_LABEL = 'words that wrap and grow';
@@ -482,26 +482,32 @@ describe('labels', () => {
     expect(scene.elements.find((element) => element.id === 'other')?.label).toBeUndefined();
   });
 
-  test('a double-click whose second press lands on the Style note opens the first click’s words', async ({
+  test('a double-click whose second press lands on a Style row opens the words and no Style', async ({
     app,
     browser,
     screen,
   }) => {
     const ui = { app, browser, screen };
-    await openEditor(ui, { A: { 'edge.json': EDGE_SOURCE } }, 'edge.json');
+    await openEditor(ui, { A: { 'press.json': PRESS_SOURCE } }, 'press.json');
 
-    // `far` sits under where the note docks: the first click selects it and the
-    // note slides over the pointer, so the second press of the double-click
-    // lands on the note itself. The words that open are still `far`'s.
-    await doubleClickScene(ui, { x: 790, y: 80 }, EDGE);
+    // `far` reaches under where the note docks: the first click selects it and
+    // the note slides over the pointer, so the second press of the double-click
+    // lands on `Tone: ink`, a row that would change the box from muted. The
+    // words that open are still `far`'s, and the click Chromium follows every
+    // press with is the press's own: it applies no Style.
+    await doubleClickScene(ui, { x: 900, y: 94 }, PRESS);
     const label = screen.getByRole('textbox', { name: 'Label' });
     await expect(label).toHaveValue('');
     await label.pressSequentially('at the edge');
     await label.press('Escape');
 
-    const scene = await savedScene(ui, 'edge.json');
-    expect(scene.elements.find((element) => element.id === 'far')?.label).toBe('at the edge');
+    const scene = await savedScene(ui, 'press.json');
+    const far = scene.elements.find((element) => element.id === 'far');
+    expect(far?.label).toBe('at the edge');
     expect(scene.elements.find((element) => element.id === 'near')?.label).toBeUndefined();
+    // The words opened, and the row under the press ran nothing: the box is the
+    // tone it had, not the one it was pressed over.
+    expect(far?.tone).toBe('muted');
   });
 
   test('a click, a zoom and another click are not a double-click', async ({

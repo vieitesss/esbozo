@@ -290,6 +290,11 @@ class EsbozoEditorElement extends HTMLElement {
   #press: Press | null = null;
   /** The click before it: the first half of a double-click, until something else happens. */
   #lastClick: Press | null = null;
+  /**
+   * The click the note owes the press that opened the words over it. That press
+   * was cancelled, so Chromium's click is the press's own and must run nothing.
+   */
+  #cancelledClick = false;
   #spaceDown = false;
   /** The writes in order; the number each answers with is whether it landed. */
   #saveQueue: Promise<unknown> = Promise.resolve();
@@ -488,6 +493,9 @@ class EsbozoEditorElement extends HTMLElement {
     this.#newScene.addEventListener('submit', this.#onNewScene);
     this.#files.addEventListener('click', this.#onFileClick);
     this.#menu.addEventListener('click', this.#onMenuClick);
+    // Before the note runs a row: the click the press that opened the words
+    // already has is consumed here, not applied.
+    this.#menu.addEventListener('click', this.#onMenuClickPress, true);
     this.#menu.addEventListener('pointerdown', this.#onMenuPress);
     document.addEventListener('keydown', this.#onKeyDown);
     document.addEventListener('keyup', this.#onKeyUp);
@@ -517,6 +525,9 @@ class EsbozoEditorElement extends HTMLElement {
     document.removeEventListener('pointerdown', this.#onAnyPress);
     document.removeEventListener('visibilitychange', this.#endGesture);
     this.#rail.removeEventListener('click', this.#onRailClick);
+    this.#menu.removeEventListener('click', this.#onMenuClick);
+    this.#menu.removeEventListener('click', this.#onMenuClickPress, true);
+    this.#menu.removeEventListener('pointerdown', this.#onMenuPress);
     this.querySelector('.status')?.removeEventListener('click', this.#onStatusClick);
     this.#newScene.removeEventListener('submit', this.#onNewScene);
     this.#files.removeEventListener('click', this.#onFileClick);
@@ -2610,6 +2621,9 @@ class EsbozoEditorElement extends HTMLElement {
    * A press off the canvas also starts a new click sequence, as the browser's own does.
    */
   #onAnyPress = (event: PointerEvent): void => {
+    // A press the note answered itself never reaches here, so anything that does
+    // is a new gesture: no click is owed to the press that opened the words.
+    this.#cancelledClick = false;
     const text = this.#text;
     // Any button, not the left one only: a middle or a right press takes the
     // focus off the field just the same, and Chromium confirms a preedit into it
@@ -2660,7 +2674,29 @@ class EsbozoEditorElement extends HTMLElement {
     // editor's own outside-press handler must not finish the field it just made.
     event.preventDefault();
     event.stopPropagation();
+    // Chromium still follows the press with a click on the row it landed on, and
+    // cancelling a press does not take that click away. It is the press's own, so
+    // the note consumes it instead of running it: a person who opened a Label by
+    // double-clicking over a Style row has not also asked for that Style.
+    this.#cancelledClick = true;
     this.#openWords(opening);
+  };
+
+  /**
+   * The click the press that opened the words owes the note: run nothing. Any
+   * other click is the note's, because a press of its own reaches the document
+   * first and clears the debt.
+   */
+  #onMenuClickPress = (event: MouseEvent): void => {
+    if (!this.#cancelledClick) {
+      return;
+    }
+    this.#cancelledClick = false;
+    if (!this.#menu.contains(event.target as Node | null)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
   };
 
   /** Whether a press is the second half of a double-click: near the first in time and place. */

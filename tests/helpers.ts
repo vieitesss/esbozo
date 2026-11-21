@@ -433,6 +433,25 @@ export const EDGE: View = { zoom: 1, panX: 210, panY: 320 };
 export const EDGE_1366: View = { zoom: 1, panX: 253, panY: 304 };
 
 /**
+ * A box whose right end reaches under a Style row once the note docks, and a
+ * second box for the same click to aim at: the axis for a double-click whose
+ * second press lands on a Style button rather than on the note's paper. The box
+ * is `muted` and the press is over `Tone: ink`, so an applied Style is visible.
+ */
+export const PRESS_SCENE = {
+  version: 1,
+  title: 'Press',
+  defaults: { roughness: 1 },
+  elements: [
+    { id: 'near', type: 'rectangle', x: 40, y: 40, width: 60, height: 40 },
+    { id: 'far', type: 'rectangle', x: 700, y: 40, width: 240, height: 80, tone: 'muted' },
+  ],
+};
+
+/** The view `PRESS_SCENE` lands in at 1280×800, worked out the same way as `VIEW`. */
+export const PRESS: View = { zoom: 1, panX: 150, panY: 320 };
+
+/**
  * Three boxes where the middle one is wider than the gap it has to sit in, so
  * even gaps between their edges would run backwards. Spread keeps the two
  * outermost and spaces the centres of all three evenly instead: the leading
