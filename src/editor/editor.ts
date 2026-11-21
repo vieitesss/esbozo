@@ -67,7 +67,7 @@ import { railArt, railMarkup } from './rail.js';
 import { attachedTo, endPoint, freedEnd, isShaft, otherEnd, released, targetAt, withEnd } from './snap.js';
 import type { End } from './snap.js';
 import { TextSession } from './text-session.js';
-import { PaintCache } from './paint.js';
+import { PaintCache, sceneFile } from './paint.js';
 import type { SceneFiles } from './paint.js';
 import type { Paint } from './paint.js';
 
@@ -965,8 +965,7 @@ export class EsbozoEditorElement extends HTMLElement {
    * the Scene as it was records nothing and writes nothing, so a plain click on
    * an Element never touches the disk.
    */
-  #record(amend = false): void {
-    const after = serialiseScene(this.#scene);
+  #record(amend = false, after = sceneFile(this.#scene)): void {
     const changed = amend ? this.#history.amend(after) : this.#history.record(after);
     if (!amend) {
       this.#nudgedAt = 0;
@@ -1289,7 +1288,8 @@ export class EsbozoEditorElement extends HTMLElement {
     if (!this.#writable()) {
       return;
     }
-    const changed = serialiseScene(next) !== serialiseScene(this.#scene);
+    const after = sceneFile(next);
+    const changed = after !== sceneFile(this.#scene);
     const { select } = options;
     if (changed) {
       this.#scene = next;
@@ -1304,7 +1304,7 @@ export class EsbozoEditorElement extends HTMLElement {
     // `#clearOfMenu`, so nothing moves under the pointer.
     this.#refresh();
     if (changed) {
-      this.#record(options.amend === true);
+      this.#record(options.amend === true, after);
     }
   }
 

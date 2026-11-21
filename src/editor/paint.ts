@@ -143,10 +143,7 @@ export class PaintCache {
    */
   async files(scene: Scene): Promise<SceneFiles> {
     const drawings = this.#drawingsFor(scene);
-    const json = sceneJson(
-      scene,
-      drawings.map((drawing) => drawing.json),
-    );
+    const json = sceneFile(scene);
     return { json, svg: sceneSvg(scene, await sha256HexAsync(json), drawings) };
   }
 
@@ -165,11 +162,23 @@ export class PaintCache {
 }
 
 /**
+ * A Scene's file, assembled from the Element blocks already in hand: the bytes
+ * `serialiseScene` writes, without serialising the Elements that did not change.
+ *
+ * This is the editor's own path, and it holds because a Scene is edited by
+ * replacing the Elements that changed — the ones that did not are the same
+ * objects, so their block in the file is the string it already was. A Scene
+ * mutated in place has to go through `serialiseScene`, which reads every
+ * Element it writes.
+ */
+export function sceneFile(scene: Scene): string {
+  return sceneJson(scene, scene.elements.map((element) => elementJson(element)));
+}
+
+/**
  * The Element JSON blocks made so far, by the Element object they were made
- * from. A Scene is edited by replacing the Elements that changed, so the ones
- * that did not are the same objects, and their block in the file is the string
- * it already was: a save writes a Scene's file out of the blocks in hand rather
- * than serialising the whole Scene again.
+ * from, so a frame, a history step and a save share one serialisation per
+ * Element instead of one Scene apiece.
  */
 const JSON_OF = new WeakMap<Element, string>();
 

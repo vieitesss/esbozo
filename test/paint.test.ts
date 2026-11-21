@@ -17,6 +17,7 @@ import type { Scene } from '../src/scene.ts';
 
 const {
   PaintCache,
+  sceneFile,
   parseScene,
   serialiseScene,
   renderScene,
@@ -106,6 +107,23 @@ test('an Element that changed is the only one drawn again, and the file follows 
   const files = await paintables.files(moved);
   assert.equal(files.json, serialiseScene(moved));
   assert.equal(files.svg, renderScene(moved, KALAM_LAYOUT));
+});
+
+test('a Scene edited by replacing one Element writes that Element again', () => {
+  const scene = sceneOf();
+  assert.equal(sceneFile(scene), serialiseScene(scene));
+  const moved: Scene = {
+    ...scene,
+    elements: scene.elements.map((element) =>
+      element.id === 'box' ? { ...element, x: 140 } : element,
+    ),
+  };
+  assert.equal(
+    sceneFile(moved),
+    serialiseScene(moved),
+    'the block of the Element that changed is the block of the Element it is now',
+  );
+  assert.notEqual(sceneFile(moved), sceneFile(scene), 'and the file moved with it');
 });
 
 test('a new measurement draws the Scene again, and the file keeps its bytes', async () => {
