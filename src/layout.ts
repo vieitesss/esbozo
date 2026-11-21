@@ -593,7 +593,7 @@ function caretAt(block: Block, offset: number, glyphs: GlyphBoundaries): Caret {
   const line = block.lines[index]!;
   return {
     line: index,
-    x: boundaryX(glyphs(line), columnAt(line, offset)),
+    x: boundaryX(glyphs(line), columnAt(line, offset), line.x),
     y: line.top,
     height: line.height,
   };
@@ -601,10 +601,11 @@ function caretAt(block: Block, offset: number, glyphs: GlyphBoundaries): Caret {
 
 /**
  * One boundary's x, clamped to the boundaries the line really draws: an offset
- * past the words is the place after the last glyph, never a made-up one.
+ * past the words is the place after the last glyph, never a made-up one. A line
+ * whose drawing answered with no boundary at all sits where it anchors.
  */
-function boundaryX(xs: readonly number[], column: number): number {
-  return xs[Math.min(column, xs.length - 1)] ?? 0;
+function boundaryX(xs: readonly number[], column: number, anchor: number): number {
+  return xs[Math.min(column, xs.length - 1)] ?? anchor;
 }
 
 /** The highlight behind two offsets: the part of each line they cover. */
@@ -626,8 +627,8 @@ function selectionAt(
       continue;
     }
     const xs = glyphs(line);
-    const one = boundaryX(xs, columnAt(line, Math.max(start, first)));
-    const other = boundaryX(xs, columnAt(line, Math.min(end, last)));
+    const one = boundaryX(xs, columnAt(line, Math.max(start, first)), line.x);
+    const other = boundaryX(xs, columnAt(line, Math.min(end, last)), line.x);
     // The two ends name the same run whatever order the words run in, so the
     // wash is the box between them, left edge first.
     boxes.push({
@@ -647,7 +648,7 @@ function offsetAt(block: Block, point: Point, glyphs: GlyphBoundaries): number {
   let column = 0;
   let nearest = Number.POSITIVE_INFINITY;
   for (let index = 0; index < line.boundaries.length; index += 1) {
-    const distance = Math.abs(point.x - boundaryX(xs, index));
+    const distance = Math.abs(point.x - boundaryX(xs, index, line.x));
     if (distance < nearest) {
       nearest = distance;
       column = index;
