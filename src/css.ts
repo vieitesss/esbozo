@@ -660,11 +660,11 @@ export function resolveSvgColours(
       }
       const resolution = resolveVariables(value, variables);
       if (!resolution.ok) {
-        problems.push(`the drawing is unresolved: ${resolution.unresolved}`);
+        problems.push(`the SVG is unresolved: ${resolution.unresolved}`);
         return match;
       }
       if (name !== 'font-family' && readColour(resolution.value) === null) {
-        problems.push(`the drawing colour ${name} is not one this subset reads: ${resolution.value.trim()}`);
+        problems.push(`the SVG colour ${name} is not one this subset reads: ${resolution.value.trim()}`);
         return match;
       }
       // A font stack may arrive quoted — `"Kalam", cursive` — so the quotes
