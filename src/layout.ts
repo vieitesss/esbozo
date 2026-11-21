@@ -46,6 +46,11 @@ import type {
 /** Font size per named size, in pixels. */
 const FONT_SIZE_PX: Record<FontSize, number> = { S: 14, M: 18, L: 24, XL: 32 };
 
+/** The pixels a named Text or Label size draws at, for anything that has to match it. */
+export function fontSizePx(size: FontSize): number {
+  return FONT_SIZE_PX[size];
+}
+
 /** Stroke width per named width, in pixels. */
 export const STROKE_WIDTH_PX: Record<StrokeWidth, number> = { thin: 1, bold: 2, extra: 4 };
 

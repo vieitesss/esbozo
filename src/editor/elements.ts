@@ -9,7 +9,7 @@
  */
 import { MIN_SIZE, seedForId } from '../scene.js';
 import { unwrittenTextAlign } from '../scene.js';
-import type { Element, ElementStyle, FontSize, Point, SceneStyle, TextElement } from '../scene.js';
+import type { Element, ElementStyle, Point, SceneStyle, TextElement } from '../scene.js';
 import { boxBetween } from './geometry.js';
 import type { DrawableType, ToolId } from './tools.js';
 
@@ -27,13 +27,6 @@ export type BoxTool = Exclude<DrawingTool, 'text' | 'arrow' | 'line'>;
 
 /** The tools that draw a stroke between two ends. */
 export type StrokeTool = Extract<DrawingTool, 'arrow' | 'line'>;
-
-/**
- * Text size per named size, in Scene units. The in-place input a new Text is
- * typed into has to be the size of the Text it becomes, and the Renderer's own
- * numbers live in a private table: #4's Layout takes both over.
- */
-export const TEXT_SIZE_PX: Record<FontSize, number> = { S: 14, M: 18, L: 24, XL: 32 };
 
 export function drawable(tool: ToolId): tool is DrawingTool {
   return tool !== 'select';

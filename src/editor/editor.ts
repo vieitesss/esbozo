@@ -7,6 +7,7 @@
  * folder only changes what the Scenes note lists: the open Scene keeps its own
  * `{ folder, name }` destination.
  */
+import { fontSizePx } from '../layout.js';
 import type { Layout } from '../layout.js';
 import { elementsById, outlineBox, renderScene } from '../renderer.js';
 import {
@@ -20,7 +21,6 @@ import {
 import type { Element as SceneElement, Scene } from '../scene.js';
 import { sceneStem } from '../paths.js';
 import {
-  TEXT_SIZE_PX,
   copies,
   drawn,
   drawnAtClick,
@@ -819,7 +819,7 @@ export class EsbozoEditorElement extends HTMLElement {
     input.spellcheck = false;
     input.style.left = `${page.x}px`;
     input.style.top = `${page.y}px`;
-    input.style.fontSize = `${TEXT_SIZE_PX[this.#scene.defaults.fontSize] * this.#view.zoom}px`;
+    input.style.fontSize = `${fontSizePx(this.#scene.defaults.fontSize) * this.#view.zoom}px`;
     input.addEventListener('keydown', this.#onTextKeyDown);
     input.addEventListener('blur', this.#onTextBlur);
     this.append(input);
