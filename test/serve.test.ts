@@ -8,6 +8,7 @@
  */
 import assert from 'node:assert/strict';
 import { mkdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { request as httpRequest } from 'node:http';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { ez, sceneFolder, startServe, tempFolder } from './cli.ts';
@@ -58,6 +59,24 @@ async function request(
 
 function sent(scene: unknown = SCENE, svg = SVG): { scene: string; svg: string } {
   return { scene: JSON.stringify(scene, null, 2), svg };
+}
+
+/**
+ * A request whose path is sent exactly as written: `fetch` normalises dot
+ * segments away before they reach the wire, which is the whole point here.
+ */
+async function rawRequest(server: Serve, path: string, method = 'GET'): Promise<Answer> {
+  const { hostname, port } = new URL(server.url);
+  return new Promise((resolve_, reject) => {
+    const asking = httpRequest({ hostname, port, path, method }, (response) => {
+      response.setEncoding('utf8');
+      let body = '';
+      response.on('data', (chunk: string) => (body += chunk));
+      response.on('end', () => resolve_({ status: response.statusCode ?? 0, body }));
+    });
+    asking.on('error', reject);
+    asking.end();
+  });
 }
 
 test('the served page and its font come from the built folder', async () => {
@@ -189,6 +208,35 @@ test('an invalid Scene is refused and nothing is written', async () => {
   // A body that is not a Scene and its SVG is refused the same way.
   assert.equal((await request(server, '/api/scenes/odd.json', 'PUT', { scene: '{}' })).status, 400);
   await assertMissing(join(folder, 'odd.json'));
+});
+
+test('a request path with a dot segment is refused before it is normalised', async () => {
+  const folder = await sceneFolder(SCENE);
+  const server = await served(folder);
+
+  // Every shape of `..`, literal and encoded, and a backslash for a separator.
+  for (const path of [
+    '/api/scenes/../secret.json',
+    '/api/scenes/../../etc/passwd',
+    '/api/scenes/%2e%2e/secret.json',
+    '/api/scenes/%2E%2E%2Fsecret.json',
+    '/api/scenes/.%2E/secret.json',
+    '/api/scenes/..%5Csecret.json',
+    '/../editor.html',
+  ]) {
+    const read = await rawRequest(server, path);
+    assert.equal(read.status, 400, `${path} read answered ${read.status}`);
+    assert.doesNotMatch(read.body, /root:/, 'no file from outside the folder was handed over');
+
+    const write = await rawRequest(server, path, 'PUT');
+    assert.equal(write.status, 400, `${path} write answered ${write.status}`);
+  }
+
+  // A path with no dot segment is still read as the Scene it names.
+  const plain = await rawRequest(server, '/api/scenes/scene.json');
+  assert.equal(plain.status, 200);
+  assert.equal(plain.body, SCENE_SOURCE);
+  assert.equal(await readFile(join(folder, 'scene.json'), 'utf8'), SCENE_SOURCE);
 });
 
 test('a read-only folder lists and reads, and refuses every write', async () => {

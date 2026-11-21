@@ -152,7 +152,13 @@ async function handle(
   root: string,
   readOnly: boolean,
 ): Promise<void> {
-  const pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
+  const raw = request.url ?? '/';
+  const raised = rawPathProblem(raw);
+  if (raised !== null) {
+    sendJson(response, 400, { error: raised });
+    return;
+  }
+  const pathname = new URL(raw, 'http://localhost').pathname;
   if (pathname === API || pathname === `${API}/`) {
     if (request.method !== 'GET') {
       sendJson(response, 405, { error: 'use GET' });
@@ -170,6 +176,26 @@ async function handle(
     return;
   }
   await servePageAsset(request, response, pathname);
+}
+
+/**
+ * A dot segment in the request path, decoded but before it is normalised: `..`,
+ * `%2e%2e`, `.` and a backslash for a separator are all refused, so no path is
+ * read one way here and another way by the URL parser.
+ */
+function rawPathProblem(raw: string): string | null {
+  let path: string;
+  try {
+    path = decodeURIComponent(raw.split('?')[0] ?? '/');
+  } catch {
+    return 'the path is not valid percent-encoding';
+  }
+  for (const segment of path.split(/[/\\]/)) {
+    if (segment === '.' || segment === '..') {
+      return 'a request path may not name a folder relative to itself';
+    }
+  }
+  return null;
 }
 
 /** The Scene file names at the top level of the folder, sorted. No recursion. */
