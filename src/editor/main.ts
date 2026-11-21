@@ -11,13 +11,16 @@
  * is the font URL ticket (#13): this page always serves and draws Kalam. A font
  * that cannot be read leaves the page its shell and an error in the status
  * line — the words cannot be placed without its metrics, so there is no editor
- * to show.
+ * to show. The bytes travel on to the page as well, so an exported PNG carries
+ * the same glyphs in its SVG.
  */
 import { createLayout, measureFont } from '../layout.js';
 import { defineEditorElement } from './editor.js';
 import type { PageFont } from './editor.js';
 
 const FONT_URL = 'fonts/Kalam-Regular.ttf';
+/** The family the page's CSS names the hand font by, which the SVG is drawn in. */
+const FONT_FAMILY = 'Kalam';
 
 defineEditorElement(await loadFont());
 
@@ -29,7 +32,7 @@ async function loadFont(): Promise<PageFont> {
       return { ok: false, problem: `cannot load ${FONT_URL}: ${response.status} ${response.statusText}` };
     }
     const bytes = new Uint8Array(await response.arrayBuffer());
-    return { ok: true, layout: createLayout(measureFont(bytes)) };
+    return { ok: true, layout: createLayout(measureFont(bytes)), font: { family: FONT_FAMILY, bytes } };
   } catch (error) {
     return { ok: false, problem: `cannot load ${FONT_URL}: ${(error as Error).message}` };
   }

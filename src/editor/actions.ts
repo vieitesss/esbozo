@@ -17,6 +17,7 @@
  * the editor's one path.
  */
 import type { Element } from '../scene.js';
+import type { Theme } from '../css.js';
 import type { ArrangeAct } from './arrange.js';
 
 /** The Element types a tool draws. */
@@ -58,6 +59,7 @@ export interface ActionHost {
   toggleTheme(): void;
   stepDefaultRoughness(): void;
   openPalette(): void;
+  exportPng(theme: Theme): Promise<void>;
 }
 
 /** The palette's headings, in the order the list is read in. */
@@ -269,6 +271,26 @@ const OTHER_ACTIONS = [
     minSelected: 0,
     reason: always,
     run: (host) => host.stepDefaultRoughness(),
+  },
+  {
+    id: 'export-light',
+    name: 'Export PNG (light)',
+    group: 'Export',
+    shortcut: '',
+    bindings: [],
+    minSelected: 0,
+    reason: always,
+    run: (host) => host.exportPng('light'),
+  },
+  {
+    id: 'export-dark',
+    name: 'Export PNG (dark)',
+    group: 'Export',
+    shortcut: '',
+    bindings: [],
+    minSelected: 0,
+    reason: always,
+    run: (host) => host.exportPng('dark'),
   },
 ] as const satisfies readonly EditorAction[];
 

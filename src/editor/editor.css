@@ -25,7 +25,9 @@
   --sel: #3358d8;
 }
 
-[data-theme="dark"] {
+/* The dark values sit on the root scope the way `ez png` reads them, so an
+   exported PNG and the page cannot disagree about what dark is. */
+:root[data-theme="dark"] {
   --ink: #ece7db;
   --paper: #17161a;
   --sel: #93aaff;

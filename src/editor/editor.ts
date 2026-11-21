@@ -35,6 +35,8 @@ import { arranged, movableCount } from './arrange.js';
 import type { ArrangeAct } from './arrange.js';
 import { actionById, actionFor } from './actions.js';
 import type { ActionHost, ActionState, ToolId } from './actions.js';
+import { exportPng } from './export.js';
+import type { SceneFont } from './export.js';
 import { CommandPalette } from './palette.js';
 import { menuSignature, roughnessNote, styleNote } from './menu.js';
 import { nextRoughness, styled } from './style.js';
@@ -165,6 +167,8 @@ const SHELL = `
 export class EsbozoEditorElement extends HTMLElement {
   /** The page's font, measured: every Text and Label is placed with it. */
   readonly #layout: Layout;
+  /** The same font's bytes, so an exported SVG can carry them. */
+  readonly #font: SceneFont;
   #scene: Scene = emptyScene();
   #selected: string[] = [];
   #tool: ToolId = 'select';
@@ -224,11 +228,13 @@ export class EsbozoEditorElement extends HTMLElement {
     toggleTheme: () => this.#toggleTheme(),
     stepDefaultRoughness: () => this.#stepDefaultRoughness(),
     openPalette: () => this.#palette.show(),
+    exportPng: (theme) => this.#exportPng(theme),
   };
 
-  constructor(layout: Layout) {
+  constructor(layout: Layout, font: SceneFont) {
     super();
     this.#layout = layout;
+    this.#font = font;
   }
 
   connectedCallback(): void {
@@ -582,6 +588,21 @@ export class EsbozoEditorElement extends HTMLElement {
    */
   #toggleTheme(): void {
     document.dispatchEvent(new CustomEvent('esbozo:toggle-theme'));
+  }
+
+  /** The Scene as a PNG, light or dark, downloaded beside the name the Scene saves under. */
+  async #exportPng(theme: 'light' | 'dark'): Promise<void> {
+    try {
+      await exportPng({
+        scene: this.#scene,
+        theme,
+        layout: this.#layout,
+        font: this.#font,
+        name: sceneStem(this.#target?.name ?? '') || this.#scene.title,
+      });
+    } catch (error) {
+      this.#setSaved('failed', (error as Error).message);
+    }
   }
 
   /** What the actions may look at: the selection, and whether the history has a step. */
@@ -1459,7 +1480,9 @@ function normaliseSceneName(raw: string): string {
  * cannot place a Scene's words without the font's metrics, so it says so
  * instead of showing an editor that cannot draw.
  */
-export type PageFont = { ok: true; layout: Layout } | { ok: false; problem: string };
+export type PageFont =
+  | { ok: true; layout: Layout; font: SceneFont }
+  | { ok: false; problem: string };
 
 /**
  * The page shell with no editor behind it, for a page whose font did not load.
@@ -1495,12 +1518,12 @@ export function defineEditorElement(font: PageFont): void {
     return;
   }
   if (font.ok) {
-    const { layout } = font;
+    const { layout, font: sceneFont } = font;
     customElements.define(
       'esbozo-editor',
       class extends EsbozoEditorElement {
         constructor() {
-          super(layout);
+          super(layout, sceneFont);
         }
       },
     );
