@@ -23,7 +23,7 @@ import type { ArrangeAct } from './arrange.js';
 import { actionById, actionFor } from './actions.js';
 import type { ActionHost, ActionState, ToolId } from './actions.js';
 import { exportPng } from './export.js';
-import { Gestures } from './gestures.js';
+import { Gestures, shownElements } from './gestures.js';
 import { clipboardApi, copySelection, copyTo, cutSelection, pasteClipboard } from './clipboard.js';
 import type { ClipboardHost } from './clipboard.js';
 import { Connection } from './connection.js';
@@ -595,15 +595,13 @@ class EsbozoEditorElement extends HTMLElement {
     if (drag.kind === 'draw') {
       return [...this.#scene.elements, drag.preview];
     }
-    if (drag.kind === 'move') {
-      return this.#scene.elements.map((element) => drag.shown.get(element.id) ?? element);
-    }
     if (
+      drag.kind === 'move' ||
       drag.kind === 'resize' ||
       drag.kind === 'end' ||
-      (drag.kind === 'label' && drag.moved)
+      drag.kind === 'label'
     ) {
-      return this.#scene.elements.map((element) => (element.id === drag.id ? drag.shown : element));
+      return shownElements(this.#scene.elements, drag);
     }
     return this.#scene.elements;
   }
