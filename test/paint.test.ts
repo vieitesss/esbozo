@@ -98,7 +98,7 @@ test('an Element that changed is the only one drawn again, and the file follows 
   const after = paintables.paint(moved.elements);
 
   for (const id of ['box2', 'words']) {
-    assert.equal(after.elements.get(id), before.elements.get(id), `${id} keeps the drawing it had`);
+    assert.equal(after.elements.get(id), before.elements.get(id), `${id} keeps the SVG it had`);
   }
   assert.notEqual(after.elements.get('box'), before.elements.get('box'), 'the moved box is drawn again');
   // Its end rides the box: the shaft's own drawing is the target's outline.

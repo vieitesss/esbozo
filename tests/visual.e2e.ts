@@ -241,7 +241,7 @@ test('the Style menu fits a 1366×768 window beside the selection', async ({ age
   await clickScene(ui, { x: 80, y: 70 }, [], EDGE_1366);
 
   await ui.agent.assert(
-    'a pale paper note held by a strip of tape sits against the right edge of the window, and its whole shape is inside the window: there is painted page above it, below it and to its left, and no edge of the note is cut off by the window',
+    'a pale paper note held by a strip of tape sits against the right edge of the window, and its whole outline is inside the window: there is painted page above it, below it and to its left, and no edge of the note is cut off by the window',
     { vision: 'only' },
   );
 });

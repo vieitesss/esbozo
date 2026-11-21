@@ -746,7 +746,7 @@ test('a translucent palette colour exits 5 instead of being mixed', async () => 
     'utf8',
   );
   const { png } = await pngOne(['png', 'scene.json', '--theme', 'light', '--css', 'opaque.css'], folder);
-  assert.ok(hasPixel(png, isRed), 'an opaque rgba() ink reaches the drawing');
+  assert.ok(hasPixel(png, isRed), 'an opaque rgba() ink reaches the image');
 });
 
 test('a later declaration wins over an earlier one', async () => {
@@ -1076,7 +1076,7 @@ test('every path and problem is plain text', async () => {
   assert.match(bad.stderr, /^cannot read font nowhere\.ttf: /);
 });
 
-test('color-mix takes one weight and one bare colour, as documented', async () => {
+test('color-mix takes one weight and one bare colour, per the CSS spec', async () => {
   const folder = await sceneFolder();
 
   for (const [css, paper] of [
