@@ -35,7 +35,7 @@ import { createLayout, parseFontFile } from './layout.js';
 import type { Layout, ParsedFont } from './layout.js';
 
 /** The name the bundled font draws as. */
-export const BUNDLED_FONT_NAME = 'Kalam';
+const BUNDLED_FONT_NAME = 'Kalam';
 
 /** Kalam, bundled so the CLI needs no font file to work. */
 const BUNDLED_FONT: Uint8Array = kalam;
@@ -51,7 +51,7 @@ export interface FontFile {
   parsed: ParsedFont;
 }
 
-export type FontResult =
+type FontResult =
   | { ok: true; value: FontFile }
   | { ok: false; problems: string[] };
 
@@ -180,7 +180,7 @@ function familyMatches(faceFamily: string, fontFamily: string | null): boolean {
  * Reads a font file and checks it, or reads the bundled Kalam when no path is
  * given. Every caller goes through here, so the fallback is owned in one place.
  */
-export async function loadFont(
+async function loadFont(
   fontPath?: string,
   label = fontPath ?? BUNDLED_FONT_NAME,
 ): Promise<FontResult> {
@@ -202,7 +202,7 @@ export async function loadFont(
  * measurement comes from the same parse and an unusable file is a problem
  * instead of a blank drawing.
  */
-export function checkFont(bytes: Uint8Array, label: string): FontResult {
+function checkFont(bytes: Uint8Array, label: string): FontResult {
   const tag = tagAt(bytes, 0);
   if (tag === 'wOFF' || tag === 'wOF2') {
     return {

@@ -91,18 +91,18 @@ export const STROKE_WIDTHS = ['thin', 'bold', 'extra'] as const;
 export type StrokeWidth = (typeof STROKE_WIDTHS)[number];
 
 export const STROKE_STYLES = ['solid', 'dashed', 'dotted'] as const;
-export type StrokeStyle = (typeof STROKE_STYLES)[number];
+type StrokeStyle = (typeof STROKE_STYLES)[number];
 
 /** `none` draws no fill. `hachure` and `cross-hatch` are hand-drawn lines (Rough.js), `solid` is a flat wash. */
 export const FILL_KINDS = ['none', 'solid', 'hachure', 'cross-hatch'] as const;
-export type FillKind = (typeof FILL_KINDS)[number];
+type FillKind = (typeof FILL_KINDS)[number];
 
 /** Colours are never spelled out: they come from the host's CSS variables. */
 export const TONES = ['ink', 'muted'] as const;
-export type Tone = (typeof TONES)[number];
+type Tone = (typeof TONES)[number];
 
 export const CORNERS = ['sharp', 'round'] as const;
-export type Corners = (typeof CORNERS)[number];
+type Corners = (typeof CORNERS)[number];
 
 export const FONT_SIZES = ['S', 'M', 'L', 'XL'] as const;
 export type FontSize = (typeof FONT_SIZES)[number];
@@ -135,19 +135,19 @@ export function isOutlined(element: Element): element is OutlinedElement {
 export const GREY_MIN = 0;
 export const GREY_MAX = 6;
 
-export interface Stroke {
+interface Stroke {
   width: StrokeWidth;
   style: StrokeStyle;
 }
 
-export interface Fill {
+interface Fill {
   kind: FillKind;
   /** Grey step on the seven-grey ladder: 0 is paper, 6 is ink. */
   grey: number;
 }
 
 /** The arrow head drawn at each end. Defaults: start none, end arrow for an arrow, both none for a line. */
-export interface Heads {
+interface Heads {
   start: Head;
   end: Head;
 }
@@ -191,7 +191,7 @@ export interface RectangleElement extends LabelledBase {
   height: number;
 }
 
-export interface EllipseElement extends LabelledBase {
+interface EllipseElement extends LabelledBase {
   type: 'ellipse';
   x: number;
   y: number;
@@ -199,7 +199,7 @@ export interface EllipseElement extends LabelledBase {
   height: number;
 }
 
-export interface DiamondElement extends LabelledBase {
+interface DiamondElement extends LabelledBase {
   type: 'diamond';
   x: number;
   y: number;
@@ -214,11 +214,11 @@ interface ArrowOrLineBase extends LabelledBase {
   heads: Heads;
 }
 
-export interface ArrowElement extends ArrowOrLineBase {
+interface ArrowElement extends ArrowOrLineBase {
   type: 'arrow';
 }
 
-export interface LineElement extends ArrowOrLineBase {
+interface LineElement extends ArrowOrLineBase {
   type: 'line';
 }
 

@@ -35,7 +35,7 @@ export type ArrangeAct =
 export type BoundsOf = (element: Element) => Box | undefined;
 
 /** Whether Arrange may move this Element: a Snapped end follows its target by itself. */
-export function movable(element: Element): boolean {
+function movable(element: Element): boolean {
   if (element.type === 'arrow' || element.type === 'line') {
     return element.points.every((point) => point.snap === undefined);
   }

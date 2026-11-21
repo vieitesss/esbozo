@@ -51,7 +51,7 @@ export type StyleKey =
   | 'textAlign';
 
 /** One button: the value the Scene stores, and the word on the button. */
-export interface StyleChoice {
+interface StyleChoice {
   readonly value: string;
   readonly label: string;
 }

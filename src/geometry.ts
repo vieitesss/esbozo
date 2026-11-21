@@ -31,7 +31,7 @@ export interface Outline {
 /** The corner radius of an Element with round corners, in pixels. */
 const CORNER_RADIUS = 12;
 
-export function centreOf(outline: Outline): Point {
+function centreOf(outline: Outline): Point {
   return { x: outline.x + outline.width / 2, y: outline.y + outline.height / 2 };
 }
 
@@ -54,7 +54,7 @@ export interface Fillet {
  * limited by its half-width and half-height; a diamond also by its edges, so
  * neighbouring fillets never meet. An ellipse has no corners to round.
  */
-export function cornerRadius(outline: Outline): number {
+function cornerRadius(outline: Outline): number {
   if (outline.corners === 'sharp' || outline.type === 'ellipse') {
     return 0;
   }
@@ -127,7 +127,7 @@ export function fillets(outline: Outline): Fillet[] {
  * line between the two ends meets the target's real edge: an edge, or the arc
  * that rounds a corner.
  */
-export function pointOnOutline(outline: Outline, from: Point): Point {
+function pointOnOutline(outline: Outline, from: Point): Point {
   const centre = centreOf(outline);
   const dx = from.x - centre.x;
   const dy = from.y - centre.y;

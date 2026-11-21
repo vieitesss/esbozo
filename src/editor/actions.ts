@@ -31,7 +31,7 @@ export type DrawableType = Element['type'];
 export type ToolId = 'select' | DrawableType;
 
 /** One key, as a person presses it: `meta` is ⌘ or Ctrl, and takes either. */
-export interface Binding {
+interface Binding {
   readonly key: string;
   readonly meta?: boolean;
   /** Left out when the key means the same with Shift held; `false` means it must not be. */

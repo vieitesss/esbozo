@@ -92,7 +92,7 @@ export interface Shaft {
 }
 
 /** One measured line: where it starts and where its baseline sits. */
-export interface Line {
+interface Line {
   text: string;
   x: number;
   baseline: number;
@@ -107,7 +107,7 @@ export interface Block extends Box {
 }
 
 /** A Label that does not fit the Element it belongs to. */
-export interface Overflow {
+interface Overflow {
   elementId: string;
   message: string;
 }

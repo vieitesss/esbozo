@@ -211,8 +211,8 @@ export interface View {
   panY: number;
 }
 
-export const ZOOM_MIN = 0.1;
-export const ZOOM_MAX = 8;
+const ZOOM_MIN = 0.1;
+const ZOOM_MAX = 8;
 
 /**
  * The smallest a selection may cover on the page, in screen pixels: a bare
@@ -220,7 +220,7 @@ export const ZOOM_MAX = 8;
  */
 const SELECTION_FOOTPRINT = 12;
 
-export function clampZoom(zoom: number): number {
+function clampZoom(zoom: number): number {
   return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom));
 }
 

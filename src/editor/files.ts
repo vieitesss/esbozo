@@ -15,14 +15,14 @@
 import { svgFileName } from '../paths.js';
 
 /** The slice of the File System Access API this module uses. */
-export interface FileHandleLike {
+interface FileHandleLike {
   readonly kind: 'file';
   readonly name: string;
   getFile(): Promise<{ text(): Promise<string> }>;
   createWritable(): Promise<{ write(data: string): Promise<void>; close(): Promise<void> }>;
 }
 
-export interface DirectoryHandleLike {
+interface DirectoryHandleLike {
   readonly kind: 'directory';
   readonly name: string;
   values(): AsyncIterableIterator<{ kind: string; name: string }>;

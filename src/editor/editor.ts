@@ -208,7 +208,7 @@ const SHELL = `
 </div>
 `;
 
-export class EsbozoEditorElement extends HTMLElement {
+class EsbozoEditorElement extends HTMLElement {
   /**
    * The page's font, measured: every Text and Label is placed with it. It is
    * empty until the page's font arrives, and nothing is drawn with it before

@@ -168,7 +168,7 @@ export class CommandPalette {
  * Whether a query keeps an action: every word of the query has to appear in the
  * name, in any order and in any case, so `png dark` finds `Export PNG (dark)`.
  */
-export function matches(name: string, query: string): boolean {
+function matches(name: string, query: string): boolean {
   if (query === '') {
     return true;
   }
