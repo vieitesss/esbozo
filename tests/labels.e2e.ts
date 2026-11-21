@@ -526,6 +526,36 @@ describe('labels', () => {
     expect(far?.tone).toBe('muted');
   });
 
+  test('a press that came up off the row leaves the keyboard’s own click alone', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'press.json': PRESS_SOURCE } }, 'press.json');
+
+    // The first click finds `far` and the note docks under the pointer, so the
+    // second press lands on `Tone: ink` and opens `far`'s words. It comes up on
+    // the paper to the left of the note, though, so the click that closes the
+    // press never reaches the row: nothing was applied and nothing is owed.
+    await clickScene(ui, { x: 900, y: 94 }, [], PRESS);
+    await browser.mouse.move(1050, 414);
+    await browser.mouse.down();
+    await browser.mouse.move(890, 414);
+    await browser.mouse.up();
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await expect(label).toHaveValue('');
+    await label.press('Escape');
+
+    // The keyboard's click is the person's own, asked for after the press: the
+    // first Enter applies the row, and no stale debt of the press eats it.
+    await screen.getByRole('button', { name: 'Tone: ink' }).press('Enter');
+    const far = (await savedScene(ui, 'press.json')).elements.find(
+      (element) => element.id === 'far',
+    );
+    expect(far?.tone).toBe('ink');
+  });
+
   test('a click, a drag of another Element and another click are not a double-click', async ({
     app,
     browser,

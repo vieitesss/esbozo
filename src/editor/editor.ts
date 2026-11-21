@@ -2699,7 +2699,10 @@ class EsbozoEditorElement extends HTMLElement {
       return;
     }
     this.#cancelledClick = false;
-    if (!this.#menu.contains(event.target as Node | null)) {
+    // A click the keyboard made (`detail` 0: Enter or Space on a row) is not the
+    // press's own. The person asked for it after the press, so it runs, and the
+    // press owes the note nothing any more.
+    if (event.detail === 0 || !this.#menu.contains(event.target as Node | null)) {
       return;
     }
     event.preventDefault();
