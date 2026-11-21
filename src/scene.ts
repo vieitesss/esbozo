@@ -451,6 +451,89 @@ export function hashScene(scene: Scene): string {
   return sha256Hex(serialiseScene(scene));
 }
 
+/**
+ * The given Elements as a Scene fragment: the schema version and the Elements,
+ * nothing else, so a copy can be read as Scene JSON and pasted into a file by
+ * hand. A Snap to an Element the fragment does not carry is dropped, because a
+ * fragment has to parse on its own: a copy of one Snapped arrow is a
+ * free-standing arrow, not a broken Scene.
+ */
+export function serialiseFragment(scene: Scene, elements: readonly Element[]): string {
+  const written = JSON.parse(serialiseScene({ ...scene, elements: [...elements] })) as {
+    version: number;
+    elements: unknown[];
+  };
+  return JSON.stringify({ version: written.version, elements: localised(written.elements) }, null, 2);
+}
+
+/**
+ * The Elements a fragment carries, or null when the source is not a fragment.
+ *
+ * A fragment is `{ "version": 1, "elements": [...] }`: the version is checked by
+ * the same parser a Scene file goes through, so a fragment written by another
+ * schema is refused rather than silently repaired, and a fragment with no
+ * version is the current one. A bare array is not a fragment. The Elements are
+ * resolved against `defaults`, the Scene being pasted into, so a fragment that
+ * carries no style still lands styled.
+ */
+export function parseFragment(source: string, defaults: SceneStyle): Element[] | null {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(source);
+  } catch {
+    return null;
+  }
+  if (!isRecord(raw)) {
+    return null;
+  }
+  const elements = raw['elements'];
+  if (!Array.isArray(elements)) {
+    return null;
+  }
+  const parsed = parseScene(
+    JSON.stringify({
+      version: raw['version'] ?? SCENE_VERSION,
+      title: DEFAULT_TITLE,
+      defaults,
+      elements: localised(elements),
+    }),
+  );
+  return parsed.ok ? parsed.scene.elements : null;
+}
+
+/** A Snap only means something inside the fragment it travels with. */
+function localised(elements: readonly unknown[]): unknown[] {
+  const ids = new Set(
+    elements
+      .map((element) => (isRecord(element) ? element['id'] : undefined))
+      .filter((id) => typeof id === 'string'),
+  );
+  return elements.map((element) => {
+    if (!isRecord(element)) {
+      return element;
+    }
+    const points = element['points'];
+    if (!Array.isArray(points)) {
+      return element;
+    }
+    return { ...element, points: points.map((point) => freeUnlessLocal(point, ids)) };
+  });
+}
+
+/** A point whose Snap names an Element the fragment does not carry loses the Snap. */
+function freeUnlessLocal(point: unknown, ids: ReadonlySet<unknown>): unknown {
+  if (!isRecord(point)) {
+    return point;
+  }
+  const snap = point['snap'];
+  if (typeof snap !== 'string' || ids.has(snap)) {
+    return point;
+  }
+  const free = { ...point };
+  delete free['snap'];
+  return free;
+}
+
 function serialiseElement(element: Element): object {
   if (element.type === 'arrow' || element.type === 'line') {
     return {

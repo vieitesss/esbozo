@@ -9,10 +9,16 @@
  */
 import type { Layout } from '../layout.js';
 import { elementsById, outlineBox, renderScene } from '../renderer.js';
-import { emptyScene, isOutlined, parseScene, serialiseScene } from '../scene.js';
+import {
+  emptyScene,
+  isOutlined,
+  parseFragment,
+  parseScene,
+  serialiseFragment,
+  serialiseScene,
+} from '../scene.js';
 import type { Element as SceneElement, Scene } from '../scene.js';
 import { sceneStem } from '../paths.js';
-import { copyText, parseFragment } from './clipboard.js';
 import {
   TEXT_SIZE_PX,
   copies,
@@ -473,7 +479,7 @@ export class EsbozoEditorElement extends HTMLElement {
     if (selected.length === 0) {
       return;
     }
-    event.clipboardData?.setData('text/plain', copyText(this.#scene, selected));
+    event.clipboardData?.setData('text/plain', serialiseFragment(this.#scene, selected));
     event.preventDefault();
   };
 
