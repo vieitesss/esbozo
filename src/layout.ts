@@ -91,6 +91,18 @@ interface Line {
   text: string;
   x: number;
   baseline: number;
+  /**
+   * The offset in the words of every glyph boundary this line draws: one more
+   * than its characters, so a caret between any two glyphs has one place. A run
+   * of spaces a wrapped line swallowed is one drawn space, and the boundary
+   * after it is where the next word starts.
+   */
+  boundaries: readonly number[];
+  /** The line's own box, from the top of its ink down: the room a caret and a selection fill. */
+  top: number;
+  height: number;
+  /** How wide the line's own ink is, so its edge follows the anchor it draws at. */
+  width: number;
 }
 
 /** Words placed in a Scene: their lines, the size they draw at and the box they occupy. */
@@ -99,6 +111,25 @@ export interface Block extends Box {
   /** `text-anchor` for every line. */
   anchor: 'start' | 'middle' | 'end';
   lines: Line[];
+}
+
+/**
+ * One caret slot in words a Block already placed: the room between two glyphs,
+ * in Scene coordinates, on the line that holds the caret's offset.
+ */
+interface Caret {
+  /** The line the caret is on, counted from the Block's first line. */
+  readonly line: number;
+  /** The left edge of the slot, and its own line's box. */
+  readonly x: number;
+  readonly y: number;
+  readonly height: number;
+}
+
+/** One line of words before it is placed: what it draws, and where in the words it came from. */
+interface Written {
+  text: string;
+  boundaries: number[];
 }
 
 /** A Label that does not fit the Element it belongs to. */
@@ -197,6 +228,24 @@ export interface Layout {
   /** The Element grown down and right until its Label fits. Elements without one come back unchanged. */
   grow<T extends Element>(element: T): T;
   /**
+   * Where the caret sits for an offset into the words this Block was placed
+   * from: the glyph boundary on the line that holds it. An offset inside a run
+   * of spaces a wrapped line swallowed lands on the nearest boundary the line
+   * draws, and an offset past the words lands after their last glyph.
+   */
+  caret(block: Block, offset: number): Caret;
+  /**
+   * The highlight behind the words between two offsets: one box per line they
+   * cover, from the glyph one starts at to the one the other ends at. Read in
+   * either order. An empty run selects nothing.
+   */
+  selection(block: Block, from: number, to: number): Box[];
+  /**
+   * The offset into those words of the glyph boundary nearest a Scene point:
+   * the line the point's height falls on, and the boundary its x is closest to.
+   */
+  offsetAt(block: Block, point: Point): number;
+  /**
    * The lines this Layout placed, as the font's own curves. A PNG draws these
    * instead of `<text>`, so the words it rasterises are the words it measured.
    * A page that only measures its font has none.
@@ -212,6 +261,9 @@ export function createLayout(parsed: ParsedFont): Layout {
     label: (element, shaft) => labelBlock(element, metrics, shaft),
     overflow: (element) => labelOverflow(element, metrics),
     grow: (element) => grown(element, metrics),
+    caret: (block, offset) => caretAt(block, offset, metrics),
+    selection: (block, from, to) => selectionAt(block, from, to, metrics),
+    offsetAt: (block, point) => offsetAt(block, point, metrics),
     ...(parsed.glyphs === undefined ? {} : { glyphs: parsed.glyphs }),
   };
   return layout;
@@ -220,7 +272,7 @@ export function createLayout(parsed: ParsedFont): Layout {
 /** Words measured once: how they break, how big they are and how far apart the lines sit. */
 interface Measured {
   size: number;
-  lines: string[];
+  lines: Written[];
   width: number;
   height: number;
   lineHeight: number;
@@ -246,7 +298,13 @@ function measured(text: string, size: number, maxWidth: number | null, metrics: 
 }
 
 /** The words as a Block: each line on its baseline, centred on its ink in the box. */
-function placed(words: Measured, anchor: Block['anchor'], alignX: number, top: number): Block {
+function placed(
+  words: Measured,
+  anchor: Block['anchor'],
+  alignX: number,
+  top: number,
+  metrics: Metrics,
+): Block {
   return {
     x: leftOf(alignX, words.width, anchor),
     y: top,
@@ -254,10 +312,14 @@ function placed(words: Measured, anchor: Block['anchor'], alignX: number, top: n
     height: words.height,
     size: words.size,
     anchor,
-    lines: words.lines.map((text, index) => ({
-      text,
+    lines: words.lines.map((line, index) => ({
+      text: line.text,
+      boundaries: line.boundaries,
       x: alignX,
       baseline: top + words.lineHeight * (index + 0.5) + words.inkCentre,
+      top: top + words.lineHeight * index,
+      height: words.lineHeight,
+      width: metrics.advance(line.text, words.size),
     })),
   };
 }
@@ -268,7 +330,7 @@ function textBlock(element: TextElement, metrics: Metrics): Block {
   const anchor = anchorFor(element.textAlign);
   // `x` is the aligned edge whatever the alignment: the left edge, the centre
   // or the right edge the author placed.
-  return placed(words, anchor, element.x, element.y);
+  return placed(words, anchor, element.x, element.y, metrics);
 }
 
 /** A Label in its Element, or null when there is nothing to place. */
@@ -297,7 +359,7 @@ function labelBlock(
       x: middle.x + side.x * reach,
       y: middle.y + side.y * reach,
     };
-    return placed(words, 'middle', centre.x, centre.y - words.height / 2);
+    return placed(words, 'middle', centre.x, centre.y - words.height / 2, metrics);
   }
 
   const area = labelArea(element);
@@ -310,7 +372,7 @@ function labelBlock(
         ? area.x + area.width / 2
         : area.x + area.width;
   const top = area.y + (area.height - words.height) / 2;
-  return placed(words, anchor, alignX, top);
+  return placed(words, anchor, alignX, top, metrics);
 }
 
 /**
@@ -431,8 +493,27 @@ function grown<T extends Element>(element: T, metrics: Metrics): T {
 }
 
 /** The lines the author wrote, split on explicit newlines and nothing else. */
-function writtenLines(text: string): string[] {
-  return text.split('\n');
+function writtenLines(text: string): Written[] {
+  const lines: Written[] = [];
+  let start = 0;
+  for (const line of text.split('\n')) {
+    lines.push({ text: line, boundaries: boundaryRun(start, line.length) });
+    start += line.length + 1;
+  }
+  return lines;
+}
+
+/** Every glyph boundary of one drawn run, as the offset in the words it came from. */
+function boundaryRun(from: number, length: number): number[] {
+  return Array.from({ length: length + 1 }, (_, step) => from + step);
+}
+
+/** The runs of characters a wrapped line is built from, and where each starts in the words. */
+function wordRuns(paragraph: string, from: number): { text: string; at: number }[] {
+  return Array.from(paragraph.matchAll(/[^ \t]+/g), (match) => ({
+    text: match[0] ?? '',
+    at: from + (match.index ?? 0),
+  }));
 }
 
 /**
@@ -442,31 +523,145 @@ function writtenLines(text: string): string[] {
  * run of ASCII spaces or tabs can break a line, so a non-breaking space or an
  * em space stays on the line it was written on.
  */
-function breakLines(text: string, maxWidth: number, size: number, metrics: Metrics): string[] {
-  const lines: string[] = [];
-  for (const paragraph of writtenLines(text)) {
-    const words = paragraph.split(/[ \t]+/).filter((word) => word !== '');
-    if (words.length === 0) {
-      lines.push('');
-      continue;
-    }
-    let line = words[0] ?? '';
-    for (const word of words.slice(1)) {
-      const candidate = `${line} ${word}`;
-      if (metrics.advance(candidate, size) <= maxWidth) {
-        line = candidate;
-      } else {
-        lines.push(line);
-        line = word;
+function breakLines(text: string, maxWidth: number, size: number, metrics: Metrics): Written[] {
+  const lines: Written[] = [];
+  let paragraphStart = 0;
+  for (const paragraph of text.split('\n')) {
+    const words = wordRuns(paragraph, paragraphStart);
+    const first = words[0];
+    if (first === undefined) {
+      lines.push({ text: '', boundaries: [paragraphStart] });
+    } else {
+      let line: Written = {
+        text: first.text,
+        boundaries: boundaryRun(first.at, first.text.length),
+      };
+      for (const word of words.slice(1)) {
+        const candidate = `${line.text} ${word.text}`;
+        if (metrics.advance(candidate, size) <= maxWidth) {
+          // The space the run became is one drawn glyph: the boundary before it
+          // is the last one the line had, and the one after it is where the next
+          // word starts.
+          line = {
+            text: candidate,
+            boundaries: [
+              ...line.boundaries,
+              word.at,
+              ...boundaryRun(word.at, word.text.length).slice(1),
+            ],
+          };
+        } else {
+          lines.push(line);
+          line = { text: word.text, boundaries: boundaryRun(word.at, word.text.length) };
+        }
       }
+      lines.push(line);
     }
-    lines.push(line);
+    paragraphStart += paragraph.length + 1;
   }
   return lines;
 }
 
-function widestLine(lines: readonly string[], size: number, metrics: Metrics): number {
-  return lines.reduce((widest, line) => Math.max(widest, metrics.advance(line, size)), 0);
+function widestLine(lines: readonly Written[], size: number, metrics: Metrics): number {
+  return lines.reduce((widest, line) => Math.max(widest, metrics.advance(line.text, size)), 0);
+}
+
+/** Where the caret for an offset sits: the glyph boundary on the line that holds it. */
+function caretAt(block: Block, offset: number, metrics: Metrics): Caret {
+  const index = lineAt(block.lines, offset);
+  const line = block.lines[index]!;
+  const column = columnAt(line, offset);
+  return {
+    line: index,
+    x: lineLeft(line, block) + metrics.advance(line.text.slice(0, column), block.size),
+    y: line.top,
+    height: line.height,
+  };
+}
+
+/** The highlight behind two offsets: the part of each line they cover. */
+function selectionAt(block: Block, from: number, to: number, metrics: Metrics): Box[] {
+  const [start, end] = from <= to ? [from, to] : [to, from];
+  if (start === end) {
+    return [];
+  }
+  const boxes: Box[] = [];
+  for (const line of block.lines) {
+    const first = line.boundaries[0]!;
+    const last = line.boundaries[line.boundaries.length - 1]!;
+    if (end < first || start > last) {
+      continue;
+    }
+    const left = lineLeft(line, block);
+    const x = left + metrics.advance(line.text.slice(0, columnAt(line, Math.max(start, first))), block.size);
+    const right =
+      left + metrics.advance(line.text.slice(0, columnAt(line, Math.min(end, last))), block.size);
+    boxes.push({ x, y: line.top, width: Math.max(0, right - x), height: line.height });
+  }
+  return boxes;
+}
+
+/** The offset of the glyph boundary nearest a point: its line by height, its column by x. */
+function offsetAt(block: Block, point: Point, metrics: Metrics): number {
+  const line = nearestLine(block.lines, point.y);
+  const left = lineLeft(line, block);
+  let column = 0;
+  let nearest = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < line.boundaries.length; index += 1) {
+    const x = left + metrics.advance(line.text.slice(0, index), block.size);
+    const distance = Math.abs(point.x - x);
+    if (distance < nearest) {
+      nearest = distance;
+      column = index;
+    }
+  }
+  return line.boundaries[column]!;
+}
+
+/** The line an offset belongs to: the first whose glyphs reach it, and the last when none does. */
+function lineAt(lines: readonly Line[], offset: number): number {
+  for (let index = 0; index < lines.length; index += 1) {
+    const boundaries = lines[index]!.boundaries;
+    if (offset <= boundaries[boundaries.length - 1]!) {
+      return index;
+    }
+  }
+  return lines.length - 1;
+}
+
+/** How many of a line's drawn glyphs come before an offset: the nearest boundary it has. */
+function columnAt(line: Line, offset: number): number {
+  let column = 0;
+  for (let index = 0; index < line.boundaries.length; index += 1) {
+    if (line.boundaries[index]! > offset) {
+      break;
+    }
+    column = index;
+  }
+  return column;
+}
+
+/** A line's own left edge: where its ink starts, which follows the anchor it draws at. */
+function lineLeft(line: Line, block: Block): number {
+  return block.anchor === 'start'
+    ? line.x
+    : block.anchor === 'middle'
+      ? line.x - line.width / 2
+      : line.x - line.width;
+}
+
+/** The line a height falls on: the one whose own box holds it, or the nearest of them. */
+function nearestLine(lines: readonly Line[], y: number): Line {
+  let nearest = lines[0]!;
+  let reach = Number.POSITIVE_INFINITY;
+  for (const line of lines) {
+    const distance = y < line.top ? line.top - y : y > line.top + line.height ? y - line.top - line.height : 0;
+    if (distance < reach) {
+      reach = distance;
+      nearest = line;
+    }
+  }
+  return nearest;
 }
 
 function anchorFor(align: TextAlign): Block['anchor'] {
