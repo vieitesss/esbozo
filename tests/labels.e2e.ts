@@ -2527,4 +2527,58 @@ describe('labels', () => {
     const scene = await savedScene(ui, 'point.json');
     expect(scene.elements[0]?.labelAt).toEqual({ t: 0.5, offset: 80 });
   });
+  test('a Label dragged past the end of its shaft stops at the end, and stays to its side', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'labelled.json': LABELLED_SOURCE } }, 'labelled.json');
+
+    // The words are taken by their middle and carried far past the arrow's own
+    // end: what a drag can write stops at the end of the shaft it rides, and the
+    // distance to the side is the pointer's alone.
+    await dragBy(ui, { x: 300, y: 139 }, 500, 0, LABELLED);
+    const scene = await savedScene(ui, 'labelled.json');
+    expect(scene.elements[0]?.labelAt).toEqual({ t: 1, offset: 61 });
+  });
+
+  test('a Label dragged left of an upright shaft keeps the side the ink shows, and the distance', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'beside.json': BESIDE_SOURCE } }, 'beside.json');
+
+    // The words sit left of the upright shaft, where Layout puts them. Thirty
+    // pixels further left is thirty more to that side: a positive offset is the
+    // side the ink is on, and the fraction along the shaft is its middle.
+    await dragBy(ui, { x: 287, y: 220 }, -30, 0, BESIDE);
+    const scene = await savedScene(ui, 'beside.json');
+    expect(scene.elements[0]?.labelAt).toEqual({ t: 0.5, offset: 43 });
+
+    // The ink went with the words: all of it left of the shaft it belongs to.
+    await browser.keyboard.press('Escape');
+    const after = await shot(ui);
+    expect(after.darkCount({ x: 560, y: 380, width: 80, height: 40 }, DARK)).toBeGreaterThan(20);
+    expect(after.darkCount({ x: 660, y: 380, width: 80, height: 40 }, DARK)).toBe(0);
+  });
+
+  test('a press where a placed Label no longer sits finds bare paper, and moves nothing', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'labelled.json': LABELLED_SOURCE } }, 'labelled.json');
+    const before = await savedFiles(ui);
+
+    // The place Layout would put the words — a little above the shaft — is not
+    // where they are: the Scene put them 61 pixels to the side, and a press on
+    // bare paper sweeps a box and takes nothing.
+    await dragBy(ui, { x: 300, y: 170 }, 40, 0, LABELLED);
+    await settle(ui);
+    expect(await savedFiles(ui)).toEqual(before);
+  });
 });

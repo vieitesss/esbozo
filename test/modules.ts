@@ -26,8 +26,6 @@ export interface ProjectModules {
   pageBounds: typeof import('../src/renderer.ts').pageBounds;
   elementBounds: typeof import('../src/renderer.ts').elementBounds;
   elementAt: typeof import('../src/editor/geometry.ts').elementAt;
-  shaftLabelAnchor: typeof import('../src/geometry.ts').shaftLabelAnchor;
-  labelAtFor: typeof import('../src/geometry.ts').labelAtFor;
   PaintCache: typeof import('../src/editor/paint.ts').PaintCache;
   sceneFile: typeof import('../src/editor/paint.ts').sceneFile;
   createLayout: typeof import('../src/layout.ts').createLayout;
@@ -50,7 +48,6 @@ export async function loadProjectModules(): Promise<ProjectModules> {
       `export { wordsShift } from ${source('editor/words.ts')};`,
       `export { renderScene, pageBounds, elementBounds } from ${source('renderer.ts')};`,
       `export { elementAt } from ${source('editor/geometry.ts')};`,
-      `export { shaftLabelAnchor, labelAtFor } from ${source('geometry.ts')};`,
       `export { PaintCache, sceneFile } from ${source('editor/paint.ts')};`,
       `export { createLayout, parseFontFile } from ${source('layout.ts')};`,
       `export { default as KALAM } from ${JSON.stringify(

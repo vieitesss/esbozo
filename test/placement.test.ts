@@ -21,8 +21,6 @@ const {
   pageBounds,
   elementBounds,
   elementAt,
-  shaftLabelAnchor,
-  labelAtFor,
   createLayout,
   parseFontFile,
   KALAM,
@@ -171,43 +169,11 @@ test('a press on the glyph overhang of a shaft Label finds it, as the ink paints
   );
 });
 
-test('a drag reads back the place the words were put: the fraction along the shaft and the side it is on', () => {
-  // The target of the inverse the editor drags with: every place a written
-  // `labelAt` can take reads back as itself, so what a drag assigns is what the
-  // ink shows.
-  const shaft = { start: { x: 100, y: 200 }, end: { x: 500, y: 200 } };
-  for (const labelAt of [
-    { t: 0.5, offset: 60 },
-    { t: 0, offset: 0 },
-    { t: 1, offset: -12 },
-    { t: 0.1234, offset: 7 },
-  ]) {
-    const read = labelAtFor(shaft, shaftLabelAnchor(shaft, labelAt));
-    assert.ok(Math.abs(read.t - labelAt.t) < 1e-9, `t reads back: ${read.t}`);
-    assert.ok(Math.abs(read.offset - labelAt.offset) < 1e-9, `offset reads back: ${read.offset}`);
-  }
-
-  // Past an end of the shaft, a drag stays on the shaft: `t` is held inside it
-  // while the distance to the side is free, so the words slide off the end and
-  // out to their side rather than vanishing.
-  assert.deepEqual(place(labelAtFor(shaft, { x: 40, y: 200 })), { t: 0, offset: 0 });
-  assert.deepEqual(place(labelAtFor(shaft, { x: 600, y: 260 })), { t: 1, offset: -60 });
-
-  // The side is the one the ink takes, which is the left of a vertical shaft.
-  const upright = { start: { x: 300, y: 100 }, end: { x: 300, y: 400 } };
-  assert.deepEqual(place(labelAtFor(upright, { x: 240, y: 250 })), { t: 0.5, offset: 60 });
-});
-
 interface Box {
   x: number;
   y: number;
   width: number;
   height: number;
-}
-
-/** A place read back as the Scene holds it: there is no negative zero there. */
-function place(read: { t: number; offset: number }): { t: number; offset: number } {
-  return { t: read.t + 0, offset: read.offset + 0 };
 }
 
 /** Whether a point is inside a box. */
