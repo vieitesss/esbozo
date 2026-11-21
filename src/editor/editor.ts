@@ -523,6 +523,10 @@ class EsbozoEditorElement extends HTMLElement {
     this.removeEventListener('focusout', this.#onFocusOut);
     window.removeEventListener('resize', this.#onResize);
     window.removeEventListener('blur', this.#endGesture);
+    // A page that takes the editor away takes the words with it: the field is a
+    // child that left with the element.
+    this.#endEdits();
+    this.#drag = null;
     this.#wired = false;
     if (active === this) {
       active = null;
@@ -741,10 +745,7 @@ class EsbozoEditorElement extends HTMLElement {
 
   /** Let go of every edit in flight: half-typed words, and the tool in hand. */
   #endEdits(): void {
-    this.#text?.discard();
-    this.#text = null;
-    this.#editing = null;
-    this.#draft = null;
+    this.#endText();
     if (this.#tool !== 'select') {
       this.#setTool('select');
     }
@@ -752,11 +753,13 @@ class EsbozoEditorElement extends HTMLElement {
 
   /**
    * Whether this page may change the Scene at all. Every Scene change asks
-   * this one question, so read-only is one rule and not one per tool.
+   * this one question, so read-only is one rule and not one per tool. An editor
+   * the page has taken off is no page at all: a blur the removal causes is not a
+   * person leaving the words, so nothing they were typing lands there.
    */
   #writable(): boolean {
     const target = this.#target;
-    return target !== null && !target.folder.readOnly && !this.#refused;
+    return this.isConnected && target !== null && !target.folder.readOnly && !this.#refused;
   }
 
   /** Ask for a folder and list the Scenes in it, without moving the save target. */
@@ -2130,6 +2133,7 @@ class EsbozoEditorElement extends HTMLElement {
       words: '',
       typed: (words) => this.#showTyped(words),
       commit: (words) => this.#commitText(words),
+      ended: () => this.#endText(),
     });
     this.#paint();
   }
@@ -2163,6 +2167,7 @@ class EsbozoEditorElement extends HTMLElement {
       words: wordsOf(element),
       typed: (words) => this.#showWords(element, words),
       commit: (words) => this.#commitWords(element, words),
+      ended: () => this.#endText(),
     });
   }
 
@@ -2249,7 +2254,6 @@ class EsbozoEditorElement extends HTMLElement {
     // anything is trimmed: words nobody touched are the same words, whatever
     // spaces the author wrote them with.
     if (raw === wordsOf(element)) {
-      this.#closeWords();
       return true;
     }
     // What the person typed is what the Scene checks, before anything is
@@ -2261,7 +2265,6 @@ class EsbozoEditorElement extends HTMLElement {
       return false;
     }
     const words = raw.trim();
-    this.#closeWords();
     this.#land(this.#wordsScene(element, words), words === '' && element.type === 'text' ? [] : [element.id]);
     return true;
   }
@@ -2283,20 +2286,25 @@ class EsbozoEditorElement extends HTMLElement {
       return false;
     }
     const words = raw.trim();
-    this.#text = null;
-    this.#draft = null;
     if (words === '') {
-      this.#paint();
       return true;
     }
     this.#land([...this.#scene.elements, { ...draft, content: words }], [draft.id]);
     return true;
   }
 
-  /** The words are done being typed: the page goes back to showing the Scene. */
-  #closeWords(): void {
+  /**
+   * The one way a text session ends: the field goes, and so do the words it drew
+   * on the page. A commit, an Escape, a click away, a blur, a lost connection and
+   * a page that takes the editor off its DOM all end here, so no path can leave
+   * half a session behind for the next press to trip over.
+   */
+  #endText(): void {
+    const text = this.#text;
     this.#text = null;
     this.#editing = null;
+    this.#draft = null;
+    text?.discard();
     this.#paint();
   }
 

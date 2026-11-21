@@ -53,11 +53,14 @@ interface TextSessionOptions {
   readonly typed?: (words: string) => void;
   /** Called once, with the field's value as it stands, untrimmed: true when the words may land. */
   readonly commit: (words: string) => boolean;
+  /** Called once the session is over, by any way out: the caller drops what it drew. */
+  readonly ended: () => void;
 }
 
 export class TextSession {
   readonly #input: HTMLTextAreaElement;
   readonly #commit: (words: string) => boolean;
+  readonly #ended: () => void;
   #open = true;
   /** True while an input method is composing: the value holds a preedit, not words yet. */
   #composing = false;
@@ -65,7 +68,7 @@ export class TextSession {
   #confirmed = '';
 
   constructor(options: TextSessionOptions) {
-    const { host, name, place, words, typed, commit } = options;
+    const { host, name, place, words, typed, commit, ended } = options;
     const input = document.createElement('textarea');
     input.className = 'text-input';
     input.setAttribute('aria-label', name);
@@ -81,6 +84,7 @@ export class TextSession {
     }
     this.#input = input;
     this.#commit = commit;
+    this.#ended = ended;
     host.append(input);
     // On the page before it is placed: its own size is what the place is measured from.
     this.place(place());
@@ -140,18 +144,23 @@ export class TextSession {
     if (!this.#commit(words)) {
       return false;
     }
-    this.#open = false;
-    this.#input.remove();
+    this.#close();
     return true;
   }
 
   /** Give up on the words: the field goes and the caller keeps the Scene it had. */
   discard(): void {
+    this.#close();
+  }
+
+  /** The one way out: the field goes, and the caller hears it once, whichever way it was. */
+  #close(): void {
     if (!this.#open) {
       return;
     }
     this.#open = false;
     this.#input.remove();
+    this.#ended();
   }
 
   #onCompositionStart = (): void => {
@@ -192,10 +201,23 @@ export class TextSession {
   };
 
   #onBlur = (): void => {
-    // Words the Scene refused keep the field, so the person can fix them: the
-    // focus goes back to what they were typing.
-    if (!this.finish()) {
-      this.#input.focus();
+    if (!this.#open) {
+      return;
     }
+    // A field the page takes off its document blurs too, and it does so before
+    // the removal has gone through: whether these words land is answered once
+    // the task that blurred them is over, when a removal has left the input
+    // detached and a person leaving has not. Words the page took stay unsaved.
+    queueMicrotask(() => {
+      if (!this.#input.isConnected) {
+        this.discard();
+        return;
+      }
+      // Words the Scene refused keep the field, so the person can fix them: the
+      // focus goes back to what they were typing.
+      if (!this.finish()) {
+        this.#input.focus();
+      }
+    });
   };
 }

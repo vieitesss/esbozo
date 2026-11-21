@@ -616,6 +616,105 @@ describe('labels', () => {
     expect(scene.elements.map((element) => element.id).sort()).toEqual(['oval', 'shaft', 'word']);
   });
 
+  test('Escape on words the Scene refused leaves no ink behind, and the next press is a press', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': MIXED_SOURCE } }, 'scene.json');
+    // Bare paper to the right of where the Text's own words end: anything dark
+    // there is words the page is still showing from a session that is over.
+    const pastTheWords: Rect = { x: 750, y: 290, width: 250, height: 40 };
+    expect((await shot(ui)).darkCount(pastTheWords, DARK)).toBe(0);
+
+    await doubleClickScene(ui, { x: 277, y: 110 }, MIXED);
+    const text = screen.getByRole('textbox', { name: 'Text' });
+    await text.fill('edited in place');
+    await text.fill('\u000B');
+    // The click away is refused, and the field keeps the words that cannot land.
+    await clickScene(ui, { x: 900, y: 620 }, [], MIXED);
+    await expect(screen.getByRole('status')).toContainText('content must be');
+    await expect(text).toHaveCount(1);
+
+    await text.press('Escape');
+    await expect(screen.getByRole('textbox', { name: 'Text' })).toHaveCount(0);
+
+    // The page is the Scene again: no ink of the words nobody kept.
+    expect((await shot(ui)).darkCount(pastTheWords, DARK)).toBe(0);
+
+    // And the next press is a press on the canvas: it selects the Text, so the
+    // arrow keys move it.
+    await clickScene(ui, { x: 277, y: 110 }, [], MIXED);
+    await browser.keyboard.press('Shift+ArrowRight');
+    const moved = (await savedScene(ui, 'scene.json')).elements.find(
+      (element) => element.id === 'word',
+    );
+    expect(moved?.x).toBe(270);
+
+    // A double-click opens the words the Scene holds, not the ones refused.
+    await doubleClickScene(ui, { x: 277, y: 110 }, MIXED);
+    await expect(screen.getByRole('textbox', { name: 'Text' })).toHaveValue('hi');
+  });
+
+  test('the focus leaving the words ends them once, and the page shows the Scene', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.pressSequentially('Invoices');
+    // Tab takes the focus away: a blur, which is the way out nobody clicks.
+    await browser.keyboard.press('Tab');
+
+    await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveCount(0);
+    expect((await savedScene(ui)).elements[0]?.label).toBe('Invoices');
+  });
+
+  test('a page that takes the editor away ends the words being typed, and their ink', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': MIXED_SOURCE } }, 'scene.json');
+    const pastTheWords: Rect = { x: 750, y: 290, width: 250, height: 40 };
+
+    await doubleClickScene(ui, { x: 277, y: 110 }, MIXED);
+    const text = screen.getByRole('textbox', { name: 'Text' });
+    await text.fill('edited');
+
+    // The host takes the editor off its page and puts it back: the words a
+    // person was typing do not come back with it.
+    await browser.evaluate(() => {
+      const editor = document.querySelector('esbozo-editor');
+      if (editor === null) {
+        throw new Error('the page has no editor');
+      }
+      const { parentElement, nextSibling } = editor;
+      editor.remove();
+      parentElement!.insertBefore(editor, nextSibling);
+      return true;
+    });
+
+    await expect(screen.getByRole('textbox', { name: 'Text' })).toHaveCount(0);
+    // Words nobody ended are not an edit: the Scene is the one that was read.
+    const kept = (await savedScene(ui, 'scene.json')).elements.find(
+      (element) => element.id === 'word',
+    );
+    expect(kept?.content).toBe('hi');
+    expect((await shot(ui)).darkCount(pastTheWords, DARK)).toBe(0);
+
+    // The editor answers the page it came back on: a double-click still opens
+    // the words the Scene holds.
+    await doubleClickScene(ui, { x: 277, y: 110 }, MIXED);
+    await expect(screen.getByRole('textbox', { name: 'Text' })).toHaveValue('hi');
+  });
+
   test("a double-click on an arrow's words edits them, though they are ink beside the shaft", async ({
     app,
     browser,
