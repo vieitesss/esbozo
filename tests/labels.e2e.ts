@@ -26,6 +26,7 @@ import {
   SPACED_SCENE,
   WORDS,
   WORDS_SCENE,
+  EMPTY,
   at,
   cliCheck,
   cliCheckBytes,
@@ -58,6 +59,25 @@ const LONG_LABEL = 'words that wrap and grow';
 /** A single word too wide for the box it is typed into. */
 const LONG_WORD = 'antidisestablishmentarianism';
 
+/** An empty page: the only ink on it is the words a test types. */
+const BARE_SOURCE = JSON.stringify(
+  { version: 1, title: 'Bare', defaults: { roughness: 1 }, elements: [] },
+  null,
+  2,
+);
+
+/** A single letter: enough words to have ink, and no more. */
+const ONE_LETTER = 'w';
+
+/** Where an empty Scene's first Text lands, and the room its words take there. */
+const TYPED: Rect = { x: 500, y: 320, width: 260, height: 90 };
+
+/** The same words at six times the Zoom, which keeps them where they were. */
+const TYPED_ZOOMED: Rect = { x: 300, y: 100, width: 600, height: 500 };
+
+/** A Scene point, and the page one it is drawn at in an empty Scene. */
+type Spot = { x: number; y: number };
+
 /** A word wide enough that the grown Element reaches under the docked note. */
 const HUGE_WORD = LONG_WORD + LONG_WORD;
 
@@ -70,6 +90,12 @@ const DARK = 0.5;
  * the two: darker than paper and a dot, lighter than ink.
  */
 const CARET = 0.7;
+
+/**
+ * Darker than the caret's blue and lighter than paper: the glyphs' own ink,
+ * read without the caret that stands beside them.
+ */
+const GLYPH = 0.3;
 
 /**
  * Darker than paper under the selection's wash, and darker than the wash laid
@@ -959,6 +985,68 @@ describe('labels', () => {
     expect(landed.replace('X', '')).toBe('orders and');
     expect(landed.indexOf('X')).toBeGreaterThan(0);
     expect(landed.indexOf('X')).toBeLessThan('orders and'.length);
+  });
+
+  test('a Text placed a half pixel off keeps its caret on the drawn glyphs', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'bare.json': BARE_SOURCE } }, 'bare.json');
+    // Bare paper: no Grid dot can be mistaken for the caret's own pixels.
+    await browser.keyboard.press('g');
+    await stillCaret();
+
+    /** The glyphs' own ink: dark enough to be the words, and not the caret's blue. */
+    const glyphs = async (room: Rect): Promise<Rect> => {
+      const bounds = (await shot(ui)).darkBounds(room, GLYPH);
+      expect(bounds).not.toBeNull();
+      return bounds as Rect;
+    };
+
+    /**
+     * Where the caret stands from the glyphs it belongs to, six times over: a
+     * Zoom in about the words themselves, so the page keeps them under the
+     * pointer while half a Scene pixel becomes a visible one. The caret is the
+     * darker-than-paper, lighter-than-ink line the words are drawn beside, and
+     * only the room to the left of the glyphs is measured, where nothing else is.
+     */
+    const caretFromGlyphs = async (at: Spot): Promise<number> => {
+      await browser.keyboard.press('t');
+      await clickScene(ui, at, [], EMPTY);
+      const field = screen.getByRole('textbox', { name: 'Text' });
+      await field.pressSequentially(ONE_LETTER);
+      await field.press('Home');
+
+      const typed = await glyphs(TYPED);
+      await browser.mouse.move(typed.x + typed.width / 2, typed.y + typed.height / 2);
+      await browser.mouse.wheel(0, -1200);
+      await expect(screen.getByText(/^\d+%$/)).toHaveText('605%');
+      const drawn = await glyphs(TYPED_ZOOMED);
+      const carets = (await shot(ui)).darkBounds(
+        { x: drawn.x - 40, y: drawn.y + 2, width: 38, height: drawn.height - 4 },
+        CARET,
+      );
+      expect(carets).not.toBeNull();
+
+      await field.press('Escape');
+      // The words are nobody's until the release: one Text lands, and goes.
+      expect((await savedScene(ui, 'bare.json')).elements.length).toBe(1);
+      await browser.keyboard.press('Delete');
+      // Back to the view the next Text is placed in, about the same point.
+      await browser.mouse.wheel(0, 1200);
+      await expect(screen.getByText(/^\d+%$/)).toHaveText('100%');
+      return (carets as Rect).x - drawn.x;
+    };
+
+    const halfPixel = await caretFromGlyphs({ x: 100.5, y: 80.5 });
+    const wholePixel = await caretFromGlyphs({ x: 100, y: 80 });
+
+    // The Scene rounds a Text placed off a whole pixel, and the page draws that
+    // Text: the caret has to stand on it at either anchor, not a Scene pixel
+    // beside it — and a Scene pixel is six of them at this Zoom.
+    expect(Math.abs(halfPixel - wholePixel)).toBeLessThan(1.5);
   });
 
   test('Up walks to the line above the caret, not to a soft-wrapped row of the field', async ({

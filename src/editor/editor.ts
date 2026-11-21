@@ -2329,17 +2329,23 @@ class EsbozoEditorElement extends HTMLElement {
 
   /**
    * The Block the page is drawing for the words being typed: the Renderer's own
-   * placement of them, from the one Layout that wraps them, so the caret sits on
-   * the glyphs and nowhere else. An emptied Label keeps its empty line here, or
-   * the words would have no place for a caret at all.
+   * placement of the Element the ink came from, canonical geometry included, so
+   * the caret sits on the glyphs and nowhere else. An emptied Label keeps its
+   * empty line here, the slot the words would start on, or they would have no
+   * place for a caret at all.
    */
   #wordsBlock(): Block | null {
     const element = this.#editing?.element ?? this.#draft;
     if (element === null) {
       return null;
     }
-    const byId = this.#painted?.byId ?? elementsById(this.#shownElements());
-    return drawnWords(shownWords(element), byId, this.#layout);
+    // The frame the words belong to is drawn before they are asked about: the
+    // block is the drawn one, and the drawn Element is the canonical one.
+    this.#drawScene();
+    const painted = this.#painted;
+    const words = painted?.byId.get(element.id) ?? element;
+    const byId = painted?.byId ?? elementsById(this.#shownElements());
+    return drawnWords(shownWords(words), byId, this.#layout);
   }
 
   /**
