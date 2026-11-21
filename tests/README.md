@@ -37,6 +37,22 @@ throttling measurably slows the page. Driving the page out of band is the
 harness's documented escape hatch; reach for it for input no event can fake, not
 to shortcut a role click.
 
+### Timing assertions are opt-in
+
+`cdp.e2e.ts` sends the CPU-throttle command and puts the CPU back on every run,
+and checks that the page still answers. That 4× is *measurably* slower is proved
+only with `ESBOZO_TIMING=1` set:
+
+```sh
+ESBOZO_TIMING=1 npx e2e run tests/cdp.e2e.ts
+```
+
+A wall-clock sample is not the page's alone: one scheduler stall on a shared
+runner can move it as much as the emulated CPU does, and a budget assertion that
+fails on a quiet laptop's neighbours is a flake, not a finding. The opted-in
+check takes five unthrottled and five throttled spins, interleaved, and compares
+their medians, so one stall cannot decide it.
+
 ## Why the agent suite is separate
 
 e2e's model steps are judgements of the live screen, so `agent.assert` and

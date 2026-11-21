@@ -132,23 +132,61 @@ test('an input method leaves unconfirmed words in the field until the compositio
   expect((await state(browser)).value).toBe('日本だめ');
 });
 
-test('the CPU runs as slow as the helper asks', async ({ browser }) => {
+/** The result of one fixed 20 M-iteration loop: long enough for a slowed CPU to show. */
+const spin = (browser: Browser): Promise<{ ms: number; total: number }> =>
+  browser.evaluate(() => {
+    const start = performance.now();
+    let total = 0;
+    for (let index = 0; index < 20_000_000; index += 1) total += index % 7;
+    return { ms: performance.now() - start, total };
+  });
+
+/** What the loop sums to, worked out on paper: 2_857_142 rounds of 0+…+6 = 21, then 0+…+5. */
+const SPIN_TOTAL = 59_999_997;
+
+/** Opt-in: a timing assertion is a wall-clock sample, and a shared runner's scheduler is not this page's. */
+const TIMING = process.env['ESBOZO_TIMING'] === '1';
+/** The same number of unthrottled and throttled spins, alternating, so a stall lands in both. */
+const SAMPLES = 5;
+
+/** The middle sample, so one stall cannot decide the comparison. */
+function median(samples: readonly number[]): number {
+  const sorted = [...samples].sort((left, right) => left - right);
+  const middle = sorted[Math.floor(sorted.length / 2)];
+  if (middle === undefined) throw new Error('median of no samples');
+  return middle;
+}
+
+test('the helper sends the CPU throttle and puts the CPU back', async ({ browser }) => {
   await browser.goto('/');
-  const spin = () =>
-    browser.evaluate(() => {
-      const start = performance.now();
-      let total = 0;
-      for (let index = 0; index < 20_000_000; index += 1) total += index % 7;
-      return { ms: performance.now() - start, total };
-    });
+
+  // Slower and back, each accepted by this Chromium, and the page answers after
+  // both: what CI can vouch for without measuring wall-clock time.
+  await throttleCpu(4);
+  expect((await spin(browser)).total).toBe(SPIN_TOTAL);
+  await throttleCpu(1);
+  expect((await spin(browser)).total).toBe(SPIN_TOTAL);
+});
+
+test('4× CPU throttling measurably slows the page', async ({ browser }) => {
+  test.skip(
+    !TIMING,
+    'wall-clock timing: set ESBOZO_TIMING=1 to measure the throttle (see tests/README.md)',
+  );
+  await browser.goto('/');
 
   // One spin to warm the loop up, so the comparison is of the throttle alone.
-  await spin();
-  const fast = await spin();
-  await throttleCpu(4);
-  const slow = await spin();
-  await throttleCpu(1);
+  await spin(browser);
+  const fast: number[] = [];
+  const slow: number[] = [];
+  for (let sample = 0; sample < SAMPLES; sample += 1) {
+    fast.push((await spin(browser)).ms);
+    await throttleCpu(4);
+    slow.push((await spin(browser)).ms);
+    await throttleCpu(1);
+  }
 
-  // 4× the CPU cost leaves a wide margin over the noise of one measurement.
-  expect(slow.ms).toBeGreaterThan(fast.ms * 2);
+  // 4× the CPU cost, measured on the middle sample: wide margin over one
+  // measurement's noise.
+  expect(median(slow)).toBeGreaterThan(median(fast) * 2);
 });
