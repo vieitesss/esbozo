@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import type { E2EConfig } from 'e2e';
 import { web } from '@e2e-dev/web';
 import { opencodeConsole } from 'e2e/oauth/opencode-console';
+import { keepSurface } from './tests/cdp.ts';
 
 /**
  * Seam 2: the built editor page, in Chromium, with the File System Access API
@@ -26,6 +27,15 @@ if (process.env['OPENCODE_API_KEY'] === undefined && existsSync(env)) {
   process.loadEnvFile(env);
 }
 
+/**
+ * One engine handle, kept before it goes into the target: `tests/cdp.ts` reads
+ * the live page back from it, for the input only CDP can dispatch (see that
+ * file). The worker loads this config itself, so the handle a test reaches is
+ * the handle this run drives.
+ */
+const engine = web({ viewport: { width: 1280, height: 800 } });
+keepSurface(engine);
+
 export default {
   agents: {
     default: {
@@ -36,7 +46,7 @@ export default {
   },
   targets: [
     {
-      engine: web({ viewport: { width: 1280, height: 800 } }),
+      engine,
       app: {
         // Port 0 asks e2e for a free port and fills it into `{port}`, so parallel
         // worktrees never share a server and a stale one is never reused.
