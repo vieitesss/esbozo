@@ -214,7 +214,7 @@ test('a new Text is typed in place, in the hand it draws in, and stays as words 
 
   await screen.getByRole('textbox', { name: 'Text' }).press('Escape');
   await ui.agent.assert(
-    'the words "draw me" are still on the empty paper in the same hand, and the small plain box is gone',
+    'the words "draw me" are still on the empty paper in the same hand, and there is no cursor or text field beside them',
     { vision: 'only' },
   );
 });
@@ -387,7 +387,7 @@ test('a box grows for the Label typed into it, and the words wrap inside its out
 
   await label.press('Escape');
   await ui.agent.assert(
-    'the same three lines of words are still inside the left-hand rectangle, every line within its outline, and the small plain box is gone. The Element is still selected, so a thin dashed selection box with small square handles sits just outside the rectangle',
+    'the same three lines of words are still inside the left-hand rectangle, every line within its outline. The Element is still selected, so a thin dashed selection box with small square handles sits just outside the rectangle',
     { vision: 'only' },
   );
 });
