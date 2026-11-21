@@ -54,7 +54,6 @@ import type { Block, Box, Layout, Shaft } from './layout.js';
 import {
   arrowHeadTriangle,
   barThrough,
-  centreOf,
   fillets,
   shaftEnds,
   unit,

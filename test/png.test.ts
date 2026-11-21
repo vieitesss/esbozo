@@ -1069,6 +1069,7 @@ test('every path and problem is plain text', async () => {
   const bad = await ez(['png', 'scene.json', '--theme', 'dark', '--font', 'nowhere.ttf'], folder);
 
   for (const output of [ok.stdout, ok.stderr, bad.stdout, bad.stderr]) {
+    // oxlint-disable-next-line no-control-regex -- matching the escape is the assertion
     assert.doesNotMatch(output, /\u001b\[/, 'no ANSI escape sequences');
   }
   assert.equal(ok.stdout.trim(), join(folder, 'scene.dark.png'));

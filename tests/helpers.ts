@@ -771,7 +771,7 @@ export async function openNewScene(
 export async function savedFiles(ui: Ui, folder = FOLDER): Promise<Record<string, string>> {
   return ui.browser.evaluate(
     (name) => ({
-      ...((window as unknown as { __esbozoFolders: Folders }).__esbozoFolders[name] ?? {}),
+      ...(window as unknown as { __esbozoFolders: Folders }).__esbozoFolders[name],
     }),
     folder,
   );
