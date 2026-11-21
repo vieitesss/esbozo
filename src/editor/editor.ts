@@ -2120,13 +2120,14 @@ class EsbozoEditorElement extends HTMLElement {
     });
   }
 
-  /** Whether the open Scene's folder refuses writes, as `ez serve --read-only` does. */
-  #readOnly(): boolean {
-    return this.#target?.folder.readOnly === true;
-  }
-
   /** A Text is placed: the words are typed where the Text will sit. */
   #openTextInput(at: Point): void {
+    // A page that may not write has nowhere to put a Text, however the gesture
+    // that placed it began: the refusal may have landed while the button was
+    // still down. One gate, asked at the moment the field would open.
+    if (!this.#writable()) {
+      return;
+    }
     this.#setTool('select');
     // The Text the words will make, drawn on the page as they arrive: the page
     // shows what saving would render, and the field only holds the caret.
@@ -2149,9 +2150,9 @@ class EsbozoEditorElement extends HTMLElement {
    * are committed.
    */
   #openWords(element: SceneElement): void {
-    // A read-only folder has nowhere to put the words, so nothing opens, by
-    // either way in. One gate, on the only mode that says so.
-    if (this.#readOnly()) {
+    // A page with nowhere to save the words opens none, by either way in: one
+    // gate, on the one question every Scene change asks.
+    if (!this.#writable()) {
       return;
     }
     this.#setTool('select');

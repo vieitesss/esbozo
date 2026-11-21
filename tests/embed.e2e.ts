@@ -27,8 +27,9 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import { EMPTY, SCENE, SNAPPED_SCENE, VIEW, at, cliRender, clickScene, drag, settle } from './helpers.ts';
+import { EMPTY, SCENE, SNAPPED_SCENE, VIEW, at, cliRender, clickScene, doubleClickScene, drag, settle } from './helpers.ts';
 import type { Ui, View } from './helpers.ts';
+import { livePage } from './cdp.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
 import { ez, tempFolder } from '../test/cli.ts';
@@ -816,6 +817,72 @@ test('a 403 stops the writes queued behind it', async ({ app, browser, screen })
     // One `PUT`, not three: the refusal is about every write behind it.
     expect(embed.puts('/api/a')).toBe(1);
     expect(embed.writes('a')).toBe(0);
+    expect(await embed.saved('a')).toBe(SCENE_SOURCE);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('a 403 leaves no way into the words, and writes nothing', async ({ app, browser, screen }) => {
+  const embed = await startEmbed(await bundleFolder());
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/embedded.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+
+    // The page learns it may only read from the server's answer to an edit.
+    embed.refuseSave('a', 403, 'this folder is served read-only');
+    await clickScene(ui, { x: 100, y: 80 }, [], VIEW);
+    await browser.keyboard.press('Shift+ArrowRight');
+    await expect(screen.getByText('read-only')).toBeVisible();
+    expect(await embed.saved('a')).toBe(SCENE_SOURCE);
+
+    // A folder that refused the words has nowhere to put them, so neither way
+    // in opens a field.
+    await doubleClickScene(ui, { x: 100, y: 80 }, VIEW);
+    await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveCount(0);
+    await clickScene(ui, { x: 100, y: 80 }, [], VIEW);
+    await browser.keyboard.press('Enter');
+    await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveCount(0);
+    await settle(ui);
+    expect(await embed.saved('a')).toBe(SCENE_SOURCE);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('a refusal that arrives between the Text press and its release opens no field', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder());
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/embedded.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+
+    // One edit's write is held at the server, so its answer can arrive in the
+    // middle of the gesture that follows.
+    embed.hold('/api/a');
+    embed.refuseSave('a', 403, 'this folder is served read-only');
+    await clickScene(ui, { x: 100, y: 80 }, [], VIEW);
+    await browser.keyboard.press('Shift+ArrowRight');
+    await expect.poll(() => embed.puts('/api/a')).toBe(1);
+
+    // The person places a Text while the write is unanswered: the refusal lands
+    // before the button comes up.
+    await screen.getByRole('button', { name: 'Text' }).click();
+    const place = at({ x: 320, y: 260 }, VIEW);
+    const page = livePage();
+    await page.mouse.move(place.x, place.y);
+    await page.mouse.down();
+    embed.release('/api/a');
+    await expect(screen.getByText('read-only')).toBeVisible();
+    await page.mouse.up();
+    await settle(ui);
+
+    await expect(screen.getByRole('textbox', { name: 'Text' })).toHaveCount(0);
     expect(await embed.saved('a')).toBe(SCENE_SOURCE);
   } finally {
     await embed.stop();
