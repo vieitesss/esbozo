@@ -43,7 +43,9 @@ import {
   clickScene,
   doubleClickScene,
   dragBy,
+  holdWrites,
   openEditor,
+  refuseWrite,
   savedFiles,
   savedScene,
   settle,
@@ -2470,5 +2472,41 @@ describe('labels', () => {
     await settle(ui);
     expect((await shot(ui)).darkCount(dragged, DARK)).toBe(0);
     expect(await savedFiles(ui)).toEqual(before);
+  });
+  test('a page that may no longer write drops the Label drag it was carrying', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'labelled.json': LABELLED_SOURCE } }, 'labelled.json');
+
+    // An earlier edit's write is held at the disk, so its answer — a refusal —
+    // can arrive while the words are in the air.
+    await holdWrites(ui, 'labelled.json');
+    await clickScene(ui, { x: 150, y: 200 }, [], LABELLED);
+    await browser.keyboard.press('Shift+ArrowRight');
+    await expect(screen.getByRole('status')).toHaveText('saving…');
+
+    // The words, ten pixels on with the shaft and taken from their middle.
+    const from = at({ x: 310, y: 139 }, LABELLED);
+    await browser.mouse.move(from.x, from.y);
+    await browser.mouse.down();
+    await browser.mouse.move(from.x + 60, from.y);
+    await settle(ui);
+    const dragged: Rect = { x: 690, y: 362, width: 50, height: 28 };
+    expect((await shot(ui)).darkCount(dragged, DARK)).toBeGreaterThan(20);
+
+    // The folder refuses the write it was holding: the page may only read now, so
+    // the drag it was carrying goes, with the preview it painted.
+    await refuseWrite(ui, 'this folder is served read-only');
+    await expect(screen.getByText('read-only')).toBeVisible();
+    await browser.mouse.up();
+    const after = await shot(ui);
+    expect(after.darkCount(dragged, DARK)).toBe(0);
+    // The words are back where the Scene holds them, ten pixels on with the shaft.
+    expect(after.darkCount({ x: 620, y: 362, width: 55, height: 28 }, DARK)).toBeGreaterThan(20);
+    // Nothing of the drag reached the file, and neither did the edit it refused.
+    expect((await savedFiles(ui))['labelled.json']).toBe(LABELLED_SOURCE);
   });
 });

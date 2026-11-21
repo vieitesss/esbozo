@@ -828,9 +828,16 @@ class EsbozoEditorElement extends HTMLElement {
     }
   }
 
-  /** Let go of every edit in flight: half-typed words, and the tool in hand. */
+  /** Let go of every edit in flight: half-typed words, the gesture in hand, and the tool. */
   #endEdits(): void {
     this.#endText();
+    // Write access can end in the middle of a gesture, as a folder that answers a
+    // queued save with a 403 does. Half a gesture is not a Scene any more: it is
+    // dropped with the preview it painted, rather than left on a page that may
+    // only read.
+    if (this.#gestureHoldsScene()) {
+      this.#cancelDrag();
+    }
     if (this.#tool !== 'select') {
       this.#setTool('select');
     }

@@ -945,11 +945,17 @@ export interface Folders {
 /** The folder every test that does not name one seeds and reads. */
 const FOLDER = 'A';
 
+/** A write the gate is holding: it lands when the test says so, or is refused. */
+interface Held {
+  resolve: () => void;
+  reject: (error: Error) => void;
+}
+
 interface Stub {
   __esbozoFolders: Folders;
   __esbozoPicks: string[];
   __esbozoGate?: ((name: string) => Promise<void>) | null;
-  __esbozoGates?: Array<() => void>;
+  __esbozoGates?: Held[];
 }
 
 /** Hold every write to `name` open, so a test can see the disk stay busy. */
@@ -959,7 +965,7 @@ export async function holdWrites(ui: Ui, name: string): Promise<void> {
     window_.__esbozoGates = [];
     window_.__esbozoGate = (written) =>
       written === fileName
-        ? new Promise<void>((resolve) => window_.__esbozoGates!.push(resolve))
+        ? new Promise<void>((resolve, reject) => window_.__esbozoGates!.push({ resolve, reject }))
         : Promise.resolve();
     return true;
   }, name);
@@ -971,9 +977,26 @@ export async function releaseWrite(ui: Ui): Promise<void> {
     .poll(() => ui.browser.evaluate(() => (window as unknown as Stub).__esbozoGates?.length ?? 0))
     .toBeGreaterThan(0);
   await ui.browser.evaluate(() => {
-    (window as unknown as Stub).__esbozoGates!.shift()!();
+    (window as unknown as Stub).__esbozoGates!.shift()!.resolve();
     return true;
   });
+}
+
+/**
+ * Answer the write the gate is holding with a `403`, as a folder served read-only
+ * answers one: the page learns it may only read while the gesture is in flight.
+ */
+export async function refuseWrite(ui: Ui, message: string): Promise<void> {
+  await expect
+    .poll(() => ui.browser.evaluate(() => (window as unknown as Stub).__esbozoGates?.length ?? 0))
+    .toBeGreaterThan(0);
+  await ui.browser.evaluate((words) => {
+    const window_ = window as unknown as Stub;
+    window_.__esbozoGates!.shift()!.reject(
+      Object.assign(new Error(words), { status: 403 }),
+    );
+    return true;
+  }, message);
 }
 
 /** Stop holding writes: everything the editor writes lands at once. */
