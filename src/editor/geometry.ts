@@ -231,9 +231,9 @@ export function toPage(view: View, point: Point): Point {
 
 /**
  * How far to move a fragment so a paste lands where a person can see it: the
- * usual nudge when its box is already on the page, or the middle of the view
- * when it comes from somewhere else, so a copy of a Scene point far off the
- * page does not paste out of sight.
+ * usual nudge when the box it would place is on the page, or the middle of the
+ * view when it would not be, so a copy of a Scene point far off the page — or of
+ * one whose nudge carries it past the edge — does not paste out of sight.
  */
 export function landingOffset(
   box: Box,
@@ -243,11 +243,14 @@ export function landingOffset(
 ): Point {
   const topLeft = toScene(view, 0, 0);
   const bottomRight = toScene(view, viewport.width, viewport.height);
+  // Where the nudge would put it, not where the fragment came from: a box on the
+  // page can still be carried off it by the offset.
+  const placed = { x: box.x + nudge.x, y: box.y + nudge.y, width: box.width, height: box.height };
   const onPage =
-    box.x < bottomRight.x &&
-    box.x + box.width > topLeft.x &&
-    box.y < bottomRight.y &&
-    box.y + box.height > topLeft.y;
+    placed.x < bottomRight.x &&
+    placed.x + placed.width > topLeft.x &&
+    placed.y < bottomRight.y &&
+    placed.y + placed.height > topLeft.y;
   if (onPage) {
     return nudge;
   }

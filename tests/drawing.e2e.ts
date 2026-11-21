@@ -770,20 +770,16 @@ describe('copy and paste', () => {
     expect((await savedFiles(ui))['scene.json']).toBe(SCENE_SOURCE);
   });
 
-  test('a versionless fragment pastes, with ids fresh against its own ids', async ({
-    app,
-    browser,
-    screen,
-  }) => {
+  test('a versionless fragment pastes, with ids of its own', async ({ app, browser, screen }) => {
     const ui = { app, browser, screen };
     await open(ui);
 
-    // `rectangle-1` and `stray` are not in this Scene: the paste must avoid
-    // the ids it carries as well as the ones the Scene already uses.
+    // No version, and ids this Scene does not use: the paste is the current
+    // schema, and neither Element arrives under the id it was copied with.
     const fragment = {
       elements: [
-        { id: 'rectangle-1', type: 'rectangle', x: 400, y: 300, width: 60, height: 40 },
-        { id: 'stray', type: 'ellipse', x: 500, y: 300, width: 60, height: 40 },
+        { id: 'left', type: 'rectangle', x: 400, y: 300, width: 60, height: 40 },
+        { id: 'right', type: 'ellipse', x: 500, y: 300, width: 60, height: 40 },
       ],
     };
     await browser.evaluate(async (text: string) => {
@@ -794,12 +790,72 @@ describe('copy and paste', () => {
     await browser.keyboard.press('Meta+v');
     const scene = await savedScene(ui);
     const added = scene.elements.slice(2);
-    expect(added.length).toBe(2);
+    expect(added.map((element) => element.type)).toEqual(['rectangle', 'ellipse']);
     const ids = added.map((element) => element.id);
     expect(new Set(ids).size).toBe(2);
-    expect(ids.includes('rectangle-1')).toBe(false);
-    expect(ids.includes('stray')).toBe(false);
+    expect(ids.includes('left')).toBe(false);
+    expect(ids.includes('right')).toBe(false);
     expect(scene.elements.slice(0, 2).map((element) => element.id)).toEqual(['a', 'b']);
+  });
+
+  test('a pasted copy takes an id of its own, not the one it was copied with', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, { A: { 'from.json': EMPTY_SOURCE, 'to.json': EMPTY_SOURCE } }, 'from.json');
+
+    // Draw the Element that is copied, so its id is whatever the editor makes
+    // one, read back from the Scene it saved rather than assumed here.
+    const from = at({ x: 100, y: 100 }, EMPTY);
+    await browser.keyboard.press('r');
+    await drag(ui, from, { x: from.x + 100, y: from.y + 60 });
+    const source = await savedScene(ui, 'from.json');
+    expect(source.elements.length).toBe(1);
+    const copiedId = source.elements[0]?.id ?? '';
+    expect(copiedId).not.toBe('');
+
+    // The copy goes into an empty Scene, whose own ids start from nothing: the
+    // paste must not hand the copy the id it arrived with.
+    await browser.keyboard.press('Meta+c');
+    await browseFolder(ui, 'A');
+    await screen.getByRole('button', 'to.json').click();
+    await browser.keyboard.press('Meta+v');
+
+    const pasted = await savedScene(ui, 'to.json');
+    expect(pasted.elements.length).toBe(1);
+    expect(pasted.elements[0]?.id).not.toBe(copiedId);
+    expect({
+      type: pasted.elements[0]?.type,
+      x: pasted.elements[0]?.x,
+      y: pasted.elements[0]?.y,
+    }).toEqual({ type: 'rectangle', x: 116, y: 116 });
+  });
+
+  test('a fragment at the edge of the view pastes where it can be seen', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, { A: { 'empty.json': EMPTY_SOURCE } }, 'empty.json');
+
+    // Ten of its sixteen pixels are on the page, so the +16 nudge would carry
+    // the whole box past the right edge at x = 800: it is centred instead.
+    const fragment = {
+      version: 1,
+      elements: [{ id: 'edge', type: 'rectangle', x: 790, y: 100, width: 16, height: 40 }],
+    };
+    await browser.evaluate(async (text: string) => {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }, JSON.stringify(fragment));
+
+    await browser.keyboard.press('Meta+v');
+    const scene = await savedScene(ui, 'empty.json');
+    expect(scene.elements.length).toBe(1);
+    expect({ x: scene.elements[0]?.x, y: scene.elements[0]?.y }).toEqual({ x: 152, y: 100 });
   });
 
   test('a fragment from off the page pastes where it can be seen', async ({
@@ -812,7 +868,7 @@ describe('copy and paste', () => {
 
     // Copied thousands of Scene units away: the +16 nudge would land it off
     // the page, so it is centred on the view instead. The empty page is fitted
-    // 1:1 and centred at Scene (0, 0), so the middle of the view is (160, 120).
+    // 1:1 and centred, so the middle of the view is Scene (160, 120).
     const fragment = {
       version: 1,
       elements: [{ id: 'far', type: 'rectangle', x: 5000, y: 5000, width: 100, height: 60 }],
