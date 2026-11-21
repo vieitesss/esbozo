@@ -238,7 +238,7 @@ function inkDistance(path: string, point: Point): number {
 }
 
 /** Every point of a path's ink: where a line lands, and points along each curve. */
-function inkSamples(d: string): Point[] {
+function inkSamples(d: string, along = 16): Point[] {
   const points: Point[] = [];
   let from: Point = { x: 0, y: 0 };
   for (const [, command = '', args = ''] of d.matchAll(/([A-Za-z])([^A-Za-z]*)/g)) {
@@ -254,8 +254,8 @@ function inkSamples(d: string): Point[] {
     const control1 = { x: numbers[0]!, y: numbers[1]! };
     const control2 = { x: numbers[2]!, y: numbers[3]! };
     const to = { x: numbers[4]!, y: numbers[5]! };
-    for (let step = 0; step <= 16; step += 1) {
-      points.push(curveAt(from, control1, control2, to, step / 16));
+    for (let step = 0; step <= along; step += 1) {
+      points.push(curveAt(from, control1, control2, to, step / along));
     }
     from = to;
   }
@@ -493,6 +493,49 @@ test('a tiny or doubled-back leg softens its corner instead of breaking the ink'
   assert.doesNotMatch(result.svg, /NaN|Infinity/);
   const points = allInk(result.svg);
   assert.ok(points.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y)));
+});
+
+test('a shaft’s box and page reach the ink Rough.js draws', () => {
+  // This shaft's bend bulges far below its own ends, and at roughness 2 the
+  // stroke roughened from it reaches a hair further still. A box or a page
+  // measured by the curve alone would cut the ink it was measured for.
+  const scene = parsed({
+    version: 1,
+    defaults: { roughness: 2 },
+    elements: [
+      {
+        id: 'a',
+        type: 'line',
+        seed: 3,
+        heads: { start: 'none', end: 'none' },
+        points: [
+          { x: 0, y: 0 },
+          { x: 10000, y: 0, corner: 'sharp' },
+          { x: 10100, y: 100, corner: 'round' },
+          { x: 10200, y: 0 },
+        ],
+      },
+    ],
+  });
+  const svg = renderScene(scene, LAYOUT);
+  const shaft = scene.elements[0]!;
+  const drawn = tags(svg, 'path').flatMap((tag) => inkSamples(attribute(tag, 'd') ?? '', 200));
+  const top = Math.min(...drawn.map((point) => point.y));
+  const bottom = Math.max(...drawn.map((point) => point.y));
+  const left = Math.min(...drawn.map((point) => point.x));
+  const right = Math.max(...drawn.map((point) => point.x));
+  assert.ok(top < -20, `the bend bulges past its ends, up to y ${top}`);
+
+  const box = elementBounds(shaft, new Map([['a', shaft]]), LAYOUT);
+  // The written SVG keeps hundredths, so the ink as written can sit a hair
+  // outside the box, which is measured in full precision.
+  const written = 0.02;
+  assert.ok(box.y <= top + written && box.y + box.height >= bottom - written, `the box holds the ink: y ${box.y}..${box.y + box.height} for ${top}..${bottom}`);
+  assert.ok(box.x <= left + written && box.x + box.width >= right - written, `and x ${box.x}..${box.x + box.width} for ${left}..${right}`);
+
+  const page = viewBoxOf(svg);
+  assert.ok(page.y <= top + written && page.y + page.height >= bottom - written, `the page holds the ink: y ${page.y}..${page.y + page.height} for ${top}..${bottom}`);
+  assert.ok(page.x <= left + written && page.x + page.width >= right - written, `and x ${page.x}..${page.x + page.width} for ${left}..${right}`);
 });
 
 test('a two-point shaft keeps the bytes it always drew, its Snap fraction included', async () => {

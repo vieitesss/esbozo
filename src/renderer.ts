@@ -459,7 +459,7 @@ function placement(
         element: canonical,
         path,
         words: shaftWords(canonical, path, layout),
-        box: path.bounds,
+        box: shaftBox(canonical, path),
       };
     }
     case 'text': {
@@ -477,7 +477,36 @@ function placement(
 }
 
 /**
- * A shaft's words: where Layout wrapped them, moved to the `labelAt` the Scene
+ * The box a shaft covers: the curve it is drawn along, and the ink Rough.js
+ * roughens that curve into. On a long shaft a roughness pushes the stroke a long
+ * way past the curve it was measured from, and a page or a box measured by the
+ * curve alone would clip the ink it was measured for.
+ */
+function shaftBox(element: ArrowOrLineElement, path: ShaftPath): Box {
+  const ink = shaftInk(element, path);
+  if (ink === null) {
+    return path.bounds;
+  }
+  const left = Math.min(path.bounds.x, ink.left);
+  const top = Math.min(path.bounds.y, ink.top);
+  const right = Math.max(path.bounds.x + path.bounds.width, ink.right);
+  const bottom = Math.max(path.bounds.y + path.bounds.height, ink.bottom);
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+/** Where the ink of a shaft's stroke passes reaches, as Rough.js draws it. */
+function shaftInk(element: ArrowOrLineElement, path: ShaftPath): Extent | null {
+  const generator = new RoughGenerator();
+  const drawable = generator.path(shaftData(path), lineOptions(element));
+  let ink: Extent | null = null;
+  for (const set of drawable.sets) {
+    ink = extendWithSet(ink, set);
+  }
+  return ink;
+}
+
+/**
+ * The shaft's words: where Layout wrapped them, moved to the `labelAt` the Scene
  * wrote. A shaft that writes none keeps the place Layout gives it, so a Scene
  * that never asks for a position keeps the position it always had; only the
  * paper behind the words is new.
@@ -705,18 +734,9 @@ function arrowOrLineSvg(
   const dash = fittedDash(width, element.stroke.style, path.length);
   const paths: string[] = [];
 
-  const lineOptions: Options = {
-    seed: element.seed,
-    roughness: element.roughness,
-    strokeWidth: width,
-    stroke: colour,
-    // A Snapped end must touch the outline it belongs to at every roughness, so
-    // the drawn ends stay where the geometry put them.
-    preserveVertices: true,
-  };
   // Rough.js starts a new subpath at every piece it draws, so the passes are
   // joined back into one stroke each before they are written.
-  const shaft = generator.path(shaftData(path), lineOptions);
+  const shaft = generator.path(shaftData(path), lineOptions(element));
   const d = strokePasses(shaft)
     .map((ops) => generator.opsToPath({ type: 'path', ops }))
     .join(' ');
@@ -767,6 +787,21 @@ function paperBehind(words: Block | null): string {
     ` width="${formatNumber(paper.width)}" height="${formatNumber(paper.height)}"` +
     ` fill="${PAPER}"/>`
   );
+}
+
+/**
+ * The options every stroke pass of an arrow or line draws with. A Snapped end
+ * must touch the outline it belongs to at every roughness, so the drawn ends
+ * stay where the geometry put them.
+ */
+function lineOptions(element: ArrowOrLineElement): Options {
+  return {
+    seed: element.seed,
+    roughness: element.roughness,
+    strokeWidth: STROKE_WIDTH_PX[element.stroke.width],
+    stroke: element.tone === 'muted' ? MUTED : INK,
+    preserveVertices: true,
+  };
 }
 
 /**
