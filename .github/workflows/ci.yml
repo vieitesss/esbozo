@@ -1,0 +1,28 @@
+# The guardrail on every push and pull request: the same `pnpm check` a person
+# runs, then the model-free browser suites. No key is in this workflow, so
+# `pnpm e2e` is the five files that make no model call; `pnpm e2e:agent` is run
+# by hand, where a key is.
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - name: Install the browser the suite launches
+        run: pnpm exec e2e-web install chromium --with-deps
+      - run: pnpm e2e
