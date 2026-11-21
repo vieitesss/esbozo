@@ -1,7 +1,8 @@
 # Browser tests
 
-Ten files, three scripts, each starting the built editor in Chromium through
-e2e. Build first (`pnpm build`), or use the scripts, which build.
+Ten files, three scripts, each running a real page in Chromium through e2e:
+most start the built editor, and `svg.e2e.ts` serves the SVG `ez render` wrote
+instead. Build first (`pnpm build`), or use the scripts, which build.
 
 `editor.e2e.ts` serves the page statically and stubs the File System Access API;
 `labels.e2e.ts` edits Labels and Texts in place on the same page; `serve.e2e.ts`
@@ -9,8 +10,9 @@ runs `ez serve` on a real temporary folder, so it saves and reads real files;
 `embed.e2e.ts` loads `ez bundle`'s output in a page that holds only
 the element and its attributes, beside a stub of the same save API;
 `svg.e2e.ts` opens the SVG `ez render` wrote as a page of its own, with no
-stylesheet anywhere, and then inlined in a host page that declares its own
-theme. All eight model-free files run under `pnpm e2e`.
+stylesheet anywhere, then as an `<img>` on a page that declares no theme
+either, and then inlined in a host page that declares its own theme. All eight
+model-free files run under `pnpm e2e`.
 
 | Script | Files | Model calls |
 | --- | --- | --- |

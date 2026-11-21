@@ -6,12 +6,14 @@
  * and no canvas), and each Element draws with its own stored seed and
  * roughness, so nothing depends on Math.random or on the order of runs.
  *
- * Colours and the font are never spelled out: they come from `var(--ink)`,
- * `var(--paper)`, `var(--muted)` and `var(--font-hand)`, which hosts set, each
- * with the light theme as its fallback so a saved SVG nothing styles still
- * draws. Each grey step is a fixed `color-mix` of ink into paper, an opaque
- * colour, so an overlap never darkens and a host backdrop other than paper
- * never shows through. A hachure or cross-hatch fill takes one step more ink
+ * Colours and the font come from `var(--ink)`, `var(--paper)`, `var(--muted)`
+ * and `var(--font-hand)`, which a host sets, and each carries the light theme's
+ * value as its own fallback: a saved SVG nothing styles — its own page, an
+ * `<img>` — still paints paper, ink and the hand's words, and an inlined one
+ * still takes the host's theme, light, dark or its own. Nothing else is written
+ * as a colour: each grey step is a fixed `color-mix` of ink into paper, an
+ * opaque colour, so an overlap never darkens and a host backdrop other than
+ * paper never shows through. A hachure or cross-hatch fill takes one step more ink
  * than a solid fill of the same grey, and its hatch gap leaves a lattice
  * rather than a wash at every roughness, so the two line fills stay a texture.
  * The Scene hash is written into `data-scene-hash` so an SVG can always be

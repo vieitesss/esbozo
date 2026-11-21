@@ -3,10 +3,11 @@
  *
  * The bytes rasterised are the Renderer's SVG for the saved Scene — the same
  * document `ez render` writes and `ez png` draws — with one change the browser
- * needs and the CLI does not: its colours are resolved first, because an SVG
- * loaded as an image has no page around it and would paint `var(--ink)` black;
- * they come from the page's own variables, so the PNG shows the paper and ink
- * the person is looking at.
+ * needs and the CLI does not: every variable is resolved first. Rasterised as an
+ * image, that document has no page around it, so each `var()` would answer with
+ * its own light-theme fallback and the PNG would lose the theme the person is
+ * looking at; resolved, they carry the page's declared colours, so the PNG keeps
+ * the active theme — light, dark, or whatever a host declares.
  *
  * The words are drawn as the font's own outlines (`../glyphs.ts`), not as
  * `<text>`: a browser would shape and hint a line its own way, and a page of
