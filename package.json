@@ -27,7 +27,7 @@
     "check-rules": "node scripts/check-rules.mjs",
     "check": "pnpm typecheck && pnpm lint && pnpm knip && pnpm check-rules && pnpm test",
     "test:docker": "node --test test/docker.ts",
-    "e2e": "pnpm build && e2e run tests/editor.e2e.ts tests/drawing.e2e.ts tests/labels.e2e.ts tests/snap.e2e.ts tests/serve.e2e.ts tests/embed.e2e.ts tests/cdp.e2e.ts tests/svg.e2e.ts",
+    "e2e": "pnpm build && e2e run tests/editor.e2e.ts tests/drawing.e2e.ts tests/labels-edit.e2e.ts tests/labels-draw.e2e.ts tests/labels-caret.e2e.ts tests/labels-ime.e2e.ts tests/labels-view.e2e.ts tests/labels-select.e2e.ts tests/labels-drag.e2e.ts tests/snap.e2e.ts tests/serve.e2e.ts tests/embed.e2e.ts tests/cdp.e2e.ts tests/svg.e2e.ts",
     "e2e:agent": "pnpm build && e2e run tests/visual.e2e.ts",
     "e2e:shots": "pnpm build && e2e run tests/screenshots.e2e.ts",
     "serve:editor": "pnpm build && node dist/cli.js serve dist --port 4319",

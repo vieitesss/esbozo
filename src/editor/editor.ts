@@ -30,8 +30,8 @@ import { Connection } from './connection.js';
 import type { FolderSource, FontSource, SaveTarget } from './connection.js';
 import { Page } from './page.js';
 import { CommandPalette } from './palette.js';
-import { menuSignature, roughnessNote, styleNote } from './menu.js';
-import { nextRoughness, styled } from './style.js';
+import { menuSignature, styleNote } from './menu.js';
+import { nextRoughness, roughnessLabel, styled } from './style.js';
 import type { StyleKey } from './style.js';
 import { canPickFolder } from './files.js';
 import { servedFolder } from './server-folder.js';
@@ -123,6 +123,8 @@ class EsbozoEditorElement extends HTMLElement {
   #newScene!: HTMLFormElement;
   #whereLabel!: HTMLElement;
   #modeLabel!: HTMLElement;
+  /** What this page may do with the Scene: it may only read one, or it may write it. */
+  #readOnly = false;
   #savedLabel!: HTMLElement;
   #menu!: HTMLElement;
   #roughButton!: HTMLButtonElement;
@@ -303,6 +305,7 @@ class EsbozoEditorElement extends HTMLElement {
       openTextInput: (at) => this.#openTextInput(at),
       applyScene: (next, options) => this.#applyScene(next, options),
       refresh: () => this.#refresh(),
+      showPanning: () => this.#showPill(),
     });
 
     if (this.#ownsKeysWhenFocused) {
@@ -354,8 +357,7 @@ class EsbozoEditorElement extends HTMLElement {
     // A Space held while the page loses the focus never sends its release: the
     // pan has to end here, or the pointer stays a hand on the way back.
     document.addEventListener('pointerdown', this.#gestures.anyPress);
-    // After it, so the press that shuts the sheet still reaches the page it
-    // landed on: a person pressing the canvas has asked for the canvas too.
+    // Dismiss on the bubble path so the target still handles the press.
     document.addEventListener('pointerdown', this.#shutSheetOnPress);
     document.addEventListener('visibilitychange', this.#gestures.release);
     window.addEventListener('blur', this.#gestures.release);
@@ -490,21 +492,37 @@ class EsbozoEditorElement extends HTMLElement {
     }
   };
 
-  /** The status bar's word for what this page may do with the Scene. */
+  /** What this page may do with the Scene, and the pill that says what it is doing. */
   #showMode(folder: SceneFolder): void {
-    const readOnly = folder.readOnly || this.#connection.refused;
-    this.#modeLabel.textContent = readOnly ? 'read-only' : '';
-    this.#newScene.hidden = readOnly;
-    if (readOnly) {
+    this.#readOnly = folder.readOnly || this.#connection.refused;
+    this.#newScene.hidden = this.#readOnly;
+    if (this.#readOnly) {
       // Write access just ended: nothing stays armed that could change a Scene
       // this page may only read.
       this.#endEdits();
+    }
+    this.#showPill();
+  }
+
+  /**
+   * The one owner of the mode pill: the pan in the hand is what the page is doing
+   * now, and `read-only` is what it may not do either way. A pan names itself
+   * while it lasts, and hands the pill back to the other word when it ends.
+   */
+  #showPill(): void {
+    const text = this.#gestures.panning ? 'Panning' : this.#readOnly ? 'read-only' : '';
+    if (this.#modeLabel.textContent !== text) {
+      this.#modeLabel.textContent = text;
     }
   }
 
   /** Let go of every edit in flight: half-typed words, the gesture in hand, and the tool. */
   #endEdits(): void {
     this.#endText();
+    // A Space press holds the page that was in hand. Another Scene, no write
+    // access or no DOM is not that page, so the pan goes with it, and with the
+    // word it was naming in the status bar.
+    this.#gestures.endSpacePan();
     // Write access can end in the middle of a gesture, as a folder that answers a
     // queued save with a 403 does. Half a gesture is not a Scene any more: it is
     // dropped with the preview it painted, rather than left on a page that may
@@ -1320,12 +1338,7 @@ class EsbozoEditorElement extends HTMLElement {
     }
   };
 
-  /**
-   * The Shortcuts sheet: a note laid over the page, open while the `?` says so.
-   * It takes no keys of its own and holds no focus, so the only way it is open is
-   * the button that names it, and the only ways it shuts are Escape, the button
-   * again, and a press anywhere else on the page.
-   */
+  /** Keep the sheet's visibility and the help button's expanded state in sync. */
   #showSheet(open: boolean): void {
     this.#sheet.hidden = !open;
     this.#helpButton.setAttribute('aria-expanded', String(open));
@@ -1356,7 +1369,8 @@ class EsbozoEditorElement extends HTMLElement {
   }
 
   #showDefaultRoughness(): void {
-    this.#roughButton.innerHTML = roughnessNote(this.#scene.defaults.roughness);
+    const value = roughnessLabel(this.#scene.defaults.roughness);
+    this.#roughButton.innerHTML = `rough <b>${value}</b>`;
   }
 
   #onMenuClick = (event: Event): void => {

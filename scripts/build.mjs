@@ -7,9 +7,11 @@
  * differ in two ways only: the page links its stylesheet and font beside itself,
  * while the bundle carries the CSS and takes the font URL from its element.
  */
+import { execFileSync } from 'node:child_process';
 import { chmod, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { brotliCompressSync, gzipSync } from 'node:zlib';
 import { build } from 'esbuild';
+import { buildId } from '../src/build-id.ts';
 import { PAGE_ASSETS } from '../src/page-assets.ts';
 
 const cliOutfile = 'dist/cli.js';
@@ -23,10 +25,28 @@ await build({
   target: 'node22',
   banner: { js: '#!/usr/bin/env node' },
   loader: { '.wasm': 'binary', '.ttf': 'binary' },
+  // Which build the CLI is, stamped only here: `ez serve` prints it and answers
+  // it at `/api/health`, so a server someone finds running can say whether it
+  // is the one they started. The page and the bundle are not stamped, so what
+  // they render is the same bytes either way.
+  define: { STAMPED_BUILD: JSON.stringify(buildId(gitAnswer)) },
   logLevel: 'info',
 });
 
 await chmod(cliOutfile, 0o755);
+
+/**
+ * git's answer to one command, or `null` when git is missing or this is no
+ * checkout: the build then names itself `unknown` instead of failing, because
+ * a tarball of the sources still has to build.
+ */
+function gitAnswer(args) {
+  try {
+    return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch {
+    return null;
+  }
+}
 
 /**
  * The served page: minified, because it crosses the wire, and `ez serve`

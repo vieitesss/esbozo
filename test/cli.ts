@@ -56,12 +56,14 @@ export async function ez(args: string[], cwd: string): Promise<Run> {
 export interface Serve {
   readonly url: string;
   readonly folder: string;
+  /** The line `ez serve` printed when it started, as it printed it. */
+  readonly startup: string;
   stop(): Promise<void>;
 }
 
 /**
  * `ez serve` on `folder`, with the port the operating system picks so tests
- * never fight over one. Resolves once the server prints the URL it listens on;
+ * never fight over one. Resolves once the server prints the line it listens on;
  * the folder is the working directory, as it would be for a person.
  *
  * `cli` is the built CLI to run, so a test can drive a copy of `dist/` that has
@@ -83,14 +85,22 @@ export async function startServe(
   child.stdout!.on('data', (chunk: string) => (stdout += chunk));
   child.stderr!.on('data', (chunk: string) => (stderr += chunk));
 
-  const url = await new Promise<string>((resolve_, reject) => {
+  const { startup, url } = await new Promise<{ startup: string; url: string }>((resolve_, reject) => {
     const onData = (): void => {
-      const found = /(http:\/\/[^\s]+)/.exec(stdout);
-      if (found === null) {
+      // Pipe chunks are not lines. Capture the URL only after the build id has arrived too.
+      const end = stdout.indexOf('\n');
+      if (end === -1) {
         return;
       }
       child.stdout!.off('data', onData);
-      resolve_(found[1]!.replace(/\/$/, ''));
+      const line = stdout.slice(0, end);
+      const url = /^serving .+ on (http:\/\/\S+)/.exec(line)?.[1];
+      if (url === undefined) {
+        child.kill('SIGTERM');
+        reject(new Error(`ez serve printed no startup URL: ${line}`));
+        return;
+      }
+      resolve_({ startup: line, url: url.replace(/\/$/, '') });
     };
     child.stdout!.on('data', onData);
     child.once('exit', (code) => reject(new Error(`ez serve exited ${code}: ${stderr || stdout}`)));
@@ -99,6 +109,7 @@ export async function startServe(
   return {
     url,
     folder,
+    startup,
     async stop(): Promise<void> {
       if (child.exitCode !== null) {
         return;
