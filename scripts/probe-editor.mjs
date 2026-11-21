@@ -19,11 +19,12 @@
  * What the probe returns is printed as JSON on stdout, and the page's URL goes to
  * stderr before the probe runs. Everything the run takes is given back — the
  * browser, the server, and the temporary module — whether the probe returned,
- * threw, or the run was interrupted while still setting those up.
+ * threw, called `process.exit` itself, or the run was interrupted while still
+ * setting those up.
  *
  * It serves `dist/` as it finds it: `pnpm probe` does not build.
  */
-import { createReadStream } from 'node:fs';
+import { createReadStream, rmSync } from 'node:fs';
 import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
@@ -120,6 +121,7 @@ async function probeFile(path) {
   const folder = await own(
     mkdtemp(join(tmpdir(), 'esbozo-probe-')),
     (path) => rm(path, { recursive: true, force: true }),
+    (path) => rmSync(path, { recursive: true, force: true }),
   );
   const file = join(folder, 'probe.mjs');
   await writeFile(file, Buffer.concat(chunks));
@@ -128,7 +130,8 @@ async function probeFile(path) {
 
 /**
  * Everything a run holds, so one path gives all of it back. Ownership is taken
- * before the thing lands: a signal during setup closes what arrives after it.
+ * before the thing lands: a signal during setup closes what arrives after it,
+ * and the exit hook has the part that fits in a synchronous last look.
  */
 const owned = [];
 
@@ -137,10 +140,12 @@ let stopping = false;
 let closing;
 
 /**
- * Owns one acquisition: `dispose` gives back what `landing` resolves to.
+ * Owns one acquisition. `dispose` gives back what `landing` resolves to, and
+ * `disposeNow` is the same in the synchronous form a probe that calls
+ * `process.exit` itself leaves room for.
  */
-function own(landing, dispose) {
-  const held = { landing, dispose, value: undefined, landed: false, closed: false };
+function own(landing, dispose, disposeNow) {
+  const held = { landing, dispose, disposeNow, value: undefined, landed: false, closed: false };
   owned.push(held);
   void landing.then(
     (value) => {
@@ -185,6 +190,16 @@ function stop() {
   })();
   return closing;
 }
+
+/**
+ * A probe that calls `process.exit` itself skips `finally`: this hook is the one
+ * last look the run gets, and only what can be given back synchronously is.
+ */
+process.on('exit', () => {
+  for (const held of owned) {
+    if (!held.closed && held.landed && held.value !== undefined) held.disposeNow?.(held.value);
+  }
+});
 
 /** Set by a signal: the run ends where the person ended it, not where the probe was. */
 let interrupted = false;

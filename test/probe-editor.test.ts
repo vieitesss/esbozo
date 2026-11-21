@@ -284,6 +284,25 @@ test('an interrupted setup leaves no probe folder, no server, and no browser', a
   assert.deepEqual(await stillRunning(run.browsers), [], `the helper left Chromium ${run.browsers} running`);
 });
 
+test('a probe that exits by itself leaves no temporary module', async (t) => {
+  const empty = await mkdtemp(join(tmpdir(), 'esbozo-probe-empty-'));
+  t.after(() => rm(empty, { recursive: true, force: true }));
+  const run = await helper([], {
+    source: 'export default async () => process.exit(7);\n',
+    folder: empty,
+  });
+
+  assert.equal(run.code, 7, run.stderr);
+  // The module a stdin probe was written from is the run's own file; a browser
+  // the probe closes by exiting first is the probe author's call.
+  const left = await strays(empty);
+  assert.deepEqual(
+    left.filter((name) => name.startsWith('esbozo-probe-')),
+    [],
+    `the probe left its module behind: ${left}`,
+  );
+});
+
 test('a throwing probe exits non-zero, prints the error, and leaves no server', async (t) => {
   const file = await probeSource(
     t,
