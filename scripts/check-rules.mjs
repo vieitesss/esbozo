@@ -78,6 +78,14 @@ const MARKUP_TAGS = new Set([
   'figcaption', 'blockquote', 'hr', 'br',
 ]);
 
+/**
+ * The two sets above, case-folded. Markup spells `clipPath`, `linearGradient`
+ * and `textPath` with a capital, and a selector or a regex may spell them any
+ * way at all, so the lookup cannot use the written entries.
+ */
+const TAGS_FOLDED = new Set([...TAGS].map((tag) => tag.toLowerCase()));
+const MARKUP_TAGS_FOLDED = new Set([...MARKUP_TAGS].map((tag) => tag.toLowerCase()));
+
 /** The `src/` a test may not open: a path segment, whether written whole or by `join`. */
 const SRC = /(?:^|\/)src(?:\/|$)/;
 
@@ -255,8 +263,12 @@ function patternSource(node) {
  */
 function namesMarkup(text) {
   for (const match of text.matchAll(/<\/?([A-Za-z][\w:-]*)/g)) {
-    const name = match[1].toLowerCase();
-    if (MARKUP_TAGS.has(name) || name.includes('-')) return true;
+    // `<svg:svg>` writes a tag the drawing uses under its namespace, so the
+    // name after the colon is the one that counts.
+    for (const written of [match[1], match[1].slice(match[1].lastIndexOf(':') + 1)]) {
+      const name = written.toLowerCase();
+      if (MARKUP_TAGS_FOLDED.has(name) || name.includes('-')) return true;
+    }
   }
   return false;
 }
@@ -266,7 +278,7 @@ function tagNamed(selector) {
   for (const part of selector.split(/[\s>+~,]+/)) {
     if (part === '') continue;
     const match = /^([A-Za-z][\w-]*)/.exec(part);
-    if (match !== null && TAGS.has(match[1].toLowerCase())) return match[1].toLowerCase();
+    if (match !== null && TAGS_FOLDED.has(match[1].toLowerCase())) return match[1].toLowerCase();
   }
   return undefined;
 }

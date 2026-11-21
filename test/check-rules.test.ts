@@ -378,6 +378,29 @@ test('a markup pattern built with new RegExp is a finding', async () => {
   assert.match(line, /^test\/elements\.test\.ts:1: markup in a regex: drive the page, do not read the SVG it wrote$/);
 });
 
+test('a regex on a namespaced tag reads markup just the same', async () => {
+  const line = await finding({
+    'tests/editor.e2e.ts': "const box = /<svg:svg>/.exec(markup);\n",
+  });
+
+  assert.match(line, /^tests\/editor\.e2e\.ts:1: markup in a regex: drive the page, do not read the SVG it wrote$/);
+});
+
+test('a tag whose name carries a capital is matched whatever case it is written in', async () => {
+  const pattern = await finding({
+    'tests/snap.e2e.ts': 'const clip = /<clipPath\\b/.exec(markup);\n',
+  });
+  assert.match(pattern, /^tests\/snap\.e2e\.ts:1: markup in a regex: drive the page, do not read the SVG it wrote$/);
+
+  const selector = await finding({
+    'tests/editor.e2e.ts': "const gradients = await page.evaluate(() => document.querySelectorAll('linearGradient'));\n",
+  });
+  assert.match(
+    selector,
+    /^tests\/editor\.e2e\.ts:1: tag-name selector "linearGradient": use a role, a name or a key$/,
+  );
+});
+
 test('a bounding box in a test is a finding', async () => {
   const line = await finding({
     'tests/editor.e2e.ts': 'const box = await element.boundingBox();\n',
