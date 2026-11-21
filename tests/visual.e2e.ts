@@ -28,6 +28,10 @@ import {
   MIXED,
   MIXED_SCENE,
   SCENE,
+  SNAP,
+  SNAP_SCENE,
+  SNAPPED,
+  SNAPPED_SCENE,
   WIDE_1366,
   WIDE_SCENE,
   at,
@@ -45,6 +49,8 @@ const MIXED_SOURCE = JSON.stringify(MIXED_SCENE, null, 2);
 const BROKEN_SOURCE = JSON.stringify(BROKEN_SCENE, null, 2);
 const EDGE_SOURCE = JSON.stringify(EDGE_SCENE, null, 2);
 const WIDE_SOURCE = JSON.stringify(WIDE_SCENE, null, 2);
+const SNAP_SOURCE = JSON.stringify(SNAP_SCENE, null, 2);
+const SNAPPED_SOURCE = JSON.stringify(SNAPPED_SCENE, null, 2);
 
 test('a Scene that will not parse is reported, naming the box-a width problem', async ({ agent, app, browser, screen }) => {
   const ui = { agent, app, browser, screen };
@@ -269,5 +275,46 @@ test('the palette is a note over the paper: a search field, action names and the
   await ui.agent.assert(
     'the list shows one greyed-out row named Delete, with a short reason beside it saying what it is waiting for',
     { vision: 'only' },
+  );
+});
+
+test('the box under a dragged arrow end is marked as the Element it will attach to', async ({ agent, app, browser, screen }) => {
+  const ui = { agent, app, browser, screen };
+  await openEditor(ui, { A: { 'snap.json': SNAP_SOURCE } }, 'snap.json');
+
+  // An arrow is being dragged from the empty paper onto the box, and the
+  // pointer is still down: the box says it is the one the end will land on.
+  await browser.keyboard.press('a');
+  const from = at({ x: 60, y: 200 }, SNAP);
+  const to = at({ x: 360, y: 100 }, SNAP);
+  await browser.mouse.move(from.x, from.y);
+  await browser.mouse.down();
+  await browser.mouse.move(to.x, to.y);
+
+  await ui.agent.assert(
+    'the rectangle on the right is marked out from the paper around it by a coloured outline and a faint wash of the same colour inside it, and a line being dragged runs from the empty paper on the left to that rectangle’s edge',
+    { vision: 'only' },
+  );
+
+  await browser.mouse.up();
+});
+
+test('the note says what each end of an arrow is attached to, and says nothing of the sort for a mixed selection', async ({ agent, app, browser, screen }) => {
+  const ui = { agent, app, browser, screen };
+  await openEditor(ui, { A: { 'snapped.json': SNAPPED_SOURCE } }, 'snapped.json');
+
+  // The arrow alone: an attached end and the button that frees it, per end.
+  await clickScene(ui, { x: 230, y: 80 }, [], SNAPPED);
+  await ui.agent.assert(
+    'inside the note at the right edge, one row says the arrow’s start is attached to the box named `from` and another says its end is attached to the box named `to`, and each of those two rows has a small button that would detach it',
+    { vision: false },
+  );
+
+  // A box and the arrow together: one end per Element, so the Snap rows go.
+  await clickScene(ui, { x: 100, y: 80 }, [], SNAPPED);
+  await clickScene(ui, { x: 230, y: 80 }, ['Shift'], SNAPPED);
+  await ui.agent.assert(
+    'the note speaks for two Elements and nowhere says that an end is attached to anything: there is no detach button in it, and no row naming a start or an end',
+    { vision: false },
   );
 });

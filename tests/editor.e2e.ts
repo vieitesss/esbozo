@@ -394,29 +394,50 @@ test('every Element type moves, and only a box-like one gets resize handles', as
   expect(moved.get('word')?.x).toBe(270);
 });
 
-test('dragging an arrow Snapped at both ends writes nothing', async ({ app, browser, screen }) => {
+test('dragging an arrow Snapped at both ends frees both ends and moves it', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'snapped.json': SNAPPED_SOURCE } }, 'snapped.json');
 
-  // Both ends follow their targets, so the drawn shaft stays put: moving it
-  // has nothing to show, and the Scene on disk stays byte for byte the same.
-  await dragBy(ui, { x: 230, y: 80 }, 0, 40, SNAPPED);
+  // An arrow cannot move while it follows two Elements, so the drag frees both
+  // ends where they draw and carries them by the drag.
+  await dragBy(ui, { x: 230, y: 80 }, 10, 20, SNAPPED);
 
-  const files = await savedFiles(ui);
-  expect(files['snapped.json']).toBe(SNAPPED_SOURCE);
-  await expect(ui.screen.getByRole('status')).toHaveText('saved');
+  const scene = await savedScene(ui, 'snapped.json');
+  expect(scene.elements[2]?.points).toEqual([
+    { x: 170, y: 100 },
+    { x: 310, y: 100 },
+  ]);
+
+  // One gesture is one step: a single undo takes the drag back, Snaps and all.
+  await ui.browser.keyboard.press('Meta+z');
+  const undone = await savedScene(ui, 'snapped.json');
+  expect(undone.elements[2]?.points).toEqual([
+    { x: 160, y: 80, snap: 'from' },
+    { x: 300, y: 80, snap: 'to' },
+  ]);
 });
 
-test('nudging an arrow Snapped at both ends writes nothing', async ({ app, browser, screen }) => {
+test('nudging an arrow Snapped at both ends frees both ends and moves it', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'snapped.json': SNAPPED_SOURCE } }, 'snapped.json');
 
   await clickScene(ui, { x: 230, y: 80 }, [], SNAPPED);
   await ui.browser.keyboard.press('Shift+ArrowRight');
 
-  const files = await savedFiles(ui);
-  expect(files['snapped.json']).toBe(SNAPPED_SOURCE);
-  await expect(ui.screen.getByRole('status')).toHaveText('saved');
+  const scene = await savedScene(ui, 'snapped.json');
+  expect(scene.elements[2]?.points).toEqual([
+    { x: 170, y: 80 },
+    { x: 310, y: 80 },
+  ]);
+
+  // A keyboard nudge is a body move, so it follows the drag rule: the one step
+  // it is undoes the move and puts both Snaps back.
+  await ui.browser.keyboard.press('Meta+z');
+  const undone = await savedScene(ui, 'snapped.json');
+  expect(undone.elements[2]?.points).toEqual([
+    { x: 160, y: 80, snap: 'from' },
+    { x: 300, y: 80, snap: 'to' },
+  ]);
 });
 
 test('browsing another folder never moves where the open Scene saves', async ({ app, browser, screen }) => {
@@ -748,6 +769,30 @@ test('the status bar sets the Scene default roughness, and only new Elements tak
   expect(scene.defaults?.roughness).toBe(2);
   // The Elements in the Scene carry their own resolved style, so they keep it.
   expect(scene.elements.map((element) => element.roughness)).toEqual([1, 1]);
+});
+
+test('a style pick is one undo step', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+  await clickScene(ui, { x: 100, y: 80 });
+  await control(ui, 'Rough: cartoonist').click();
+  expect((await savedScene(ui)).elements[0]?.roughness).toBe(2);
+
+  await ui.browser.keyboard.press('Meta+z');
+  expect((await savedScene(ui)).elements[0]?.roughness).toBe(1);
+});
+
+test('undoing the Scene default roughness puts the status bar back', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+  await ui.screen.getByRole('button', 'rough · artist').click();
+  await expect(ui.screen.getByRole('button', 'rough · cartoonist')).toBeVisible();
+
+  await ui.browser.keyboard.press('Meta+z');
+  await expect(ui.screen.getByRole('button', 'rough · artist')).toBeVisible();
+  expect((await savedScene(ui)).defaults?.roughness).toBe(1);
 });
 
 test('the docked note never covers the selection: the view pans clear of it', async ({ app, browser, screen }) => {

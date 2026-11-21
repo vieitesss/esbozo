@@ -1,15 +1,15 @@
 # Browser tests
 
-Four files, three scripts, each starting the built editor in Chromium through
+Five files, three scripts, each starting the built editor in Chromium through
 e2e. Build first (`pnpm build`), or use the scripts, which build.
 
 `editor.e2e.ts` serves the page statically and stubs the File System Access API;
 `serve.e2e.ts` runs `ez serve` on a real temporary folder, so it saves and reads
-real files. Both run under `pnpm e2e`.
+real files. All four model-free files run under `pnpm e2e`.
 
 | Script | Files | Model calls |
 | --- | --- | --- |
-| `pnpm e2e` | `editor.e2e.ts`, `drawing.e2e.ts`, `serve.e2e.ts` | none |
+| `pnpm e2e` | `editor.e2e.ts`, `drawing.e2e.ts`, `snap.e2e.ts`, `serve.e2e.ts` | none |
 | `pnpm e2e:agent` | `visual.e2e.ts` | one per `agent.assert` / `agent.waitFor`, every run |
 | `pnpm e2e:shots` | `screenshots.e2e.ts` | none; skipped unless `ESBOZO_SHOTS` names a folder |
 

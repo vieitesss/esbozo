@@ -446,30 +446,18 @@ test('two Snapped ends aim at each other even after one box moves past the other
 
 test('a head points into its target even when the two targets overlap', async () => {
   // Two 100px boxes at x=0 and x=90: the first box's exit point (x=100) sits to
-  // the right of the second box's exit point (x=90), so the two outline points
-  // alone would draw the shaft and its head out of the second box.
+  // the right of the second box's exit point (x=90), so aiming each end at the
+  // other's centre puts the two outline points the wrong way round. However
+  // they are placed, an end stays on its own box's outline: neither box draws
+  // its end inside the other.
+  const first = { id: 'first', type: 'rectangle', x: 0, y: 0, width: 100, height: 100 };
+  const second = { id: 'second', type: 'rectangle', x: 90, y: 0, width: 100, height: 100 };
   const svg = await renderOne({
     version: 1,
     defaults: { roughness: 0 },
     elements: [
-      {
-        id: 'first',
-        type: 'rectangle',
-        x: 0,
-        y: 0,
-        width: 100,
-        height: 100,
-        fill: { kind: 'none' },
-      },
-      {
-        id: 'second',
-        type: 'rectangle',
-        x: 90,
-        y: 0,
-        width: 100,
-        height: 100,
-        fill: { kind: 'none' },
-      },
+      { ...first, fill: { kind: 'none' } },
+      { ...second, fill: { kind: 'none' } },
       {
         id: 'arrow',
         type: 'arrow',
@@ -482,21 +470,134 @@ test('a head points into its target even when the two targets overlap', async ()
     ],
   });
 
-  // The shaft runs from the first box's exit point to the second box's centre
-  // (140,50), so the head still points along +x, into the second box.
+  // The start end leaves the first box on the far side from the second (0,50),
+  // so the shaft runs along +x into the second box and ends on its outline at
+  // (90,50). Both ends are on their own box's outline.
+  const shaft = shaftFrom(svg, { x: 0, y: 50 });
+  const start = shaft[0]!;
+  const end = shaft[shaft.length - 1]!;
+  assert.ok(onOutline('rectangle', first, start), `the start ${start.x},${start.y} is on the first box`);
+  assert.ok(onOutline('rectangle', second, end), `the end ${end.x},${end.y} is on the second box`);
+  assert.ok(near(end.x, 90) && near(end.y, 50), `the end lands on the second box at ${end.x},${end.y}`);
+
+  // Nothing at all is drawn inside the second box's outline.
+  assert.deepEqual(
+    allDrawnPoints(svg).filter((point) => strictlyInside(second, point)),
+    [],
+    'nothing is drawn inside the second box',
+  );
+
+  // The head's apex is on that outline point and its base reaches back over the
+  // first box, so the head points along +x, into the second box.
   const heads = pathTags(svg)
     .filter((tag) => tag.fill !== 'none')
     .map((tag) => drawnPoints(tag.d));
   const head = heads.find((points) =>
-    points.some((point) => near(point.x, 140) && near(point.y, 50)),
+    points.some((point) => near(point.x, 90) && near(point.y, 50)),
   );
-  assert.ok(head, 'the head apex sits on the second box centre');
+  assert.ok(head, 'the head apex sits on the second box outline');
   for (const point of head) {
-    if (near(point.x, 140) && near(point.y, 50)) {
+    if (near(point.x, 90) && near(point.y, 50)) {
       continue;
     }
-    assert.ok(point.x < 140, `the head base at ${point.x} reaches back behind the apex`);
+    assert.ok(point.x < 90, `the head base at ${point.x} reaches back behind the apex`);
   }
+});
+
+test('crossing targets draw a shaft into the target, not a stub or an outward head', async () => {
+  // Two bars crossing at (50,50): a horizontal one (0..100 by 40..60) and a
+  // vertical one (40..60 by 0..100). Every outline point of either bar that the
+  // centre line would pick sits inside the other bar, so aiming each end at the
+  // other's centre cannot work: the pair has to be chosen off that line.
+  const bar = { id: 'bar', type: 'rectangle', x: 0, y: 40, width: 100, height: 20 };
+  const post = { id: 'post', type: 'rectangle', x: 40, y: 0, width: 20, height: 100 };
+  const svg = await renderOne({
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [
+      { ...bar, fill: { kind: 'none' } },
+      { ...post, fill: { kind: 'none' } },
+      {
+        id: 'arrow',
+        type: 'arrow',
+        points: [
+          { x: 50, y: 50, snap: 'bar' },
+          { x: 50, y: 50, snap: 'post' },
+        ],
+        heads: { start: 'none', end: 'arrow' },
+      },
+    ],
+  });
+
+  // The shaft is the first pairing that works walking the end target's outline
+  // from its right-hand point: the bar's right edge to the bar's own right-hand
+  // edge inside the post's, so it enters the post going left.
+  const shaft = shaftFrom(svg, { x: 100, y: 50 });
+  const start = shaft[0]!;
+  const end = shaft[shaft.length - 1]!;
+  assert.ok(onOutline('rectangle', bar, start), `the start ${start.x},${start.y} is on the bar`);
+  assert.ok(onOutline('rectangle', post, end), `the end ${end.x},${end.y} is on the post`);
+  assert.ok(near(start.x, 100) && near(start.y, 50), `the shaft starts at ${start.x},${start.y}`);
+  assert.ok(near(end.x, 60) && near(end.y, 50), `the shaft ends at ${end.x},${end.y}`);
+  assert.ok(
+    Math.hypot(end.x - start.x, end.y - start.y) > 1,
+    'the shaft is longer than a point',
+  );
+
+  // Nothing at all is drawn inside the post: the head stops on its outline.
+  assert.deepEqual(
+    allDrawnPoints(svg).filter((point) => strictlyInside(post, point)),
+    [],
+    'nothing is drawn inside the post',
+  );
+
+  // The head's apex is there on the outline and its base reaches back to the
+  // right, behind the apex, so the head points left into the post.
+  const head = pathTags(svg)
+    .filter((tag) => tag.fill !== 'none')
+    .map((tag) => drawnPoints(tag.d))
+    .find((points) => points.some((point) => near(point.x, 60) && near(point.y, 50)));
+  assert.ok(head, 'the head apex sits on the post outline');
+  for (const point of head) {
+    if (near(point.x, 60) && near(point.y, 50)) {
+      continue;
+    }
+    assert.ok(point.x > 60, `the head base at ${point.x} reaches back behind the apex`);
+  }
+});
+
+test('a target drawn wholly inside the other falls back to the centre line', async () => {
+  // A small box inside a big one: every point of the inner outline is inside the
+  // outer target, so no pair of outline points can enter it from outside. The
+  // fallback is the pair on the line between the centres, head outward: it is
+  // the only pair the two outlines offer, and never drawing the arrow would hide
+  // the Element.
+  const outer = { id: 'outer', type: 'rectangle', x: 0, y: 0, width: 100, height: 100 };
+  const inner = { id: 'inner', type: 'rectangle', x: 30, y: 30, width: 40, height: 40 };
+  const svg = await renderOne({
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [
+      { ...outer, fill: { kind: 'none' } },
+      { ...inner, fill: { kind: 'none' } },
+      {
+        id: 'arrow',
+        type: 'arrow',
+        points: [
+          { x: 50, y: 50, snap: 'inner' },
+          { x: 50, y: 50, snap: 'outer' },
+        ],
+        heads: { start: 'none', end: 'arrow' },
+      },
+    ],
+  });
+
+  const shaft = shaftFrom(svg, { x: 50, y: 30 });
+  const start = shaft[0]!;
+  const end = shaft[shaft.length - 1]!;
+  assert.ok(onOutline('rectangle', inner, start), `the start ${start.x},${start.y} is on the inner box`);
+  assert.ok(onOutline('rectangle', outer, end), `the end ${end.x},${end.y} is on the outer box`);
+  assert.ok(near(start.y, 30) && near(end.y, 0), `the shaft is the centre line, ${start.y} to ${end.y}`);
 });
 
 test('arrow heads point along the arrow, into each end', async () => {

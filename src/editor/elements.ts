@@ -10,6 +10,7 @@
 import { MIN_SIZE, seedForId } from '../scene.js';
 import { unwrittenTextAlign } from '../scene.js';
 import type { Element, ElementStyle, Point, SceneStyle, TextElement } from '../scene.js';
+import { drawnShaft, elementsById } from '../renderer.js';
 import { boxBetween } from './geometry.js';
 import type { DrawableType, ToolId } from './actions.js';
 
@@ -196,25 +197,28 @@ function movedPoint(point: Point, renamed: ReadonlyMap<string, string>, offset: 
 /**
  * The Scene without the given Elements. A Snap whose target is removed is
  * dropped, and its end stays where it was drawn: a Scene that names a missing
- * target would not parse when it is reopened.
+ * target would not parse when it is reopened, and an end that jumped back to
+ * the point it was attached from would move on the page as the target vanishes.
  */
 export function without(elements: readonly Element[], removed: ReadonlySet<string>): Element[] {
+  const byId = elementsById(elements);
   return elements
     .filter((element) => !removed.has(element.id))
     .map((element) => {
       if (element.type !== 'arrow' && element.type !== 'line') {
         return element;
       }
-      if (!element.points.some((point) => point.snap !== undefined && removed.has(point.snap))) {
+      const [start, end] = element.points;
+      const drops = (point: Point): boolean =>
+        point.snap !== undefined && removed.has(point.snap);
+      if (!drops(start) && !drops(end)) {
         return element;
       }
-      const [start, end] = element.points;
+      // Where the end draws now, with the target still in the Scene to resolve it.
+      const [drawnStart, drawnEnd] = drawnShaft(element, byId);
       return {
         ...element,
-        points: [
-          start.snap !== undefined && removed.has(start.snap) ? free(start) : start,
-          end.snap !== undefined && removed.has(end.snap) ? free(end) : end,
-        ],
+        points: [drops(start) ? free(drawnStart) : start, drops(end) ? free(drawnEnd) : end],
       };
     });
 }

@@ -23,8 +23,6 @@
  * the arrow, into the target.
  * A dashed or dotted shaft fits its dash pattern to the length it draws, so a
  * stroke that ends on an outline ends on a dash rather than on bare paper.
- * Two Snapped ends whose targets overlap draw to the second target's centre
- * instead of turning the head around and out of it.
  *
  * Words are measured, never guessed: a Text and a Label are placed by Layout,
  * with the font the drawing is made for, so the page, the line breaks and the
@@ -58,7 +56,7 @@ import {
   barThrough,
   centreOf,
   fillets,
-  pointOnOutline,
+  shaftEnds,
   unit,
 } from './geometry.js';
 
@@ -499,38 +497,18 @@ function headPaths(
 
 /**
  * Both ends of an arrow or line, with each Snapped end moved onto its target's
- * outline. An end aims at the other end: at the other target's centre when that
- * end is Snapped too, so both ends aim along the line between the two targets
- * as they are now, or from where the free end sits.
+ * outline by the shared geometry, which also settles two targets that overlap.
  */
 function arrowOrLinePoints(
   element: ArrowOrLineElement,
   byId: ReadonlyMap<string, Element>,
 ): [Point, Point] {
   const [start, end] = element.points;
-  const startTarget = snapTarget(element, start, byId);
-  const endTarget = snapTarget(element, end, byId);
-  const from = snappedEnd(start, startTarget, endTarget, end);
-  const to = snappedEnd(end, endTarget, startTarget, start);
-  if (
-    startTarget !== undefined &&
-    endTarget !== undefined &&
-    runsAgainst(from, to, centreOf(startTarget), centreOf(endTarget))
-  ) {
-    // The two targets overlap along the line between their centres, so their
-    // outline points sit the wrong way round and the head would point out of
-    // the second target. Draw from the first target's exit point to the second
-    // target's centre instead, so the head still points into it.
-    return [from, centreOf(endTarget)];
-  }
-  return [from, to];
-}
-
-/** Whether the drawn shaft runs against the line from the first centre to the second. */
-function runsAgainst(from: Point, to: Point, fromCentre: Point, toCentre: Point): boolean {
-  const along = { x: to.x - from.x, y: to.y - from.y };
-  const between = { x: toCentre.x - fromCentre.x, y: toCentre.y - fromCentre.y };
-  return along.x * between.x + along.y * between.y < 0;
+  return shaftEnds(
+    element.points,
+    snapTarget(element, start, byId),
+    snapTarget(element, end, byId),
+  );
 }
 
 /**
@@ -558,19 +536,6 @@ function snapTarget(
     );
   }
   return target;
-}
-
-/** One end, moved onto its target's outline, aiming at the other end. */
-function snappedEnd(
-  point: Point,
-  target: OutlinedElement | undefined,
-  otherTarget: OutlinedElement | undefined,
-  freeEnd: Point,
-): Point {
-  if (target === undefined) {
-    return { x: point.x, y: point.y };
-  }
-  return pointOnOutline(target, otherTarget === undefined ? freeEnd : centreOf(otherTarget));
 }
 
 /**

@@ -121,6 +121,16 @@ esbozo-editor::before {
 .handle-ne, .handle-sw { cursor: nesw-resize; }
 .handle-n, .handle-s { cursor: ns-resize; }
 .handle-e, .handle-w { cursor: ew-resize; }
+.handle-start, .handle-end { cursor: move; }
+
+/* Snap: the Element a dragged arrow or line end will attach to. It stands off
+   the outline so it reads around the target rather than as the target's edge. */
+.snap {
+  fill: color-mix(in srgb, var(--sel) 14%, transparent);
+  stroke: var(--sel);
+  stroke-width: 2;
+  pointer-events: none;
+}
 
 .sweep {
   fill: color-mix(in srgb, var(--sel) 9%, transparent);
@@ -447,6 +457,18 @@ esbozo-editor::before {
 .style-note .seg.greys button[aria-pressed="true"] { outline: 1.5px solid var(--ink); outline-offset: 1px; }
 
 .style-note .mix { font-family: var(--font-hand); font-size: 10.5px; color: var(--muted); }
+
+/* A Snap end: what it is attached to, and the button that frees it. */
+.style-note .end { font-family: var(--font-hand); font-size: 10.5px; color: var(--muted); }
+.style-note .end.on { color: var(--ink); }
+.style-note .end b {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 400;
+  background: var(--line);
+  padding: 1px 4px;
+  border-radius: 4px;
+}
 
 .style-note .acts button {
   all: unset;
