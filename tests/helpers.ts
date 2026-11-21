@@ -125,6 +125,21 @@ export const WORDS_SCENE = {
 export const WORDS: View = { zoom: 1, panX: 508, panY: 308 };
 
 /**
+ * One box with room to its right and nothing else on the page: enough bare
+ * paper for a word too long for the box to grow into, where a field left at the
+ * old width would have nothing.
+ */
+export const ROOM_SCENE = {
+  version: 1,
+  title: 'Room',
+  defaults: { roughness: 1 },
+  elements: [{ id: 'box', type: 'rectangle', x: 40, y: 40, width: 120, height: 80 }],
+};
+
+/** The view `ROOM_SCENE` lands in, worked out the same way as `VIEW`. */
+export const ROOM: View = { zoom: 1, panX: 540, panY: 320 };
+
+/**
  * A Label whose outer spaces are the author's, not the editor's: words nobody
  * touched have to stay exactly as they were written.
  */

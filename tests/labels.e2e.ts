@@ -15,6 +15,8 @@ import {
   MIXED_SCENE,
   OVERFLOW,
   OVERFLOW_SCENE,
+  ROOM,
+  ROOM_SCENE,
   SCENE,
   SHIFTED,
   SHIFTED_SCENE,
@@ -39,6 +41,7 @@ const SCENE_SOURCE = JSON.stringify(SCENE, null, 2);
 const MIXED_SOURCE = JSON.stringify(MIXED_SCENE, null, 2);
 const OVERFLOW_SOURCE = JSON.stringify(OVERFLOW_SCENE, null, 2);
 const WORDS_SOURCE = JSON.stringify(WORDS_SCENE, null, 2);
+const ROOM_SOURCE = JSON.stringify(ROOM_SCENE, null, 2);
 const SPACED_SOURCE = JSON.stringify(SPACED_SCENE, null, 2);
 const BESIDE_SOURCE = JSON.stringify(BESIDE_SCENE, null, 2);
 const SHIFTED_SOURCE = JSON.stringify(SHIFTED_SCENE, null, 2);
@@ -392,7 +395,7 @@ describe('labels', () => {
     // `far` sits under the Style note: the first click selects it and the view
     // pans clear, which slides `other` under the pointer for the second click.
     // The words that open still belong to what the first click found.
-    await doubleClickScene(ui, { x: 765, y: 80 }, SHIFTED);
+    await doubleClickScene(ui, { x: 778, y: 80 }, SHIFTED);
     const label = screen.getByRole('textbox', { name: 'Label' });
     await label.pressSequentially('far away');
     await label.press('Escape');
@@ -454,26 +457,29 @@ describe('labels', () => {
     screen,
   }) => {
     const ui = { app, browser, screen };
-    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+    await openEditor(ui, { A: { 'room.json': ROOM_SOURCE } }, 'room.json');
 
-    await doubleClickScene(ui, { x: 100, y: 80 });
+    await doubleClickScene(ui, { x: 100, y: 80 }, ROOM);
     const label = screen.getByRole('textbox', { name: 'Label' });
     await label.pressSequentially(LONG_WORD);
     const typing = await shot(ui);
     await label.press('Escape');
 
     // The box grew sideways for the word, so the field did too: the word is on
-    // one line inside an outline that holds it, not five lines spilling out.
-    const box = (await savedScene(ui)).elements[0];
+    // one line inside an outline that holds it, not a narrow field splitting it
+    // and spilling out. Everything past the width the author gave the box —
+    // and inside the grown one — is one line of the word's own ink.
+    const box = (await savedScene(ui, 'room.json')).elements[0];
     expect(box?.width).toBeGreaterThan(200);
     expect(box?.height).toBe(80);
-    const interior: Rect = {
-      x: 470 + (box?.x ?? 0) + 8,
-      y: 300 + (box?.y ?? 0) + 8,
-      width: (box?.width ?? 0) - 16,
+    const grown: Rect = {
+      x: ROOM.panX + (box?.x ?? 0) + 128,
+      y: ROOM.panY + (box?.y ?? 0) + 8,
+      width: (box?.width ?? 0) - 136,
       height: (box?.height ?? 0) - 16,
     };
-    expect(typing.bands(interior, DARK)).toBe(1);
+    expect(typing.bands(grown, DARK)).toBe(1);
+    expect(typing.darkCount(grown, DARK)).toBeGreaterThan(100);
   });
 
   test("an arrow's Label widens away from the shaft, staying centred on it", async ({
