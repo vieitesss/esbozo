@@ -81,7 +81,7 @@ async function rawRequest(server: Serve, path: string, method = 'GET'): Promise<
   });
 }
 
-test('the served page and its font come from the built folder', async () => {
+test('the served page is the editor, its styles, its script, its font and its licence', async () => {
   const server = await served(await sceneFolder(SCENE));
 
   const page = await request(server, '/editor.html');
@@ -89,16 +89,34 @@ test('the served page and its font come from the built folder', async () => {
   assert.match(page.body, /<esbozo-editor>/);
   assert.match(page.body, /editor\.js/);
 
-  const css = await request(server, '/editor.css');
+  const css = await fetch(`${server.url}/editor.css`);
   assert.equal(css.status, 200);
+  assert.equal(css.headers.get('content-type'), 'text/css; charset=utf-8');
+
+  const script = await fetch(`${server.url}/editor.js`);
+  assert.equal(script.status, 200);
+  assert.equal(script.headers.get('content-type'), 'text/javascript; charset=utf-8');
 
   const font = await fetch(`${server.url}/fonts/Kalam-Regular.ttf`);
   assert.equal(font.status, 200);
   assert.equal(font.headers.get('content-type'), 'font/ttf');
   assert.ok((await font.arrayBuffer()).byteLength > 100_000, 'the hand font itself, not an error page');
 
+  const licence = await fetch(`${server.url}/fonts/OFL.txt`);
+  assert.equal(licence.status, 200);
+  assert.equal(licence.headers.get('content-type'), 'text/plain; charset=utf-8');
+
   // The folder path, so a page opened at / works the same.
   assert.equal((await request(server, '/')).status, 200);
+});
+
+test('the page is all that is served: nothing else in the built folder is', async () => {
+  const server = await served(await sceneFolder(SCENE));
+
+  // The CLI bundle sits beside the page, and it is not a page file.
+  assert.equal((await request(server, '/cli.js')).status, 404);
+  assert.equal((await request(server, '/package.json')).status, 404);
+  assert.equal((await request(server, '/whatever.txt')).status, 404);
 });
 
 test('the list names the Scenes at the top level and says the folder is writable', async () => {

@@ -2,9 +2,9 @@
  * `ez serve`: one folder of Scenes, and the editor page that works on it.
  *
  * The page's own files (HTML, JS, CSS, fonts) come from the folder the built
- * CLI lives in, so `ez serve <dir>` needs no separate static server. The
- * folder it is given holds the Scenes, and the save API below is the only way
- * in or out of it:
+ * CLI lives in, so `ez serve <dir>` needs no separate static server. Only the
+ * files in `PAGE_ASSETS` are served; the folder it is given holds the Scenes,
+ * and the save API below is the only way in or out of it:
  *
  *   GET  /api/scenes                  the folder's name, its Scene file names
  *                                     and whether writes are refused
@@ -27,8 +27,9 @@ import { createReadStream } from 'node:fs';
 import { readdir, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
-import { basename, extname, join, resolve, sep } from 'node:path';
+import { basename, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PAGE_ASSETS } from './page-assets.js';
 import { svgFileName } from './paths.js';
 import { parseScene } from './scene.js';
 
@@ -40,20 +41,6 @@ const BODY_LIMIT = 8 * 1024 * 1024;
 
 /** The built page and its assets, beside the bundled CLI. */
 const ASSETS = fileURLToPath(new URL('.', import.meta.url));
-
-const MIME: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.ttf': 'font/ttf',
-  '.txt': 'text/plain; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.ico': 'image/x-icon',
-};
-
-/** The page files a served editor needs; missing ones are a startup problem. */
-const PAGE_FILES = ['editor.html', 'editor.js', 'editor.css'];
 
 export interface ServeOptions {
   /** The folder the Scenes live in, already resolved. */
@@ -110,7 +97,7 @@ export async function serve(options: ServeOptions): Promise<RunningServe> {
 
 /** The page's own files have to be beside the CLI: `pnpm build` puts them there. */
 async function checkPageAssets(): Promise<void> {
-  for (const file of PAGE_FILES) {
+  for (const file of new Set(PAGE_ASSETS.map((asset) => asset.file))) {
     try {
       await stat(join(ASSETS, file));
     } catch {
@@ -498,7 +485,10 @@ async function readBody(request: IncomingMessage): Promise<string | null> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-/** The editor page and its assets, out of the folder the built CLI lives in. */
+/**
+ * The page's own files, out of the folder the built CLI lives in: the table is
+ * the whole list, so nothing else beside the CLI is published.
+ */
 async function servePageAsset(
   request: IncomingMessage,
   response: ServerResponse,
@@ -508,29 +498,23 @@ async function servePageAsset(
     sendJson(response, 405, { error: 'use GET' });
     return;
   }
-  let relative: string;
-  try {
-    relative = decodeURIComponent(pathname === '/' ? 'editor.html' : pathname.slice(1));
-  } catch {
-    sendJson(response, 400, { error: 'the path is not valid percent-encoding' });
+  const asset = PAGE_ASSETS.find((entry) => entry.path === pathname);
+  if (asset === undefined) {
+    sendJson(response, 404, { error: `no page file ${pathname}` });
     return;
   }
-  const path = resolve(join(ASSETS, relative));
-  if (path !== ASSETS && !path.startsWith(ASSETS.endsWith(sep) ? ASSETS : ASSETS + sep)) {
-    sendJson(response, 403, { error: 'that path is outside the page' });
-    return;
-  }
+  const path = join(ASSETS, asset.file);
   try {
     if (!(await stat(path)).isFile()) {
-      sendJson(response, 404, { error: 'not found' });
+      sendJson(response, 404, { error: `no page file ${pathname}` });
       return;
     }
   } catch {
-    sendJson(response, 404, { error: 'not found' });
+    sendJson(response, 404, { error: `no page file ${pathname}` });
     return;
   }
   response.writeHead(200, {
-    'content-type': MIME[extname(path)] ?? 'application/octet-stream',
+    'content-type': asset.mime,
     'cache-control': 'no-store',
   });
   createReadStream(path).pipe(response);

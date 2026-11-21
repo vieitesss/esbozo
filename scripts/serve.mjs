@@ -1,51 +1,37 @@
 /**
- * A static file server for the built editor page, so tests (and a person) can
- * open `dist/editor.html` over http: ES modules do not load from `file://`.
+ * A static file server for the built editor page, so the e2e suite can open
+ * `dist/editor.html` over http: ES modules do not load from `file://`.
+ *
+ * Test-only: `pnpm e2e` starts it on the port e2e picked, and `ez serve` is what
+ * a person runs — it answers the save API as well as the page. Both serve the
+ * same table, `src/page-assets.ts`, so neither can disagree about the page.
  *
  * Usage: node scripts/serve.mjs [folder] [port]
  */
 import { createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
 import { createServer } from 'node:http';
-import { extname, join, normalize, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
+import { PAGE_ASSETS } from '../src/page-assets.ts';
 
 const folder = resolve(process.argv[2] ?? 'dist');
 const port = Number(process.argv[3] ?? 4319);
 
-const MIME = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.ttf': 'font/ttf',
-  '.txt': 'text/plain; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.ico': 'image/x-icon',
-};
-
-const server = createServer(async (request, response) => {
-  const requested = decodeURIComponent((request.url ?? '/').split('?')[0]);
-  const path = join(folder, normalize(requested.endsWith('/') ? `${requested}index.html` : requested));
-  if (!path.startsWith(folder)) {
-    response.writeHead(403).end('forbidden');
+const server = createServer((request, response) => {
+  const pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
+  const asset = PAGE_ASSETS.find((entry) => entry.path === pathname);
+  if (asset === undefined) {
+    response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }).end('not found');
     return;
   }
-  try {
-    const stats = await stat(path);
-    if (!stats.isFile()) {
-      response.writeHead(404).end('not found');
-      return;
-    }
-    response.writeHead(200, {
-      'content-type': MIME[extname(path)] ?? 'application/octet-stream',
-      'cache-control': 'no-store',
-    });
-    createReadStream(path).pipe(response);
-  } catch {
-    response.writeHead(404).end('not found');
-  }
+  response.writeHead(200, {
+    'content-type': asset.mime,
+    'cache-control': 'no-store',
+  });
+  createReadStream(join(folder, asset.file)).pipe(response);
 });
 
 server.listen(port, '127.0.0.1', () => {
-  process.stdout.write(`serving ${folder} on http://127.0.0.1:${port}/\n`);
+  const address = server.address();
+  const bound = typeof address === 'object' && address !== null ? address.port : port;
+  process.stdout.write(`serving ${folder} on http://127.0.0.1:${bound}/\n`);
 });
