@@ -415,8 +415,16 @@ function shaftSide(along: Point): Point {
  */
 const FILLET_RADIUS = 7;
 
-/** How many chords one curve is measured by, for its length and its extremes. */
-const CURVE_STEPS = 32;
+/**
+ * How far a chord of a curve may sit from the ink it measures, in pixels. The
+ * chords are as many as a curve needs to stay inside it, so a short gentle bend
+ * is measured by a handful and a long sweeping one by hundreds.
+ */
+const CURVE_FLATNESS = 0.1;
+
+/** The fewest and the most chords one curve is measured by. */
+const CURVE_MIN_STEPS = 16;
+const CURVE_MAX_STEPS = 1024;
 
 /**
  * How small a quadratic's square term may be, against the rest of it, before the
@@ -446,6 +454,12 @@ interface CurvedPiece extends ShaftPieceBase {
   readonly kind: 'curved';
   readonly control1: Point;
   readonly control2: Point;
+  /**
+   * The arc length at each of the piece's own steps: `arcs[i]` is the length
+   * from `from` to the point at `u = i / (arcs.length - 1)`, so the last one is
+   * the whole piece. Measured once, so nothing has to walk the curve again.
+   */
+  readonly arcs: readonly number[];
 }
 
 /** One piece of a resolved shaft: a straight run, or the cubic curve it bends by. */
@@ -726,10 +740,43 @@ function straight(from: Point, to: Point): ShaftPiece {
   return { kind: 'straight', from, to, length: Math.hypot(to.x - from.x, to.y - from.y) };
 }
 
-/** A curve piece, measured along its own arc. */
+/** A curve piece, measured along its own arc, once. */
 function curve(from: Point, control1: Point, control2: Point, to: Point): ShaftPiece {
-  const measured: CurvedPiece = { kind: 'curved', from, control1, control2, to, length: 0 };
-  return { ...measured, length: curveLength(measured) };
+  const arcs = arcsOf(from, control1, control2, to);
+  return { kind: 'curved', from, control1, control2, to, arcs, length: arcs[arcs.length - 1]! };
+}
+
+/**
+ * The arc length of one curve at each of its own steps, from 0 at `from` to the
+ * whole piece at `to`.
+ */
+function arcsOf(from: Point, control1: Point, control2: Point, to: Point): number[] {
+  const steps = curveSteps(from, control1, control2, to);
+  const arcs = [0];
+  let previous = from;
+  let length = 0;
+  for (let step = 1; step <= steps; step += 1) {
+    const point = pointOnCurve(from, control1, control2, to, step / steps);
+    length += Math.hypot(point.x - previous.x, point.y - previous.y);
+    arcs.push(length);
+    previous = point;
+  }
+  return arcs;
+}
+
+/**
+ * How many chords one curve is measured by: as many as it takes for a chord to
+ * sit within `CURVE_FLATNESS` of the ink. A chord `1 / steps` of the way along
+ * the curve falls about `bend / (8 · steps²)` short of it, where `bend` is the
+ * curve's own second derivative — six times how sharply its control points turn.
+ */
+function curveSteps(from: Point, control1: Point, control2: Point, to: Point): number {
+  const tight = Math.max(
+    Math.hypot(from.x - 2 * control1.x + control2.x, from.y - 2 * control1.y + control2.y),
+    Math.hypot(control1.x - 2 * control2.x + to.x, control1.y - 2 * control2.y + to.y),
+  );
+  const steps = Math.ceil(Math.sqrt((6 * tight) / (8 * CURVE_FLATNESS)));
+  return Math.min(CURVE_MAX_STEPS, Math.max(CURVE_MIN_STEPS, steps));
 }
 
 /**
@@ -771,18 +818,22 @@ function samePoint(left: Point | undefined, right: Point): boolean {
  * `t = 1` on its end, and every fraction of its arc length in between, so a
  * curve and a straight shaft are measured by the same rule.
  */
-function shaftPointAt(path: ShaftPath, t: number): Point {
+function placedOn(path: ShaftPath, t: number): { at: Point; direction: Point } {
   const found = placeOn(path, t);
-  return pointOf(found.piece, found.u);
+  return { at: pointOf(found.piece, found.u), direction: directionAt(found.piece, found.u) };
 }
 
 /** The unit direction the shaft points in at a fraction of the way along it. */
 export function shaftTangentAt(path: ShaftPath, t: number): Point {
-  const found = placeOn(path, t);
-  if (found.piece.kind === 'straight') {
-    return unit(found.piece.from, found.piece.to);
+  return placedOn(path, t).direction;
+}
+
+/** The unit direction one placed piece points in. */
+function directionAt(piece: ShaftPiece, u: number): Point {
+  if (piece.kind === 'straight') {
+    return unit(piece.from, piece.to);
   }
-  const tangent = tangentOf(found.piece, found.u);
+  const tangent = tangentOf(piece, u);
   if (tangent.x !== 0 || tangent.y !== 0) {
     return unit({ x: 0, y: 0 }, tangent);
   }
@@ -790,10 +841,10 @@ export function shaftTangentAt(path: ShaftPath, t: number): Point {
   // itself, so read the direction from the ink a hair before it — or after it,
   // at the very start. Falling back on "rightwards" would turn a vertical
   // shaft's Label up instead of keeping it beside the ink.
-  const reach = found.u > CURVE_TOUCH ? found.u - CURVE_TOUCH : found.u + CURVE_TOUCH;
-  const here = pointOf(found.piece, found.u);
-  const there = pointOf(found.piece, reach);
-  return found.u > CURVE_TOUCH ? unit(there, here) : unit(here, there);
+  const reach = u > CURVE_TOUCH ? u - CURVE_TOUCH : u + CURVE_TOUCH;
+  const here = pointOf(piece, u);
+  const there = pointOf(piece, reach);
+  return u > CURVE_TOUCH ? unit(there, here) : unit(here, there);
 }
 
 /** A piece and how far along it a fraction of the shaft lands. */
@@ -808,25 +859,30 @@ function placeOn(path: ShaftPath, t: number): { piece: ShaftPiece; u: number } {
   return { piece: path.pieces[0]!, u: 0 };
 }
 
-/** How far along a piece, as its own parameter, a distance from its start lands. */
+/**
+ * How far along a piece, as its own parameter, a distance from its start lands:
+ * a bisection over the piece's own arc lengths, so a long curve is found in a
+ * dozen steps instead of walked chord by chord.
+ */
 function uAt(piece: ShaftPiece, distance: number): number {
   if (piece.kind === 'straight') {
     return piece.length === 0 ? 0 : Math.min(1, Math.max(0, distance / piece.length));
   }
-  let travelled = 0;
-  let previous = piece.from;
-  for (let step = 1; step <= CURVE_STEPS; step += 1) {
-    const u = step / CURVE_STEPS;
-    const point = pointOf(piece, u);
-    const chord = Math.hypot(point.x - previous.x, point.y - previous.y);
-    if (travelled + chord >= distance || step === CURVE_STEPS) {
-      const inside = chord === 0 ? 0 : (distance - travelled) / chord;
-      return (step - 1 + Math.min(1, Math.max(0, inside))) / CURVE_STEPS;
+  const arcs = piece.arcs;
+  const steps = arcs.length - 1;
+  let short = 0;
+  let long = steps;
+  while (long - short > 1) {
+    const middle = (short + long) >> 1;
+    if (arcs[middle]! <= distance) {
+      short = middle;
+    } else {
+      long = middle;
     }
-    travelled += chord;
-    previous = point;
   }
-  return 1;
+  const chord = arcs[long]! - arcs[short]!;
+  const inside = chord === 0 ? 0 : (distance - arcs[short]!) / chord;
+  return (short + Math.min(1, Math.max(0, inside))) / steps;
 }
 
 /** The point a piece reaches at its own parameter `u`. */
@@ -834,28 +890,30 @@ function pointOf(piece: ShaftPiece, u: number): Point {
   if (piece.kind === 'straight') {
     return lerp(piece.from, piece.to, u);
   }
+  return pointOnCurve(piece.from, piece.control1, piece.control2, piece.to, u);
+}
+
+/** The point one cubic reaches at its own parameter `u`. */
+function pointOnCurve(
+  from: Point,
+  control1: Point,
+  control2: Point,
+  to: Point,
+  u: number,
+): Point {
   const rest = 1 - u;
   const before = rest * rest * rest;
   const first = 3 * rest * rest * u;
   const second = 3 * rest * u * u;
   const last = u * u * u;
   return {
-    x:
-      piece.from.x * before +
-      piece.control1.x * first +
-      piece.control2.x * second +
-      piece.to.x * last,
-    y:
-      piece.from.y * before +
-      piece.control1.y * first +
-      piece.control2.y * second +
-      piece.to.y * last,
+    x: from.x * before + control1.x * first + control2.x * second + to.x * last,
+    y: from.y * before + control1.y * first + control2.y * second + to.y * last,
   };
 }
 
 /** The derivative of a curve piece at its own parameter `u`, before it is normalised. */
-function tangentOf(piece: CurvedPiece, u: number): Point {
-  const rest = 1 - u;
+function tangentOf(piece: CurvedPiece, u: number): Point {  const rest = 1 - u;
   const before = 3 * rest * rest;
   const first = 6 * rest * u;
   const second = 3 * u * u;
@@ -869,18 +927,6 @@ function tangentOf(piece: CurvedPiece, u: number): Point {
       (piece.control2.y - piece.control1.y) * first +
       (piece.to.y - piece.control2.y) * second,
   };
-}
-
-/** The arc length of a curve piece, as the chords it is walked by add up to. */
-function curveLength(piece: CurvedPiece): number {
-  let length = 0;
-  let previous = piece.from;
-  for (let step = 1; step <= CURVE_STEPS; step += 1) {
-    const point = pointOf(piece, step / CURVE_STEPS);
-    length += Math.hypot(point.x - previous.x, point.y - previous.y);
-    previous = point;
-  }
-  return length;
 }
 
 /** The box every piece covers, at the extremes its curves really reach. */
@@ -969,9 +1015,12 @@ export function shaftLabelAnchor(
   path: ShaftPath,
   labelAt: { t: number; offset: number },
 ): Point {
-  const at = shaftPointAt(path, labelAt.t);
-  const side = shaftSide(unit({ x: 0, y: 0 }, shaftTangentAt(path, labelAt.t)));
-  return { x: at.x + side.x * labelAt.offset, y: at.y + side.y * labelAt.offset };
+  const found = placedOn(path, labelAt.t);
+  const side = shaftSide(found.direction);
+  return {
+    x: found.at.x + side.x * labelAt.offset,
+    y: found.at.y + side.y * labelAt.offset,
+  };
 }
 
 /** A bar head: a short stroke across the end, perpendicular to the arrow. */

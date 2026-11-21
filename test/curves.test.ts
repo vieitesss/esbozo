@@ -262,6 +262,37 @@ function inkSamples(d: string, along = 16): Point[] {
   return points;
 }
 
+/**
+ * The ink of one stroke pass: a shaft's path carries one pass per subpath, and
+ * this is the first of them.
+ */
+function firstPass(d: string): string {
+  const start = d.indexOf('M');
+  const next = d.indexOf('M', start + 1);
+  return next < 0 ? d : d.slice(0, next);
+}
+
+/**
+ * The point half way along a path's ink, measured by walking the ink itself in
+ * fine steps: the length of the whole path, then the point that length leads to.
+ */
+function arcMiddle(d: string): Point {
+  const points = inkSamples(d, 2000);
+  const lengths = [0];
+  for (let index = 1; index < points.length; index += 1) {
+    const before = points[index - 1]!;
+    const point = points[index]!;
+    lengths.push(lengths[index - 1]! + Math.hypot(point.x - before.x, point.y - before.y));
+  }
+  const half = lengths[lengths.length - 1]! / 2;
+  const step = lengths.findIndex((length) => length >= half);
+  const before = points[step - 1]!;
+  const point = points[step]!;
+  const span = lengths[step]! - lengths[step - 1]!;
+  const inside = span === 0 ? 0 : (half - lengths[step - 1]!) / span;
+  return { x: before.x + (point.x - before.x) * inside, y: before.y + (point.y - before.y) * inside };
+}
+
 /** One point of a cubic curve at `u`. */
 function curveAt(from: Point, control1: Point, control2: Point, to: Point, u: number): Point {
   const rest = 1 - u;
@@ -762,6 +793,33 @@ test('labelAt offsets along the side the curve is on at that fraction', async ()
   const centre = wordsCentre(svg);
   assert.ok(near(centre.x, 100, 1), `the words stay on the bend, got x ${centre.x}`);
   assert.ok(near(centre.y, 138, 1.5), `the words move up by the offset, got y ${centre.y}`);
+});
+
+test('labelAt puts the words on the middle of a long curve, not the middle of its chords', async () => {
+  // A curve this long holds a lot of arc between two of its own chords: the ink
+  // is measured finely enough that half its length lands on the ink, not a few
+  // pixels behind it as thirty-two chords would have it.
+  const svg = await ink(
+    oneArrow(
+      [
+        { x: 0, y: 0 },
+        { x: 10000, y: 15000, corner: 'round' },
+        { x: 30000, y: 0, corner: 'round' },
+        { x: 100000, y: 10000 },
+      ],
+      {
+        label: 'middle',
+        labelAt: { t: 0.5, offset: 0 },
+        heads: { start: 'none', end: 'none' },
+      },
+    ),
+  );
+
+  const shaft = firstPass(attribute(shaftFrom(svg, { x: 0, y: 0 }), 'd') ?? '');
+  const middle = arcMiddle(shaft);
+  const centre = wordsCentre(svg);
+  const missed = Math.hypot(centre.x - middle.x, centre.y - middle.y);
+  assert.ok(missed < 0.5, `the words sit on the middle of the ink, ${missed}px off`);
 });
 
 test('labelAt measures a cornered shaft along its legs, corner included', async () => {
