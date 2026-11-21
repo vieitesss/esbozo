@@ -61,7 +61,8 @@ export function arranged(
   if (act.startsWith('order-')) {
     return layered(elements, ids, act as LayerAct);
   }
-  // One measuring pass for the whole operation, over the Elements it may move.
+  // Measured on demand, and only for the Elements the action may move: Order
+  // needs no bounds at all.
   const boxes = new Map<string, Box>();
   for (const element of elements) {
     const box = ids.has(element.id) && movable(element) ? boundsOf(element) : undefined;
@@ -189,9 +190,15 @@ function distributed(
   } else {
     // The boxes need more room than they have, so a gap between their edges
     // cannot be even: their middles are spaced between the outermost two, which
-    // keeps the row in the order it was picked in.
+    // keeps the row in the order it was picked in. The two ends are pinned, so
+    // when the leading box is wider than the span its middle already sits past
+    // the tail's: there is no room to walk forward, and a row that cannot keep
+    // its order is left exactly as it was.
     const from = start(first) + size(first) / 2;
     const each = (start(last) + size(last) / 2 - from) / ends;
+    if (each <= 0) {
+      return [...elements];
+    }
     order.forEach((id, index) => {
       const box = boxes.get(id)!;
       const middle = from + each * index;

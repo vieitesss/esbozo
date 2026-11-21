@@ -25,6 +25,8 @@ import {
   EDGE_SCENE,
   LONG_1366,
   LONG_SCENE,
+  PINNED,
+  PINNED_SCENE,
   MIXED,
   MIXED_SCENE,
   OVERFLOW,
@@ -72,6 +74,7 @@ const TETHER_SOURCE = JSON.stringify(TETHER_SCENE, null, 2);
 const ARRANGE_SOURCE = JSON.stringify(ARRANGE_SCENE, null, 2);
 const WIDE_SOURCE = JSON.stringify(WIDE_SCENE, null, 2);
 const LONG_SOURCE = JSON.stringify(LONG_SCENE, null, 2);
+const PINNED_SOURCE = JSON.stringify(PINNED_SCENE, null, 2);
 const SHAFT_SOURCE = JSON.stringify(SHAFT_SCENE, null, 2);
 
 /** The middle of `b`, the one solid grey box in the fixture. */
@@ -1007,6 +1010,24 @@ test('Spread spaces boxes too wide for their gaps by their centres, never backwa
   const saved = new Map(scene.elements.map((element) => [element.id, element]));
   expect(['lead', 'wide', 'tail'].map((id) => saved.get(id)?.x)).toEqual([0, -15, 60]);
   expect(['lead', 'wide', 'tail'].map((id) => saved.get(id)?.width)).toEqual([10, 100, 10]);
+});
+
+test('Spread leaves a row alone when its pinned outer centres leave no room to walk forward', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'pinned.json': PINNED_SOURCE } }, 'pinned.json');
+
+  // (0,200), (35,10), (70,10): the leading box is wider than the span, so its
+  // middle is at 100 and the tail's at 75. Even middles would run the row
+  // backwards, and spreading through the edges would cross them: nothing moves.
+  await clickScene(ui, { x: 100, y: 60 }, [], PINNED);
+  await clickScene(ui, { x: 40, y: 70 }, ['Shift'], PINNED);
+  await clickScene(ui, { x: 75, y: 70 }, ['Shift'], PINNED);
+  await control(ui, 'Spread: horizontal').click();
+
+  const scene = await savedScene(ui, 'pinned.json');
+  const saved = new Map(scene.elements.map((element) => [element.id, element]));
+  expect(['lead', 'mid', 'tail'].map((id) => saved.get(id)?.x)).toEqual([0, 35, 70]);
+  expect(scene.elements.map((element) => element.id)).toEqual(['lead', 'mid', 'tail']);
 });
 
 test('Arrange leaves a Snapped line to its targets', async ({ app, browser, screen }) => {

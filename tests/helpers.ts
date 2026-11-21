@@ -186,6 +186,26 @@ export const OVERFLOW_SCENE = {
 export const OVERFLOW: View = { zoom: 1, panX: 550, panY: 340 };
 
 /**
+ * Three boxes whose pinned outer centres leave no room to walk forward: the
+ * leading box is wider than the whole span, so its middle sits right of the
+ * tail's. Spacing their middles evenly would run the row backwards, so Spread
+ * has to leave them where they are.
+ */
+export const PINNED_SCENE = {
+  version: 1,
+  title: 'Pinned',
+  defaults: { roughness: 1 },
+  elements: [
+    { id: 'lead', type: 'rectangle', x: 0, y: 40, width: 200, height: 40 },
+    { id: 'mid', type: 'rectangle', x: 35, y: 40, width: 10, height: 60 },
+    { id: 'tail', type: 'rectangle', x: 70, y: 40, width: 10, height: 60 },
+  ],
+};
+
+/** The view `PINNED_SCENE` lands in at 1280×800, worked out the same way as `VIEW`. */
+export const PINNED: View = { zoom: 1, panX: 540, panY: 330 };
+
+/**
  * Three rectangles at uneven spacing, for Arrange: layer order, alignment and
  * each axis's distribution move a different one of them, so a test can tell
  * the actions apart from the saved geometry.
