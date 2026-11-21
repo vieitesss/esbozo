@@ -206,7 +206,7 @@ test('a new Text is typed in place, in the hand it draws in, and stays as words 
 
   await screen.getByRole('textbox', { name: 'Text' }).press('Escape');
   await ui.agent.assert(
-    'the words "draw me" are still on the empty paper, in the same hand, and there is no cursor or input field beside them',
+    'the words "draw me" are still on the empty paper, in the same hand, and there is no cursor or input field beside them. The words stay selected after being committed, so a thin dashed box hugs them: that box is the editor’s own selection, not a form',
     { vision: 'only' },
   );
 });
@@ -219,7 +219,7 @@ test('the Style menu is a note taped to the right edge, and it leaves the select
   await clickScene(ui, { x: 760, y: 80 }, [], EDGE);
 
   await ui.agent.assert(
-    'a pale paper note held by a strip of tape at its top is docked against the right edge of the window; inside it are short rows of small buttons in a hand-written style; the selected rectangle is fully visible in the canvas beside the note and no part of it is hidden behind the note',
+    'a pale paper note held by a strip of tape at its top sits against the right edge of the window, tipped a fraction of a degree the way a taped note hangs; inside it are short rows of small buttons in a hand-written style; the selected rectangle is fully visible in the canvas beside the note and no part of it is hidden behind the note',
     { vision: 'only' },
   );
 
