@@ -293,6 +293,30 @@ test('explicit --ink, --paper and --muted colours reach the PNG', async () => {
   assert.ok(hasPixel(png, isGreen), 'the muted outline is green');
 });
 
+test('a colour the theme declares wins over the fallback the SVG carries', async () => {
+  // The written SVG falls back to the editor's light theme — ink `#1b1a17`,
+  // paper `#fbf8f1`, muted `#878580` — for a browser with no stylesheet. A PNG
+  // is drawn from the theme the command resolved, so every one of those is
+  // answered by it instead: a grey-6 fill takes the theme's ink, the page takes
+  // its paper, and the muted stroke takes its muted.
+  const folder = await sceneFolder({
+    version: 1,
+    elements: [
+      { id: 'solid', type: 'rectangle', x: 20, y: 20, width: 120, height: 80, fill: { kind: 'solid', grey: 6 } },
+      { id: 'quiet', type: 'rectangle', x: 200, y: 20, width: 120, height: 80, tone: 'muted', stroke: { width: 'extra' } },
+    ],
+  });
+
+  const { png } = await pngOne(
+    ['png', 'scene.json', '--theme', 'light', '--ink', '#003366', '--paper', '#ffffff', '--muted', '#00aa00'],
+    folder,
+  );
+
+  assert.deepEqual(png.pixel(0, 0), [255, 255, 255, 255], 'the paper is the theme\'s, not the fallback ivory');
+  assert.deepEqual(png.pixel(100, 80), [0x00, 0x33, 0x66, 255], 'a grey-6 fill is the theme ink, not the fallback ink');
+  assert.ok(hasPixel(png, isGreen), 'the muted stroke is the theme muted, not the fallback grey');
+});
+
 test('with no alignment written, a Label centres and a Text stays at its left edge', async () => {
   // One-em-wide glyphs, so `aa` at M is exactly 36px and the ink bounds say
   // where the words were placed without guessing at Kalam's advances.
@@ -1446,4 +1470,31 @@ test('a theme colour written as a color-mix is resolved too', async () => {
   const { png } = await pngOne(['png', 'scene.json', '--theme', 'light', '--css', 'site.css'], folder);
 
   assert.deepEqual(png.pixel(0, 0), [255, 255, 255, 255]);
+});
+
+test('a var() fallback is read only when the stylesheet leaves the name out', async () => {
+  // A grey-6 fill is drawn as the theme's ink, so the middle of the box is what
+  // `--ink` resolves to: `#003366` when only the fallback answers it, and the
+  // paper this stylesheet declares when the name itself does.
+  const folder = await sceneFolder({
+    version: 1,
+    elements: [
+      { id: 'solid', type: 'rectangle', x: 20, y: 20, width: 120, height: 80, fill: { kind: 'solid', grey: 6 } },
+    ],
+  });
+
+  const cases = [
+    ['fallback.css', 'var(--accent, #003366)', [0x00, 0x33, 0x66, 255]],
+    ['declared.css', 'var(--paper, #003366)', [0xfa, 0xfa, 0xfa, 255]],
+  ] as const;
+
+  for (const [css, ink, expected] of cases) {
+    await writeFile(
+      join(folder, css),
+      `:root { --ink: ${ink}; --paper: #fafafa; --muted: #777777; }`,
+      'utf8',
+    );
+    const { png } = await pngOne(['png', 'scene.json', '--theme', 'light', '--css', css], folder);
+    assert.deepEqual(png.pixel(100, 80), [...expected], css);
+  }
 });
