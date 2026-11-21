@@ -51,7 +51,7 @@ Every Element has these keys.
 | --- | --- | --- | --- |
 | `points` | array of two or more points | none, required | The first and last are the ends; every point between them is a bend point. |
 | `heads` | object | arrow: `{ "start": "none", "end": "arrow" }`; line: both `none` | Keys `start` and `end` only, each `none`, `arrow`, `dot` or `bar`. A missing key takes the default. |
-| `label` | string | none | As above. It does not wrap: it breaks only at `\n`. Without `labelAt` it is centred on the middle of the line between the two ends, on the side that points up (left of a vertical shaft); `textAlign` does not apply to it. Every arrow's or line's Label has paper behind it. `ez check` does not measure it. |
+| `label` | string | none | As above. It does not wrap: it breaks only at `\n`. Without `labelAt` it is centred on the middle of the line between the two ends, on the side that points up (left of a vertical shaft); each line reads from the edge `textAlign` names inside the block the words fill. Every arrow's or line's Label has paper behind it. `ez check` does not measure it. |
 | `labelAt` | object | none: Layout's own place | Keys `t` and `offset` only. `t` is the fraction of the drawn shaft's length: `0` at the start, `1` at the end, between `0` and `1`. `offset` is a signed distance in pixels to one side, rounded to whole pixels: `0` sits on the shaft, and a positive value is the local perpendicular side where the words land — up while the run there is level, left while it runs down the page — which is the side at that fraction of the ink, not the side the default Label takes, and not a side the line between the two ends decides. Only an arrow or line carries one. |
 
 A Label with `labelAt` is centred on the point that fraction of the way along the
@@ -113,15 +113,15 @@ These keys sit in `defaults` for the whole Scene, and on any Element, where they
 | `tone` | string | `"ink"` | `ink` or `muted`: the colour of the stroke and the words. |
 | `corners` | string | `"sharp"` | `sharp` or `round`. Rounds a rectangle's or a diamond's vertices, and sets the corner an arrow's or line's bend point turns by. |
 | `fontSize` | string | `"M"` | `S` (14px), `M` (18px), `L` (24px) or `XL` (32px). |
-| `textAlign` | string | none written: `"center"` for a box Label, `"left"` for a Text | `left`, `center` or `right`. Written on an Element or in `defaults`, it wins for every box Label (rectangle, ellipse, diamond) and Text it covers. An arrow's or line's Label ignores it (see Elements); the editor offers no Text Align for them. |
+| `textAlign` | string | none written: `"center"` for a Label, `"left"` for a Text | `left`, `center` or `right`. Written on an Element or in `defaults`, it wins for every Label (a box's, an arrow's or a line's) and Text it covers. |
 
-Unwritten `textAlign` means what suits the words: a box Label centres in its Element, and a Text keeps the left edge its `x` places. Write `"textAlign": "center"` in `defaults` to centre Text too. Write `"left"` to put box Labels on the left edge.
+Unwritten `textAlign` means what suits the words: a Label centres — in the box that holds it, and in the block a shaft gives it — and a Text keeps the left edge its `x` places. Write `"textAlign": "center"` in `defaults` to centre Text too. Write `"left"` to put Labels on the left edge, and a shaft's lines on the left edge of their block.
 
 Every Element accepts every style key, and each type draws the ones that mean something to it:
 
 - Rectangle and diamond: all of them. `corners` rounds their corners.
 - Ellipse: all except `corners`, which it has none of.
-- Arrow and line: `roughness`, `stroke`, `tone`, `corners` for their bend points, and `fontSize` for the Label. They have no fill and no `textAlign` effect: their Label sits on the shaft, placed by `labelAt` when one is written.
+- Arrow and line: `roughness`, `stroke`, `tone`, `corners` for their bend points, and `fontSize` and `textAlign` for the Label. They have no fill: their Label sits on the shaft, placed by `labelAt` when one is written.
 - Text: `tone`, `fontSize` and `textAlign`.
 
 Colours are never written in a Scene. The look comes from the host's CSS variables `--ink`, `--paper`, `--muted` and `--font-hand`, and each one is written with the light theme's value as its fallback (`var(--ink, #1b1a17)`, `var(--paper, #fbf8f1)`, `var(--muted, #878580)`, `var(--font-hand, 'Kalam', 'Bradley Hand', 'Segoe Print', cursive)`), so a saved SVG opened on its own — or dropped into an `<img>` — still draws paper, ink and words; a host that declares the name wins over the fallback. The grey ladder is a fixed mix of ink into paper. There is no opacity, rotation, image, group or frame.
@@ -134,4 +134,4 @@ Colours are never written in a Scene. The look comes from the host's CSS variabl
 
 A Label wraps at spaces inside the largest centred box its Element holds, less padding. The box is the whole Element for a rectangle, `1/√2` of each side for an ellipse and half of each side for a diamond, minus `8` pixels plus the stroke width on every side. A word wider than the box is not split. What does not fit overflows: the SVG still draws it, and `ez check` reports it and exits `6`. The Scene keeps the size you gave the Element; widen or heighten it, or shorten the words.
 
-A Label that belongs to an arrow or line has no box to wrap in and no overflow to report: it sits on the shaft, where `labelAt` puts it or above the middle of the line between the ends when the Scene writes none, and the Renderer draws paper behind it so it never reads through the shaft.
+A Label that belongs to an arrow or line has no box to wrap in and no overflow to report: it sits on the shaft, where `labelAt` puts it or above the middle of the line between the ends when the Scene writes none, and the Renderer draws paper behind it so it never reads through the shaft. Its block keeps that place whatever `textAlign` says: the lines read from the block's left edge, its centre or its right edge, so one line lands where it always did and several line up with each other.

@@ -25,8 +25,9 @@
  * An arrow's or line's Label has no box to wrap in, so it only breaks where the
  * author wrote a newline, and each line is measured once. It sits on one side
  * of the shaft — above it, or to the left when the shaft is vertical — far
- * enough out that the words clear the line at any heading. The Renderer passes
- * the drawn shaft in, because Snap moves the ends.
+ * enough out that the words clear the line at any heading, and its lines read
+ * from the edge its `textAlign` names inside the block they fill. The Renderer
+ * passes the drawn shaft in, because Snap moves the ends.
  *
  * A newline is a line break the author asked for; a run of ASCII spaces or tabs
  * is where a wrapped line may break; every other character, a non-breaking
@@ -422,9 +423,11 @@ function labelBlock(
       throw new Error(`${element.id}: a shaft Label needs the shaft that is drawn`);
     }
     const words = measured(element.label, size, null, metrics);
-    // A shaft's Label is centred on its middle whatever the Element's alignment:
-    // there is no box, and off-centre words would read as a mistake. It sits to
-    // one side, far enough out that even a corner of the box clears the shaft.
+    // A shaft's Label keeps its block where the shaft puts it — centred on the
+    // middle of the ink, to one side — and each line reads inside that block the
+    // way the Element's alignment asks. Centred is what an unwritten alignment
+    // resolves to, so a Scene that never writes one keeps the place it had. The
+    // words sit far enough out that even a corner of the block clears the shaft.
     const middle = midpoint(shaft.start, shaft.end);
     const side = shaftSide({ x: shaft.end.x - shaft.start.x, y: shaft.end.y - shaft.start.y });
     const reach =
@@ -433,7 +436,9 @@ function labelBlock(
       x: middle.x + side.x * reach,
       y: middle.y + side.y * reach,
     };
-    return placed(words, 'middle', centre.x, centre.y - words.height / 2);
+    const anchor = anchorFor(element.textAlign);
+    const left = centre.x - words.width / 2;
+    return placed(words, anchor, anchoredLeft(left, words.width, anchor), centre.y - words.height / 2);
   }
 
   const area = labelArea(element);
@@ -777,6 +782,15 @@ function anchorFor(align: TextAlign): Block['anchor'] {
 /** The left edge of a block whose lines anchor at `alignX`. */
 function leftOf(alignX: number, width: number, anchor: Block['anchor']): number {
   return anchor === 'start' ? alignX : anchor === 'middle' ? alignX - width / 2 : alignX - width;
+}
+
+/**
+ * The x a block's lines anchor at, so a block of `width` keeps the left edge
+ * `left` whatever its alignment: the lines read from that edge, from its middle
+ * or from its right one, and the block itself never moves.
+ */
+function anchoredLeft(left: number, width: number, anchor: Block['anchor']): number {
+  return anchor === 'start' ? left : anchor === 'middle' ? left + width / 2 : left + width;
 }
 
 function midpoint(from: Point, to: Point): Point {

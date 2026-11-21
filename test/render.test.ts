@@ -400,6 +400,53 @@ test('a failed write exits 4, which no other failure uses', async () => {
   assert.match(run.stderr, /cannot write SVG .*scene\.svg/);
 });
 
+test('a shaft Label keeps its block and draws each line from its textAlign edge', async () => {
+  /** The words of a two-line shaft Label, as each line is drawn. */
+  const linesOf = async (
+    textAlign: string,
+  ): Promise<{ x: number; anchor: string; text: string }[]> => {
+    const svg = await renderOne({
+      version: 1,
+      title: 'Aligned',
+      defaults: { roughness: 0 },
+      elements: [
+        {
+          id: 'a',
+          type: 'line',
+          points: [
+            { x: 0, y: 100 },
+            { x: 400, y: 100 },
+          ],
+          label: 'one\ntwo',
+          textAlign,
+        },
+      ],
+    });
+    // check-rules: markup of a written SVG file, not the page
+    return [...svg.matchAll(/<text x="([^"]*)"[^>]*text-anchor="([^"]*)"[^>]*>([^<]*)<\/text>/g)].map(
+      (found) => ({ x: Number(found[1]), anchor: found[2]!, text: found[3]! }),
+    );
+  };
+
+  const centred = await linesOf('center');
+  const left = await linesOf('left');
+  const right = await linesOf('right');
+  assert.equal(centred.length, 2, 'a newline breaks a shaft Label into two lines');
+  assert.equal(centred[0]!.anchor, 'middle');
+  assert.equal(centred[0]!.x, 200, 'centred, as every shaft Label was before an alignment');
+
+  // One block either way: the lines read from its left edge, or its right one,
+  // and the block keeps the middle of the shaft.
+  assert.equal(left[0]!.anchor, 'start');
+  assert.equal(right[0]!.anchor, 'end');
+  assert.equal(left[0]!.x + right[0]!.x, 400, 'the two edges straddle the shaft’s middle');
+  assert.ok(left[0]!.x < centred[0]!.x && centred[0]!.x < right[0]!.x, 'and sit either side');
+  for (const [index, line] of left.entries()) {
+    assert.equal(line.x, left[0]!.x, 'every left line starts at the same edge');
+    assert.equal(right[index]!.x, right[0]!.x, 'and every right line ends at the other');
+  }
+});
+
 test('a shaft Label with labelAt sits at the fraction and to the side it names', async () => {
   // `text-anchor="middle"` puts the text's x on the anchor itself, so the
   // fraction reads straight off the drawing: 0 is the start, 1 the end.
