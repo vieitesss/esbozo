@@ -18,6 +18,7 @@ import { promisify } from 'node:util';
 import { inflateSync } from 'node:zlib';
 import opentype from 'opentype.js';
 import { test } from 'node:test';
+import { writeFont } from './fonts.ts';
 
 const run = promisify(execFile);
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
@@ -290,6 +291,57 @@ test('explicit --ink, --paper and --muted colours reach the PNG', async () => {
   assert.deepEqual(png.pixel(0, 0), [255, 255, 255, 255]);
   assert.ok(hasPixel(png, isRed), 'the ink outline is red');
   assert.ok(hasPixel(png, isGreen), 'the muted outline is green');
+});
+
+test('with no alignment written, a Label centres and a Text stays at its left edge', async () => {
+  // One-em-wide glyphs, so `aa` at M is exactly 36px and the ink bounds say
+  // where the words were placed without guessing at Kalam's advances.
+  const folder = await sceneFolder({
+    version: 1,
+    title: 'Alignment',
+    defaults: { roughness: 0 },
+    elements: [
+      { id: 'box', type: 'rectangle', x: 0, y: 0, width: 200, height: 100, label: 'aa', fontSize: 'M' },
+      { id: 'words', type: 'text', x: 0, y: 200, content: 'aa', fontSize: 'M' },
+    ],
+  });
+  await writeFont(folder, 'wide.ttf');
+  const { png } = await pngOne(
+    ['png', 'scene.json', '--theme', 'light', '--font', 'wide.ttf'],
+    folder,
+  );
+
+  // The page pads the Scene by 16px, so Scene x is pixel x + 16.
+  const ink = (fromY: number, toY: number, fromX: number, toX: number) => {
+    let left = Number.POSITIVE_INFINITY;
+    let right = -1;
+    for (let y = fromY; y < toY; y += 1) {
+      for (let x = fromX; x < toX; x += 1) {
+        if (isInk(png.pixel(x, y))) {
+          left = Math.min(left, x);
+          right = Math.max(right, x);
+        }
+      }
+    }
+    return { left, right };
+  };
+
+  // Inside the box, away from its outline: the Label's words are centred on the
+  // box's own middle, pixel 116.
+  const label = ink(40, 90, 24, 208);
+  assert.ok(label.right > label.left, 'the Label is drawn');
+  assert.ok(
+    Math.abs((label.left + label.right) / 2 - 116) <= 2,
+    `the Label is centred on the box, ink from ${label.left} to ${label.right}`,
+  );
+
+  // The Text's `x` is its left edge, so its words start at the page's 16.
+  const words = ink(210, 245, 0, png.width);
+  assert.ok(words.right > words.left, 'the Text is drawn');
+  assert.ok(
+    words.left >= 16 && words.left <= 18,
+    `the Text starts at its left edge, ink from ${words.left} to ${words.right}`,
+  );
 });
 
 test('an Element that writes no fill paints no fill', async () => {

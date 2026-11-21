@@ -21,7 +21,7 @@ const BOX = {
   elements: [{ id: 'a', type: 'rectangle', x: 40, y: 40, width: 120, height: 80 }],
 };
 
-const { hashScene, parseScene, renderScene, serialiseScene, createLayout, measureFont, KALAM } =
+const { hashScene, parseScene, renderScene, serialiseScene, emptyScene, createLayout, measureFont, KALAM } =
   await loadProjectModules();
 
 /** The drawing is measured with the bundled font, as `ez render` measures it. */
@@ -127,6 +127,56 @@ test('drawing a Snap whose target has no outline fails loudly', () => {
 
   arrow.points[1] = { ...arrow.points[1]!, snap: 'nowhere' };
   assert.throws(() => renderScene(toWords, LAYOUT), /arrow: snap target "nowhere" does not exist/);
+});
+
+test('a Scene that writes no alignment centres its Labels and leaves its Text left', () => {
+  // The Scene the editor starts from: no alignment, so each Element resolves
+  // its own. A Scene saved from it and reopened must read the same way.
+  const saved = JSON.parse(serialiseScene(emptyScene('Bare')));
+  assert.deepEqual(
+    saved.defaults,
+    {
+      roughness: 1,
+      stroke: { width: 'bold', style: 'solid' },
+      fill: { kind: 'none', grey: 2 },
+      tone: 'ink',
+      corners: 'sharp',
+      fontSize: 'M',
+    },
+    'a new Scene writes no alignment and no fill',
+  );
+
+  saved.elements = [
+    { id: 'box', type: 'rectangle', x: 40, y: 40, width: 160, height: 120, label: 'orders' },
+    { id: 'words', type: 'text', x: 40, y: 200, content: 'free-standing' },
+  ];
+  const [box, words] = parsed(saved).elements;
+  assert.equal(box?.textAlign, 'center', 'a Label centres in the Element it belongs to');
+  assert.equal(words?.textAlign, 'left', 'a Text keeps the left edge its x places');
+});
+
+test('a written textAlign wins, in the Scene or in the Element', () => {
+  const elements = [
+    { id: 'box', type: 'rectangle', x: 40, y: 40, width: 160, height: 120, label: 'orders' },
+    { id: 'words', type: 'text', x: 40, y: 200, content: 'free-standing' },
+  ];
+
+  const fromScene = parsed({ version: 1, defaults: { textAlign: 'right' }, elements });
+  assert.deepEqual(
+    fromScene.elements.map((element) => element.textAlign),
+    ['right', 'right'],
+    'defaults.textAlign reaches Labels and Text alike',
+  );
+
+  const fromElement = parsed({
+    version: 1,
+    elements: [{ ...elements[0], textAlign: 'left' }, { ...elements[1], textAlign: 'center' }],
+  });
+  assert.deepEqual(
+    fromElement.elements.map((element) => element.textAlign),
+    ['left', 'center'],
+    "an Element's own textAlign wins over the type default",
+  );
 });
 
 const CONNECTOR = {

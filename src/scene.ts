@@ -14,8 +14,7 @@
  *     "fill": { "kind": "none", "grey": 2 },
  *     "tone": "ink",
  *     "corners": "sharp",
- *     "fontSize": "M",
- *     "textAlign": "left"
+ *     "fontSize": "M"
  *   },
  *   "elements": [
  *     {
@@ -29,7 +28,6 @@
  *       "tone": "ink",                              // ink | muted
  *       "corners": "sharp",                         // sharp | round: rectangles and diamonds
  *       "fontSize": "M",                            // S | M | L | XL
- *       "textAlign": "left"                         // left | center | right
  *       "label": "Orders and invoices"              // optional: wraps inside the box
  *     },
  *     {
@@ -48,7 +46,7 @@
  *       "x": 40, "y": 200,
  *       "content": "Free-standing Text",            // newlines are line breaks
  *       "fontSize": "L",
- *       "textAlign": "left"
+ *       "textAlign": "left"                         // left | center | right
  *     }
  *   ]
  * }
@@ -60,10 +58,14 @@
  * is resolved by the Renderer, because that needs the whole Scene.
  *
  * Roughness, stroke, fill, tone and corners draw. Text and Labels draw with
- * tone, font size and text alignment. Fill and corners apply to closed
- * outlines: an arrow or line is a stroke, so it has no fill and no corners.
- * `corners` rounds the vertices of a rectangle or a diamond; an ellipse has no
- * corners, so it ignores the field.
+ * tone, font size and text alignment. A `textAlign` written on the Element, or
+ * in the Scene `defaults`, is the alignment of both; when neither writes one, a
+ * Label centres in the Element it belongs to and a Text keeps the left edge its
+ * `x` places, which is the edge an author aligns words to. Nothing is filled
+ * unless the Scene asks: `fill` defaults to none. Fill and corners apply to
+ * closed outlines: an arrow or line is a stroke, so it has no fill and no
+ * corners. `corners` rounds the vertices of a rectangle or a diamond; an
+ * ellipse has no corners, so it ignores the field.
  *
  * A Label is words that belong to an Element and wrap inside it: a rectangle,
  * ellipse, diamond, arrow or line carries one optional Label, and a Text is
@@ -227,8 +229,12 @@ export interface TextElement extends ElementBase {
 
 export type Element = OutlinedElement | ArrowOrLineElement | TextElement;
 
-/** Scene-wide style; every field of it has a default. */
-export type SceneStyle = ElementStyle;
+/**
+ * Scene-wide style; every field of it has a default. `textAlign` is the one
+ * field a Scene may leave unset, because what it falls back to depends on the
+ * Element (see `UNWRITTEN_TEXT_ALIGN`).
+ */
+export type SceneStyle = Omit<ElementStyle, 'textAlign'> & { textAlign?: TextAlign };
 
 export interface Scene {
   version: typeof SCENE_VERSION;
@@ -254,7 +260,17 @@ const DEFAULT_STYLE: SceneStyle = {
   tone: 'ink',
   corners: 'sharp',
   fontSize: 'M',
-  textAlign: 'left',
+};
+
+/**
+ * What an unwritten alignment means: a Label centres in the Element it belongs
+ * to, and a Text keeps the left edge its `x` places, because `x` is the edge the
+ * author aligned the words to. Only an explicit `textAlign`, on the Element or
+ * in the Scene `defaults`, overrides that.
+ */
+const UNWRITTEN_TEXT_ALIGN: Readonly<Record<'label' | 'text', TextAlign>> = {
+  label: 'center',
+  text: 'left',
 };
 
 const DEFAULT_TITLE = 'Scene';
@@ -483,7 +499,9 @@ function serialiseStyle(style: SceneStyle): SceneStyle {
     tone: style.tone,
     corners: style.corners,
     fontSize: style.fontSize,
-    textAlign: style.textAlign,
+    // An unwritten alignment stays unwritten, so a Scene saved from `emptyScene`
+    // reopens as one whose Labels centre and whose Text stays left.
+    ...(style.textAlign === undefined ? {} : { textAlign: style.textAlign }),
   };
 }
 
@@ -624,7 +642,10 @@ function parseElement(
   }
   rejectUnknownKeys(raw, elementKeys(type), (unknownKey) => report(`unknown key "${unknownKey}"`));
 
-  const style = parseStyle(raw, defaults, report);
+  // An alignment neither the Element nor the Scene writes is resolved per type
+  // here, so every Element carries the value its words are placed by.
+  const written = parseStyle(raw, defaults, report);
+  const style: ElementStyle = { ...written, textAlign: written.textAlign ?? unwrittenTextAlign(type) };
   const seedValue =
     raw.seed === undefined
       ? seedForId(id)
@@ -811,6 +832,7 @@ function parseStyle(
   fallback: SceneStyle,
   report: (message: string) => void,
 ): SceneStyle {
+  const textAlign = parseTextAlign(raw.textAlign, fallback.textAlign, report);
   return {
     roughness: parseRoughness(raw.roughness, fallback.roughness, report),
     stroke: parseStroke(raw.stroke, fallback.stroke, report),
@@ -818,8 +840,30 @@ function parseStyle(
     tone: parseChoice(raw.tone, 'tone', TONES, fallback.tone, report),
     corners: parseChoice(raw.corners, 'corners', CORNERS, fallback.corners, report),
     fontSize: parseChoice(raw.fontSize, 'fontSize', FONT_SIZES, fallback.fontSize, report),
-    textAlign: parseChoice(raw.textAlign, 'textAlign', TEXT_ALIGNS, fallback.textAlign, report),
+    ...(textAlign === undefined ? {} : { textAlign }),
   };
+}
+
+/**
+ * An alignment the Scene does not write stays unset here, so each Element can
+ * resolve its own; `parseElement` turns it into the value a Label or a Text draws with.
+ */
+function parseTextAlign(
+  raw: unknown,
+  fallback: TextAlign | undefined,
+  report: (message: string) => void,
+): TextAlign | undefined {
+  if (raw === undefined) {
+    return fallback;
+  }
+  // The fallback only reads when the value is wrong, and then the Scene fails to
+  // parse, so which of the two defaults stands in makes no difference.
+  return parseChoice(raw, 'textAlign', TEXT_ALIGNS, fallback ?? UNWRITTEN_TEXT_ALIGN.label, report);
+}
+
+/** What an unwritten alignment means for this Element: a Label centres, a Text stays left. */
+function unwrittenTextAlign(type: Element['type'] | null): TextAlign {
+  return type === 'text' ? UNWRITTEN_TEXT_ALIGN.text : UNWRITTEN_TEXT_ALIGN.label;
 }
 
 function parseRoughness(

@@ -17,6 +17,7 @@ export interface ProjectModules {
   parseScene: typeof import('../src/scene.ts').parseScene;
   serialiseScene: typeof import('../src/scene.ts').serialiseScene;
   hashScene: typeof import('../src/scene.ts').hashScene;
+  emptyScene: typeof import('../src/scene.ts').emptyScene;
   renderScene: typeof import('../src/renderer.ts').renderScene;
   createLayout: typeof import('../src/layout.ts').createLayout;
   measureFont: typeof import('../src/layout.ts').measureFont;
@@ -33,7 +34,7 @@ export async function loadProjectModules(): Promise<ProjectModules> {
   await writeFile(
     entry,
     [
-      `export { parseScene, serialiseScene, hashScene } from ${source('scene.ts')};`,
+      `export { parseScene, serialiseScene, hashScene, emptyScene } from ${source('scene.ts')};`,
       `export { renderScene } from ${source('renderer.ts')};`,
       `export { createLayout, measureFont } from ${source('layout.ts')};`,
       `export { default as KALAM } from ${JSON.stringify(
