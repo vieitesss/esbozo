@@ -8,18 +8,10 @@
  * `{ folder, name }` destination.
  */
 import { createLayout } from '../layout.js';
-import type { Block, Layout, LineGlyphs, Metrics } from '../layout.js';
-import {
-  drawnShaft,
-  elementBounds,
-  elementsById,
-  labelInkBounds,
-  outlineBox,
-  shaftLabel,
-} from '../renderer.js';
+import type { Layout, Metrics } from '../layout.js';
+import { elementBounds, elementsById } from '../renderer.js';
 import {
   emptyScene,
-  isOutlined,
   hasXmlInvalidChars,
   parseFragment,
   parseScene,
@@ -40,7 +32,7 @@ import { actionById, actionFor } from './actions.js';
 import type { ActionHost, ActionState, ToolId } from './actions.js';
 import { exportPng } from './export.js';
 import { Gestures } from './gestures.js';
-import type { Drag } from './gestures.js';
+import { Page } from './page.js';
 import { CommandPalette } from './palette.js';
 import { menuSignature, roughnessNote, styleNote } from './menu.js';
 import { nextRoughness, styled } from './style.js';
@@ -48,56 +40,27 @@ import type { StyleKey } from './style.js';
 import { canPickFolder, pickFolder } from './files.js';
 import { servedFolder } from './server-folder.js';
 import type { SceneFolder } from './files.js';
-import {
-  HANDLES,
-  boxBetween,
-  boxOf,
-  clearedView,
-  caretLine,
-  fittedView,
-  handlePoint,
-  landingOffset,
-  moved,
-  toScene,
-  unionOf,
-  zoomedAt,
-} from './geometry.js';
-import type { Box, Point, View } from './geometry.js';
+import { boxOf, fittedView, landingOffset, moved, zoomedAt } from './geometry.js';
+import type { Point, View } from './geometry.js';
 import { History } from './history.js';
 import { railArt, railMarkup } from './rail.js';
 import { freedEnd, isShaft, released } from './snap.js';
 import type { End } from './snap.js';
 import { TextSession } from './text-session.js';
-import type { LineKey, TextSessionState } from './text-session.js';
-import { drawnBox, drawnGlyphs } from './drawn-glyphs.js';
-import { keptWords, shownWords, withWords, wordsOf, wordsShift } from './words.js';
+import { keptWords, withWords, wordsOf, wordsShift } from './words.js';
 import type { WordsShift } from './words.js';
-import { PaintCache, sceneFile } from './paint.js';
-import type { SceneFiles } from './paint.js';
-import type { Paint } from './paint.js';
+import { sceneFile } from './paint.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const DOT_SPACING = 22;
 const DOT_RADIUS = 1.1;
-const SELECTION_PADDING = 5;
-const HANDLE_SIZE = 8;
-/** How far a Snap target's highlight stands off the target's outline, in screen pixels. */
-const SNAP_GROW = 4;
-/** How far the mark on a selected Label's words stands off the box they paint, in screen pixels. */
-const LABEL_CUE_GAP = 2;
 const NUDGE = 1;
 const NUDGE_WITH_SHIFT = 10;
 const ZOOM_STEP = 1.2;
-/** How thick the rule under a preedit is, in screen pixels. */
-const PREEDIT_RULE = 1.5;
-/** How far off the drawn words a press is still a press in them, in screen pixels. */
-const WORDS_TOLERANCE = 8;
 /** How far a copy, a pasted Element or a duplicate lands from what it copies, in Scene units. */
 const COPY_OFFSET = { x: 16, y: 16 };
 /** Nudges closer together than this are one undo step: a held arrow key is one gesture. */
 const NUDGE_BURST_MS = 800;
-/** Breathing room between the Style menu and the selection it must not cover. */
-const MENU_GAP = 16;
 
 /**
  * The instance the keys and the clipboard belong to: the last one a person
@@ -223,7 +186,6 @@ class EsbozoEditorElement extends HTMLElement {
   #history = new History(serialiseScene(this.#scene));
   /** When the last nudge landed, so a burst of them folds into one undo step. */
   #nudgedAt = 0;
-  #view: View = { zoom: 1, panX: 0, panY: 0 };
   #grid = true;
   /** The folder the Scenes note lists. Browsing it never moves the save target. */
   #browsed: SceneFolder | null = null;
@@ -231,67 +193,15 @@ class EsbozoEditorElement extends HTMLElement {
   #served = false;
   /** The pointer's state machine: every gesture, and what an exit has to drop. */
   #gestures!: Gestures;
+  /** The page's frame: the view, the drawings and the overlay that marks them. */
+  #page!: Page;
   /** The writes in order; the number each answers with is whether it landed. */
   #saveQueue: Promise<unknown> = Promise.resolve();
-  /** What the next frame owes the page: nothing yet, the words' own layer, or the whole page. */
-  #paintQueued: 'none' | 'words' | 'page' = 'none';
-  /**
-   * Counts the Scene: every replacement of `#scene` makes a new number, and the
-   * page repaints only when the number it painted is not this one. A pan, a
-   * zoom or a new selection leaves the number alone, so a frame that only moved
-   * the view costs no serialise at all.
-   */
-  #version = 0;
-  /** The Scene number the page shows, gesture in flight included. */
-  #paintedVersion = -1;
-  /**
-   * The words being typed that the last frame of the page drew. A caret that
-   * moves asks for the words' layer alone, so the Scene is drawn again only when
-   * the words it would draw are not the ones already on it.
-   */
-  #drawnWords: SceneElement | null = null;
-  /** What the page shows now: the drawings, and the boxes the pointer reads. */
-  #painted: Paint | null = null;
-  /** The view the page was last moved to, so a frame that did not move it writes nothing. */
-  #applied: View | null = null;
-  /** The Element groups on the page, by id, with the key each was drawn from. */
-  #groups = new Map<string, { key: string; node: SVGGElement }>();
-  /** The id order the Element groups are in, so a reorder is one write. */
-  #order: readonly string[] = [];
-  /** The Elements a move has moved with a transform, so they can be put back. */
-  #moved = new Set<string>();
-  /** The Scene's own `svg`, inside `.painted`; every Element is one group under it. */
-  #layer: SVGSVGElement | null = null;
-  /** The drawings and the drawing of one Element at a time, kept between frames. */
-  #paintables: PaintCache | null = null;
-  /**
-   * The measurement the Element groups on the page were drawn with. A font the
-   * page names late moves the PaintCache's generation, and everything drawn
-   * before it stops being the drawing this page makes.
-   */
-  #drawnMeasurement = -1;
   /** The selection the Style menu was built for, so a rebuild only happens on a change. */
   #menuFor: string | null = null;
-
   #board!: HTMLElement;
-  #surface!: HTMLElement;
   #canvas!: SVGSVGElement;
-  #paintedLayer!: SVGGElement;
-  /**
-   * The washes behind the words being typed, in the group that drew them: over
-   * the Element's fill and under its glyphs, so a filled Element cannot cover
-   * them and they cannot lift the ink of what was written.
-   */
-  #washes: SVGRectElement[] = [];
-  #overlay!: SVGGElement;
-  /**
-   * The caret and the preedit's rule, in a layer of their own inside the overlay:
-   * a caret that moves redraws these and leaves the boxes, the handles and the
-   * overflow outline where the last frame put them.
-   */
-  #wordsLayer: SVGGElement | null = null;
   #gridRect!: SVGRectElement;
-  #gridLayer!: SVGGElement;
   #dots!: SVGPatternElement;
   #rail!: HTMLElement;
   #railArt!: SVGSVGElement;
@@ -317,7 +227,6 @@ class EsbozoEditorElement extends HTMLElement {
   #note!: HTMLElement;
   #files!: HTMLUListElement;
   #newScene!: HTMLFormElement;
-  #zoomLabel!: HTMLElement;
   #whereLabel!: HTMLElement;
   #modeLabel!: HTMLElement;
   #savedLabel!: HTMLElement;
@@ -377,19 +286,14 @@ class EsbozoEditorElement extends HTMLElement {
     }
     this.innerHTML = SHELL;
     this.#board = this.querySelector('.board')!;
-    this.#surface = this.querySelector('.surface')!;
     this.#canvas = this.querySelector('.canvas')!;
-    this.#paintedLayer = this.querySelector('.painted')!;
-    this.#overlay = this.querySelector('.overlay')!;
     this.#gridRect = this.querySelector('.grid-rect')!;
-    this.#gridLayer = this.querySelector('.grid')!;
     this.#dots = this.querySelector('.canvas pattern')!;
     this.#rail = this.querySelector('.rail')!;
     this.#railArt = this.querySelector('.rail-art')!;
     this.#note = this.querySelector('.note')!;
     this.#files = this.querySelector('.files')!;
     this.#newScene = this.querySelector('.new')!;
-    this.#zoomLabel = this.querySelector('.zoom')!;
     this.#whereLabel = this.querySelector('.where')!;
     this.#modeLabel = this.querySelector('.mode')!;
     this.#savedLabel = this.querySelector('.saved')!;
@@ -411,7 +315,37 @@ class EsbozoEditorElement extends HTMLElement {
     const dots = `esbozo-dots-${++instances}`;
     this.#dots.id = dots;
     this.#gridRect.setAttribute('fill', `url(#${dots})`);
-    this.#showGrid();
+
+    // The page's frame is told what the page may show, and asked for it. It owns
+    // the view, the drawings kept between frames and the overlay that marks them.
+    this.#page = new Page(
+      {
+        board: this.#board,
+        surface: this.querySelector('.surface')!,
+        grid: this.querySelector('.grid')!,
+        gridRect: this.#gridRect,
+        overlay: this.querySelector('.overlay')!,
+        zoom: this.querySelector('.zoom')!,
+        painted: this.querySelector('.painted')!,
+      },
+      {
+        layout: () => this.#layout,
+        scene: () => this.#scene,
+        shown: () => this.#shownElements(),
+        selected: () => this.#selected,
+        drag: () => this.#gestures.drag,
+        editingId: () => this.#editing?.id ?? null,
+        typing: () =>
+          this.#text === null
+            ? null
+            : {
+                element: (this.#editing?.element ?? this.#draft)!,
+                text: this.#text,
+                shift: this.#shift,
+              },
+      },
+    );
+    this.#page.viewport.showGrid(this.#grid);
 
     // The pointer's machine is told what the page holds, and asked for the one
     // thing a gesture may change: a Scene that lands as a step and a write.
@@ -421,12 +355,12 @@ class EsbozoEditorElement extends HTMLElement {
       menu: this.#menu,
       scene: () => this.#scene,
       layout: () => this.#layout,
-      view: () => this.#view,
+      view: () => this.#page.viewport.view,
       setView: (view) => {
-        this.#view = view;
+        this.#page.viewport.view = view;
       },
-      scenePoint: (pointer) => this.#scenePoint(pointer),
-      screenPoint: (pointer) => this.#screenPoint(pointer),
+      scenePoint: (pointer) => this.#page.viewport.scenePoint(pointer),
+      screenPoint: (pointer) => this.#page.viewport.screenPoint(pointer),
       selected: () => this.#selected,
       select: (ids) => {
         this.#selected = [...ids];
@@ -435,15 +369,15 @@ class EsbozoEditorElement extends HTMLElement {
       setTool: (tool) => this.#setTool(tool),
       writable: () => this.#writable(),
       text: () => this.#text,
-      wordsOffset: (point) => this.#wordsOffset(point),
-      wordsNearest: (point) => this.#wordsNearest(point),
+      wordsOffset: (point) => this.#page.wordsOffset(point),
+      wordsNearest: (point) => this.#page.wordsNearest(point),
       typedOffset: (drawn) => this.#typedOffset(drawn),
       openWords: (element) => this.#openWords(element),
       openTextInput: (at) => this.#openTextInput(at),
       applyScene: (next, options) => this.#applyScene(next, options),
       refresh: () => this.#refresh(),
-      paint: () => this.#paint(),
-      paintWords: () => this.#paintWords(),
+      paint: () => this.#page.paint(),
+      paintWords: () => this.#page.paintWords(),
     });
 
     if (this.#ownsKeysWhenFocused) {
@@ -553,8 +487,8 @@ class EsbozoEditorElement extends HTMLElement {
       return;
     }
     this.#showDefaultRoughness();
-    this.#view = fittedView(this.#scene, this.#viewportSize(), this.#layout);
-    this.#paint();
+    this.#page.viewport.view = fittedView(this.#scene, this.#page.viewport.size(), this.#layout);
+    this.#page.paint();
     await this.#joinFolder(connection);
   }
 
@@ -589,8 +523,8 @@ class EsbozoEditorElement extends HTMLElement {
     this.#ready = true;
     // Labels break with the measurement: what was drawn with the old one is not
     // the same drawing any more.
-    this.#paintables?.measure(font.layout);
-    this.#invalidate();
+    this.#page.measure();
+    this.#page.invalidate();
     this.#listen();
   }
 
@@ -600,9 +534,9 @@ class EsbozoEditorElement extends HTMLElement {
     if (!(await this.#readFont())) {
       return;
     }
-    this.#view = fittedView(this.#scene, this.#viewportSize(), this.#layout);
+    this.#page.viewport.view = fittedView(this.#scene, this.#page.viewport.size(), this.#layout);
     this.#showDefaultRoughness();
-    this.#paint();
+    this.#page.paint();
   }
 
   /** The page's font, with a source that will not answer reported as the problem it is. */
@@ -656,7 +590,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#note.hidden = true;
     this.#whereLabel.textContent = '';
     this.#setSaved('idle');
-    this.#paint();
+    this.#page.paint();
   }
 
   /** The instance a person last touched holds the keys and the clipboard. */
@@ -887,19 +821,8 @@ class EsbozoEditorElement extends HTMLElement {
   /** One write of one Scene, assembled after the frame that is already due. */
   async #writeScene(target: SaveTarget, scene: Scene): Promise<boolean> {
     await nextFrame();
-    const files = await this.#sceneFiles(scene);
+    const files = await this.#page.files(scene);
     return this.#write(target, files.json, files.svg);
-  }
-
-  /**
-   * A Scene's file and its SVG, out of the JSON and the drawings in hand. The
-   * paint in flight is settled first — the frame that was about to run is this
-   * one — so an edit draws each Element once and writes the same bytes
-   * `ez render` writes.
-   */
-  #sceneFiles(scene: Scene): Promise<SceneFiles> {
-    this.#drawScene();
-    return (this.#paintables ??= new PaintCache(this.#layout)).files(scene);
   }
 
   /**
@@ -932,17 +855,12 @@ class EsbozoEditorElement extends HTMLElement {
     }
   }
 
-  /** Toggle the dot Grid, as `G` does. */
+  /** Toggle the dot Grid, as `G` does. Its spacing is the screen's own: the view scales the paper, not the dots. */
   #toggleGrid(): void {
     this.#grid = !this.#grid;
     this.querySelector('[data-act="grid"]')!.setAttribute('aria-pressed', String(this.#grid));
-    this.#showGrid();
-    this.#paint();
-  }
-
-  /** The dot Grid, on or off. Its spacing is the screen's own: the view scales the paper, not the dots. */
-  #showGrid(): void {
-    this.#gridRect.style.display = this.#grid ? '' : 'none';
+    this.#page.viewport.showGrid(this.#grid);
+    this.#page.paint();
   }
 
   /**
@@ -953,8 +871,8 @@ class EsbozoEditorElement extends HTMLElement {
    */
   #replaceScene(scene: Scene): void {
     this.#scene = scene;
-    this.#paintables?.clear();
-    this.#version++;
+    this.#page.clear();
+    this.#page.sceneChanged();
   }
 
   #load(scene: Scene, target: SaveTarget): void {
@@ -963,7 +881,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#selected = [];
     this.#history.reset(serialiseScene(scene));
     this.#menuFor = null;
-    this.#view = fittedView(scene, this.#viewportSize(), this.#layout);
+    this.#page.viewport.view = fittedView(scene, this.#page.viewport.size(), this.#layout);
     this.#whereLabel.textContent = `${target.folder.name} / ${target.name}`;
     this.#note.hidden = true;
     // Another Scene: the tool in hand and the words half-typed into the last
@@ -1053,7 +971,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#selected = this.#selected.filter((id) =>
       this.#scene.elements.some((element) => element.id === id),
     );
-    this.#version++;
+    this.#page.sceneChanged();
     this.#nudgedAt = 0;
     // An undone edit may have changed a default or a Snap, so the status bar and
     // the note follow the restored Scene: a Snap the undo put back offers its
@@ -1297,7 +1215,7 @@ class EsbozoEditorElement extends HTMLElement {
     const offset =
       box === null
         ? COPY_OFFSET
-        : landingOffset(box, this.#view, this.#viewportSize(), COPY_OFFSET);
+        : landingOffset(box, this.#page.viewport.view, this.#page.viewport.size(), COPY_OFFSET);
     const added = copies(elements, idsOf(this.#scene.elements), offset);
     this.#applyScene(
       { ...this.#scene, elements: [...this.#scene.elements, ...added] },
@@ -1323,7 +1241,7 @@ class EsbozoEditorElement extends HTMLElement {
       // Handles and a dashed selection box under the pencil only get in the way.
       this.#selected = [];
     }
-    this.#paint();
+    this.#page.paint();
   }
 
   /**
@@ -1350,7 +1268,7 @@ class EsbozoEditorElement extends HTMLElement {
     const { select } = options;
     if (changed) {
       this.#scene = next;
-      this.#version++;
+      this.#page.sceneChanged();
     }
     if (select !== undefined) {
       this.#selected = [...select];
@@ -1404,61 +1322,12 @@ class EsbozoEditorElement extends HTMLElement {
    */
   #refresh(): void {
     this.#syncMenu();
-    this.#clearOfMenu();
+    this.#page.clearOfNote(this.#menu, this.#rail);
     // The view may have moved to make room for the note: the words being typed
     // travel with it, caret and all, rather than staying behind on the page.
-    this.#paint();
+    this.#page.paint();
   }
 
-  /**
-   * Pan, zoom and the Grid follow the pointer at once, because they are only
-   * numbers the view layer already carries. Repainting the Scene is what costs,
-   * so that waits for the next frame.
-   */
-  #paint(): void {
-    this.#applyView();
-    this.#queuedFrame('page');
-  }
-
-  /**
-   * The caret, the selection or an input method's preedit moved, and nothing
-   * else did: the words' own layer is drawn again, and the Scene is not asked
-   * anything. A caret that walks one boundary per key repeat must not cost what
-   * a Scene of three hundred Elements costs, nor scan every Label's overflow.
-   */
-  #paintWords(): void {
-    this.#queuedFrame('words');
-  }
-
-  /**
-   * One frame, asking for what the page owes it. A whole page makes an already
-   * queued words frame redundant, so it takes its place; nothing downgrades one.
-   */
-  #queuedFrame(what: 'words' | 'page'): void {
-    const queued = this.#paintQueued;
-    if (queued === 'page' || queued === what) {
-      return;
-    }
-    this.#paintQueued = what;
-    if (queued !== 'none') {
-      return;
-    }
-    requestAnimationFrame(() => {
-      const owed = this.#paintQueued;
-      this.#paintQueued = 'none';
-      if (owed === 'page') {
-        this.#drawScene();
-        this.#drawOverlay();
-      } else {
-        this.#drawWords();
-      }
-    });
-  }
-
-  /** The page has to draw the Scene again: a new measurement, or a Scene to show. */
-  #invalidate(): void {
-    this.#paintedVersion = -1;
-  }
 
   /**
    * A view change the person asked for — a wheel, a key zoom or a fit. It still
@@ -1466,455 +1335,11 @@ class EsbozoEditorElement extends HTMLElement {
    * under, so the clearance runs before the paint: no frame shows it covered.
    */
   #changedView(view: View): void {
-    this.#view = view;
+    this.#page.viewport.view = view;
     // Zoom is not part of a double-click: the next press starts a new one.
     this.#gestures.forgetClicks();
-    this.#clearOfMenu();
-    this.#paint();
-  }
-
-  /**
-   * Move the painted Scene: one CSS transform on the wrapper, so the drawing is
-   * laid out once and a zoom is a composite. The Grid and the overlay stand in
-   * screen space, counter-moved, so dots keep their size and a handle its width.
-   */
-  #applyView(): void {
-    const { zoom, panX, panY } = this.#view;
-    const applied = this.#applied;
-    if (
-      applied !== null &&
-      applied.zoom === zoom &&
-      applied.panX === panX &&
-      applied.panY === panY
-    ) {
-      return;
-    }
-    this.#applied = { zoom, panX, panY };
-    this.#surface.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
-    const screen = `scale(${1 / zoom}) translate(${-panX} ${-panY})`;
-    this.#gridLayer.setAttribute('transform', screen);
-    this.#overlay.setAttribute('transform', screen);
-    const label = `${Math.round(zoom * 100)}%`;
-    if (this.#zoomLabel.textContent !== label) {
-      this.#zoomLabel.textContent = label;
-    }
-  }
-
-  /**
-   * Paint what the Scene shows now.
-   *
-   * Each Element keeps the drawing it already had while the canonical JSON it
-   * was drawn from is unchanged, so a frame costs what the gesture changes: a
-   * resize or a dragged end draws one Element, a move moves the groups it
-   * carries, and a pan or a zoom draws nothing at all.
-   */
-  #drawScene(): void {
-    const drag = this.#gestures.drag;
-    if (drag !== null && drag.kind === 'move') {
-      if (this.#paintables !== null && this.#paintables.generation !== this.#drawnMeasurement) {
-        // A font landed while the pointer was down: every Label may break
-        // differently, so the drawings this gesture carries are made again —
-        // once, here, before the transforms go back on. A move frame that
-        // changed no measurement draws nothing, as before.
-        this.#drawElements(this.#scene.elements);
-      }
-      this.#moveGroups(drag);
-      this.#followSnaps(drag);
-      if (drag.shown.size > 0) {
-        // A preview is not the Scene: the frame after the gesture has to draw
-        // what the Scene holds, however the gesture ended — a release that
-        // changed nothing, a cancelled pointer or a lost focus included.
-        this.#paintedVersion = -1;
-      }
-      return;
-    }
-    const shown = this.#shownElements();
-    const settled = shown === this.#scene.elements;
-    if (settled && this.#paintedVersion === this.#version) {
-      return;
-    }
-    this.#drawElements(shown);
-    this.#paintedVersion = settled ? this.#version : -1;
-  }
-
-  /** One frame of the page: a group redrawn for each Element whose drawing changed. */
-  #drawElements(shown: readonly SceneElement[]): void {
-    const paintables = (this.#paintables ??= new PaintCache(this.#layout));
-    // The words drawn for an emptied Label are its empty line, the slot the
-    // next letter would go in: only the Element being typed in is drawn with
-    // them. An Element nobody is editing keeps the words the Scene holds, so an
-    // unlabeled arrow draws no words — and no paper for them either.
-    const typing = this.#editing?.id;
-    const paint = paintables.paint(
-      typing === undefined
-        ? shown
-        : shown.map((element) => (element.id === typing ? shownWords(element) : element)),
-    );
-    this.#painted = paint;
-    this.#drawnWords = this.#editing?.element ?? this.#draft;
-    this.#drawnMeasurement = paintables.generation;
-    // A group moved by a drag carries a transform the Scene never holds: every
-    // group starts a frame where its Element is.
-    for (const id of this.#moved) {
-      this.#groups.get(id)?.node.removeAttribute('transform');
-    }
-    this.#moved.clear();
-
-    const layer = this.#layerOf();
-    const groups = new Map<string, { key: string; node: SVGGElement }>();
-    for (const id of paint.order) {
-      const painted = paint.elements.get(id)!;
-      const held = this.#groups.get(id);
-      if (held !== undefined && held.key === painted.key) {
-        groups.set(id, held);
-        continue;
-      }
-      // New or changed: one Element's SVG, parsed on its own, in the group the
-      // pointer moves and the overlay measures.
-      const node = groupOf(id, painted.svg);
-      if (held === undefined) {
-        layer.append(node);
-      } else {
-        held.node.replaceWith(node);
-      }
-      groups.set(id, { key: painted.key, node });
-    }
-    this.#groups = groups;
-    // Stacking is the Scene's order and nothing else: what a frame reused, and
-    // which of the reused groups were replaced in place, says nothing about
-    // which Element is drawn on top. One comparison, one write when it changed.
-    const order = paint.order;
-    if (order.length !== this.#order.length || order.some((id, index) => this.#order[index] !== id)) {
-      layer.replaceChildren(...order.map((id) => groups.get(id)!.node));
-    }
-    this.#order = order;
-  }
-
-  /** The Scene's own `svg` inside `.painted`, made once, so each Element is one group under it. */
-  #layerOf(): SVGSVGElement {
-    if (this.#layer === null) {
-      const layer = document.createElementNS(SVG_NS, 'svg');
-      layer.setAttribute('overflow', 'visible');
-      // The drawing's colours and face are CSS variables, as in the saved SVG:
-      // a theme change is a repaint the page already knows how to do.
-      layer.setAttribute('font-family', 'var(--font-hand)');
-      this.#paintedLayer.append(layer);
-      this.#layer = layer;
-    }
-    return this.#layer;
-  }
-
-  /**
-   * A move in flight: the groups the pointer carries are moved by a transform,
-   * so the gesture draws nothing at all. The release settles the Scene, and the
-   * painting that follows draws the moved Elements where they landed.
-   */
-  #moveGroups(drag: Extract<Drag, { kind: 'move' }>): void {
-    const moved = new Set<string>();
-    for (const id of drag.shown.keys()) {
-      const group = this.#groups.get(id);
-      if (group === undefined) {
-        continue;
-      }
-      group.node.setAttribute('transform', `translate(${drag.by.x} ${drag.by.y})`);
-      moved.add(id);
-    }
-    for (const id of this.#moved) {
-      if (!moved.has(id)) {
-        this.#groups.get(id)?.node.removeAttribute('transform');
-      }
-    }
-    this.#moved = moved;
-  }
-
-  /**
-   * The ends that ride what a move carries: an arrow or line the drag does not
-   * hold, but whose end is Snapped to an Element it does, is drawn again against
-   * the Scene as the drag shows it. So a shaft follows its target under the
-   * pointer instead of waiting for the release, and only those shafts are drawn:
-   * everything else keeps the drawing it already had.
-   *
-   * The drawing it makes is keyed on the preview geometry, so the frame the
-   * gesture ends on draws it again — or keeps it, when the release left the
-   * Scene exactly as it was.
-   */
-  #followSnaps(drag: Extract<Drag, { kind: 'move' }>): void {
-    if (drag.shown.size === 0) {
-      return;
-    }
-    const byId = new Map<string, SceneElement>();
-    for (const element of this.#scene.elements) {
-      byId.set(element.id, drag.shown.get(element.id) ?? element);
-    }
-    const paintables = (this.#paintables ??= new PaintCache(this.#layout));
-    for (const element of this.#scene.elements) {
-      if (drag.shown.has(element.id) || !isShaft(element)) {
-        continue;
-      }
-      if (!element.points.some((point) => point.snap !== undefined && drag.shown.has(point.snap))) {
-        continue;
-      }
-      const held = this.#groups.get(element.id);
-      if (held === undefined) {
-        continue;
-      }
-      const painted = paintables.element(element, byId);
-      if (painted.key === held.key) {
-        continue;
-      }
-      const node = groupOf(element.id, painted.svg);
-      held.node.replaceWith(node);
-      this.#groups.set(element.id, { key: painted.key, node });
-    }
-  }
-
-  /**
-   * The overlay draws in screen pixels, on a group counter-moved against the
-   * view: a handle stays eight pixels at every zoom, and the boxes it marks are
-   * read from what the page painted rather than measured again.
-   */
-  #drawOverlay(): void {
-    const overlay = this.#overlay;
-    // The words' own layer is the one thing a frame of its own may keep: it is
-    // put back by `#drawWords`, and it is nobody else's.
-    overlay.replaceChildren();
-    this.#wordsLayer = null;
-    // A Label that does not fit its Element is outlined in red, on the rule
-    // `ez check` reports: one function, so the page and the CLI cannot disagree.
-    for (const element of this.#shownElements()) {
-      if (this.#layout.overflow(element) === null) {
-        continue;
-      }
-      const words = this.#layout.label(element);
-      if (words !== null) {
-        this.#appendRect(overlay, { ...this.#pageBox(words), class: 'overflow' });
-      }
-    }
-    const drag = this.#gestures.drag;
-    const boxes: Box[] = [];
-    for (const id of this.#selected) {
-      const box = this.#shownBounds(id);
-      if (box !== null) {
-        boxes.push(this.#pageBox(box));
-      }
-    }
-    const box = unionOf(boxes);
-    const first = this.#selected[0];
-    if (box !== null) {
-      this.#appendRect(overlay, {
-        x: box.x - SELECTION_PADDING,
-        y: box.y - SELECTION_PADDING,
-        width: box.width + SELECTION_PADDING * 2,
-        height: box.height + SELECTION_PADDING * 2,
-        class: 'selection',
-      });
-      if (this.#selected.length === 1 && first !== undefined) {
-        this.#drawHandles(overlay, first);
-        this.#drawLabelCue(overlay, first);
-      }
-    }
-    if (drag !== null && drag.kind === 'box') {
-      this.#appendRect(overlay, { ...this.#pageBox(boxBetween(drag.from, drag.to)), class: 'sweep' });
-    }
-    if (drag !== null && (drag.kind === 'draw' || drag.kind === 'end') && drag.target !== null) {
-      const target = this.#scene.elements.find((element) => element.id === drag.target);
-      if (target !== undefined && isOutlined(target)) {
-        // The Element the dragged end would attach to, so a drop is no surprise.
-        const outline = this.#pageBox(outlineBox(target));
-        this.#appendRect(overlay, {
-          x: outline.x - SNAP_GROW,
-          y: outline.y - SNAP_GROW,
-          width: outline.width + SNAP_GROW * 2,
-          height: outline.height + SNAP_GROW * 2,
-          class: 'snap',
-        });
-      }
-    }
-    this.#drawWords();
-  }
-
-  /**
-   * The caret, the selection and an input method's preedit, drawn where the
-   * Renderer put the glyphs. The page is the only ink, so the field's own caret
-   * and highlight are never on screen; it is moved over the caret instead, which
-   * is where a browser opens the candidate window of an input method.
-   *
-   * The washes go in the layer under the glyphs, in Scene coordinates, so the
-   * ink inside them keeps its own colour; the caret and the preedit's rule go in
-   * the overlay, in screen pixels, so they keep their width at every zoom.
-   */
-  #drawWords(): void {
-    this.#wordsLayer?.remove();
-    this.#wordsLayer = null;
-    this.#clearWash();
-    const text = this.#text;
-    const block = this.#wordsBlock();
-    if (text === null || block === null) {
-      return;
-    }
-    const layer = document.createElementNS(SVG_NS, 'g');
-    layer.setAttribute('class', 'words');
-    this.#overlay.append(layer);
-    this.#wordsLayer = layer;
-    const state = text.state();
-    const at = (offset: number): number => this.#shift.drawn(offset);
-    const glyphs = this.#wordsGlyphs(block);
-
-    for (const box of this.#layout.selection(block, at(state.start), at(state.end), glyphs)) {
-      this.#appendWash(box, 'words-selection');
-    }
-
-    const preedit = state.preedit;
-    if (preedit !== null) {
-      for (const box of this.#layout.selection(block, at(preedit.from), at(preedit.to), glyphs)) {
-        this.#appendWash(box, 'preedit');
-        const page = this.#pageBox(box);
-        this.#appendRect(layer, {
-          x: page.x,
-          y: page.y + page.height - PREEDIT_RULE,
-          width: page.width,
-          height: PREEDIT_RULE,
-          class: 'preedit-rule',
-        });
-      }
-    }
-
-    const caret = this.#layout.caret(block, at(state.caret), glyphs);
-    const page = this.#pageBox({ x: caret.x, y: caret.y, width: 0, height: caret.height });
-    layer.append(caretPath(page));
-    text.spot(page);
-  }
-
-  /** Where an Element draws on the page now: what was painted for it, moved by a drag in flight. */
-  #shownBounds(id: string): Box | null {
-    const painted = this.#painted?.elements.get(id);
-    if (painted === undefined) {
-      return null;
-    }
-    const drag = this.#gestures.drag;
-    if (drag !== null && drag.kind === 'move' && drag.shown.has(id)) {
-      return {
-        ...painted.bounds,
-        x: painted.bounds.x + drag.by.x,
-        y: painted.bounds.y + drag.by.y,
-      };
-    }
-    return painted.bounds;
-  }
-
-  /** The Element as the page shows it: the gesture's own version while one is in flight. */
-  #shownElement(id: string): SceneElement | undefined {
-    const drag = this.#gestures.drag;
-    if (drag !== null && drag.kind === 'move') {
-      return drag.shown.get(id) ?? this.#painted?.byId.get(id);
-    }
-    return this.#painted?.byId.get(id);
-  }
-
-  /** A Scene box, in the pixels the overlay draws in. */
-  #pageBox(box: Box): Box {
-    const { zoom, panX, panY } = this.#view;
-    return {
-      x: box.x * zoom + panX,
-      y: box.y * zoom + panY,
-      width: box.width * zoom,
-      height: box.height * zoom,
-    };
-  }
-
-  /** A Scene point, in the pixels the overlay draws in. */
-  #pagePoint(point: Point): Point {
-    const { zoom, panX, panY } = this.#view;
-    return { x: point.x * zoom + panX, y: point.y * zoom + panY };
-  }
-
-  /**
-   * The drag targets of a lone selection: eight around a box's outline, or the
-   * two ends of an arrow or line, where they draw — a Snapped end rides its
-   * target's outline, so its handle is there too.
-   */
-  #drawHandles(overlay: SVGGElement, id: string): void {
-    const element = this.#shownElement(id);
-    if (element === undefined) {
-      return;
-    }
-    const handles: Array<{ at: Point; name: string }> = [];
-    if (isOutlined(element)) {
-      const outline = this.#pageBox(outlineBox(element));
-      for (const handle of HANDLES) {
-        handles.push({ at: handlePoint(outline, handle), name: handle });
-      }
-    } else if (isShaft(element)) {
-      const byId = this.#painted?.byId ?? elementsById(this.#scene.elements);
-      const [start, end] = drawnShaft(element, byId);
-      handles.push({ at: this.#pagePoint(start), name: 'start' }, { at: this.#pagePoint(end), name: 'end' });
-    }
-    for (const handle of handles) {
-      const node = this.#appendRect(overlay, {
-        x: handle.at.x - HANDLE_SIZE / 2,
-        y: handle.at.y - HANDLE_SIZE / 2,
-        width: HANDLE_SIZE,
-        height: HANDLE_SIZE,
-        class: `handle handle-${handle.name}`,
-      });
-      node.setAttribute('data-handle', handle.name);
-      node.setAttribute('data-element', id);
-    }
-  }
-
-  /**
-   * A lone shaft's Label, marked as something a press can carry. The selection's
-   * own outline is the Element's, and its hands resize it; the words are taken
-   * on their own, by a press on them, so the selection says which box that is.
-   */
-  #drawLabelCue(overlay: SVGGElement, id: string): void {
-    const element = this.#shownElement(id);
-    if (element === undefined || !isShaft(element)) {
-      return;
-    }
-    const byId = this.#painted?.byId ?? elementsById(this.#scene.elements);
-    const words = shaftLabel(element, byId, this.#layout);
-    if (words === null) {
-      return;
-    }
-    const box = this.#pageBox(labelInkBounds(words));
-    // The dashes stand a little outside the words and are the selection's: no
-    // press lands on them. The box the words paint is what a press takes, so it
-    // is the one that says what a press there does.
-    this.#appendRect(overlay, {
-      x: box.x - LABEL_CUE_GAP,
-      y: box.y - LABEL_CUE_GAP,
-      width: box.width + LABEL_CUE_GAP * 2,
-      height: box.height + LABEL_CUE_GAP * 2,
-      class: 'label-cue',
-    });
-    this.#appendRect(overlay, { ...box, class: 'label-grab' });
-  }
-
-  #appendRect(
-    parent: SVGGElement,
-    attributes: { x: number; y: number; width: number; height: number; class: string },
-  ): SVGRectElement {
-    const node = this.#rect(attributes);
-    parent.append(node);
-    return node;
-  }
-
-  /** One rectangle of the page's own drawing, at the place it was measured. */
-  #rect(attributes: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    class: string;
-  }): SVGRectElement {
-    const node = document.createElementNS(SVG_NS, 'rect');
-    node.setAttribute('x', String(attributes.x));
-    node.setAttribute('y', String(attributes.y));
-    node.setAttribute('width', String(Math.max(attributes.width, 0)));
-    node.setAttribute('height', String(Math.max(attributes.height, 0)));
-    node.setAttribute('class', attributes.class);
-    return node;
+    this.#page.clearOfNote(this.#menu, this.#rail);
+    this.#page.paint();
   }
 
   #drawRailArt(): void {
@@ -1950,86 +1375,6 @@ class EsbozoEditorElement extends HTMLElement {
     }
   }
 
-  /**
-   * The note is docked to the right edge and must never sit on what it edits.
-   * One rectangle policy does it: the view pans left just far enough, and zooms
-   * out just far enough when a pan cannot clear a wide selection. Panning waits
-   * for the end of a drag, because moving the view out from under the pointer
-   * mid-drag would make the Element chase it. The rectangle is measured from
-   * what the page shows, so a box grown by the words being typed is cleared too.
-   */
-  #clearOfMenu(): void {
-    if (this.#gestures.drag !== null) {
-      return;
-    }
-    const note = this.#noteBox();
-    if (note === null) {
-      return;
-    }
-    const canvas = this.#canvasBox();
-    const shown = this.#shownElements();
-    const selected = new Set(this.#selected);
-    this.#view = clearedView(this.#view, {
-      selection: boxOf(
-        shown.filter((element) => selected.has(element.id)),
-        elementsById(shown),
-        this.#layout,
-      ),
-      note,
-      left: this.#rail.getBoundingClientRect().right - canvas.left + MENU_GAP,
-      gap: MENU_GAP,
-    });
-  }
-
-  /** The Style note's own page box, while it is on the page. */
-  #noteBox(): Box | null {
-    if (this.#menu.hidden) {
-      return null;
-    }
-    const canvas = this.#canvasBox();
-    const note = this.#menu.getBoundingClientRect();
-    return {
-      x: note.left - canvas.left,
-      y: note.top - canvas.top,
-      width: note.width,
-      height: note.height,
-    };
-  }
-
-  // ------------------------------------------------------------------ pointer
-
-  /**
-   * The canvas box on the page, before the view moves anything: the paper the
-   * Scene is drawn on — `.board` — and not the element's border box, because a
-   * host may draw its own border and padding around the editor, and the view is
-   * a transform *inside* the element (a transformed or framed box would fold
-   * pan, zoom or the host's frame into the pointer twice).
-   */
-  #canvasBox(): { left: number; top: number; width: number; height: number } {
-    const rect = this.#board.getBoundingClientRect();
-    return {
-      left: rect.left,
-      top: rect.top,
-      width: rect.width || window.innerWidth,
-      height: rect.height || window.innerHeight,
-    };
-  }
-
-  #viewportSize(): { width: number; height: number } {
-    const box = this.#canvasBox();
-    return { width: box.width, height: box.height };
-  }
-
-  #scenePoint(event: { clientX: number; clientY: number }): Point {
-    const box = this.#canvasBox();
-    return toScene(this.#view, event.clientX - box.left, event.clientY - box.top);
-  }
-
-  #screenPoint(event: { clientX: number; clientY: number }): Point {
-    const box = this.#canvasBox();
-    return { x: event.clientX - box.left, y: event.clientY - box.top };
-  }
-
   /** A Text is placed: the words are typed where the Text will sit. */
   #openTextInput(at: Point): void {
     // A page that may not write has nowhere to put a Text, however the gesture
@@ -2048,12 +1393,12 @@ class EsbozoEditorElement extends HTMLElement {
       name: 'Text',
       words: '',
       typed: (words) => this.#showTyped(words),
-      moved: () => this.#paintWords(),
-      line: (key, state) => this.#wordsLine(key, state),
+      moved: () => this.#page.paintWords(),
+      line: (key, state) => this.#page.wordsLine(key, state),
       commit: (words) => this.#commitText(words),
       ended: () => this.#endText(),
     });
-    this.#paint();
+    this.#page.paint();
   }
 
   /**
@@ -2084,8 +1429,8 @@ class EsbozoEditorElement extends HTMLElement {
       name: element.type === 'text' ? 'Text' : 'Label',
       words: wordsOf(element),
       typed: (words) => this.#showWords(element, words),
-      moved: () => this.#paintWords(),
-      line: (key, state) => this.#wordsLine(key, state),
+      moved: () => this.#page.paintWords(),
+      line: (key, state) => this.#page.wordsLine(key, state),
       commit: (words) => this.#commitWords(element, words),
       ended: () => this.#endText(),
     });
@@ -2109,14 +1454,14 @@ class EsbozoEditorElement extends HTMLElement {
       this.#editing = { id: element.id, element: withWords(element, kept, this.#layout) };
       this.#shift = wordsShift(words, kept);
       // The grown Element is what the note must not cover.
-      this.#clearOfMenu();
+      this.#page.clearOfNote(this.#menu, this.#rail);
     } else if (this.#editing !== null) {
       // The page refuses these words and goes on drawing the ones it has: the
       // step is measured through them all the same, so a character the Scene
       // cannot hold is one more offset in the field and no glyph under the caret.
       this.#shift = wordsShift(words, wordsOf(this.#editing.element));
     }
-    this.#paint();
+    this.#page.paint();
   }
 
   /** The Text being typed, with the words it has so far. */
@@ -2134,132 +1479,9 @@ class EsbozoEditorElement extends HTMLElement {
       // the words on the page, so the caret stays on the glyph it was typed at.
       this.#shift = wordsShift(words, draft.content);
     }
-    this.#paint();
+    this.#page.paint();
   }
 
-  /**
-   * The Block the page is drawing for the words being typed: the Renderer's own
-   * placement of the Element the ink came from, canonical geometry included, so
-   * the caret sits on the glyphs and nowhere else. An emptied Label keeps its
-   * empty line here, the slot the words would start on, or they would have no
-   * place for a caret at all.
-   */
-  #wordsBlock(): Block | null {
-    const element = this.#editing?.element ?? this.#draft;
-    if (element === null) {
-      return null;
-    }
-    // The frame the words belong to is drawn before they are asked about: the
-    // block is the drawn one, and the drawn Element is the canonical one. A
-    // frame that already drew these very words is that frame, and a caret that
-    // moved asks for no Scene at all.
-    if (this.#drawnWords !== element) {
-      this.#drawScene();
-    }
-    // The Block is the one the drawing placed: a caret that moved is drawn on
-    // the words without measuring them again.
-    return this.#painted?.elements.get(element.id)?.words ?? null;
-  }
-
-  /**
-   * Where the drawn glyphs of the words being typed are, as the SVG that draws
-   * them laid them out. The call to `#wordsBlock` has drawn the frame they
-   * belong to, so the group asked here is the one holding their ink.
-   */
-  #wordsGlyphs(words: Block): LineGlyphs {
-    return drawnGlyphs(this.#wordsGroup(), words);
-  }
-
-  /** The group the page drew the words being typed in: where their wash goes. */
-  #wordsGroup(): SVGGElement | null {
-    const id = this.#editing?.id ?? this.#draft?.id;
-    return id === undefined ? null : (this.#groups.get(id)?.node ?? null);
-  }
-
-  /**
-   * The wash behind a run of the words being typed, put into the Element's own
-   * drawing: above the fill it was painted with and under the glyphs, which are
-   * the last thing that drawing holds.
-   */
-  #appendWash(box: Box, name: 'words-selection' | 'preedit'): void {
-    const group = this.#wordsGroup();
-    if (group === null) {
-      return;
-    }
-    const wash = this.#rect({ ...box, class: name });
-    const glyph = [...group.children].find((child) => child.tagName.toLowerCase() === 'text');
-    group.insertBefore(wash, glyph ?? null);
-    this.#washes.push(wash);
-  }
-
-  /** Nothing of a frame before is left behind: the washes go with the caret that replaced them. */
-  #clearWash(): void {
-    for (const wash of this.#washes) {
-      wash.remove();
-    }
-    this.#washes = [];
-  }
-
-  /**
-   * Where Up, Down, Home and End put the caret in the words being typed: the
-   * drawn line above or below at the same column, or the start or end of the
-   * line the caret is on — which is the line's first or last boundary, at
-   * whichever end the words begin and stop.
-   */
-  #wordsLine(key: LineKey, state: TextSessionState): number | null {
-    const block = this.#wordsBlock();
-    if (block === null) {
-      return null;
-    }
-    const glyphs = this.#wordsGlyphs(block);
-    const caret = this.#layout.caret(block, this.#shift.drawn(state.caret), glyphs);
-    const middle = caret.y + caret.height / 2;
-    const { boundaries: xs } = glyphs(block.lines[caret.line]!);
-    // The lines are the Layout's own boxes, one line height each: half a line
-    // above or below the caret's middle is the middle of its neighbour. Home
-    // and End ask from the line's own first and last glyph boundary, so which
-    // end of the line each is cannot depend on the direction the words run in.
-    const point =
-      key === 'up'
-        ? { x: caret.x, y: caret.y - caret.height / 2 }
-        : key === 'down'
-          ? { x: caret.x, y: caret.y + caret.height * 1.5 }
-          : key === 'home'
-            ? { x: xs[0]!, y: middle }
-            : { x: xs[xs.length - 1]!, y: middle };
-    return this.#shift.typed(this.#layout.offsetAt(block, point, glyphs));
-  }
-
-  /**
-   * Where a press lands in the words being typed: the drawn offset of the glyph
-   * boundary nearest the pointer, or null when the press is off the words.
-   */
-  #wordsOffset(point: Point): number | null {
-    const block = this.#wordsBlock();
-    if (block === null) {
-      return null;
-    }
-    const glyphs = this.#wordsGlyphs(block);
-    // The words reach as far as their glyphs: a fallback font draws them in a
-    // width of its own, and a press on the paper beyond them is no press on them.
-    const words = drawnBox(block, glyphs);
-    const reach = WORDS_TOLERANCE / this.#view.zoom;
-    const inside =
-      point.x >= words.x - reach &&
-      point.x <= words.x + words.width + reach &&
-      point.y >= words.y - reach &&
-      point.y <= words.y + words.height + reach;
-    return inside ? this.#layout.offsetAt(block, point, glyphs) : null;
-  }
-
-  /** The nearest glyph boundary of the words, wherever the pointer went: a drag carries the caret. */
-  #wordsNearest(point: Point): number | null {
-    const block = this.#wordsBlock();
-    if (block === null) {
-      return null;
-    }
-    return this.#layout.offsetAt(block, point, this.#wordsGlyphs(block));
-  }
 
   /** An offset among the drawn glyphs, read back into the field's own words. */
   #typedOffset(drawn: number): number {
@@ -2329,7 +1551,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#gestures.forgetWordClick();
     this.#shift = wordsShift('', '');
     text?.discard();
-    this.#paint();
+    this.#page.paint();
   }
 
   /** The Scene these words would make, with this Element's words replaced. */
@@ -2371,7 +1593,7 @@ class EsbozoEditorElement extends HTMLElement {
     const verdict = this.#verdict(elements);
     if ('problem' in verdict) {
       this.#setSaved('failed', verdict.problem);
-      this.#paint();
+      this.#page.paint();
       return;
     }
     this.#applyScene(verdict.scene, { select: selected });
@@ -2458,9 +1680,9 @@ class EsbozoEditorElement extends HTMLElement {
 
   #onWheel = (event: WheelEvent): void => {
     event.preventDefault();
-    const point = this.#screenPoint(event);
+    const point = this.#page.viewport.screenPoint(event);
     const factor = Math.exp(-event.deltaY * (event.ctrlKey ? 0.01 : 0.0015));
-    this.#changedView(zoomedAt(this.#view, factor, point.x, point.y));
+    this.#changedView(zoomedAt(this.#page.viewport.view, factor, point.x, point.y));
   };
 
   #onKeyUp = (event: KeyboardEvent): void => {
@@ -2500,19 +1722,19 @@ class EsbozoEditorElement extends HTMLElement {
   }
 
   #zoomBy(factor: number): void {
-    const size = this.#viewportSize();
-    this.#changedView(zoomedAt(this.#view, factor, size.width / 2, size.height / 2));
+    const size = this.#page.viewport.size();
+    this.#changedView(zoomedAt(this.#page.viewport.view, factor, size.width / 2, size.height / 2));
   }
 
   /** Fit the page the Renderer draws into the window, the view an open Scene starts in. */
   #zoomToFit(): void {
-    this.#changedView(fittedView(this.#scene, this.#viewportSize(), this.#layout));
+    this.#changedView(fittedView(this.#scene, this.#page.viewport.size(), this.#layout));
   }
 
   /** One pixel per Scene unit, around the middle of the window: the plain view. */
   #resetZoom(): void {
-    const size = this.#viewportSize();
-    this.#changedView(zoomedAt(this.#view, 1 / this.#view.zoom, size.width / 2, size.height / 2));
+    const size = this.#page.viewport.size();
+    this.#changedView(zoomedAt(this.#page.viewport.view, 1 / this.#page.viewport.view.zoom, size.width / 2, size.height / 2));
   }
 
   // ----------------------------------------------------------------------- UI
@@ -2682,43 +1904,12 @@ function unmeasured(): Layout {
 }
 
 /**
- * The caret on the page, as the drawing gives it: the line and the stroke its
- * slot takes, made into the one path the overlay holds.
- */
-function caretPath(slot: Box): SVGPathElement {
-  const line = caretLine(slot);
-  const node = document.createElementNS(SVG_NS, 'path');
-  node.setAttribute('class', 'caret');
-  node.setAttribute('stroke-width', String(line.stroke));
-  node.setAttribute('d', line.path);
-  return node;
-}
-
-/**
  * The async Clipboard API, when the page has one: a non-secure origin has none,
  * and the palette says to use the keys instead of offering a command that
  * cannot run. The cast keeps the check honest: the type says it is always there.
  */
 function clipboardApi(): Clipboard | null {
   return (navigator as Navigator & { clipboard?: Clipboard }).clipboard ?? null;
-}
-
-/**
- * One Element's drawing as the group the page holds: the unit a move moves with
- * a transform, and the unit a redraw replaces. The Renderer writes the same
- * nodes into the saved SVG, so what the page shows is the file it saves.
- */
-function groupOf(id: string, svg: string): SVGGElement {
-  const group = document.createElementNS(SVG_NS, 'g');
-  group.setAttribute('data-element', id);
-  const parsed = new DOMParser().parseFromString(
-    `<svg xmlns="${SVG_NS}">${svg}</svg>`,
-    'image/svg+xml',
-  );
-  for (const child of Array.from(parsed.documentElement.childNodes)) {
-    group.append(document.importNode(child, true));
-  }
-  return group;
 }
 
 function normaliseSceneName(raw: string): string {
