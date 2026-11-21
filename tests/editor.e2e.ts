@@ -967,6 +967,64 @@ test('a middle drag pans under the Select tool and keeps the selection it found'
   expect(scene.elements.map((element) => [element.id, element.x])).toEqual([['lone', 50]]);
 });
 
+test('a press after a nudge reads the Scene the page holds, not the ink it drew before it', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': LONE_SOURCE } }, 'scene.json');
+
+  // `lone` is selected, from a press on the box's own ink.
+  await clickScene(ui, { x: 60, y: 60 }, [], LONE);
+  await settle(ui);
+
+  // Fifteen nudges carry the box 150 units left, and the press that follows
+  // lands on the centre it left behind. A real key and a real press each take a
+  // task of their own, so the page paints the box where the Scene has it before
+  // the press reads anything; the two are dispatched by hand in one task for
+  // that reason, so no frame draws the box the nudges moved.
+  const centre = at({ x: 140, y: 120 }, LONE);
+  await browser.evaluate(
+    (raw) => {
+      const point = raw as unknown as { x: number; y: number };
+      const board = document.querySelector('esbozo-editor .board')!;
+      for (let step = 0; step < 15; step += 1) {
+        board.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'ArrowLeft', shiftKey: true, bubbles: true }),
+        );
+      }
+      for (const type of ['pointerdown', 'pointerup']) {
+        board.dispatchEvent(
+          new PointerEvent(type, {
+            bubbles: true,
+            pointerId: 1,
+            isPrimary: true,
+            button: 0,
+            clientX: point.x,
+            clientY: point.y,
+          }),
+        );
+      }
+      return true;
+    },
+    { x: centre.x, y: centre.y },
+  );
+  await settle(ui);
+
+  // The box moved the 150 units the nudges asked for, and nothing else did.
+  const nudged = await savedScene(ui);
+  expect(nudged.elements.map((element) => [element.id, element.x])).toEqual([['lone', -110]]);
+
+  // The press found bare paper where the box used to be, so nothing is
+  // selected: a nudge now moves nothing, because the ink the page drew before
+  // the nudges is not where a press looks.
+  await browser.keyboard.press('Shift+ArrowRight');
+  await settle(ui);
+  const after = await savedScene(ui);
+  expect(after.elements.map((element) => [element.id, element.x])).toEqual([['lone', -110]]);
+});
+
 test('a middle drag pans with the Rectangle tool armed and draws nothing', async ({
   app,
   browser,
