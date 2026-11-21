@@ -7,7 +7,7 @@
  * on the pixels it paints, never on the editor's own state.
  */
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -878,6 +878,35 @@ export async function cliPng(scene: unknown, theme: 'light' | 'dark'): Promise<B
     PAGE_FONT,
   ], { cwd: folder });
   return readFile(join(folder, `scene.${theme}.png`));
+}
+
+/**
+ * Run a shell command the page printed, as written, with `ez` on the PATH and
+ * the Scene files in the folder it runs in. This is the person's half of the
+ * fallback: the command in the status line has to work when it is copied out.
+ */
+export async function runAsWritten(
+  command: string,
+  files: Record<string, string>,
+): Promise<{ code: number; folder: string }> {
+  const folder = await mkdtemp(join(tmpdir(), 'esbozo-as-written-'));
+  for (const [name, text] of Object.entries(files)) {
+    await writeFile(join(folder, name), text, 'utf8');
+  }
+  const bin = join(folder, 'bin');
+  await mkdir(bin);
+  const shim = join(bin, 'ez');
+  await writeFile(shim, `#!/bin/sh\nexec "${process.execPath}" "${CLI}" "$@"\n`, 'utf8');
+  await chmod(shim, 0o755);
+  try {
+    await run('/bin/sh', ['-c', command], {
+      cwd: folder,
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}` },
+    });
+    return { code: 0, folder };
+  } catch (error) {
+    return { code: (error as { code?: number }).code ?? -1, folder };
+  }
 }
 
 /** A file a download left behind, by the name the browser gave it. */

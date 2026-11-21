@@ -12,6 +12,8 @@
  * visible outcomes are also judged by a model in `tests/visual.e2e.ts`, which
  * runs on its own with `pnpm e2e:agent`.
  */
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { describe, test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import {
@@ -66,6 +68,7 @@ import {
   holdWrites,
   openEditor,
   releaseClipboardWrite,
+  runAsWritten,
   openNewScene,
   releaseWrite,
   savedFiles,
@@ -1732,4 +1735,30 @@ test('a Scene too big for a canvas names the CLI command that draws it', async (
   // The attempt changed nothing: the Scene on disk is the one that was opened.
   const files = await savedFiles(ui);
   expect(JSON.parse(files['poster.json'] ?? '{}').elements.length).toBe(1);
+});
+
+test('a Scene whose name holds a space is named so the command runs as written', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'big poster.json': BIG_SOURCE } }, 'big poster.json');
+
+  await palette(ui);
+  await browser.keyboard.type('export png dark');
+  await browser.keyboard.press('Enter');
+  const status = screen.getByRole('status');
+  await expect(status).toContainText('70170×142');
+  // A name with a space in it is quoted, so the shell hands the CLI one path.
+  await expect(status).toContainText("ez png 'big poster.json' --theme dark");
+
+  // The command as written draws the page: copied out of the status line, it
+  // reads the Scene that is on disk and writes the PNG beside it.
+  const command = /`([^`]+)`/.exec((await status.textContent()) ?? '')?.[1] ?? '';
+  expect(command).toBe("ez png 'big poster.json' --theme dark");
+  const written = await runAsWritten(command, await savedFiles(ui));
+  expect(written.code).toBe(0);
+  const png = decodePng(await readFile(join(written.folder, 'big poster.dark.png')));
+  expect({ width: png.width, height: png.height }).toEqual({ width: 70170, height: 142 });
 });

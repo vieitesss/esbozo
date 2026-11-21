@@ -79,8 +79,21 @@ class TooBigForCanvas extends Error {}
 function tooBig(options: PngExport, page: { width: number; height: number }): TooBigForCanvas {
   return new TooBigForCanvas(
     `${options.file} is ${page.width}×${page.height}: too big for this page to draw ` +
-      `at one pixel per unit. Run \`ez png ${options.file} --theme ${options.theme}\` instead.`,
+      `at one pixel per unit. Run \`ez png ${shellQuote(options.file)} --theme ${options.theme}\` instead.`,
   );
+}
+
+/**
+ * A Scene's file name as a shell reads it: bare when every character of it is
+ * one the shell leaves alone, and in single quotes when it is not, so a name
+ * with a space in it stays one argument. A single quote inside the name ends
+ * the quoted run and comes back as `\'`: that is how a shell writes one.
+ */
+function shellQuote(name: string): string {
+  if (/^[A-Za-z0-9._/@%+-]+$/.test(name)) {
+    return name;
+  }
+  return `'${name.replaceAll("'", "'\\''")}'`;
 }
 
 /**
