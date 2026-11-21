@@ -69,10 +69,10 @@ const HALF: View = { zoom: 1, panX: 470, panY: 100 };
 
 /** A part of the page where the Scene's ink is. */
 const BOX_A: Rect = { x: 510, y: 340, width: 120, height: 80 };
-/** The whole page: two shots that mean the same drawing are equal on it. */
-const PAGE: Rect = { x: 0, y: 0, width: 1280, height: 800 };
 /** Clear paper: a rectangle drawn here would show. */
 const PAPER: Rect = { x: 700, y: 500, width: 120, height: 100 };
+/** The page inside the ring a focused canvas draws, for shots of the drawing alone. */
+const DRAWING: Rect = { x: 24, y: 24, width: 1232, height: 752 };
 /** Where `WORDS_SCENE`'s Text draws in a full-window editor: its ink and nothing else. */
 const WORDS: Rect = { x: 520, y: 480, width: 240, height: 60 };
 /** The same Text, in the upper and the lower half of the two-element page. */
@@ -213,7 +213,7 @@ test('an element with no save attribute is read-only: it says so and refuses eve
     await drag(ui, { x: PAPER.x, y: PAPER.y }, { x: PAPER.x + 120, y: PAPER.y + 80 });
     await settle(ui);
     const afterTools = await shot(ui);
-    expect(afterTools.meanLuminance(PAGE)).toBe(opened.meanLuminance(PAGE));
+    expect(afterTools.meanLuminance(DRAWING)).toBe(opened.meanLuminance(DRAWING));
 
     // A selection and three nudges: selecting is allowed, moving is not, so the
     // drawing after the nudge is the drawing the selection landed on.
@@ -223,13 +223,13 @@ test('an element with no save attribute is read-only: it says so and refuses eve
     await browser.keyboard.press('Shift+ArrowRight');
     await browser.keyboard.press('Shift+ArrowRight');
     await settle(ui);
-    expect((await shot(ui)).meanLuminance(PAGE)).toBe(selected.meanLuminance(PAGE));
+    expect((await shot(ui)).meanLuminance(DRAWING)).toBe(selected.meanLuminance(DRAWING));
 
     // The Style menu is a door into the Scene as well: its controls are refused
     // the same way, with the selection left exactly as it was.
     await screen.getByRole('button', { name: 'Corners: sharp' }).click();
     await settle(ui);
-    expect((await shot(ui)).meanLuminance(PAGE)).toBe(selected.meanLuminance(PAGE));
+    expect((await shot(ui)).meanLuminance(DRAWING)).toBe(selected.meanLuminance(DRAWING));
 
     expect(embed.writes('a')).toBe(0);
     expect(await embed.saved('a')).toBe(SCENE_SOURCE);
@@ -839,8 +839,11 @@ test('the host page keeps Space and the arrows until the editor has the focus', 
 
     // A click into the editor hands it the keys, and the focus with them.
     await clickScene(ui, { x: 100, y: 80 }, [], VIEW);
-    const active = await browser.evaluate(() => document.activeElement?.tagName ?? '');
-    expect(active).toBe('ESBOZO-EDITOR');
+    // The focus is inside the editor, wherever in it the click landed.
+    const inside = await browser.evaluate(
+      () => document.activeElement?.closest('esbozo-editor') !== null,
+    );
+    expect(inside).toBe(true);
     // Space pans and the arrow nudges now, so the page does not scroll: a
     // scroll step is tens of pixels, the browser's focus nudge is a few.
     const steady = await scrolled();
@@ -879,8 +882,10 @@ test('an element the page takes off and puts back takes the keys again', async (
     // The click into it is still the editor's: the focus comes with it, and
     // Space and the arrows are the editor's from then on.
     await clickScene(ui, { x: 100, y: 80 }, [], VIEW);
-    const active = await browser.evaluate(() => document.activeElement?.tagName ?? '');
-    expect(active).toBe('ESBOZO-EDITOR');
+    const inside = await browser.evaluate(
+      () => document.activeElement?.closest('esbozo-editor') !== null,
+    );
+    expect(inside).toBe(true);
     const steady = await browser.evaluate(() => window.scrollY);
     await browser.keyboard.press('ArrowDown');
     await settle(ui);

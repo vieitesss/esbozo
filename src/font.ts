@@ -32,7 +32,7 @@ import { fontFaces, resolveVariables, themeVariables } from './css.js';
 import type { Theme } from './css.js';
 import kalam from '../fonts/Kalam-Regular.ttf';
 import { createLayout, parseFontFile } from './layout.js';
-import type { Layout, Metrics } from './layout.js';
+import type { Layout, ParsedFont } from './layout.js';
 
 /** The name the bundled font draws as. */
 export const BUNDLED_FONT_NAME = 'Kalam';
@@ -43,11 +43,12 @@ const BUNDLED_FONT: Uint8Array = kalam;
 /** Only files on this machine can be read; a URL is not one. */
 const REMOTE_URL = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
 
-/** A font read once: the bytes to draw with, the family it draws as and how to measure with it. */
+/** A font read once: the bytes it came from, the family it draws as and how to measure and outline with it. */
 export interface FontFile {
   bytes: Uint8Array;
   family: string;
-  metrics: Metrics;
+  /** The file parsed once: Layout measures with it and draws its words from it. */
+  parsed: ParsedFont;
 }
 
 export type FontResult =
@@ -66,7 +67,7 @@ export type ChosenFont =
 
 /** The Layout for a font file, so measuring and drawing use the same bytes. */
 export function layoutFor(font: FontFile): Layout {
-  return createLayout(font.metrics);
+  return createLayout(font.parsed);
 }
 
 /** A stylesheet read once: its text and the path a relative `@font-face` resolves against. */
@@ -221,7 +222,7 @@ export function checkFont(bytes: Uint8Array, label: string): FontResult {
   if (parsed.glyphCount === 0) {
     return { ok: false, problems: [`${label} has no glyphs`] };
   }
-  return { ok: true, value: { bytes, family: parsed.family, metrics: parsed.metrics } };
+  return { ok: true, value: { bytes, family: parsed.family, parsed } };
 }
 
 function tagAt(bytes: Uint8Array, offset: number): string {

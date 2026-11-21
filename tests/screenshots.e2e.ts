@@ -1,5 +1,6 @@
 /**
- * The two screenshots the ticket asks for: the editor in light and in dark.
+ * The screenshots the ticket asks for: the editor in light and in dark, plus
+ * the command palette over the paper.
  *
  * Skipped unless `ESBOZO_SHOTS` names a folder, so a normal run stays hermetic
  * and writes nothing into the project. Run it with:
@@ -27,6 +28,12 @@ test.skipIf(shots === undefined || shots === '')(
     await mkdir(folder, { recursive: true });
 
     await copyFile(await ui.app.screenshot('editor-light'), join(folder, 'editor-light.png'));
+
+    // The palette, as Q leaves it: every action by name, with its key.
+    await ui.browser.keyboard.press('q');
+    await settle(ui);
+    await copyFile(await ui.app.screenshot('palette-light'), join(folder, 'palette-light.png'));
+    await ui.browser.keyboard.press('Escape');
 
     await ui.screen.getByRole('button', 'Dark').click();
     await settle(ui);

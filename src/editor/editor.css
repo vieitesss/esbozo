@@ -81,6 +81,14 @@ esbozo-editor .canvas {
   touch-action: none;
 }
 
+/* The canvas takes the focus when the palette shuts, so focus is visible there
+   and nowhere else: a ring around the paper, inside the window's edge. */
+esbozo-editor .canvas:focus { outline: none; }
+esbozo-editor .canvas:focus-visible {
+  outline: 2px solid var(--sel);
+  outline-offset: -4px;
+}
+
 esbozo-editor .canvas.hand, esbozo-editor .canvas.panning { cursor: grab; }
 esbozo-editor .canvas.panning { cursor: grabbing; }
 /* drawing: the pencil is the pointer, so the tool in hand reads on the canvas */
@@ -428,3 +436,76 @@ esbozo-editor .style-note .acts button {
 }
 
 esbozo-editor .style-note .acts button:hover { border-color: var(--line-strong); background: var(--line); }
+
+/* The command palette: every action by name, over the paper */
+esbozo-editor .palette {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 12vh;
+  background: color-mix(in srgb, var(--paper) 55%, transparent);
+}
+
+esbozo-editor .palette input {
+  width: 420px;
+  max-width: calc(100% - 40px);
+  padding: 9px 13px;
+  background: color-mix(in srgb, var(--paper) 97%, var(--ink));
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  box-shadow: 0 14px 26px -16px var(--shadow);
+  color: var(--ink);
+  font-family: var(--font-hand);
+  font-size: 15px;
+  outline: none;
+}
+
+esbozo-editor .palette input::placeholder { color: var(--muted); }
+
+esbozo-editor .palette ul {
+  width: 420px;
+  max-width: calc(100% - 40px);
+  max-height: 52vh;
+  overflow-y: auto;
+  margin: 6px 0 0;
+  padding: 5px;
+  list-style: none;
+  background: color-mix(in srgb, var(--paper) 97%, var(--ink));
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  box-shadow: 0 14px 26px -16px var(--shadow);
+}
+
+esbozo-editor .palette li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  color: var(--ink);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+esbozo-editor .palette li[aria-selected="true"] { background: var(--ink); color: var(--paper); }
+esbozo-editor .palette li[aria-selected="true"] .key,
+esbozo-editor .palette li[aria-selected="true"] .why { color: var(--paper); opacity: 0.8; }
+esbozo-editor .palette li[aria-disabled="true"] { color: var(--muted); cursor: default; }
+esbozo-editor .palette li[aria-disabled="true"] .why { font-family: var(--font-hand); font-size: 11px; opacity: 0.85; }
+
+esbozo-editor .palette li .say { flex: 1; }
+esbozo-editor .palette li .key { font-family: var(--font-mono); font-size: 10px; color: var(--muted); }
+
+esbozo-editor .palette .palette-nothing {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-family: var(--font-hand);
+  font-size: 12.5px;
+}
+
+/* the disabled Arrange buttons the registry's rule greys out */
+esbozo-editor .style-note .acts button:disabled { opacity: 0.45; cursor: default; border-style: dashed; }
+esbozo-editor .style-note .acts button:disabled:hover { background: transparent; border-color: var(--line); }

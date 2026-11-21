@@ -2,7 +2,7 @@
  * The modules the editor loads, bundled for Node the way the editor loads them.
  *
  * Rough.js ships imports Node cannot resolve, and `opentype.js` is CommonJS, so
- * the module-seam tests (Scene, Renderer, Layout) go through one esbuild bundle
+ * the module-seam tests (Scene, Renderer, Layout, glyph outlines) go through one esbuild bundle
  * instead of importing `src/` directly. Both seams share this helper, so a
  * change to how the modules are loaded cannot make the suites disagree.
  */
@@ -23,7 +23,7 @@ export interface ProjectModules {
   emptyScene: typeof import('../src/scene.ts').emptyScene;
   renderScene: typeof import('../src/renderer.ts').renderScene;
   createLayout: typeof import('../src/layout.ts').createLayout;
-  measureFont: typeof import('../src/layout.ts').measureFont;
+  parseFontFile: typeof import('../src/layout.ts').parseFontFile;
   /** Kalam's bytes, so a test measures with the font the CLI measures with. */
   KALAM: Uint8Array;
 }
@@ -40,7 +40,7 @@ export async function loadProjectModules(): Promise<ProjectModules> {
       `export { parseScene, serialiseScene, hashScene, emptyScene, serialiseFragment, parseFragment } from ${source('scene.ts')};`,
       `export { History } from ${source('editor/history.ts')};`,
       `export { renderScene } from ${source('renderer.ts')};`,
-      `export { createLayout, measureFont } from ${source('layout.ts')};`,
+      `export { createLayout, parseFontFile } from ${source('layout.ts')};`,
       `export { default as KALAM } from ${JSON.stringify(
         fileURLToPath(new URL('../fonts/Kalam-Regular.ttf', import.meta.url)),
       )};`,

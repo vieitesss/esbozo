@@ -25,7 +25,17 @@ declare module 'opentype.js' {
     };
     /** The advance width of a line, in the font's units when no size is given. */
     getAdvanceWidth(text: string, fontSize?: number, options?: { kerning?: boolean }): number;
-    /** The file's bytes, for tests that need a font which is valid but unusual. */
+    /**
+     * One line as the font's own outlines, placed at a baseline: the same curves
+     * resvg draws for the same file, which is what a PNG must be drawn with.
+     */
+    getPath(
+      text: string,
+      x: number,
+      y: number,
+      fontSize?: number,
+      options?: { kerning?: boolean },
+    ): Path;    /** The file's bytes, for tests that need a font which is valid but unusual. */
     toArrayBuffer(): ArrayBuffer;
   }
 
@@ -41,11 +51,22 @@ declare module 'opentype.js' {
   /** Parses a TrueType/OpenType file; throws when the bytes are not a font. */
   export function parse(buffer: ArrayBuffer): Font;
 
+  /** One command of a glyph outline, in pixels, as opentype.js writes it. */
+  export type PathCommand =
+    | { type: 'M' | 'L'; x: number; y: number }
+    | { type: 'Q'; x1: number; y1: number; x: number; y: number }
+    | { type: 'C'; x1: number; y1: number; x2: number; y2: number; x: number; y: number }
+    | { type: 'Z' };
+
   /** A glyph outline, built by tests that need a font which is valid but unusual. */
   export class Path {
+    /** The commands of a line, in pixels: what a PNG draws its words from. */
+    commands: readonly PathCommand[];
     moveTo(x: number, y: number): void;
     lineTo(x: number, y: number): void;
     close(): void;
+    /** The path as SVG `d` data, rounded to the given number of decimal places. */
+    toPathData(decimalPlaces?: number): string;
   }
 
   export interface GlyphOptions {

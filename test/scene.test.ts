@@ -21,11 +21,11 @@ const BOX = {
   elements: [{ id: 'a', type: 'rectangle', x: 40, y: 40, width: 120, height: 80 }],
 };
 
-const { hashScene, parseScene, renderScene, serialiseScene, emptyScene, createLayout, measureFont, KALAM } =
+const { hashScene, parseScene, renderScene, serialiseScene, emptyScene, createLayout, parseFontFile, KALAM } =
   await loadProjectModules();
 
 /** The drawing is measured with the bundled font, as `ez render` measures it. */
-const LAYOUT = createLayout(measureFont(KALAM));
+const LAYOUT = createLayout(parseFontFile(KALAM));
 
 test('a Scene mutated in memory saves, hashes and draws as its whole pixels', () => {
   const whole = parsed(BOX);

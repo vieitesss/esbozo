@@ -45,6 +45,18 @@ export interface SceneFolder {
   write(name: string, scene: string, svg: string): Promise<void>;
 }
 
+/**
+ * Whether this page can open a folder at all: the File System Access API's
+ * picker is only there on a secure origin, and a page served as plain files
+ * over HTTP has none. A served page can open a folder without one, because its
+ * server lists the Scenes; this is the other way in.
+ */
+export function canPickFolder(): boolean {
+  return (
+    typeof (window as unknown as DirectoryPickerWindow).showDirectoryPicker === 'function'
+  );
+}
+
 /** Ask for a folder. Null when the user cancels. */
 export async function pickFolder(): Promise<SceneFolder | null> {
   const picker = (window as unknown as DirectoryPickerWindow).showDirectoryPicker;

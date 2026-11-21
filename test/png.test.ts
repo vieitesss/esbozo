@@ -469,6 +469,38 @@ test('a dashed or dotted Snap reaches its target as ink, not bare paper', async 
   }
 });
 
+test('a blank line takes its space and draws nothing', async () => {
+  const folder = await sceneFolder({
+    version: 1,
+    title: 'Blank line',
+    elements: [
+      { id: 'words', type: 'text', x: 40, y: 40, content: 'top\n\ntail', fontSize: 'XL' },
+    ],
+  });
+
+  const { png } = await pngOne(['png', 'scene.json', '--theme', 'light'], folder);
+
+  // Three lines' worth of room, two lines of ink: the blank line is a gap
+  // between the bands, not a row of marks of its own.
+  let bands = 0;
+  let lastRow = -2;
+  for (let y = 0; y < png.height; y += 1) {
+    let inked = false;
+    for (let x = 0; x < png.width; x += 1) {
+      if (isInk(png.pixel(x, y))) {
+        inked = true;
+      }
+    }
+    if (inked && y !== lastRow + 1) {
+      bands += 1;
+    }
+    if (inked) {
+      lastRow = y;
+    }
+  }
+  assert.equal(bands, 2, `two lines of ink around the blank one, found ${bands}`);
+});
+
 test('repeated ASCII spaces are drawn, not collapsed into one', async () => {
   const folder = await sceneFolder({
     version: 1,
@@ -500,6 +532,62 @@ test('repeated ASCII spaces are drawn, not collapsed into one', async () => {
 
   assert.ok(one > 0, 'the single-space words are drawn');
   assert.ok(two >= one + 8, `two spaces draw wider than one: ${two} vs ${one}`);
+});
+
+test('every word of every line is drawn, from the font the Scene was measured with', async () => {
+  // Five XL lines of one sentence: the page the reviewer exported, in which a
+  // glyph path holding a NaN cut every line down to its first word. A line is
+  // as wide as the font measured it, so each line's ink has to reach the end of
+  // its own line, not one word into it.
+  const sentence = 'Kalam is meant to match.';
+  const folder = await sceneFolder({
+    version: 1,
+    title: 'XL words',
+    defaults: { roughness: 1 },
+    elements: [
+      {
+        id: 'lines',
+        type: 'text',
+        x: 40,
+        y: 40,
+        content: Array.from({ length: 5 }, () => sentence).join('\n'),
+        fontSize: 'XL',
+      },
+    ],
+  });
+
+  const { png } = await pngOne(['png', 'scene.json', '--theme', 'light'], folder);
+
+  // Each band of inked rows is one line; the rightmost inked column of it is
+  // where the last word ends. The page pads the Scene by 16px, so a complete
+  // line reaches within the padding of the page's right edge.
+  const right: number[] = [];
+  let lastRow = -2;
+  for (let y = 0; y < png.height; y += 1) {
+    let edge = -1;
+    for (let x = 0; x < png.width; x += 1) {
+      if (isInk(png.pixel(x, y))) {
+        edge = x;
+      }
+    }
+    if (edge < 0) {
+      continue;
+    }
+    if (y === lastRow + 1 && right.length > 0) {
+      right[right.length - 1] = Math.max(right[right.length - 1]!, edge);
+    } else {
+      right.push(edge);
+    }
+    lastRow = y;
+  }
+
+  assert.equal(right.length, 5, `five lines of words, found ${right.length}`);
+  for (const edge of right) {
+    assert.ok(
+      edge > png.width - 48,
+      `a line reaches the end of its line: inked to ${edge} of ${png.width}`,
+    );
+  }
 });
 
 test('a colour the subset cannot resolve exits 5 and names it', async () => {

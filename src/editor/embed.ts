@@ -77,7 +77,10 @@ async function pageFont(element: HTMLElement): Promise<PageFont> {
     // fallback while the file is still being read.
     const face = new FontFace(`esbozo-font-${++families}`, bytes);
     await face.load();
-    return { ok: true, layout: createLayout(measureFontBytes(bytes)), face: () => useFace(element, face) };
+    // The bundle reads the tables Layout needs and nothing else, so it has the
+    // metrics and the family but not the outlines a PNG is drawn from.
+    const layout = createLayout({ family: face.family, metrics: measureFontBytes(bytes) });
+    return { ok: true, layout, family: face.family, face: () => useFace(element, face) };
   } catch (error) {
     return { ok: false, problem: `cannot load ${url}: ${(error as Error).message}` };
   }

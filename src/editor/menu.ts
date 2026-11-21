@@ -4,7 +4,7 @@
  * One function returns the note's markup for a selection, and the editor swaps
  * it in when the selection or its style changes. Buttons carry what they do in
  * their dataset: `data-style` and `data-value` pick a style (see `style.ts`),
- * `data-act` rearranges (see `arrange.ts`). Each button also names itself, the
+ * `data-act` names an Arrange action in the registry (see `actions.ts`). Each button also names itself, the
  * row and the value together, so a control is known by what it says rather than
  * by the markup around it. Nothing here reads or writes the Scene, so the menu
  * can be rebuilt at any time without losing an edit.
@@ -18,8 +18,9 @@
  */
 import { greyColour } from '../renderer.js';
 import type { Element } from '../scene.js';
+import { ACTIONS } from './actions.js';
+import type { ActionGroup, ActionState } from './actions.js';
 import { movableCount } from './arrange.js';
-import type { ArrangeAct } from './arrange.js';
 import { controlsFor, roughnessLabel, sharedValue } from './style.js';
 import type { StyleControl } from './style.js';
 
@@ -109,59 +110,37 @@ function choiceButton(
 }
 
 /**
- * The Arrange rows. Order is always there; aligning needs two Elements and
- * spreading three, and each row's buttons are disabled when too few of the
- * selected Elements can move for the action to mean anything.
+ * The Arrange rows, read from the action registry: Order always shows, aligning
+ * needs two Elements selected and spreading three (`minSelected`), and a button
+ * is disabled when the action's own rule says it has nothing it can move. So
+ * the note and the palette cannot offer different things.
  */
 function arrangeRows(elements: readonly Element[]): string {
-  const movable = movableCount(elements);
-  const rows = [
-    actRow('Order', [
-      { act: 'order-back', label: 'back' },
-      { act: 'order-backward', label: 'backward' },
-      { act: 'order-forward', label: 'forward' },
-      { act: 'order-front', label: 'front' },
-    ], true),
-  ];
-  if (elements.length >= 2) {
-    rows.push(
-      actRow('Arrange', [
-        { act: 'align-left', label: 'left' },
-        { act: 'align-centre', label: 'centre' },
-        { act: 'align-right', label: 'right' },
-        { act: 'align-top', label: 'top' },
-        { act: 'align-middle', label: 'middle' },
-        { act: 'align-bottom', label: 'bottom' },
-      ], movable >= 2),
-    );
-  }
-  if (elements.length >= 3) {
-    rows.push(
-      actRow('Spread', [
-        { act: 'distribute-horizontal', label: 'horizontal' },
-        { act: 'distribute-vertical', label: 'vertical' },
-      ], movable >= 3),
-    );
-  }
+  const state: ActionState = { selected: elements.length, movable: movableCount(elements) };
+  const rows = (['Order', 'Arrange', 'Spread'] satisfies ActionGroup[])
+    .map((group) => actRow(group, state))
+    .filter((row) => row !== '');
   return `<div class="group">${rows.join('')}</div>`;
 }
 
-function actRow(
-  label: string,
-  buttons: readonly { act: ArrangeAct; label: string }[],
-  enabled: boolean,
-): string {
-  const markup = buttons
+function actRow(group: ActionGroup, state: ActionState): string {
+  const actions = ACTIONS.filter(
+    (action) => action.group === group && state.selected >= action.minSelected,
+  );
+  if (actions.length === 0) {
+    return '';
+  }
+  const markup = actions
     .map(
-      (button) =>
-        `<button type="button" data-act="${button.act}"` +
-        `${enabled ? '' : ' disabled'} aria-label="${buttonName(label, button.label)}">` +
-        `${button.label}</button>`,
+      (action) =>
+        `<button type="button" data-act="${action.id}"` +
+        `${action.reason(state) === null ? '' : ' disabled'} aria-label="${action.name}">` +
+        `${action.name.slice(action.name.indexOf(': ') + 2)}</button>`,
     )
     .join('');
   return (
-    `<div class="row"><span class="row-label">${label}</span>` +
-    `<div class="acts" role="group" aria-label="${label}">${markup}</div></div>`
+    `<div class="row"><span class="row-label">${group}</span>` +
+    `<div class="acts" role="group" aria-label="${group}">${markup}</div></div>`
   );
 }
 

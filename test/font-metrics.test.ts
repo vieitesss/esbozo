@@ -5,7 +5,7 @@
  * is bigger than the whole size budget. So the bundle reads the few tables
  * Layout needs itself (`src/font-metrics.ts`), and this suite says it measures
  * exactly what `ez render` measures — the reference is the CLI's own reader,
- * `measureFont`, so a drawing the editor saves and a drawing the CLI saves
+ * `parseFontFile`, so a drawing the editor saves and a drawing the CLI saves
  * cannot disagree about where a word ends.
  *
  * Exact equality is the claim, not a tolerance: the Renderer rounds to hundredths
@@ -18,7 +18,10 @@ import { measureFontBytes } from '../src/font-metrics.ts';
 import { fontBytes } from './fonts.ts';
 import { loadProjectModules } from './modules.ts';
 
-const { measureFont, KALAM } = await loadProjectModules();
+const { parseFontFile, KALAM } = await loadProjectModules();
+
+/** The CLI's own reader, as the metrics Layout places words with. */
+const measureFont = (bytes: Uint8Array) => parseFontFile(bytes).metrics;
 
 /** The words a Label or Text draws with, at the sizes a Scene names. */
 const LONG = 'Trembling words that wrap, and punctuation.';

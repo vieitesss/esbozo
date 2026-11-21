@@ -15,7 +15,9 @@ html, body { height: 100%; margin: 0; }
   --line-strong: color-mix(in srgb, var(--ink) 26%, transparent);
 }
 
-[data-theme="dark"] {
+/* The dark palette sits on the root scope the way `ez png` reads it, so an
+   exported PNG and the page cannot disagree about what dark is. */
+:root[data-theme="dark"] {
   --ink: #ece7db;
   --paper: #17161a;
   --muted: color-mix(in srgb, var(--ink) 52%, var(--paper));

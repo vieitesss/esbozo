@@ -102,6 +102,30 @@ test('the served editor lists, opens and autosaves Scenes, saving Scene and SVG 
   }
 });
 
+test('a served page offers Open folder even with no directory picker', async ({ app, browser, screen }) => {
+  const folder = await folderWith({ 'one.json': SCENE_SOURCE, 'two.json': MIXED_SOURCE });
+  const server = await startServe(folder);
+  try {
+    await app.open(`${server.url}/editor.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+
+    // The page cannot ask the browser for a folder here: the server lists the
+    // Scenes itself, which is the other way to open one.
+    await browser.evaluate(() => {
+      delete (window as { showDirectoryPicker?: unknown }).showDirectoryPicker;
+      return true;
+    });
+
+    await browser.keyboard.press('Meta+k');
+    await browser.keyboard.type('open folder');
+    await expect(screen.getByRole('option', { name: /Open folder/ })).not.toBeDisabled();
+    await browser.keyboard.press('Enter');
+    await expect(screen.getByRole('button', 'two.json')).toBeVisible();
+  } finally {
+    await server.stop();
+  }
+});
+
 test('the page shows a failing folder request in its status line', async ({ app, browser, screen }) => {
   // A server that is there but cannot list the folder is not a static page: the
   // page says so, and it does not pretend it has a folder to offer.

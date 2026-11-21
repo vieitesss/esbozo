@@ -7,7 +7,7 @@
  * on the pixels it paints, never on the editor's own state.
  */
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -462,6 +462,144 @@ export const POSTER_SCENE = {
   ],
 };
 
+/**
+ * A page of words: dense, small, at every anchor and in both tones, so a PNG
+ * drawn with another font — or with a font pair that is not hinted the same —
+ * shows in every glyph rather than in the antialiasing of a stroke.
+ */
+export const TEXT_SCENE = {
+  version: 1,
+  title: 'Words',
+  defaults: { roughness: 1 },
+  elements: [
+    {
+      id: 'para',
+      type: 'text',
+      x: 40,
+      y: 40,
+      content: 'the quick brown fox\njumps over the lazy dog\nat half past nine',
+      fontSize: 'S',
+      textAlign: 'left',
+    },
+    {
+      id: 'head',
+      type: 'text',
+      x: 260,
+      y: 40,
+      content: 'Editing a Scene\nwrites the bytes',
+      fontSize: 'M',
+      textAlign: 'center',
+    },
+    {
+      id: 'tail',
+      type: 'text',
+      x: 560,
+      y: 40,
+      content: 'right aligned words',
+      fontSize: 'L',
+      textAlign: 'right',
+      tone: 'muted',
+    },
+    {
+      id: 'box',
+      type: 'rectangle',
+      x: 40,
+      y: 200,
+      width: 300,
+      height: 150,
+      label: 'a label that wraps inside the box and keeps going until it is full',
+    },
+    {
+      id: 'oval',
+      type: 'ellipse',
+      x: 380,
+      y: 200,
+      width: 240,
+      height: 150,
+      tone: 'muted',
+      label: 'elliptical words wrap in a square of the sides',
+    },
+    {
+      id: 'shaft',
+      type: 'arrow',
+      points: [
+        { x: 40, y: 420 },
+        { x: 620, y: 500 },
+      ],
+      heads: { start: 'none', end: 'arrow' },
+      label: 'a shaft label sits beside the line it belongs to',
+    },
+  ],
+};
+
+/**
+ * A wall 70,138 units wide: the page the Renderer lays out is 70,170×142, far
+ * larger than a canvas can hold at one pixel per unit, so it can only be drawn
+ * by the CLI.
+ */
+export const BIG_SCENE = {
+  version: 1,
+  title: 'Poster',
+  defaults: { roughness: 1 },
+  elements: [
+    {
+      id: 'wall',
+      type: 'rectangle',
+      x: 40,
+      y: 40,
+      width: 70138,
+      height: 110,
+      fill: { kind: 'solid', grey: 2 },
+    },
+  ],
+};
+
+/**
+ * Five identical lines of XL words: the page the reviewer exported, which came
+ * out as one word. A line is placed by the same font that draws it, so a broken
+ * glyph path loses the rest of every line, and a page of one word per line says
+ * so at a glance.
+ */
+export const XL_WORDS = 'Kalam is meant to match.';
+export const XL_WORDS_SCENE = {
+  version: 1,
+  title: 'XL words',
+  defaults: { roughness: 1 },
+  elements: [
+    {
+      id: 'lines',
+      type: 'text',
+      x: 40,
+      y: 40,
+      content: Array.from({ length: 5 }, () => XL_WORDS).join('\n'),
+      fontSize: 'XL',
+      textAlign: 'left',
+    },
+  ],
+};
+
+/**
+ * A wall 33,170 units wide: wider than the 32,767 a canvas may be a side, and
+ * narrower than the browser's real limit, which draws it at one pixel per unit.
+ * The page the Renderer lays out is 33,170×142.
+ */
+export const WIDE_WALL_SCENE = {
+  version: 1,
+  title: 'Wide wall',
+  defaults: { roughness: 1 },
+  elements: [
+    {
+      id: 'wall',
+      type: 'rectangle',
+      x: 40,
+      y: 40,
+      width: 33138,
+      height: 110,
+      fill: { kind: 'solid', grey: 2 },
+    },
+  ],
+};
+
 /** Stub folders: a folder name mapped to its `name → text` files. */
 export interface Folders {
   [folder: string]: Record<string, string>;
@@ -566,6 +704,49 @@ export async function savedFiles(ui: Ui, folder = FOLDER): Promise<Record<string
     }),
     folder,
   );
+}
+
+/** The clipboard stub: a write that lands when the test says so, and what it copied. */
+interface ClipboardStub {
+  __esbozoClipboardWrites: number;
+  __esbozoClipboardRelease: () => void;
+  __esbozoCopied?: string;
+}
+
+/**
+ * Hold every clipboard write open, so a test can see what a named Cut does
+ * while the page is still waiting for the clipboard to accept the copy.
+ */
+export async function holdClipboardWrites(ui: Ui): Promise<void> {
+  await ui.browser.evaluate(() => {
+    const stub = window as unknown as ClipboardStub;
+    const pending: Array<() => void> = [];
+    stub.__esbozoClipboardWrites = 0;
+    stub.__esbozoClipboardRelease = () => pending.shift()?.();
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: (text: string) => {
+          stub.__esbozoCopied = text;
+          stub.__esbozoClipboardWrites += 1;
+          return new Promise<void>((resolve) => pending.push(resolve));
+        },
+        readText: async () => stub.__esbozoCopied ?? '',
+      },
+    });
+    return true;
+  });
+}
+
+/** Let the clipboard write that is waiting land. */
+export async function releaseClipboardWrite(ui: Ui): Promise<void> {
+  await expect
+    .poll(() => ui.browser.evaluate(() => (window as unknown as ClipboardStub).__esbozoClipboardWrites))
+    .toBeGreaterThan(0);
+  await ui.browser.evaluate(() => {
+    (window as unknown as ClipboardStub).__esbozoClipboardRelease();
+    return true;
+  });
 }
 
 /** The saved Scene, parsed, once the editor says it saved. */
@@ -673,6 +854,79 @@ export async function expectSvgMatchesCli(ui: Ui, name = 'scene.json', folder = 
   expect(saved, `${svgName} was saved`).toBeTruthy();
   const scene = JSON.parse(files[name] ?? '{}');
   expect(saved).toBe(await cliRender(scene));
+}
+
+/** The stylesheet and the font the page draws with: what the CLI needs to draw the same Scene. */
+const PAGE_CSS = fileURLToPath(new URL('../dist/editor.css', import.meta.url));
+const PAGE_FONT = fileURLToPath(new URL('../dist/fonts/Kalam-Regular.ttf', import.meta.url));
+
+/**
+ * `ez png` on the Scene the editor saved, in a temp folder, drawn with the
+ * page's own stylesheet and font: the browser's exported PNG has to be this
+ * PNG, so the two are compared pixel for pixel.
+ */
+export async function cliPng(scene: unknown, theme: 'light' | 'dark'): Promise<Buffer> {
+  const folder = await mkdtemp(join(tmpdir(), 'esbozo-e2e-'));
+  await writeFile(join(folder, 'scene.json'), JSON.stringify(scene, null, 2), 'utf8');
+  await run(process.execPath, [
+    CLI,
+    'png',
+    'scene.json',
+    '--theme',
+    theme,
+    '--css',
+    PAGE_CSS,
+    '--font',
+    PAGE_FONT,
+  ], { cwd: folder });
+  return readFile(join(folder, `scene.${theme}.png`));
+}
+
+/**
+ * Run a shell command the page printed, as written, with `ez` on the PATH and
+ * the Scene files in the folder it runs in. This is the person's half of the
+ * fallback: the command in the status line has to work when it is copied out.
+ */
+export async function runAsWritten(
+  command: string,
+  files: Record<string, string>,
+): Promise<{ code: number; folder: string }> {
+  const folder = await mkdtemp(join(tmpdir(), 'esbozo-as-written-'));
+  for (const [name, text] of Object.entries(files)) {
+    await writeFile(join(folder, name), text, 'utf8');
+  }
+  const bin = join(folder, 'bin');
+  await mkdir(bin);
+  const shim = join(bin, 'ez');
+  await writeFile(shim, `#!/bin/sh\nexec "${process.execPath}" "${CLI}" "$@"\n`, 'utf8');
+  await chmod(shim, 0o755);
+  try {
+    await run('/bin/sh', ['-c', command], {
+      cwd: folder,
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}` },
+    });
+    return { code: 0, folder };
+  } catch (error) {
+    return { code: (error as { code?: number }).code ?? -1, folder };
+  }
+}
+
+/** A file a download left behind, by the name the browser gave it. */
+export interface Downloaded {
+  readonly name: string;
+  readonly png: Buffer;
+}
+
+/** Run a trigger that exports a PNG, and read the file the browser downloaded. */
+export async function exported(
+  ui: Ui,
+  trigger: () => Promise<void>,
+): Promise<Downloaded> {
+  const download = await ui.browser.waitForDownload(trigger);
+  return {
+    name: download.suggestedFilename,
+    png: await readFile(download.absolutePath),
+  };
 }
 
 /** Wait for the next two paints, so a screenshot reads the frame a change made. */

@@ -253,3 +253,21 @@ test('a selection too wide to pan clear of the note is zoomed out to fit beside 
     { vision: 'only' },
   );
 });
+
+test('the palette is a note over the paper: a search field, action names and their keys', async ({ agent, app, browser, screen }) => {
+  const ui = { agent, app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+  await browser.keyboard.press('q');
+  await ui.agent.assert(
+    'a search field sits over the drawing with a list of action names below it, each name with a keyboard shortcut at its right',
+    { vision: 'only' },
+  );
+
+  // Nothing is selected, so Delete cannot run: it is listed, greyed, with a reason.
+  await browser.keyboard.type('delete');
+  await ui.agent.assert(
+    'the list shows one greyed-out row named Delete, with a short reason beside it saying what it is waiting for',
+    { vision: 'only' },
+  );
+});
