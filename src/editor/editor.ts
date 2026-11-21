@@ -1653,9 +1653,15 @@ class EsbozoEditorElement extends HTMLElement {
   #drawElements(shown: readonly SceneElement[]): void {
     const paintables = (this.#paintables ??= new PaintCache(this.#layout));
     // The words drawn for an emptied Label are its empty line, the slot the
-    // next letter would go in: the drawing holds the place the caret stands in,
-    // and so does the frame after the words are committed away.
-    const paint = paintables.paint(shown.map(shownWords));
+    // next letter would go in: only the Element being typed in is drawn with
+    // them. An Element nobody is editing keeps the words the Scene holds, so an
+    // unlabeled arrow draws no words — and no paper for them either.
+    const typing = this.#editing?.id;
+    const paint = paintables.paint(
+      typing === undefined
+        ? shown
+        : shown.map((element) => (element.id === typing ? shownWords(element) : element)),
+    );
     this.#painted = paint;
     this.#drawnWords = this.#editing?.element ?? this.#draft;
     this.#drawnMeasurement = paintables.generation;

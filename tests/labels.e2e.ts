@@ -90,7 +90,7 @@ async function savedPaper(ui: Ui, name: string, view: View): Promise<Rect> {
     throw new Error(`${name} was not saved`);
   }
   // check-rules: markup of a written SVG file, not the page
-  const found = /<rect x="([-\d.]+)" y="([-\d.]+)" width="([-\d.]+)" height="([-\d.]+)" fill="var\(--paper\)"\/>/.exec(
+  const found = /<rect x="([-\d.]+)" y="([-\d.]+)" width="([-\d.]+)" height="([-\d.]+)" fill="var\(--paper[^"]*\)"\/>/.exec(
     svg,
   );
   if (found === null) {
@@ -131,6 +131,44 @@ const ALIGNED_SOURCE = JSON.stringify(
   null,
   2,
 );
+
+/**
+ * A filled box with an arrow under its bottom edge, so the place the arrow's
+ * Label would take is grey fill and not bare paper: paper knocked out there
+ * shows as a paler patch instead of hiding in the sheet it is cut from.
+ */
+const UNDER_SOURCE = JSON.stringify(
+  {
+    version: 1,
+    title: 'Under',
+    defaults: { roughness: 1 },
+    elements: [
+      {
+        id: 'under',
+        type: 'rectangle',
+        x: 100,
+        y: 100,
+        width: 300,
+        height: 200,
+        fill: { kind: 'solid', grey: 4 },
+      },
+      { id: 'shaft', type: 'arrow', points: [{ x: 150, y: 250 }, { x: 350, y: 250 }] },
+    ],
+  },
+  null,
+  2,
+);
+
+/** The view `UNDER_SOURCE` lands in: its box fitted 1:1, so Scene (250, 200) is the middle. */
+const UNDER: View = { zoom: 1, panX: 390, panY: 200 };
+
+/**
+ * Where that arrow's empty Label would be painted, and a patch of the same grey
+ * fill away from it: one grey reads the same in both places until paper is
+ * knocked out of one of them.
+ */
+const UNDER_LABEL: Rect = { x: 632, y: 416, width: 16, height: 30 };
+const UNDER_FILL: Rect = { x: 700, y: 416, width: 16, height: 30 };
 
 /** A single letter: enough words to have ink, and no more. */
 const ONE_LETTER = 'w';
@@ -292,6 +330,39 @@ describe('labels', () => {
       { x: 60, y: 230 },
       { x: 340, y: 330 },
     ]);
+  });
+
+  test('an arrow with no words in its Label knocks no paper out of what runs under it', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'under.json': UNDER_SOURCE } }, 'under.json');
+
+    // The arrow carries no words yet, so there is nothing to sit on paper: the
+    // fill under the place its Label would take shows through untouched.
+    const empty = await shot(ui);
+    const fill = empty.meanLuminance(UNDER_FILL);
+    expect(Math.abs(empty.meanLuminance(UNDER_LABEL) - fill)).toBeLessThan(0.02);
+
+    // And the shaft's own ink runs whole through its middle.
+    expect(empty.darkCount({ x: 615, y: 448, width: 50, height: 3 }, 0.5)).toBeGreaterThan(140);
+
+    // Words arrive: they are drawn where they will save, and the paper they sit
+    // on knocks the fill out from under them.
+    await doubleClickScene(ui, { x: 250, y: 250 }, UNDER);
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.pressSequentially('on the line');
+    await settle(ui);
+
+    const written = await shot(ui);
+    expect(written.meanLuminance(UNDER_LABEL)).toBeGreaterThan(fill + 0.2);
+    expect(written.darkCount(UNDER_LABEL, 0.2)).toBeGreaterThan(0);
+
+    await label.press('Escape');
+    const saved = await savedScene(ui, 'under.json');
+    expect(saved.elements.find((element) => element.id === 'shaft')?.label).toBe('on the line');
   });
 
   test('typing a Label grows its Element downwards, keeping the width the author gave it', async ({

@@ -804,10 +804,11 @@ function arrowOrLineSvg(
  * through them. Paper is the page's own variable, so the same drawing clears
  * the same space in light, dark and the editor. It covers the words' ink rather
  * than the advance box Layout measured, so a glyph that hangs past it has paper
- * under its overhang too.
+ * under its overhang too. Words with nothing to read are no Label: paper under a
+ * blank line would knock a hole out of whatever the shaft crosses.
  */
 function paperBehind(words: Block | null): string {
-  if (words === null) {
+  if (words === null || !words.lines.some((line) => line.text.trim() !== '')) {
     return '';
   }
   const paper = labelInkBounds(words);
