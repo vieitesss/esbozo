@@ -748,7 +748,7 @@ describe('copy and paste', () => {
     expect((await savedFiles(ui))['scene.json']).toBe(SCENE_SOURCE);
   });
 
-  test('a fragment of another version, or a bare array, is not a fragment', async ({
+  test('a fragment of another version, a null version, or a bare array is not a fragment', async ({
     app,
     browser,
     screen,
@@ -758,12 +758,18 @@ describe('copy and paste', () => {
     const box = { id: 'stray', type: 'rectangle', x: 400, y: 300, width: 60, height: 40 };
 
     // Scene rejects version 42, so the fragment does; a bare array is not a
-    // fragment at all. Neither paste may touch the Scene.
-    for (const text of [JSON.stringify({ version: 42, elements: [box] }), JSON.stringify([box])]) {
+    // fragment at all, and a version that is there as null is not an omitted
+    // one. No paste may touch the Scene.
+    const fragments = [
+      { version: 42, elements: [box] },
+      { version: null, elements: [box] },
+      [box],
+    ];
+    for (const fragment of fragments) {
       await browser.evaluate(async (payload: string) => {
         await navigator.clipboard.writeText(payload);
         return true;
-      }, text);
+      }, JSON.stringify(fragment));
       await browser.keyboard.press('Meta+v');
     }
 
