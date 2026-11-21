@@ -1085,9 +1085,10 @@ export function quadraticRoots(a: number, b: number, c: number): number[] {
 
 /**
  * Where a shaft's Label is centred: `t` of the way along the drawn shaft by arc
- * length, then `offset` pixels to its side. The offset is signed, so a positive
- * one is the side the Label Layout places by default sits on, and 0 is on the
- * shaft. The side is the local one, so the words follow the curve they sit on.
+ * length, then `offset` pixels to its side. The offset is signed: a positive one
+ * is the local perpendicular side of the tangent where the words land — up while
+ * the run is level, left while it runs down — and 0 is on the shaft. The side is
+ * the local one, so the words follow the curve they sit on.
  */
 export function shaftLabelAnchor(
   path: ShaftPath,

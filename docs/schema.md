@@ -52,14 +52,14 @@ Every Element has these keys.
 | `points` | array of two or more points | none, required | The first and last are the ends; every point between them is a bend point. |
 | `heads` | object | arrow: `{ "start": "none", "end": "arrow" }`; line: both `none` | Keys `start` and `end` only, each `none`, `arrow`, `dot` or `bar`. A missing key takes the default. |
 | `label` | string | none | As above. It does not wrap: it breaks only at `\n`. Without `labelAt` it is centred on the middle of the line between the two ends, on the side that points up (left of a vertical shaft); `textAlign` does not apply to it. Every arrow's or line's Label has paper behind it. `ez check` does not measure it. |
-| `labelAt` | object | none: Layout's own place | Keys `t` and `offset` only. `t` is the fraction of the drawn shaft's length: `0` at the start, `1` at the end, between `0` and `1`. `offset` is a signed distance in pixels to one side, rounded to whole pixels: `0` sits on the shaft, and a positive value is the side the default Label takes, which is the side that points up (the left of a vertical shaft). Only an arrow or line carries one. |
+| `labelAt` | object | none: Layout's own place | Keys `t` and `offset` only. `t` is the fraction of the drawn shaft's length: `0` at the start, `1` at the end, between `0` and `1`. `offset` is a signed distance in pixels to one side, rounded to whole pixels: `0` sits on the shaft, and a positive value is the local perpendicular side where the words land — up while the run there is level, left while it runs down the page — which is the side at that fraction of the ink, not the side the default Label takes, and not a side the line between the two ends decides. Only an arrow or line carries one. |
 
 A Label with `labelAt` is centred on the point that fraction of the way along the
 ink the Renderer draws. It is measured along the shaft, not across the gap
 between its ends, so on a bent or curved shaft `0.5` is half the ink rather than
-the middle of the line between the ends. The measure is a sampled one: a curve is
-walked in chords fine enough to stay well under a pixel off its own arc, and the
-fraction then counts that length as the curve's. The words are moved `offset`
+the middle of the line between the ends. The measure is a sampled one: each step
+of the curve is integrated along its own arc, fine enough that the ink's middle
+lands well under a pixel from the fraction's. The words are moved `offset`
 pixels along the side the shaft is on where they land — the side that points up
 (left of a vertical shaft) on a level or straight run, and the local side where
 the shaft bends. It follows the ends a Snap moves, so it stays where the author
