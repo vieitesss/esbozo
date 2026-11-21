@@ -270,6 +270,16 @@ test('png --theme dark writes its own PNG beside the Scene', async () => {
   assert.deepEqual(readSize(await readFile(join(folder, 'scene.dark.png'))), PAGE);
 });
 
+test('png names its file beside an .esbozo Scene the same way', async () => {
+  const folder = await tempFolder();
+  await writeFile(join(folder, 'flow.esbozo'), JSON.stringify(SAMPLE_SCENE, null, 2), 'utf8');
+
+  const run = await ez(['png', 'flow.esbozo', '--theme', 'light'], folder);
+
+  assert.equal(run.code, 0, run.stderr);
+  assert.equal(run.stdout.trim(), join(folder, 'flow.light.png'));
+});
+
 test('the paper colour is painted under the SVG, light or dark', async () => {
   const folder = await sceneFolder();
 

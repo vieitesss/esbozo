@@ -40,6 +40,15 @@ test('a clean Scene exits 0 and prints nothing', async () => {
   assert.equal(existsSync(join(folder, 'scene.svg')), false, 'check draws nothing');
 });
 
+test('a Scene named .esbozo is checked like any other', async () => {
+  const folder = await sceneFolder(oneBox({ height: 40, label: 'orders and invoices for the autumn release' }), 'flow.esbozo');
+
+  const run = await ez(['check', 'flow.esbozo'], folder);
+
+  assert.equal(run.code, 6);
+  assert.match(run.stderr, /^a: label does not fit/m);
+});
+
 test('a Label that does not fit exits 6 and says what it needs', async () => {
   const folder = await sceneFolder(oneBox({ height: 40, label: 'orders and invoices for the autumn release' }));
 

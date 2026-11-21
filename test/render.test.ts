@@ -398,6 +398,26 @@ test('the SVG keeps everything of the Scene name but the .json suffix', async ()
   assert.equal(existsSync(join(folder, 'a.svg')), false, 'no shortened alias to overwrite');
 });
 
+test('a Scene named .esbozo renders its SVG beside it, by the same rule', async () => {
+  const folder = await sceneFolder(SAMPLE_SCENE, 'flow.esbozo');
+
+  const run = await ez(['render', 'flow.esbozo'], folder);
+
+  assert.equal(run.code, 0, run.stderr);
+  assert.equal(run.stdout.trim(), join(folder, 'flow.svg'));
+  assert.equal(existsSync(join(folder, 'flow.svg')), true);
+  assert.equal(existsSync(join(folder, 'flow.esbozo.svg')), false, 'the extension is not part of the stem');
+});
+
+test('a Scene extension is read in any letter case', async () => {
+  const folder = await sceneFolder(SAMPLE_SCENE, 'flow.ESBOZO');
+
+  const run = await ez(['render', 'flow.ESBOZO'], folder);
+
+  assert.equal(run.code, 0, run.stderr);
+  assert.equal(run.stdout.trim(), join(folder, 'flow.svg'));
+});
+
 test('a failed write exits 4, which no other failure uses', async () => {
   const folder = await sceneFolder(SAMPLE_SCENE);
   await mkdir(join(folder, 'scene.svg'));
