@@ -429,14 +429,6 @@ export class EsbozoEditorElement extends HTMLElement {
     }
   }
 
-  #undo(): void {
-    this.#restore(this.#history.undo());
-  }
-
-  #redo(): void {
-    this.#restore(this.#history.redo());
-  }
-
   /** A Scene taken back from the history is the Scene to save, so undo autosaves too. */
   #restore(source: string | null): void {
     if (source === null) {
@@ -992,11 +984,7 @@ export class EsbozoEditorElement extends HTMLElement {
       const letter = event.key.toLowerCase();
       if (letter === 'z') {
         event.preventDefault();
-        if (event.shiftKey) {
-          this.#redo();
-        } else {
-          this.#undo();
-        }
+        this.#restore(event.shiftKey ? this.#history.redo() : this.#history.undo());
         return;
       }
       if (letter === 'd') {

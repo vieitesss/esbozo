@@ -12,7 +12,7 @@ import type { Element } from '../scene.js';
 /** The Element types a tool draws. */
 export type DrawableType = Element['type'];
 
-export interface Tool {
+interface Tool {
   readonly id: 'select' | DrawableType;
   readonly name: string;
   /** The single key that picks the tool. */

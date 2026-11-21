@@ -18,14 +18,6 @@ export class History {
     this.#present = present;
   }
 
-  get canUndo(): boolean {
-    return this.#past.length > 0;
-  }
-
-  get canRedo(): boolean {
-    return this.#future.length > 0;
-  }
-
   /**
    * Records the Scene after a change as a new step. Returns false, and records
    * nothing, when the change left the Scene as it was.

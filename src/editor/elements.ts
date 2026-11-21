@@ -14,23 +14,16 @@ import { boxBetween } from './geometry.js';
 import type { DrawableType, ToolId } from './tools.js';
 
 /** The box a plain click draws with a box tool, in Scene units. */
-export const DEFAULT_BOX = { width: 160, height: 100 };
+const DEFAULT_BOX = { width: 160, height: 100 };
 
 /** A drag shorter than this, in Scene units, is a plain click. */
-export const CLICK_SLOP = 4;
+const CLICK_SLOP = 4;
 
 /** The tool ids that draw an Element. */
 export type DrawingTool = Exclude<ToolId, 'select'>;
 
 /** The tools that draw a box: everything but a Text, an arrow and a line. */
-export type BoxTool = Exclude<DrawingTool, 'text' | 'arrow' | 'line'>;
-
-/** The tools that draw a stroke between two ends. */
-export type StrokeTool = Extract<DrawingTool, 'arrow' | 'line'>;
-
-export function drawable(tool: ToolId): tool is DrawingTool {
-  return tool !== 'select';
-}
+type BoxTool = Exclude<DrawingTool, 'text' | 'arrow' | 'line'>;
 
 function drawsBox(tool: DrawingTool): tool is BoxTool {
   return tool !== 'text' && tool !== 'arrow' && tool !== 'line';
