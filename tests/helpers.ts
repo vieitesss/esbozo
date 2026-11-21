@@ -706,6 +706,49 @@ export async function savedFiles(ui: Ui, folder = FOLDER): Promise<Record<string
   );
 }
 
+/** The clipboard stub: a write that lands when the test says so, and what it copied. */
+interface ClipboardStub {
+  __esbozoClipboardWrites: number;
+  __esbozoClipboardRelease: () => void;
+  __esbozoCopied?: string;
+}
+
+/**
+ * Hold every clipboard write open, so a test can see what a named Cut does
+ * while the page is still waiting for the clipboard to accept the copy.
+ */
+export async function holdClipboardWrites(ui: Ui): Promise<void> {
+  await ui.browser.evaluate(() => {
+    const stub = window as unknown as ClipboardStub;
+    const pending: Array<() => void> = [];
+    stub.__esbozoClipboardWrites = 0;
+    stub.__esbozoClipboardRelease = () => pending.shift()?.();
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: (text: string) => {
+          stub.__esbozoCopied = text;
+          stub.__esbozoClipboardWrites += 1;
+          return new Promise<void>((resolve) => pending.push(resolve));
+        },
+        readText: async () => stub.__esbozoCopied ?? '',
+      },
+    });
+    return true;
+  });
+}
+
+/** Let the clipboard write that is waiting land. */
+export async function releaseClipboardWrite(ui: Ui): Promise<void> {
+  await expect
+    .poll(() => ui.browser.evaluate(() => (window as unknown as ClipboardStub).__esbozoClipboardWrites))
+    .toBeGreaterThan(0);
+  await ui.browser.evaluate(() => {
+    (window as unknown as ClipboardStub).__esbozoClipboardRelease();
+    return true;
+  });
+}
+
 /** The saved Scene, parsed, once the editor says it saved. */
 export async function savedScene(ui: Ui, name = 'scene.json', folder = FOLDER): Promise<SavedScene> {
   await expect(ui.screen.getByRole('status')).toHaveText('saved');

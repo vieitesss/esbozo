@@ -522,12 +522,20 @@ export class EsbozoEditorElement extends HTMLElement {
 
   /** Delete the selected Elements, as one step. A Snap to a deleted target is dropped. */
   #deleteSelected(): void {
-    const removed = new Set(this.#selected);
-    if (removed.size === 0) {
+    this.#remove(new Set(this.#selected));
+  }
+
+  /**
+   * Delete the Elements with these ids, as one step. Only the ids given go: a
+   * cut that copied one Element deletes that Element, whatever the selection
+   * has become while the clipboard took the copy.
+   */
+  #remove(ids: ReadonlySet<string>): void {
+    if (ids.size === 0) {
       return;
     }
-    this.#scene.elements = without(this.#scene.elements, removed);
-    this.#selected = [];
+    this.#scene.elements = without(this.#scene.elements, ids);
+    this.#selected = this.#selected.filter((id) => !ids.has(id));
     this.#paint();
     this.#record();
   }
@@ -600,7 +608,12 @@ export class EsbozoEditorElement extends HTMLElement {
     }
   }
 
-  /** Cut for a named action: the same text Copy writes, then the one delete step. */
+  /**
+   * Cut for a named action: the same text Copy writes, then the one delete
+   * step. The write is awaited, and the page keeps taking edits while it runs,
+   * so what may be deleted is decided after it lands: exactly the ids that were
+   * copied, and none of them when the Scene is no longer the one they came from.
+   */
   async #cutSelection(): Promise<void> {
     const clipboard = clipboardApi();
     if (clipboard === null) {
@@ -611,13 +624,19 @@ export class EsbozoEditorElement extends HTMLElement {
     if (selected.length === 0) {
       return;
     }
+    const copied = new Set(selected.map((element) => element.id));
+    const before = serialiseScene(this.#scene);
     try {
       await clipboard.writeText(serialiseFragment(this.#scene, selected));
     } catch (error) {
       this.#setSaved('failed', `cannot cut: ${(error as Error).message}`);
       return;
     }
-    this.#deleteSelected();
+    if (serialiseScene(this.#scene) !== before) {
+      this.#setSaved('failed', 'the Scene changed during the cut, so nothing was deleted');
+      return;
+    }
+    this.#remove(copied);
   }
 
   /** Paste for a named action: the clipboard, read on the spot, with new ids. */

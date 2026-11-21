@@ -61,8 +61,10 @@ import {
   expectSvgMatchesCli,
   exported,
   settle,
+  holdClipboardWrites,
   holdWrites,
   openEditor,
+  releaseClipboardWrite,
   openNewScene,
   releaseWrite,
   savedFiles,
@@ -1439,6 +1441,64 @@ test('Copy, Cut and Paste say to use the keys where the page has no clipboard', 
   await expect.poll(async () => (await savedScene(ui)).elements.length).toBe(1);
   await browser.keyboard.press('Meta+v');
   await expect.poll(async () => (await savedScene(ui)).elements.length).toBe(2);
+});
+
+test('a cut deletes the Elements it copied, whatever is selected when it lands', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': THREE_SOURCE } }, 'scene.json');
+  await holdClipboardWrites(ui);
+
+  // Cut the first box by name: the copy is in the clipboard, and the delete
+  // waits for the clipboard to accept it.
+  await clickScene(ui, { x: 90, y: 70 }, [], THREE);
+  await palette(ui);
+  await browser.keyboard.type('cut');
+  await browser.keyboard.press('Enter');
+
+  // While that write is in flight, the selection moves to another box. A cut
+  // deletes what it copied, not what happens to be selected when it lands.
+  await clickScene(ui, { x: 200, y: 220 }, [], THREE);
+  await releaseClipboardWrite(ui);
+
+  await expect.poll(async () => (await savedScene(ui)).elements.map((element) => element.id)).toEqual([
+    'q',
+    'r',
+  ]);
+});
+
+test('a cut deletes nothing when the Scene changed before the copy landed', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': THREE_SOURCE } }, 'scene.json');
+  await holdClipboardWrites(ui);
+
+  await clickScene(ui, { x: 200, y: 220 }, [], THREE);
+  await palette(ui);
+  await browser.keyboard.type('cut');
+  await browser.keyboard.press('Enter');
+
+  // The page keeps taking edits while the clipboard write runs: this drag moves
+  // the third box, so the Scene is not the one the cut copied from.
+  await dragBy(ui, { x: 430, y: 130 }, 0, 60, THREE);
+  await expect.poll(async () => (await savedFiles(ui))['scene.json']).toContain('"y": 160');
+  await releaseClipboardWrite(ui);
+
+  // Nothing is deleted, and the status line says why: the drawing the paste
+  // would land in is not the one the copy came from.
+  await expect(screen.getByRole('status')).toContainText('the Scene changed');
+  const files = await savedFiles(ui);
+  expect(JSON.parse(files['scene.json'] ?? '{}').elements.map((element: { id: string }) => element.id)).toEqual([
+    'p',
+    'q',
+    'r',
+  ]);
 });
 
 test('Zoom in, Zoom out and Reset zoom run from the palette', async ({ app, browser, screen }) => {
