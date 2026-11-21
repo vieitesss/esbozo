@@ -255,6 +255,10 @@ async function handleScene(
     sendJson(response, 403, { error: 'this folder is served read-only' });
     return;
   }
+  if (!announcesJson(request)) {
+    sendJson(response, 415, { error: 'send the write as content-type: application/json' });
+    return;
+  }
 
   const body = await readBody(request);
   if (body === null) {
@@ -465,6 +469,15 @@ async function putBack(replaced: readonly StagedFile[]): Promise<void> {
       // The write has already failed: this is the most the server can do.
     }
   }
+}
+
+/**
+ * A write has to announce itself as JSON: a cross-origin page can post
+ * `text/plain` without asking, and the answer is the only thing that stops it.
+ */
+function announcesJson(request: IncomingMessage): boolean {
+  const type = request.headers['content-type'] ?? '';
+  return type.split(';')[0]?.trim().toLowerCase() === 'application/json';
 }
 
 /** The body as text, or `null` when it grew past the limit. */

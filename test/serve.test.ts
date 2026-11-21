@@ -239,6 +239,26 @@ test('a request path with a dot segment is refused before it is normalised', asy
   assert.equal(await readFile(join(folder, 'scene.json'), 'utf8'), SCENE_SOURCE);
 });
 
+test('a write has to announce JSON, so a plain cross-origin post cannot write', async () => {
+  const folder = await sceneFolder(SCENE);
+  const server = await served(folder);
+
+  // `text/plain` is a cross-origin "simple" request: the browser sends it
+  // without asking, so the server is the one that has to refuse it.
+  const simple = await fetch(`${server.url}/api/scenes/plain.json`, {
+    method: 'POST',
+    headers: { 'content-type': 'text/plain' },
+    body: JSON.stringify(sent()),
+  });
+  assert.equal(simple.status, 415);
+  await assertMissing(join(folder, 'plain.json'));
+  await assertMissing(join(folder, 'plain.svg'));
+
+  // The same body, announced as JSON, writes both files.
+  assert.equal((await request(server, '/api/scenes/plain.json', 'PUT', sent())).status, 200);
+  assert.equal(await read_(join(folder, 'plain.json')), sent().scene);
+});
+
 test('a read-only folder lists and reads, and refuses every write', async () => {
   const folder = await sceneFolder(SCENE);
   const server = await served(folder, ['--read-only']);
