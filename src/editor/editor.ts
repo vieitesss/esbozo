@@ -33,7 +33,7 @@ import { CommandPalette } from './palette.js';
 import { menuSignature, roughnessNote, styleNote } from './menu.js';
 import { nextRoughness, styled } from './style.js';
 import type { StyleKey } from './style.js';
-import { canPickFolder, pickFolder } from './files.js';
+import { canPickFolder } from './files.js';
 import { servedFolder } from './server-folder.js';
 import type { SceneFolder } from './files.js';
 import { boxOf, fittedView, landingOffset, moved, zoomedAt } from './geometry.js';
@@ -270,7 +270,6 @@ class EsbozoEditorElement extends HTMLElement {
       measure: () => this.#measure(),
       status: (state, detail) => this.#setSaved(state, detail),
       note: () => this.#showNote(),
-      pick: () => pickFolder(),
       served: (folder) => {
         this.querySelector('[data-act="open"]')!.textContent = 'Scenes';
         this.#showMode(folder);
@@ -308,8 +307,8 @@ class EsbozoEditorElement extends HTMLElement {
       // until then.
       this.setAttribute('tabindex', '0');
     } else {
-      // The served page holds nothing but the editor, so the first one on it
-      // owns the keys from the start, as it always has.
+      // A standalone editor owns the keys from the start; an embedded editor
+      // must first take focus.
       active ??= this;
     }
 
@@ -477,7 +476,7 @@ class EsbozoEditorElement extends HTMLElement {
     if (this.#ownsKeysWhenFocused && !this.#focused) {
       // A Space held on the way out never sends its release here, and the host
       // page's keys are the host's again. A page that is nothing but the editor
-      // keeps the pan it started: its own window blur ends it, as always.
+      // keeps the pan it started until its own window loses focus.
       this.#gestures.endSpacePan();
     }
   };
