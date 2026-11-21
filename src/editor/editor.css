@@ -30,7 +30,10 @@ esbozo-editor {
   height: 480px;
   background: var(--paper);
   color: var(--ink);
-  overflow: hidden;
+  /* Clipped like `hidden`, but never a scroll container: the drawing is moved by
+     a transform, which is scrollable overflow here, and focusing the canvas
+     would scroll the paper out from under the view. */
+  overflow: clip;
   /* dragging an Element must never select page text */
   user-select: none;
   -webkit-user-select: none;

@@ -1478,6 +1478,29 @@ function focusOf(ui: Ui): Promise<'canvas' | 'search' | 'other'> {
   });
 }
 
+test('the focus the palette hands back never scrolls the paper', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+  // Where the paper is on the page: the view has panned the drawing down, and
+  // the focus coming back to the canvas must not scroll any of it.
+  const paperTop = (): Promise<number> =>
+    browser.evaluate(
+      () => Math.round(document.querySelector('esbozo-editor .board')!.getBoundingClientRect().top),
+    );
+  expect(await paperTop()).toBe(0);
+  await palette(ui);
+  await browser.keyboard.press('Escape');
+  await expect(screen.getByRole('dialog', 'Commands')).toBeHidden();
+  await settle(ui);
+  expect(await paperTop()).toBe(0);
+
+  // And a click right after it lands on the ink that is drawn there: the first
+  // Element's middle, which is a selection and its Style menu.
+  await clickScene(ui, { x: 100, y: 80 });
+  await expect(screen.getByRole('button', { name: 'Corners: sharp' })).toBeVisible();
+});
+
 test('the digits pick the tools by their place on the rail', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');

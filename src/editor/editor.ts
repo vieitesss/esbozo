@@ -385,7 +385,9 @@ export class EsbozoEditorElement extends HTMLElement {
       run: (action) => void action.run(this.#host),
       // The palette is a detour, not a place: shutting it puts the person back
       // on the canvas, where the keys and the pointer already belong.
-      closed: () => this.#canvas.focus(),
+      // The canvas is where the keys belong, and the paper is already in
+      // view: a focus that scrolls would move the Scene under the pointer.
+      closed: () => this.#canvas.focus({ preventScroll: true }),
     });
 
     // Each instance's Grid is its own pattern: two editors on one page would
