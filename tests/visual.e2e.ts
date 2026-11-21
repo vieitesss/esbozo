@@ -382,7 +382,7 @@ test('a box grows for the Label typed into it, and the words wrap inside its out
 
   await label.press('Escape');
   await ui.agent.assert(
-    'the same three lines of words are still inside the left-hand rectangle, with nothing around them but the rectangle',
+    'the same three lines of words are still inside the left-hand rectangle, every line within its outline. The Element is still selected, so a thin dashed selection box with small square handles sits just outside the rectangle: nothing else is drawn around the words themselves',
     { vision: 'only' },
   );
 });
