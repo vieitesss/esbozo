@@ -839,6 +839,7 @@ interface SavedElement {
   width?: number;
   height?: number;
   content?: string;
+  label?: string;
   points?: Array<{ x: number; y: number; snap?: string }>;
   roughness?: number;
   stroke?: { width: string; style: string };
@@ -888,6 +889,15 @@ export async function clickScene(
   for (const modifier of modifiers) {
     await ui.browser.keyboard.up(modifier);
   }
+}
+
+/** Double-click a Scene point, as a person opens a Label or a Text to edit it. */
+export async function doubleClickScene(
+  ui: Ui,
+  point: Point,
+  view: View = VIEW,
+): Promise<void> {
+  await ui.screen.doubleTapAt(at(point, view));
 }
 
 /** Drag from a Scene point by a page-pixel offset. */

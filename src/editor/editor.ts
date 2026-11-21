@@ -67,6 +67,7 @@ import { railArt, railMarkup } from './rail.js';
 import { attachedTo, endPoint, freedEnd, isShaft, otherEnd, released, targetAt, withEnd } from './snap.js';
 import type { End } from './snap.js';
 import { TextSession } from './text-session.js';
+import { fieldFor, withWords, wordsOf } from './words.js';
 import { PaintCache, sceneFile } from './paint.js';
 import type { SceneFiles } from './paint.js';
 import type { Paint } from './paint.js';
@@ -310,8 +311,14 @@ class EsbozoEditorElement extends HTMLElement {
   #dots!: SVGPatternElement;
   #rail!: HTMLElement;
   #railArt!: SVGSVGElement;
-  /** The in-place input a new Text is typed into, while it is open. */
+  /** The in-place input a Text or a Label is typed into, while it is open. */
   #text: TextSession | null = null;
+  /**
+   * The Element the open in-place editor is editing, as it shows it: the Scene
+   * keeps what was there until the words are committed, so Escape can leave it
+   * alone and a half-typed Label is never a history step.
+   */
+  #editing: { id: string; element: SceneElement } | null = null;
   #note!: HTMLElement;
   #files!: HTMLUListElement;
   #newScene!: HTMLFormElement;
@@ -442,6 +449,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#board.addEventListener('pointerup', this.#onPointerUp);
     this.#board.addEventListener('pointercancel', this.#onPointerCancel);
     this.#board.addEventListener('wheel', this.#onWheel, { passive: false });
+    this.#board.addEventListener('dblclick', this.#onDoubleClick);
     this.#canvas.addEventListener('contextmenu', (event) => event.preventDefault());
     this.#rail.addEventListener('click', this.#onRailClick);
     this.querySelector('.status')!.addEventListener('click', this.#onStatusClick);
@@ -468,6 +476,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#board?.removeEventListener('pointerup', this.#onPointerUp);
     this.#board?.removeEventListener('pointercancel', this.#onPointerCancel);
     this.#board?.removeEventListener('wheel', this.#onWheel);
+    this.#board?.removeEventListener('dblclick', this.#onDoubleClick);
     document.removeEventListener('copy', this.#onCopy);
     document.removeEventListener('cut', this.#onCut);
     document.removeEventListener('paste', this.#onPaste);
@@ -923,12 +932,19 @@ class EsbozoEditorElement extends HTMLElement {
 
   /**
    * The Scene as the page shows it: committed Elements plus the gesture in
-   * flight. Never the Scene that is saved, so half a drag can never be a step.
+   * flight and the words being typed. Never the Scene that is saved, so half a
+   * drag or half a Label can never be a step.
    */
   #shownElements(): SceneElement[] {
     const drag = this.#drag;
+    const editing = this.#editing;
     if (drag === null) {
-      return this.#scene.elements;
+      if (editing === null) {
+        return this.#scene.elements;
+      }
+      return this.#scene.elements.map((element) =>
+        element.id === editing.id ? editing.element : element,
+      );
     }
     if (drag.kind === 'draw') {
       return [...this.#scene.elements, drag.preview];
@@ -1578,6 +1594,17 @@ class EsbozoEditorElement extends HTMLElement {
   #drawOverlay(): void {
     const overlay = this.#overlay;
     overlay.replaceChildren();
+    // A Label that does not fit its Element is outlined in red, on the rule
+    // `ez check` reports: one function, so the page and the CLI cannot disagree.
+    for (const element of this.#shownElements()) {
+      if (this.#layout.overflow(element) === null) {
+        continue;
+      }
+      const words = this.#layout.label(element);
+      if (words !== null) {
+        this.#appendRect(overlay, { ...this.#pageBox(words), class: 'overflow' });
+      }
+    }
     const drag = this.#drag;
     const boxes: Box[] = [];
     for (const id of this.#selected) {
@@ -2014,12 +2041,91 @@ class EsbozoEditorElement extends HTMLElement {
     this.#setTool('select');
     this.#text = new TextSession({
       host: this,
+      name: 'Text',
       place: {
         page: toPage(this.#view, at),
         zoom: this.#view.zoom,
         fontSize: fontSizePx(this.#scene.defaults.fontSize),
+        wrap: null,
+        align: 'left',
       },
+      words: '',
       commit: (content) => this.#commitText(at, content),
+    });
+  }
+
+  /**
+   * Open the in-place editor on an Element's words, over them: a Label where its
+   * Element puts it, a Text where its words sit. Nothing of the Scene changes
+   * until the words are committed.
+   */
+  #openWords(element: SceneElement): void {
+    const field = fieldFor(element, elementsById(this.#scene.elements), this.#layout);
+    this.#setTool('select');
+    this.#selected = [element.id];
+    this.#editing = { id: element.id, element };
+    this.#text = new TextSession({
+      host: this,
+      name: field.kind,
+      place: {
+        page: toPage(this.#view, field.at),
+        zoom: this.#view.zoom,
+        fontSize: fontSizePx(element.fontSize),
+        wrap: field.wrap,
+        align: field.align,
+      },
+      words: field.words,
+      typed: (words) => this.#showWords(element, words),
+      commit: (words) => this.#commitWords(element, words),
+    });
+    this.#refresh();
+  }
+
+  /**
+   * What the page shows while the words are typed: the Element with them in it,
+   * grown so a Label fits. It is a preview, not the Scene: a container grows
+   * with its words as they arrive, and only the commit makes that a change.
+   */
+  #showWords(element: SceneElement, words: string): void {
+    this.#editing = { id: element.id, element: withWords(element, words, this.#layout) };
+    this.#paint();
+  }
+
+  /**
+   * Commit the words typed in place: one undo step for the whole session, the
+   * Element's growth included. Words nobody changed are not an edit and write
+   * nothing; an emptied Label stops being one, and an emptied Text goes; words a
+   * Scene could not hold are refused in the status line and leave it as it was.
+   */
+  #commitWords(element: SceneElement, words: string): void {
+    this.#text = null;
+    this.#editing = null;
+    if (words === wordsOf(element)) {
+      this.#paint();
+      return;
+    }
+    const elements =
+      words === '' && element.type === 'text'
+        ? without(this.#scene.elements, new Set([element.id]))
+        : this.#scene.elements.map((candidate) =>
+            candidate.id === element.id
+              ? withWords(candidate, words, this.#layout)
+              : candidate,
+          );
+    const parsed = parseScene(serialiseScene({ ...this.#scene, elements }));
+    if (!parsed.ok) {
+      const problem = parsed.problems[0];
+      this.#setSaved(
+        'failed',
+        problem === undefined ? 'the Scene cannot hold these words' : problem.message,
+      );
+      this.#paint();
+      return;
+    }
+    this.#applyScene(parsed.scene, {
+      select: parsed.scene.elements.some((candidate) => candidate.id === element.id)
+        ? [element.id]
+        : [],
     });
   }
 
@@ -2209,6 +2315,23 @@ class EsbozoEditorElement extends HTMLElement {
     this.#refresh();
   }
 
+  /** Double-click opens the words of what it lands on: an Element's Label, or its Text. */
+  #onDoubleClick = (event: MouseEvent): void => {
+    if (this.#text !== null) {
+      return;
+    }
+    const hit = elementAt(
+      this.#scene.elements,
+      this.#scenePoint(event),
+      PICK_TOLERANCE / this.#view.zoom,
+      this.#layout,
+    );
+    if (hit !== null) {
+      event.preventDefault();
+      this.#openWords(hit);
+    }
+  };
+
   #onWheel = (event: WheelEvent): void => {
     event.preventDefault();
     const point = this.#screenPoint(event);
@@ -2252,6 +2375,23 @@ class EsbozoEditorElement extends HTMLElement {
       this.#setTool('select');
       this.#refresh();
       return;
+    }
+    // Enter on a single selection edits its words, as a double-click does. A
+    // button the focus sits on keeps its own Enter.
+    if (
+      event.key === 'Enter' &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      (event.target as Element | null)?.closest('button') == null
+    ) {
+      const selected = this.#selectedElements();
+      const only = selected.length === 1 ? selected[0] : undefined;
+      if (only !== undefined) {
+        event.preventDefault();
+        this.#openWords(only);
+        return;
+      }
     }
     // Every tool and every action answers to the registry's keys, so the rail,
     // the palette and the keyboard offer one list rather than three.

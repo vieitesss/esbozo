@@ -36,6 +36,7 @@ import { parse as parseFont } from 'opentype.js';
 import { glyphsOf } from './glyphs.js';
 import type { Curve, Glyphs } from './glyphs.js';
 import type {
+  ArrowOrLineElement,
   Element,
   FontSize,
   OutlinedElement,
@@ -197,6 +198,13 @@ export interface Layout {
    * ends, and the words belong to the line that is really drawn.
    */
   label(element: Element, shaft?: Shaft): Block | null;
+  /**
+   * The box an Element's Label may fill, or null for an Element with no box: a
+   * Text is only words, and an arrow's or line's Label sits beside the shaft.
+   * The editor sizes the place a person types a Label in with this, so the
+   * words wrap where they will wrap in the Scene.
+   */
+  area(element: Element): Box | null;
   /** The Label that does not fit its Element, or null when it fits or there is none. */
   overflow(element: Element): Overflow | null;
   /** The Element grown down and right until its Label fits. Elements without one come back unchanged. */
@@ -215,6 +223,7 @@ export function createLayout(parsed: ParsedFont): Layout {
   const layout: Layout = {
     text: (element) => textBlock(element, metrics),
     label: (element, shaft) => labelBlock(element, metrics, shaft),
+    area: (element) => (isTextOrShaft(element) ? null : labelArea(element)),
     overflow: (element) => labelOverflow(element, metrics),
     grow: (element) => grown(element, metrics),
     ...(parsed.glyphs === undefined ? {} : { glyphs: parsed.glyphs }),
@@ -337,6 +346,11 @@ function labelSide(shaft: Shaft): Point {
   return normal.y > 0 || (normal.y === 0 && normal.x > 0)
     ? { x: -normal.x, y: -normal.y }
     : normal;
+}
+
+/** Whether an Element's words sit outside a box: a Text and an arrow's or a line's Label. */
+function isTextOrShaft(element: Element): element is TextElement | ArrowOrLineElement {
+  return element.type === 'text' || element.type === 'arrow' || element.type === 'line';
 }
 
 /** The box an Element's Label may fill: the largest centred box the outline holds, minus padding. */
