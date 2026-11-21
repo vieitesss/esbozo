@@ -85,23 +85,29 @@ export async function startServe(
   child.stdout!.on('data', (chunk: string) => (stdout += chunk));
   child.stderr!.on('data', (chunk: string) => (stderr += chunk));
 
-  const startup = await new Promise<string>((resolve_, reject) => {
+  const { startup, url } = await new Promise<{ startup: string; url: string }>((resolve_, reject) => {
     const onData = (): void => {
-      // The line is written once, newline and all: the whole of it is what the
-      // server said it is, so nothing here reads a half line.
-      const [line = ''] = stdout.split('\n');
-      if (!line.includes('http://')) {
+      // Pipe chunks are not lines. Capture the URL only after the build id has arrived too.
+      const end = stdout.indexOf('\n');
+      if (end === -1) {
         return;
       }
       child.stdout!.off('data', onData);
-      resolve_(line);
+      const line = stdout.slice(0, end);
+      const url = /^serving .+ on (http:\/\/\S+)/.exec(line)?.[1];
+      if (url === undefined) {
+        child.kill('SIGTERM');
+        reject(new Error(`ez serve printed no startup URL: ${line}`));
+        return;
+      }
+      resolve_({ startup: line, url: url.replace(/\/$/, '') });
     };
     child.stdout!.on('data', onData);
     child.once('exit', (code) => reject(new Error(`ez serve exited ${code}: ${stderr || stdout}`)));
   });
 
   return {
-    url: /(http:\/\/[^\s]+)/.exec(startup)![1]!.replace(/\/$/, ''),
+    url,
     folder,
     startup,
     async stop(): Promise<void> {

@@ -4,10 +4,7 @@
  *
  * A probe is how a change is judged on the running page — what a click paints,
  * what a keystroke saves, what the screen looks like a moment later — without
- * writing a whole e2e file for it. Each probe used to boot its own static server
- * and Chromium from an inline `node --input-type=module` script that named the
- * pnpm store's copy of Playwright by version, so the script broke on every
- * upgrade. The helper owns that boilerplate once.
+ * writing a whole e2e file or setting up a static server and Chromium.
  *
  * Usage: `pnpm probe [probe.mjs]`, or `pnpm probe < probe.mjs` to read the probe
  * from stdin. `--folder <dir>` serves another build (default `dist`).
@@ -26,7 +23,7 @@
  * It serves `dist/` as it finds it: `pnpm probe` does not build.
  */
 import { createReadStream } from 'node:fs';
-import { mkdtemp, rm, writeFile, access } from 'node:fs/promises';
+import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -38,13 +35,11 @@ import { PAGE_ASSETS } from '../src/page-assets.ts';
  * Playwright, as the e2e stack installed it. `playwright-core` arrives with
  * `@e2e-dev/web`, so it is resolved through that dependency's own folder instead
  * of naming a `.pnpm/playwright-core@<version>` path that moves on every upgrade.
- * Imported as CommonJS, whose named exports the module lexer does not recover,
- * so the browser comes off its default export.
  */
 const fromRepo = createRequire(import.meta.url);
-const web = fromRepo.resolve('@e2e-dev/web');
-const playwright = await import(pathToFileURL(createRequire(web).resolve('playwright-core')).href);
-const { chromium } = playwright.chromium === undefined ? playwright.default : playwright;
+const fromWeb = createRequire(fromRepo.resolve('@e2e-dev/web'));
+const { chromium } = fromWeb('playwright-core');
+const EDITOR_PAGE = PAGE_ASSETS.find((entry) => entry.path === '/editor.html');
 
 /** The page size a probe sees: the same one `e2e.config.ts` opens. */
 const VIEWPORT = { width: 1280, height: 800 };
@@ -110,44 +105,39 @@ function serve(folder) {
 }
 
 /**
- * The probe as an async function: the default export of a module the person
- * wrote, or of a snippet read from stdin. A snippet is written to a temporary
- * folder first, so it is imported as a module like any other and syntax errors
- * read the same either way.
+ * Import stdin as a module too, so both forms report syntax errors the same way.
  */
-async function load(source) {
-  let file;
-  let scratch;
-  if (source.path !== undefined) {
-    file = pathToFileURL(resolve(source.path)).href;
-  } else {
-    scratch = await mkdtemp(join(tmpdir(), 'esbozo-probe-'));
-    file = pathToFileURL(join(scratch, 'probe.mjs')).href;
-    await writeFile(join(scratch, 'probe.mjs'), source.text, 'utf8');
+async function probeFile(path) {
+  if (path !== undefined) {
+    return resolve(path);
   }
-  const module = await import(file);
-  if (typeof module.default !== 'function') {
-    throw new Error(`a probe must export default an async function of ${CONTEXT}`);
+  if (process.stdin.isTTY) {
+    throw new Error(`no probe: pass the path to one, or pipe its source in, as ${CONTEXT}`);
   }
-  return { run: module.default, done: async () => scratch === undefined ? undefined : rm(scratch, { recursive: true, force: true }) };
+  const chunks = [];
+  for await (const chunk of process.stdin) chunks.push(chunk);
+  scratch = await mkdtemp(join(tmpdir(), 'esbozo-probe-'));
+  const file = join(scratch, 'probe.mjs');
+  await writeFile(file, Buffer.concat(chunks));
+  return file;
 }
 
 /** Everything a run has to close, so one path closes it. */
+let scratch;
 let browser;
 let server;
 let closing;
 
-/** Closes the browser and the server once, however many callers ask. */
+/** Close the run once. Failure to close one resource cannot skip the others. */
 function stop() {
-  closing ??= (async () => {
-    await browser?.close();
-    browser = undefined;
-    if (server !== undefined) {
+  closing ??= Promise.all([
+    browser?.close(),
+    server === undefined ? undefined : new Promise((closed) => {
+      server.close(() => closed());
       server.closeAllConnections();
-      await new Promise((closed) => server.close(() => closed()));
-      server = undefined;
-    }
-  })();
+    }),
+    scratch === undefined ? undefined : rm(scratch, { recursive: true, force: true }),
+  ]);
   return closing;
 }
 
@@ -162,35 +152,24 @@ function interrupt(code) {
 process.once('SIGINT', () => interrupt(130));
 process.once('SIGTERM', () => interrupt(143));
 
-/** Reads all of stdin, for a probe piped in. */
-async function stdin() {
-  const chunks = [];
-  for await (const chunk of process.stdin) chunks.push(chunk);
-  return Buffer.concat(chunks).toString('utf8');
-}
-
 async function main() {
   const chosen = options(process.argv.slice(2));
   const folder = resolve(chosen.folder);
-  let source = { path: chosen.probe, text: undefined };
-  if (chosen.probe === undefined) {
-    if (process.stdin.isTTY) {
-      throw new Error(`no probe: pass the path to one, or pipe its source in, as ${CONTEXT}`);
-    }
-    source = { path: undefined, text: await stdin() };
-  }
+  const file = await probeFile(chosen.probe);
   let probe;
   try {
-    probe = await load(source);
+    ({ default: probe } = await import(pathToFileURL(file).href));
   } catch (error) {
     if (error.code === 'ERR_MODULE_NOT_FOUND' && chosen.probe !== undefined) {
       throw new Error(`no probe at "${chosen.probe}": ${error.message}`);
     }
     throw error;
   }
+  if (typeof probe !== 'function') {
+    throw new Error(`a probe must export default an async function of ${CONTEXT}`);
+  }
 
-  const builtPage = PAGE_ASSETS.find((entry) => entry.path === '/editor.html');
-  const built = join(folder, builtPage.file);
+  const built = join(folder, EDITOR_PAGE.file);
   try {
     await access(built);
   } catch {
@@ -198,23 +177,14 @@ async function main() {
   }
 
   browser = await chromium.launch();
-  try {
-    const served = await serve(folder);
-    server = served.server;
-    const url = `http://127.0.0.1:${served.port}/editor.html`;
-    process.stderr.write(`probing ${url}\n`);
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    await page.goto(url, { waitUntil: 'load' });
-    const returned = await probe.run({
-      page,
-      url,
-      cdp: () => page.context().newCDPSession(page),
-    });
-    process.stdout.write(`${JSON.stringify(returned ?? null, null, 2)}\n`);
-  } finally {
-    await probe.done();
-    await stop();
-  }
+  const served = await serve(folder);
+  server = served.server;
+  const url = `http://127.0.0.1:${served.port}${EDITOR_PAGE.path}`;
+  process.stderr.write(`probing ${url}\n`);
+  const page = await browser.newPage({ viewport: VIEWPORT });
+  await page.goto(url, { waitUntil: 'load' });
+  const returned = await probe({ page, url, cdp: () => page.context().newCDPSession(page) });
+  process.stdout.write(`${JSON.stringify(returned ?? null, null, 2)}\n`);
 }
 
 try {
