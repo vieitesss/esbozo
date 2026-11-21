@@ -8,12 +8,13 @@
  */
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { request as httpRequest } from 'node:http';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import { PAGE_ASSETS } from '../src/page-assets.ts';
+import { MAX_LISTED_SCENE_BYTES } from '../src/paths.ts';
 import { promisify } from 'node:util';
 import { ez, sceneFolder, startServe, tempFolder } from './cli.ts';
 import type { Serve } from './cli.ts';
@@ -252,6 +253,51 @@ test('the list leaves out a .json file that is not a Scene', async () => {
   assert.deepEqual(listed.scenes, ['flow.esbozo', 'scene.json']);
   // Still a name the API answers on: only the list is for Scenes.
   assert.equal((await request(server, '/api/scenes/package.json')).body, '{ "name": "esbozo", "version": "0.0.0" }');
+});
+
+/**
+ * A `.json` the listing cannot read is not a Scene it can offer, and it is not
+ * the folder's answer either: the rest of the folder still lists.
+ */
+test('the list leaves out a .json it cannot read, and still lists the folder', async (t) => {
+  const folder = await sceneFolder(SCENE);
+  const locked = join(folder, 'locked.json');
+  await writeFile(locked, SCENE_SOURCE, 'utf8');
+  await chmod(locked, 0o000);
+  try {
+    // A run that can read the file anyway, as root can, has no refusal to give.
+    const unreadable = await readFile(locked, 'utf8').then(
+      () => false,
+      () => true,
+    );
+    if (!unreadable) {
+      t.skip('this run can read a file with no permission bits');
+      return;
+    }
+    const server = await served(folder);
+
+    const answer = await request(server, '/api/scenes');
+
+    assert.equal(answer.status, 200);
+    assert.deepEqual((JSON.parse(answer.body) as { scenes: string[] }).scenes, ['scene.json']);
+  } finally {
+    await chmod(locked, 0o644);
+  }
+});
+
+/**
+ * A `.json` too large to be a Scene is left out unread, so one stray file cannot
+ * cost the listing its memory or its answer.
+ */
+test('the list leaves out a .json too large to be a Scene', async () => {
+  const folder = await sceneFolder(SCENE);
+  // Whitespace in front of a valid Scene: only the size can keep it out.
+  await writeFile(join(folder, 'huge.json'), ' '.repeat(MAX_LISTED_SCENE_BYTES) + SCENE_SOURCE, 'utf8');
+  const server = await served(folder);
+
+  const listed = JSON.parse((await request(server, '/api/scenes')).body) as { scenes: string[] };
+
+  assert.deepEqual(listed.scenes, ['scene.json']);
 });
 
 test('the list keeps an .esbozo that will not parse, so opening it says why', async () => {

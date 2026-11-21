@@ -36,7 +36,7 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { basename, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PAGE_ASSETS } from './page-assets.js';
-import { sceneExtension, svgFileName } from './paths.js';
+import { listedAsScene, MAX_LISTED_SCENE_BYTES, sceneExtension, svgFileName } from './paths.js';
 import { SCENES_API, sceneWrite } from './scenes-api.js';
 import type { SceneListing, SceneWrite } from './scenes-api.js';
 import { parseScene } from './scene.js';
@@ -202,11 +202,6 @@ function rawPathProblem(raw: string): string | null {
 /**
  * The Scene file names at the top level of the folder, sorted. No recursion, and
  * one rule with the API: every name here is a name the API opens.
- *
- * An `.esbozo` name is a Scene however it reads, because the extension is this
- * project's own: an invalid one is listed and says what is wrong when opened. A
- * `.json` name is any other JSON file's too — a `package.json`, a `tsconfig.json`
- * — so it is listed only when its bytes parse as a Scene.
  */
 async function listScenes(root: string): Promise<string[]> {
   const entries = await readdir(root, { withFileTypes: true });
@@ -215,7 +210,7 @@ async function listScenes(root: string): Promise<string[]> {
     .map((entry) => entry.name);
   const listed: string[] = [];
   for (const name of candidates) {
-    if (sceneExtension(name) === '.esbozo' || (await parsesAsScene(join(root, name)))) {
+    if (await listedAsScene(name, () => parsesAsScene(join(root, name)))) {
       listed.push(name);
     }
   }
@@ -226,16 +221,27 @@ async function listScenes(root: string): Promise<string[]> {
 async function parsesAsScene(path: string): Promise<boolean> {
   let source: string;
   try {
+    if ((await stat(path)).size > MAX_LISTED_SCENE_BYTES) {
+      return false;
+    }
     source = await readFile(path, 'utf8');
   } catch (error) {
-    // A name that left the folder between the listing and the read is no Scene
-    // this list can offer; anything else is the folder's answer, not ours.
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+    if (cannotList(error)) {
       return false;
     }
     throw error;
   }
   return parseScene(source).ok;
+}
+
+/**
+ * The failures that say "leave this name out" rather than "the folder broke":
+ * gone between the listing and the read, unreadable, or replaced by a folder.
+ * Everything else is the folder's answer, and the listing fails loudly with it.
+ */
+function cannotList(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === 'ENOENT' || code === 'EACCES' || code === 'EPERM' || code === 'EISDIR';
 }
 
 async function handleScene(

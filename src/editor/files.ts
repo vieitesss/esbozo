@@ -15,14 +15,14 @@
  *
  * A Scene file that is not there reads as `null`, so a new Scene opens empty.
  */
-import { sceneExtension, svgFileName } from '../paths.js';
+import { listedAsScene, MAX_LISTED_SCENE_BYTES, svgFileName } from '../paths.js';
 import { parseScene } from '../scene.js';
 
 /** The slice of the File System Access API this module uses. */
 interface FileHandleLike {
   readonly kind: 'file';
   readonly name: string;
-  getFile(): Promise<{ text(): Promise<string> }>;
+  getFile(): Promise<{ size: number; text(): Promise<string> }>;
   createWritable(): Promise<{ write(data: string): Promise<void>; close(): Promise<void> }>;
 }
 
@@ -86,10 +86,10 @@ function folderFromHandle(handle: DirectoryHandleLike): SceneFolder {
     async listScenes(): Promise<string[]> {
       const names: string[] = [];
       for await (const entry of handle.values()) {
-        const extension = entry.kind === 'file' ? sceneExtension(entry.name) : null;
-        // An `.esbozo` name is this project's own, so it is a Scene whatever it
-        // reads; a `.json` name has to parse, or `package.json` would be one.
-        if (extension === '.esbozo' || (extension === '.json' && (await readsAsScene(handle, entry.name)))) {
+        if (entry.kind !== 'file') {
+          continue;
+        }
+        if (await listedAsScene(entry.name, (name) => readsAsScene(handle, name))) {
           names.push(entry.name);
         }
       }
@@ -120,13 +120,16 @@ function folderFromHandle(handle: DirectoryHandleLike): SceneFolder {
 async function readsAsScene(handle: DirectoryHandleLike, name: string): Promise<boolean> {
   let source: string;
   try {
-    source = await (await (await handle.getFileHandle(name)).getFile()).text();
-  } catch (error) {
-    // Gone between the listing and the read: no Scene this list can offer.
-    if (isMissing(error)) {
+    const file = await (await handle.getFileHandle(name)).getFile();
+    if (file.size > MAX_LISTED_SCENE_BYTES) {
       return false;
     }
-    throw error;
+    source = await file.text();
+  } catch (error) {
+    if (!canList(error)) {
+      throw error;
+    }
+    return false;
   }
   return parseScene(source).ok;
 }
@@ -143,4 +146,14 @@ async function writeText(handle: DirectoryHandleLike, name: string, text: string
 function isMissing(error: unknown): boolean {
   const name = (error as { name?: string }).name;
   return name === 'NotFoundError' || name === 'TypeMismatchError';
+}
+
+/**
+ * A file the listing cannot read is not a Scene it can offer: the browser's
+ * answer for a name that is gone, unreadable, or not a file at all. Any other
+ * failure is the folder's, and the listing says so.
+ */
+function canList(error: unknown): boolean {
+  const name = (error as { name?: string }).name;
+  return isMissing(error) || name === 'NotReadableError';
 }

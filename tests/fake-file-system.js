@@ -44,6 +44,7 @@
       }
       return {
         name,
+        size: new TextEncoder().encode(files[name]).length,
         async text() {
           return files[name];
         },
