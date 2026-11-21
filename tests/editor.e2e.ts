@@ -17,6 +17,7 @@ import { expect } from 'e2e';
 import {
   ARRANGE,
   ARRANGE_SCENE,
+  BIG_SCENE,
   BROKEN_SCENE,
   CROSSED,
   CROSSED_SCENE,
@@ -31,6 +32,7 @@ import {
   PINNED_SCENE,
   MIXED,
   MIXED_SCENE,
+  TEXT_SCENE,
   OVERFLOW,
   OVERFLOW_SCENE,
   SCENE,
@@ -40,7 +42,6 @@ import {
   UNEVEN_SCENE,
   SNAPPED,
   SNAPPED_SCENE,
-  TEXT_SCENE,
   SPREAD,
   SPREAD_SCENE,
   TETHER,
@@ -87,6 +88,7 @@ const UNEVEN_SOURCE = JSON.stringify(UNEVEN_SCENE, null, 2);
 const LACED_SOURCE = JSON.stringify(LACED_SCENE, null, 2);
 const SHAFT_SOURCE = JSON.stringify(SHAFT_SCENE, null, 2);
 const TEXT_SOURCE = JSON.stringify(TEXT_SCENE, null, 2);
+const BIG_SOURCE = JSON.stringify(BIG_SCENE, null, 2);
 
 /** The middle of `b`, the one solid grey box in the fixture. */
 const GREY_BOX: Rect = { x: 700, y: 390, width: 40, height: 40 };
@@ -1558,3 +1560,27 @@ test('a dense page of words exports as `ez png` draws it, in light and dark', as
   }
 });
 
+test('a Scene too big for a canvas names the CLI command that draws it', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'poster.json': BIG_SOURCE } }, 'poster.json');
+
+  // The row stays enabled: the page's size is only known once it is drawn.
+  await palette(ui);
+  await browser.keyboard.type('export png dark');
+  await expect(command(ui, 'Export PNG (dark)')).not.toBeDisabled();
+  await browser.keyboard.press('Enter');
+  await expect(screen.getByRole('dialog', 'Commands')).toBeHidden();
+
+  // The status line says how big the page is and what draws it at 1:1 instead.
+  const status = screen.getByRole('status');
+  await expect(status).toContainText('70170×142');
+  await expect(status).toContainText('ez png poster.json --theme dark');
+
+  // The attempt changed nothing: the Scene on disk is the one that was opened.
+  const files = await savedFiles(ui);
+  expect(JSON.parse(files['poster.json'] ?? '{}').elements.length).toBe(1);
+});

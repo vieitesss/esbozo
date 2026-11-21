@@ -532,6 +532,28 @@ export const TEXT_SCENE = {
   ],
 };
 
+/**
+ * A wall 70,138 units wide: the page the Renderer lays out is 70,170×142, far
+ * larger than a canvas can hold at one pixel per unit, so it can only be drawn
+ * by the CLI.
+ */
+export const BIG_SCENE = {
+  version: 1,
+  title: 'Poster',
+  defaults: { roughness: 1 },
+  elements: [
+    {
+      id: 'wall',
+      type: 'rectangle',
+      x: 40,
+      y: 40,
+      width: 70138,
+      height: 110,
+      fill: { kind: 'solid', grey: 2 },
+    },
+  ],
+};
+
 /** Stub folders: a folder name mapped to its `name → text` files. */
 export interface Folders {
   [folder: string]: Record<string, string>;

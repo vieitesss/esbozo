@@ -648,13 +648,17 @@ export class EsbozoEditorElement extends HTMLElement {
 
   /** The Scene as a PNG, light or dark, downloaded beside the name the Scene saves under. */
   async #exportPng(theme: 'light' | 'dark'): Promise<void> {
+    // The file name the Scene saves under, and the one a too-large page tells a
+    // person to hand to the CLI.
+    const file = this.#target?.name ?? `${this.#scene.title}.json`;
     try {
       await exportPng({
         scene: this.#scene,
         theme,
         layout: this.#layout,
         font: this.#font,
-        name: sceneStem(this.#target?.name ?? '') || this.#scene.title,
+        name: sceneStem(file) || this.#scene.title,
+        file,
       });
     } catch (error) {
       this.#setSaved('failed', (error as Error).message);

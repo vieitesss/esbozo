@@ -15,7 +15,9 @@
  *
  * The canvas draws at one pixel per Scene unit, which is the scale `ez png`
  * rasterises at, so the PNG has the CLI's size and, within the rasteriser's
- * antialiasing, its pixels.
+ * antialiasing, its pixels. A Scene whose page the canvas cannot hold at that
+ * scale is not re-encoded here: the status line names the CLI command that
+ * draws it instead.
  */
 import { colourText, readColour, resolveSvgColours, resolveVariables } from '../css.js';
 import type { Theme, Variables } from '../css.js';
@@ -28,6 +30,14 @@ import type { Scene } from '../scene.js';
 
 /** One pixel per Scene unit: what `ez png` draws at, so a PNG is the CLI's size. */
 const SCALE = 1;
+
+/**
+ * The largest page a browser canvas draws, in pixels: Chromium's 2D canvas
+ * limits are 32,767 a side and 2^28 in all, the square of 16,384. A page past
+ * them is one this editor cannot rasterise at 1:1 at all.
+ */
+const MAX_SIDE = 32_767;
+const MAX_PIXELS = 16_384 * 16_384;
 
 /** The colours the page's stylesheet declares for the theme, before any mixing. */
 const COLOURS = ['--ink', '--paper', '--muted'] as const;
@@ -48,6 +58,8 @@ export interface PngExport {
   readonly theme: Theme;
   /** The file name without its extension: `sketch` writes `sketch.light.png`. */
   readonly name: string;
+  /** The Scene's own file name, which the too-large message's CLI command names. */
+  readonly file: string;
 }
 
 /**
@@ -65,7 +77,14 @@ export async function exportPng(options: PngExport): Promise<void> {
   if (!outlined.ok) {
     throw new Error(outlined.problems[0] ?? 'the drawing cannot be outlined');
   }
-  const drawing = await rasterise(outlined.svg, page['--paper'], sizeOf(outlined.svg));
+  const size = sizeOf(outlined.svg);
+  if (!canvasHolds(size)) {
+    throw new Error(
+      `${options.file} is ${size.width}×${size.height}: too big for this page to draw ` +
+        `at one pixel per unit. Run \`ez png ${options.file} --theme ${options.theme}\` instead.`,
+    );
+  }
+  const drawing = await rasterise(outlined.svg, page['--paper'], size);
   download(drawing, `${options.name}.${options.theme}.png`);
 }
 
@@ -82,6 +101,19 @@ function glyphsFor(font: SceneFont): Glyphs {
     parsedGlyphs.set(font, glyphs);
   }
   return glyphs;
+}
+
+/** Whether a canvas can hold the page at one pixel per Scene unit. */
+function canvasHolds(size: { width: number; height: number }): boolean {
+  const width = Math.round(size.width * SCALE);
+  const height = Math.round(size.height * SCALE);
+  return (
+    width > 0 &&
+    height > 0 &&
+    width <= MAX_SIDE &&
+    height <= MAX_SIDE &&
+    width * height <= MAX_PIXELS
+  );
 }
 
 /**
