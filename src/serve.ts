@@ -35,7 +35,6 @@ import { createServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { basename, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { brotliCompressSync, gzipSync } from 'node:zlib';
 import { PAGE_ASSETS } from './page-assets.js';
 import { svgFileName } from './paths.js';
 import { SCENES_API, sceneWrite } from './scenes-api.js';
@@ -103,7 +102,15 @@ export async function serve(options: ServeOptions): Promise<RunningServe> {
 
 /** The page's own files have to be beside the CLI: `pnpm build` puts them there. */
 async function checkPageAssets(): Promise<void> {
-  for (const file of new Set(PAGE_ASSETS.map((asset) => asset.file))) {
+  // A text page file is served compressed, so the build has to have written the
+  // variants: a server that found none would send the page uncompressed and say
+  // nothing about it.
+  const files = PAGE_ASSETS.flatMap((asset) =>
+    asset.mime.startsWith('text/')
+      ? [asset.file, ...CODINGS.map((coding) => `${asset.file}.${SUFFIX[coding]}`)]
+      : [asset.file],
+  );
+  for (const file of new Set(files)) {
     try {
       await stat(join(ASSETS, file));
     } catch {
@@ -536,32 +543,56 @@ async function servePageAsset(
     return;
   }
   const path = join(ASSETS, asset.file);
-  try {
-    if (!(await stat(path)).isFile()) {
-      sendJson(response, 404, { error: `no page file ${pathname}` });
-      return;
-    }
-  } catch {
+  if (!(await isFile(path))) {
     sendJson(response, 404, { error: `no page file ${pathname}` });
     return;
   }
-  const encoding = compresses(asset.mime) ? encodingFor(request.headers['accept-encoding']) : null;
-  if (encoding !== null) {
-    const body = await compressedBody(path, encoding);
+  if (compresses(asset.mime)) {
+    const taken = takenBy(request.headers['accept-encoding']);
+    for (const coding of taken.codings) {
+      const variant = `${path}.${SUFFIX[coding]}`;
+      const size = await fileSize(variant);
+      if (size === null) {
+        // The build writes both variants of every text page file: a dist without
+        // one offers the other, and the file itself when that is acceptable.
+        continue;
+      }
+      response.writeHead(200, {
+        'content-type': asset.mime,
+        'cache-control': 'no-store',
+        'content-encoding': coding,
+        'content-length': String(size),
+        vary: 'accept-encoding',
+      });
+      createReadStream(variant).pipe(response);
+      return;
+    }
+    if (!taken.identity) {
+      // The client refused every encoding this page is written in, the file
+      // itself included: there is nothing left it takes.
+      response.writeHead(406, {
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': 'no-store',
+        vary: 'accept-encoding',
+      });
+      response.end(
+        JSON.stringify({
+          error: `this page is sent as ${CODINGS.join(', ')} or with no content coding, and the request takes none of them`,
+        }),
+      );
+      return;
+    }
     response.writeHead(200, {
       'content-type': asset.mime,
       'cache-control': 'no-store',
-      'content-encoding': encoding,
-      'content-length': String(body.length),
       vary: 'accept-encoding',
     });
-    response.end(body);
+    createReadStream(path).pipe(response);
     return;
   }
   response.writeHead(200, {
     'content-type': asset.mime,
     'cache-control': 'no-store',
-    ...(compresses(asset.mime) ? { vary: 'accept-encoding' } : {}),
   });
   createReadStream(path).pipe(response);
 }
@@ -575,17 +606,31 @@ function compresses(mime: string): boolean {
   return mime.startsWith('text/');
 }
 
+/** The encodings the build writes beside a text page file, best first on a tie. */
+const CODINGS = ['br', 'gzip'] as const;
+
+/** One content coding the build wrote. */
+type Coding = (typeof CODINGS)[number];
+
+/** The suffix the build writes a coding under, beside the file it stands for. */
+const SUFFIX: Record<Coding, string> = { br: 'br', gzip: 'gz' };
+
+interface Taken {
+  /** The encodings the request takes, best first. */
+  readonly codings: readonly Coding[];
+  /** Whether it takes the file as it is. */
+  readonly identity: boolean;
+}
+
 /**
- * What a request will take of what this server offers, best first. A header
- * with no weight, or a weight of zero, means the client does not accept the
- * encoding; `*` stands for the ones it does not name.
+ * What a request takes of what the page can be sent in. A header with no weight,
+ * or a weight of zero, is an encoding the client does not take; `*` stands for
+ * the ones it does not name. Identity is acceptable unless the request refuses
+ * it by name or refuses everything it does not name.
  */
-function encodingFor(header: string | undefined): 'br' | 'gzip' | null {
-  if (header === undefined || header.trim() === '') {
-    return null;
-  }
+function takenBy(header: string | undefined): Taken {
   const weights = new Map<string, number>();
-  for (const part of header.split(',')) {
+  for (const part of (header ?? '').split(',')) {
     const [rawName, ...parameters] = part.trim().toLowerCase().split(';');
     const name = (rawName ?? '').trim();
     if (name === '') {
@@ -601,28 +646,28 @@ function encodingFor(header: string | undefined): 'br' | 'gzip' | null {
     }
     weights.set(name, weight);
   }
-  const weightOf = (name: string): number => weights.get(name) ?? weights.get('*') ?? 0;
-  const best = (['br', 'gzip'] as const)
-    .map((name) => ({ name, weight: weightOf(name) }))
-    .filter((offer) => offer.weight > 0)
-    .sort((left, right) => right.weight - left.weight)[0];
-  return best?.name ?? null;
+  const named = weights.get('identity');
+  return {
+    codings: CODINGS.map((coding) => ({ coding, weight: weights.get(coding) ?? weights.get('*') ?? 0 }))
+      .filter((offer) => offer.weight > 0)
+      .sort((left, right) => right.weight - left.weight)
+      .map((offer) => offer.coding),
+    identity: named === undefined ? weights.get('*') !== 0 : named > 0,
+  };
 }
 
-/** Compressed page files, by path: a page load pays for the compression once. */
-const compressed = new Map<string, { readonly stamp: string; readonly body: Buffer }>();
-
-async function compressedBody(path: string, encoding: 'br' | 'gzip'): Promise<Buffer> {
-  const file = await stat(path);
-  const stamp = `${encoding}:${file.size}:${file.mtimeMs}`;
-  const held = compressed.get(path);
-  if (held !== undefined && held.stamp === stamp) {
-    return held.body;
+/** The size of a file, or null when there is none: a variant the dist lacks. */
+async function fileSize(path: string): Promise<number | null> {
+  try {
+    const info = await stat(path);
+    return info.isFile() ? info.size : null;
+  } catch {
+    return null;
   }
-  const source = await readFile(path);
-  const body = encoding === 'br' ? brotliCompressSync(source) : gzipSync(source);
-  compressed.set(path, { stamp, body });
-  return body;
+}
+
+async function isFile(path: string): Promise<boolean> {
+  return (await fileSize(path)) !== null;
 }
 
 function sendJson(response: ServerResponse, status: number, body: unknown): void {

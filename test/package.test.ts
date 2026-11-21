@@ -28,6 +28,10 @@ test('the published package carries Kalam and its OFL licence', async () => {
   const paths = manifest.files.map((file) => file.path);
 
   assert.ok(paths.includes('dist/cli.js'), 'the bundled CLI is published');
+  // The page travels compressed: `ez serve` sends the variants the build wrote,
+  // never a compression of its own, so they are part of what it publishes.
+  assert.ok(paths.includes('dist/editor.js.br'), 'the Brotli page is published');
+  assert.ok(paths.includes('dist/editor.js.gz'), 'the gzip page is published');
   assert.ok(paths.includes('fonts/Kalam-Regular.ttf'), 'the bundled font is published');
   assert.ok(paths.includes('fonts/OFL.txt'), 'Kalam’s OFL licence is published');
 });

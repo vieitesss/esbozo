@@ -8,7 +8,9 @@
  * while the bundle carries the CSS and takes the font URL from its element.
  */
 import { chmod, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { brotliCompressSync, gzipSync } from 'node:zlib';
 import { build } from 'esbuild';
+import { PAGE_ASSETS } from '../src/page-assets.ts';
 
 const cliOutfile = 'dist/cli.js';
 
@@ -73,3 +75,22 @@ await writeFile(
 await copyFile('src/editor/page.html', 'dist/editor.html');
 await copyFile('fonts/Kalam-Regular.ttf', 'dist/fonts/Kalam-Regular.ttf');
 await copyFile('fonts/OFL.txt', 'dist/fonts/OFL.txt');
+await compressPageFiles();
+
+/**
+ * Every text page file, compressed beside itself. `ez serve` sends these bytes
+ * instead of compressing per request: a page load pays for the compression once,
+ * here, and the server only picks the variant the request takes. The table is
+ * the same one the server routes by, so a file is compressed exactly when it is
+ * a page file — and the font, whose own format is the compression, is not.
+ */
+async function compressPageFiles() {
+  const files = new Set(
+    PAGE_ASSETS.filter((asset) => asset.mime.startsWith('text/')).map((asset) => asset.file),
+  );
+  for (const file of files) {
+    const source = await readFile(`dist/${file}`);
+    await writeFile(`dist/${file}.br`, brotliCompressSync(source));
+    await writeFile(`dist/${file}.gz`, gzipSync(source));
+  }
+}
