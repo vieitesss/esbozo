@@ -42,7 +42,7 @@ import type { SceneFolder } from './files.js';
 import { sceneFolder } from './scene-url.js';
 import STYLES from './editor.css';
 
-defineEditorElement(pageFont, folderAt);
+defineEditorElement(pageFont, folderAt, { focusInside: true });
 addStylesheet();
 
 /** The element's `scene`, or null when the attribute does not name one. */
@@ -54,8 +54,10 @@ function attributeOf(element: Element, name: string): string | null {
 /**
  * This element's font: fetched, measured, and given a family of its own so two
  * elements on one page can name two different files without either winning.
- * A missing attribute or a font that will not load is the plain-text reason the
- * element shows in its status line.
+ * The face is installed with the measurement, by the element that accepts it,
+ * so a font that arrived after a newer one never draws the words it did not
+ * measure. A missing attribute or a font that will not load is the plain-text
+ * reason the element shows in its status line.
  */
 async function pageFont(element: HTMLElement): Promise<PageFont> {
   const url = attributeOf(element, 'font');
@@ -68,20 +70,22 @@ async function pageFont(element: HTMLElement): Promise<PageFont> {
       return { ok: false, problem: `cannot load ${url}: ${response.status} ${response.statusText}` };
     }
     const layout = createLayout(measureFontBytes(new Uint8Array(await response.arrayBuffer())));
-    useFace(element, url);
-    return { ok: true, layout };
+    return { ok: true, layout, face: () => useFace(element, url) };
   } catch (error) {
     return { ok: false, problem: `cannot load ${url}: ${(error as Error).message}` };
   }
 }
 
-/** The single Scene the element names, read through the two URLs its attributes give. */
+/** The single Scene the element names, read through the URLs its attributes give now. */
 async function folderAt(element: HTMLElement): Promise<SceneFolder | null> {
   const scene = attributeOf(element, 'scene');
   if (scene === null) {
     throw new Error('esbozo-editor needs a scene attribute: a URL that answers a Scene');
   }
-  return sceneFolder({ scene, save: attributeOf(element, 'save') });
+  return sceneFolder(() => ({
+    scene: attributeOf(element, 'scene') ?? scene,
+    save: attributeOf(element, 'save'),
+  }));
 }
 
 /** How many faces this page has made: each one is a family of its own. */

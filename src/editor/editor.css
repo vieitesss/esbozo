@@ -46,6 +46,11 @@ esbozo-editor {
 
 esbozo-editor, esbozo-editor * { box-sizing: border-box; }
 
+/* The editor is focusable so an embedded page can hand it the keys, but the
+   ring the browser draws on a box this size is not how it says where it is: the
+   selection and the tool in hand do. */
+esbozo-editor:focus, esbozo-editor:focus-visible { outline: none; }
+
 esbozo-editor [hidden] { display: none !important; }
 
 /* paper grain: straight CSS plus an inline SVG, under the dot Grid */
@@ -80,7 +85,7 @@ esbozo-editor .canvas.hand, esbozo-editor .canvas.panning { cursor: grab; }
 esbozo-editor .canvas.panning { cursor: grabbing; }
 /* drawing: the pencil is the pointer, so the tool in hand reads on the canvas */
 esbozo-editor .canvas.pen { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='26' viewBox='0 0 26 26'%3E%3Cg transform='rotate(42 13 13)'%3E%3Cpath d='M11 5h4v13h-4z' fill='%23e8b23c' stroke='%231b1a17' stroke-width='1.2'/%3E%3Cpath d='M11 18h4l-2 4.5z' fill='%23f6f0e2' stroke='%231b1a17' stroke-width='1.2'/%3E%3C/g%3E%3C/svg%3E") 4 22, crosshair; }
-esbozo-editor .grid-rect { fill: url(#esbozo-dots); pointer-events: none; }
+esbozo-editor .grid-rect { pointer-events: none; }
 esbozo-editor .dot { fill: var(--ink); opacity: 0.22; }
 
 esbozo-editor .selection {

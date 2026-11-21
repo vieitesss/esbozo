@@ -59,10 +59,27 @@ export class TextSession {
     if (!this.#open) {
       return;
     }
+    const content = this.#close();
+    this.#commit(content);
+  }
+
+  /**
+   * End the session without its words: the Scene moved on under the input, so
+   * what was typed into it belongs to nothing.
+   */
+  cancel(): void {
+    if (!this.#open) {
+      return;
+    }
+    this.#close();
+  }
+
+  /** The input goes, and is read once: whatever asked for the end gets the words. */
+  #close(): string {
     this.#open = false;
     const content = this.#input.value.trim();
     this.#input.remove();
-    this.#commit(content);
+    return content;
   }
 
   #onKeyDown = (event: KeyboardEvent): void => {

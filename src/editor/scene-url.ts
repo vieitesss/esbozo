@@ -25,21 +25,33 @@ export interface SceneEndpoints {
   readonly save: string | null;
 }
 
-/** The one Scene behind `endpoints`, as the editor's storage seam. */
-export function sceneFolder(endpoints: SceneEndpoints): SceneFolder {
-  const name = fileNameOf(endpoints.scene);
-  const save = endpoints.save;
+/**
+ * The one Scene behind `endpoints`, as the editor's storage seam.
+ *
+ * The endpoints are asked for on every call, never kept: an element's `scene`
+ * and `save` attributes may change under a running editor, and a write has to
+ * go where the page points it *now*, not where it pointed when it was queued.
+ * A `save` that went away mid-write leaves the Scene unwritten, which is what
+ * read-only means.
+ */
+export function sceneFolder(endpoints: () => SceneEndpoints): SceneFolder {
   return {
     // The Scene's own host, so the status line says where what it shows came from.
-    name: hostOf(endpoints.scene),
-    readOnly: save === null,
+    get name(): string {
+      return hostOf(endpoints().scene);
+    },
+    get readOnly(): boolean {
+      return endpoints().save === null;
+    },
 
     async listScenes(): Promise<string[]> {
-      return [name];
+      return [fileNameOf(endpoints().scene)];
     },
 
     async read(): Promise<string | null> {
-      const response = await ask(endpoints.scene, { method: 'GET', headers: { accept: 'application/json' } });
+      const { scene } = endpoints();
+      const name = fileNameOf(scene);
+      const response = await ask(scene, { method: 'GET', headers: { accept: 'application/json' } });
       if (response.status === 404) {
         // Not there yet: the editor opens an empty Scene and writes nothing
         // until the first edit.
@@ -52,9 +64,12 @@ export function sceneFolder(endpoints: SceneEndpoints): SceneFolder {
       return text;
     },
 
-    async write(_name: string, scene: string, svg: string): Promise<void> {
+    async write(name: string, scene: string, svg: string): Promise<void> {
+      const { save } = endpoints();
       if (save === null) {
-        return;
+        // The editor asks `readOnly` before it writes, so this is the page
+        // being told to write where nothing may be written.
+        throw new Error('this page has no save URL: it may only read');
       }
       const body: SceneWrite = { scene, svg };
       const response = await ask(save, {

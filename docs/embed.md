@@ -21,16 +21,20 @@ The module registers `<esbozo-editor>` and injects the editor's stylesheet, so t
 | Attribute | Meaning |
 | --- | --- |
 | `scene` | A URL a `GET` answers the Scene's source on. A `404` opens an empty canvas that says `new Scene`: a Scene nobody has drawn yet is not an error, and nothing is written until the first edit. Anything else that goes wrong with the read is the server's words in the status line, and a page that could not read its Scene never writes one. Required: without it the status line says what is missing. |
-| `save` | A URL a `PUT` takes `{ "scene": "...", "svg": "..." }` on — the body and the answers in [save-api.md](save-api.md), which is also what `ez serve` answers. Leave it out and the editor is read-only: it draws, pans, zooms, selects and copies, refuses every edit, and its status line says `read-only`. A `403` on a save is the server saying the same thing, so from then on the page stops editing and stops asking. |
+| `save` | A URL a `PUT` takes `{ "scene": "...", "svg": "..." }` on — the body and the answers in [save-api.md](save-api.md), which is also what `ez serve` answers. Leave it out and the editor is read-only: it draws, pans, zooms, selects and copies, refuses every edit, puts the tool back to Select, and its status line says `read-only`. A `403` on a save is the server saying the same thing, so from then on the page stops editing, stops asking, and takes no undo step it cannot show. |
 | `font` | The URL of the Kalam file the page draws words in. The bundle carries no font, so the page decides where it lives and which version it is. Each element fetches these bytes and measures every Label and Text with them (`src/font-metrics.ts`), read with the font's own tables rather than a font library: a full OpenType parser is bigger than the whole budget below. Give two elements two different files and each measures with its own. |
 
-Every attribute is live. Changing `font` measures the new file and redraws the Scene in hand; changing `scene` reads the Scene the new URL names and writes nothing until the next edit; changing `save` moves where the next write goes, and removing it makes the page read-only again with the Scene still on the canvas.
+Every attribute is live. Changing `font` measures the new file and redraws the Scene in hand; changing `scene` reads the Scene the new URL names, lets go of a tool or half-typed words left in the old one, and writes nothing until the next edit; changing `save` moves where the next write goes, and removing it makes the page read-only again with the Scene still on the canvas.
+
+One connection per element, and every attribute change is a new one. The element numbers them, and an answer that arrives for one the page has moved on from — a read, a font, a write — is dropped instead of drawn. A write is sent to the `save` URL the attributes name at the moment it goes out, so a `PUT` already queued for a URL that has since changed is not sent at all, and a `403` is only taken as read-only when it comes from the URL the page still writes to.
+
+The focus is the page's until a person clicks into the editor. The element is focusable, and while the focus is inside it the keys and the clipboard are the editor's; with the focus anywhere else — before the first click, or after clicking the host's own words — <kbd>Space</kbd> and the arrows scroll the page like they do anywhere else.
 
 A load, a save or a font that fails is the server's or the browser's own words in the status line; the editor stays on screen.
 
 ## Two elements on one page
 
-Each element is an editor of its own: its own Scene, its own font and its own save URL. The keyboard and the clipboard go to the element a person last clicked or focused, so a nudge in one is never a save in the other, and with nothing clicked yet the first element on the page has them.
+Each element is an editor of its own: its own Scene, its own font, its own save URL and its own dot Grid — the Grid is a pattern of its own, so two editors never fill their dots from each other. The keyboard and the clipboard go to the element the focus is inside, so a nudge in one is never a save in the other, and a page nobody has clicked into keeps its own keys.
 
 ## What it is, and what it is not
 
