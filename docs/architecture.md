@@ -28,7 +28,7 @@ The Renderer, `ez check` and the editor agree on where words break and whether t
 
 ## The CLI
 
-`src/cli.ts` reads arguments and files and calls the modules. `render` parses, loads a Layout and writes the SVG beside the Scene. `check` parses, loads a Layout and asks it about every Element. `png` renders the SVG, resolves its CSS variables to colours (`src/css.ts`, because resvg has no CSS engine), and rasterises it with resvg-wasm (`src/png.ts`). Exit codes are defined once, in `EXIT` in `src/cli.ts`.
+`src/cli.ts` reads arguments and files and calls the modules. `render` parses, loads a Layout and writes the SVG beside the Scene. `check` parses, loads a Layout and asks it about every Element. `png` renders the SVG, resolves its CSS variables to colours (`src/css.ts`, because resvg has no CSS engine), and rasterises it with resvg-wasm (`src/png.ts`). `serve` (`src/serve.ts`) listens on one folder of Scenes, answers the save API ([save-api.md](save-api.md)) and serves the editor page's files from beside the CLI (`src/page-assets.ts`); the editor finds that API (`src/editor/server-folder.ts`) and works on the folder without the browser's picker. Exit codes are defined once, in `EXIT` in `src/cli.ts`.
 
 ## Builds
 
