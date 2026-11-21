@@ -487,8 +487,11 @@ const HALO = { zoom: 1, panX: 500, panY: 320 };
 /** The middle of `HALO_SCENE`'s right-hand box, where its own ink is. */
 const HALO_RIGHT = at({ x: 192, y: 80 }, HALO);
 
-/** The row the press follows, and where the lower box's border ink sits on it. */
-const HALO_ROW = { x: 620, y: HALO_RIGHT.y - 0.5, width: 20, height: 1 };
+/**
+ * The row the press follows, stopping short of the neighbour's border ink: it
+ * holds the lower box's right border and nothing else.
+ */
+const HALO_ROW = { x: 620, y: HALO_RIGHT.y - 0.5, width: 22, height: 1 };
 
 /** Two plain boxes whose interiors overlap: the second is drawn over the first. */
 const OVERLAP_SCENE = {
@@ -509,11 +512,14 @@ test('a press on a lower Element\u2019s border ink is not taken by the halo abov
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'halo.json': HALO_SOURCE } }, 'halo.json');
 
-  // The left box's right border, from the page's own pixels: it is the only ink
-  // on this row, and the box the pointer is aimed near belongs to its neighbour.
+  // The left box's right border, from the page's own pixels: the row through it
+  // holds no other ink, and the rightmost of it is outside the box the border
+  // belongs to, where the neighbour's halo reaches but its ink does not.
   const ink = (await shot(ui)).darkBounds(HALO_ROW, DRAWN);
   expect(ink, 'the left box draws its right border here').not.toBeNull();
-  const onInk = { x: ink!.x + ink!.width / 2, y: HALO_RIGHT.y };
+  const onInk = { x: ink!.x + ink!.width - 0.5, y: HALO_RIGHT.y };
+  const edge = at({ x: 140, y: 80 }, HALO);
+  expect(onInk.x, 'the press is on ink outside the left box').toBeGreaterThan(edge.x);
 
   await press(onInk);
   await browser.keyboard.press('Shift+ArrowRight');
@@ -672,6 +678,46 @@ test('a press on the outer ink of a tiny round box selects it at 800%', async ({
 
   const scene = await savedScene(ui, 'round.json');
   expect(scene.elements[0]?.x).toBe(50);
+});
+
+/**
+ * Two boxes whose strokes are nothing like the default: the widest stroke at the
+ * roughest line, beside the thinnest stroke at a line with no wobble at all.
+ */
+const STROKES_SCENE = {
+  version: 1,
+  title: 'Strokes',
+  defaults: { roughness: 1 },
+  elements: [
+    { id: 'heavy', type: 'rectangle', x: 40, y: 40, width: 120, height: 80, roughness: 2, stroke: { width: 'extra' } },
+    { id: 'hair', type: 'rectangle', x: 220, y: 40, width: 120, height: 80, roughness: 0, stroke: { width: 'thin' } },
+  ],
+};
+const STROKES_SOURCE = JSON.stringify(STROKES_SCENE, null, 2);
+
+/** The view `STROKES_SCENE` lands in: its 332×112 page fitted one to one. */
+const STROKES = { zoom: 1, panX: 450, panY: 320 };
+
+test('a press on the border picks an Element at every stroke width and roughness', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'strokes.json': STROKES_SOURCE } }, 'strokes.json');
+
+  for (const [index, element] of STROKES_SCENE.elements.entries()) {
+    const edge = at({ x: element.x, y: element.y + element.height / 2 }, STROKES);
+    // The ink the page paints, not the box the Scene stores: the widest stroke
+    // and the roughest line put it outside the edge, the thinnest inside it.
+    const ink = await borderInk(ui, edge, 15);
+    expect(ink.x, `${element.id}'s border is drawn at its edge`).toBeLessThanOrEqual(edge.x);
+
+    await press(ink);
+    await browser.keyboard.press('Shift+ArrowRight');
+
+    // Only the Element whose border ink was pressed moved.
+    const scene = await savedScene(ui, 'strokes.json');
+    expect(savedXs(scene)).toEqual(
+      STROKES_SCENE.elements.map((other, earlier) => [other.id, other.x + (earlier <= index ? 10 : 0)]),
+    );
+  }
 });
 
 test('a press inside two overlapping boxes picks the topmost Element', async ({ app, browser, screen }) => {
