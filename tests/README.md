@@ -34,7 +34,10 @@ refuses one the browser already ended (a blur ends a composition) rather than
 typing the words a second time. `cdp.e2e.ts` is the proof, on a plain
 `<textarea>` and not the editor: the preedit is the field's value while the
 composition is open, the commit and the click-away each end it, and 4×
-throttling measurably slows the page. Driving the page out of band is the
+throttling measurably slows the page. `labels.e2e.ts` then drives the editor's
+own field through it, so an outside press during a real composition and the
+candidate a person picks are tested against Chromium's composition, not a
+sequence of events a test dispatched. Driving the page out of band is the
 harness's documented escape hatch; reach for it for input no event can fake, not
 to shortcut a role click.
 

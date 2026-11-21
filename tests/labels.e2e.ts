@@ -26,12 +26,9 @@ import {
   WORDS,
   WORDS_SCENE,
   at,
-  cancelComposition,
   cliCheck,
   cliCheckBytes,
   clickScene,
-  composing,
-  confirmComposition,
   doubleClickScene,
   dragBy,
   middleDrag,
@@ -39,6 +36,7 @@ import {
   savedFiles,
   savedScene,
 } from './helpers.ts';
+import { imeCommit, imeCompose } from './cdp.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
 
@@ -352,7 +350,7 @@ describe('labels', () => {
 
     await doubleClickScene(ui, { x: 100, y: 80 });
     const label = screen.getByRole('textbox', { name: 'Label' });
-    await composing(ui, 'にほん');
+    await imeCompose('にほん');
     await expect(label).toHaveValue('にほん');
 
     // A key is not the end of a composition: Escape waits for the IME.
@@ -378,7 +376,7 @@ describe('labels', () => {
     // The rail takes the focus off the field. Chromium confirms an open preedit
     // when that happens, so the session has to end first or the preedit is kept.
     await doubleClickScene(ui, { x: 100, y: 80 });
-    await composing(ui, 'にほん');
+    await imeCompose('にほん');
     await screen.getByRole('navigation', { name: 'Tools' }).click({ position: { x: 2, y: 2 } });
     await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveCount(0);
     expect(await savedFiles(ui)).toEqual(before);
@@ -386,7 +384,7 @@ describe('labels', () => {
     // The Style note docks over the page, and is no different: the words are
     // finished before anything it does can take the focus.
     await doubleClickScene(ui, { x: 100, y: 80 });
-    await composing(ui, 'にほん');
+    await imeCompose('にほん');
     await screen.getByRole('dialog', { name: 'Style' }).click({ position: { x: 4, y: 4 } });
     await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveCount(0);
     expect(await savedFiles(ui)).toEqual(before);
@@ -398,23 +396,26 @@ describe('labels', () => {
 
     await doubleClickScene(ui, { x: 100, y: 80 });
     const label = screen.getByRole('textbox', { name: 'Label' });
-    await composing(ui, 'にほん');
-    await confirmComposition(ui, '日本');
+    await imeCompose('にほん');
+    // The person picks a candidate: what lands is the word chosen, not the reading.
+    await imeCommit('日本');
     await expect(label).toHaveValue('日本');
     await label.press('Escape');
 
     expect((await savedScene(ui)).elements[0]?.label).toBe('日本');
   });
 
-  test('a cancelled composition leaves the words as they were', async ({ app, browser, screen }) => {
+  test('a preedit the person deletes leaves the words as they were', async ({ app, browser, screen }) => {
     const ui = { app, browser, screen };
     await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
     const before = await savedFiles(ui);
 
     await doubleClickScene(ui, { x: 100, y: 80 });
     const label = screen.getByRole('textbox', { name: 'Label' });
-    await composing(ui, 'にほん');
-    await cancelComposition(ui);
+    await imeCompose('にほん');
+    // Deleting the reading leaves the preedit empty: nothing was chosen, so no
+    // words were typed, and the field still holds the words it opened with.
+    await imeCompose('');
     await expect(label).toHaveValue('');
     await label.press('Escape');
 

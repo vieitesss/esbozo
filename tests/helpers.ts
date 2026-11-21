@@ -991,60 +991,6 @@ export async function doubleClickScene(
 }
 
 /**
- * Type the way an input method does, and leave the composition open.
- *
- * Chromium delivers a composition as `compositionstart`, the preedit in the
- * field with every `input` marked composing, and then `compositionend` with the
- * confirmed words. CDP's `Input.imeSetComposition` is not reachable from a test
- * in this harness, so those are the events dispatched here, with
- * `InputEvent.isComposing` set the way the browser sets it: the editor sees the
- * same events either way. Issue #23 brings a CDP helper that drives a real IME.
- *
- * The focus leaving a composing field is also Chromium's own move: it confirms
- * the preedit first — the value keeps it and `compositionend` follows — so the
- * blur is staged here too, in the capture pass, before anything the page put on
- * the field hears it. That is the order a real IME loses words in, and the
- * reason an outside press has to end the session before the focus leaves.
- */
-export async function composing(ui: Ui, preedit: string): Promise<void> {
-  await ui.browser.evaluate((text) => {
-    const field = document.activeElement as HTMLTextAreaElement | null;
-    if (field === null || field.tagName !== 'TEXTAREA') {
-      throw new Error('no field has the focus to compose in');
-    }
-    const from = field.value;
-    (field as HTMLTextAreaElement & { composingFrom?: string }).composingFrom = from;
-    field.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: '' }));
-    field.value = from + text;
-    field.setSelectionRange(field.value.length, field.value.length);
-    field.dispatchEvent(
-      new InputEvent('input', {
-        bubbles: true,
-        isComposing: true,
-        data: text,
-        inputType: 'insertCompositionText',
-      }),
-    );
-    field.addEventListener(
-      'blur',
-      () => {
-        field.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: text }));
-        field.dispatchEvent(
-          new InputEvent('input', {
-            bubbles: true,
-            isComposing: false,
-            data: text,
-            inputType: 'insertCompositionText',
-          }),
-        );
-      },
-      { capture: true, once: true },
-    );
-    return true;
-  }, preedit);
-}
-
-/**
  * A drag with the middle button, which a person uses to pan and a click test
  * cannot ask for: the harness's pointer has one button. The events are the ones
  * Chromium sends for a middle drag, at the node under the pointer.
@@ -1081,46 +1027,6 @@ export async function middleDrag(ui: Ui, from: Point, to: Point): Promise<void> 
     [from.x, from.y],
     [to.x, to.y],
   ]);
-}
-
-/** Confirm the open composition, as the IME does when the person picks a candidate. */
-export async function confirmComposition(ui: Ui, words: string): Promise<void> {
-  await ui.browser.evaluate((text) => {
-    const field = document.activeElement as
-      | (HTMLTextAreaElement & { composingFrom?: string })
-      | null;
-    if (field === null || field.tagName !== 'TEXTAREA') {
-      throw new Error('no field has a composition to confirm');
-    }
-    const from = field.composingFrom ?? '';
-    field.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: text }));
-    field.value = from + text;
-    field.setSelectionRange(field.value.length, field.value.length);
-    field.dispatchEvent(
-      new InputEvent('input', { bubbles: true, isComposing: false, data: text, inputType: 'insertCompositionText' }),
-    );
-    return true;
-  }, words);
-}
-
-/** Cancel the open composition: the preedit leaves the field and nothing was typed. */
-export async function cancelComposition(ui: Ui): Promise<void> {
-  await ui.browser.evaluate(() => {
-    const field = document.activeElement as
-      | (HTMLTextAreaElement & { composingFrom?: string })
-      | null;
-    if (field === null || field.tagName !== 'TEXTAREA') {
-      throw new Error('no field has a composition to cancel');
-    }
-    const from = field.composingFrom ?? '';
-    field.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '' }));
-    field.value = from;
-    field.setSelectionRange(from.length, from.length);
-    field.dispatchEvent(
-      new InputEvent('input', { bubbles: true, isComposing: false, data: '', inputType: 'deleteCompositionText' }),
-    );
-    return true;
-  });
 }
 
 /** Drag from a Scene point by a page-pixel offset. */
