@@ -140,11 +140,18 @@ export class CommandPalette {
       return;
     }
     const index = this.#rows.findIndex((action) => action.id === id);
-    if (index >= 0) {
-      this.#active = index;
-      this.#mark();
-      this.#runActive();
+    if (index < 0) {
+      return;
     }
+    this.#active = index;
+    this.#mark();
+    // A row that cannot run keeps the palette open and the caret where it was:
+    // the press told the person why, and they may want to search again.
+    if (this.#rows[index]!.reason(this.#options.state()) !== null) {
+      this.#input.focus();
+      return;
+    }
+    this.#runActive();
   };
 
   #runActive(): void {

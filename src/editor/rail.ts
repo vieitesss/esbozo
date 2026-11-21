@@ -2,8 +2,9 @@
  * The tool rail: the hand-drawn strip on the left with the tools on it.
  *
  * One static list, in rail order, from `actions.ts`, so a button, the key that
- * picks it and the palette's row for it can never disagree. Each button names its shortcut in its tooltip
- * and in its accessible name, because the left hand is what picks a tool. The
+ * picks it and the palette's row for it can never disagree. Each button names
+ * every key that picks it in its tooltip and wears its letter on the tile,
+ * because the left hand is what picks a tool. The
  * outline is drawn by Rough.js, twice, so the strip reads as two pencil passes.
  */
 import { RoughGenerator } from 'roughjs/bin/generator.js';
@@ -30,7 +31,7 @@ export function railMarkup(): string {
       `<button type="button" data-tool="${tool.id}" aria-label="${tool.name}"` +
       ` aria-pressed="${pressed}" title="${tool.name} — ${tool.shortcut}">` +
       `<svg viewBox="0 0 24 24" aria-hidden="true">${icon}<g class="ghost">${icon}</g></svg>` +
-      `<span class="key">${tool.shortcut}</span>` +
+      `<span class="key">${tool.primary}</span>` +
       `</button>`
     );
   }).join('');

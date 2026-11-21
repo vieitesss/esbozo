@@ -117,7 +117,7 @@ type Drag =
   | { kind: 'box'; from: Point; to: Point; additive: boolean };
 
 const SHELL = `
-<svg class="canvas" xmlns="${SVG_NS}" aria-label="Scene canvas">
+<svg class="canvas" xmlns="${SVG_NS}" aria-label="Scene canvas" tabindex="0">
   <defs>
     <pattern id="esbozo-dots" width="${DOT_SPACING}" height="${DOT_SPACING}" patternUnits="userSpaceOnUse">
       <circle class="dot" cx="1" cy="1" r="${DOT_RADIUS}"></circle>
@@ -220,6 +220,7 @@ export class EsbozoEditorElement extends HTMLElement {
     deleteSelection: () => this.#deleteSelected(),
     duplicateSelection: () => this.#duplicate(),
     copySelection: () => this.#copySelection(),
+    cutSelection: () => this.#cutSelection(),
     paste: () => this.#pasteClipboard(),
     undo: () => this.#restore(this.#history.undo()),
     redo: () => this.#restore(this.#history.redo()),
@@ -229,6 +230,11 @@ export class EsbozoEditorElement extends HTMLElement {
     stepDefaultRoughness: () => this.#stepDefaultRoughness(),
     openPalette: () => this.#palette.show(),
     exportPng: (theme) => this.#exportPng(theme),
+    zoomIn: () => this.#zoomBy(ZOOM_STEP),
+    zoomOut: () => this.#zoomBy(1 / ZOOM_STEP),
+    zoomToFit: () => this.#zoomToFit(),
+    resetZoom: () => this.#resetZoom(),
+    openFolder: () => void (this.#served ? this.#showNote() : this.#openFolder()),
   };
 
   constructor(layout: Layout, font: SceneFont) {
@@ -263,6 +269,9 @@ export class EsbozoEditorElement extends HTMLElement {
       root: this.querySelector('.palette')!,
       state: () => this.#actionState(),
       run: (action) => void action.run(this.#host),
+      // The palette is a detour, not a place: shutting it puts the person back
+      // on the canvas, where the keys and the pointer already belong.
+      closed: () => this.#canvas.focus(),
     });
 
     this.#canvas.addEventListener('pointerdown', this.#onPointerDown);
@@ -274,6 +283,7 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#rail.addEventListener('click', this.#onRailClick);
     this.querySelector('.status')!.addEventListener('click', this.#onStatusClick);
     document.addEventListener('copy', this.#onCopy);
+    document.addEventListener('cut', this.#onCut);
     document.addEventListener('paste', this.#onPaste);
     this.#newScene.addEventListener('submit', this.#onNewScene);
     this.#files.addEventListener('click', this.#onFileClick);
@@ -295,6 +305,7 @@ export class EsbozoEditorElement extends HTMLElement {
 
   disconnectedCallback(): void {
     document.removeEventListener('copy', this.#onCopy);
+    document.removeEventListener('cut', this.#onCut);
     document.removeEventListener('paste', this.#onPaste);
     document.removeEventListener('keydown', this.#onKeyDown);
     document.removeEventListener('keyup', this.#onKeyUp);
@@ -536,13 +547,20 @@ export class EsbozoEditorElement extends HTMLElement {
     if (this.#typing(event.target) || this.#gestureHoldsScene()) {
       return;
     }
-    const selected = this.#selectedElements();
-    if (selected.length === 0) {
-      return;
+    if (this.#copyTo(event.clipboardData)) {
+      event.preventDefault();
     }
-    event.clipboardData?.setData('text/plain', serialiseFragment(this.#scene, selected));
-    event.preventDefault();
   };
+
+  /** The selected Elements as the text a clipboard event carries, or false when there is none. */
+  #copyTo(data: DataTransfer | null): boolean {
+    const selected = this.#selectedElements();
+    if (selected.length === 0 || data === null) {
+      return false;
+    }
+    data.setData('text/plain', serialiseFragment(this.#scene, selected));
+    return true;
+  }
 
   /** Paste Scene JSON text from the clipboard, with new ids, offset off what is here. */
   #onPaste = (event: ClipboardEvent): void => {
@@ -554,27 +572,65 @@ export class EsbozoEditorElement extends HTMLElement {
     event.preventDefault();
   };
 
+  /** Cut is a copy the page also deletes: one event carries the text, one step edits. */
+  #onCut = (event: ClipboardEvent): void => {
+    if (this.#typing(event.target) || this.#gestureHoldsScene()) {
+      return;
+    }
+    if (this.#copyTo(event.clipboardData)) {
+      event.preventDefault();
+      this.#deleteSelected();
+    }
+  };
+
   /**
    * Copy for a named action: the palette has no copy event to carry the data,
-   * so it writes the same Scene text the event would.
+   * so it writes the same Scene text the event would. A page without the async
+   * Clipboard API — a non-secure origin — says so instead of doing nothing.
    */
   async #copySelection(): Promise<void> {
-    const selected = this.#selectedElements();
-    if (selected.length === 0) {
+    const clipboard = clipboardApi();
+    if (clipboard === null) {
+      this.#setSaved('failed', 'this page cannot use the clipboard: press ⌘C');
       return;
     }
     try {
-      await navigator.clipboard.writeText(serialiseFragment(this.#scene, selected));
+      await clipboard.writeText(serialiseFragment(this.#scene, this.#selectedElements()));
     } catch (error) {
       this.#setSaved('failed', `cannot copy: ${(error as Error).message}`);
     }
   }
 
+  /** Cut for a named action: the same text Copy writes, then the one delete step. */
+  async #cutSelection(): Promise<void> {
+    const clipboard = clipboardApi();
+    if (clipboard === null) {
+      this.#setSaved('failed', 'this page cannot use the clipboard: press ⌘X');
+      return;
+    }
+    const selected = this.#selectedElements();
+    if (selected.length === 0) {
+      return;
+    }
+    try {
+      await clipboard.writeText(serialiseFragment(this.#scene, selected));
+    } catch (error) {
+      this.#setSaved('failed', `cannot cut: ${(error as Error).message}`);
+      return;
+    }
+    this.#deleteSelected();
+  }
+
   /** Paste for a named action: the clipboard, read on the spot, with new ids. */
   async #pasteClipboard(): Promise<void> {
+    const clipboard = clipboardApi();
+    if (clipboard === null) {
+      this.#setSaved('failed', 'this page cannot use the clipboard: press ⌘V');
+      return;
+    }
     let text: string;
     try {
-      text = await navigator.clipboard.readText();
+      text = await clipboard.readText();
     } catch (error) {
       this.#setSaved('failed', `cannot paste: ${(error as Error).message}`);
       return;
@@ -605,7 +661,7 @@ export class EsbozoEditorElement extends HTMLElement {
     }
   }
 
-  /** What the actions may look at: the selection, and whether the history has a step. */
+  /** What the actions may look at: the selection, the history, and the clipboard the page has. */
   #actionState(): ActionState {
     const selected = this.#selectedElements();
     return {
@@ -613,6 +669,7 @@ export class EsbozoEditorElement extends HTMLElement {
       movable: movableCount(selected),
       canUndo: this.#history.canUndo,
       canRedo: this.#history.canRedo,
+      clipboard: clipboardApi() !== null,
     };
   }
 
@@ -1243,7 +1300,7 @@ export class EsbozoEditorElement extends HTMLElement {
       void action.run(this.#host);
       return;
     }
-    if (event.key.startsWith('Arrow')) {
+    if (event.key.startsWith('Arrow') && !event.metaKey && !event.ctrlKey) {
       const step = event.shiftKey ? NUDGE_WITH_SHIFT : NUDGE;
       const dx = event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0;
       const dy = event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0;
@@ -1252,19 +1309,6 @@ export class EsbozoEditorElement extends HTMLElement {
         this.#nudge(dx, dy);
       }
       return;
-    }
-    if (event.metaKey || event.ctrlKey) {
-      // Undo, redo and duplicate are the registry's keys, answered above.
-      if (event.key === '+' || event.key === '=') {
-        event.preventDefault();
-        this.#zoomBy(ZOOM_STEP);
-      } else if (event.key === '-' || event.key === '_') {
-        event.preventDefault();
-        this.#zoomBy(1 / ZOOM_STEP);
-      } else if (event.key === '0') {
-        event.preventDefault();
-        this.#changedView(fittedView(this.#scene, this.#viewportSize(), this.#layout));
-      }
     }
   };
 
@@ -1317,6 +1361,17 @@ export class EsbozoEditorElement extends HTMLElement {
   #zoomBy(factor: number): void {
     const size = this.#viewportSize();
     this.#changedView(zoomedAt(this.#view, factor, size.width / 2, size.height / 2));
+  }
+
+  /** Fit the page the Renderer draws into the window, the view an open Scene starts in. */
+  #zoomToFit(): void {
+    this.#changedView(fittedView(this.#scene, this.#viewportSize(), this.#layout));
+  }
+
+  /** One pixel per Scene unit, around the middle of the window: the plain view. */
+  #resetZoom(): void {
+    const size = this.#viewportSize();
+    this.#changedView(zoomedAt(this.#view, 1 / this.#view.zoom, size.width / 2, size.height / 2));
   }
 
   // ----------------------------------------------------------------------- UI
@@ -1440,6 +1495,15 @@ export class EsbozoEditorElement extends HTMLElement {
             ? 'saved'
             : '';
   }
+}
+
+/**
+ * The async Clipboard API, when the page has one: a non-secure origin has none,
+ * and the palette says to use the keys instead of offering a command that
+ * cannot run. The cast keeps the check honest: the type says it is always there.
+ */
+function clipboardApi(): Clipboard | null {
+  return (navigator as Navigator & { clipboard?: Clipboard }).clipboard ?? null;
 }
 
 /**

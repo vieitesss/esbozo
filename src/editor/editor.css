@@ -88,6 +88,14 @@ esbozo-editor::before {
   touch-action: none;
 }
 
+/* The canvas takes the focus when the palette shuts, so focus is visible there
+   and nowhere else: a ring around the paper, inside the window's edge. */
+.canvas:focus { outline: none; }
+.canvas:focus-visible {
+  outline: 2px solid var(--sel);
+  outline-offset: -4px;
+}
+
 .canvas.hand, .canvas.panning { cursor: grab; }
 .canvas.panning { cursor: grabbing; }
 /* drawing: the pencil is the pointer, so the tool in hand reads on the canvas */

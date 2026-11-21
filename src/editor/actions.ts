@@ -12,6 +12,10 @@
  * is why Arrange stays out of the menu until two Elements are selected while the
  * palette still lists it, disabled, saying what it is waiting for.
  *
+ * What is not here: nudge is a gesture (Shift and the arrows move the selection
+ * by 1 or 10, and a held key is one undo step), and an Element's style is a
+ * per-value choice the Style note offers, so neither is a row a name could run.
+ *
  * Nothing here touches the Scene: an action's `run` asks the host (the editor)
  * to do it, so the registry stays a table and every change still lands through
  * the editor's one path.
@@ -32,6 +36,8 @@ export interface Binding {
   readonly meta?: boolean;
   /** Left out when the key means the same with Shift held; `false` means it must not be. */
   readonly shift?: boolean;
+  /** What a row shows for this key when its own name would mislead: `=` reads as `+`. */
+  readonly label?: string;
 }
 
 /** What an action answers, and reads, about the editor it acts on. */
@@ -43,6 +49,8 @@ export interface ActionState {
   /** Only the palette knows the history; the menu passes the selection alone. */
   readonly canUndo?: boolean;
   readonly canRedo?: boolean;
+  /** Whether the page has the async Clipboard API: an insecure origin has none. */
+  readonly clipboard?: boolean;
 }
 
 /** What the editor does, as the actions name it. */
@@ -51,6 +59,7 @@ export interface ActionHost {
   deleteSelection(): void;
   duplicateSelection(): void;
   copySelection(): Promise<void>;
+  cutSelection(): Promise<void>;
   paste(): Promise<void>;
   undo(): void;
   redo(): void;
@@ -60,18 +69,28 @@ export interface ActionHost {
   stepDefaultRoughness(): void;
   openPalette(): void;
   exportPng(theme: Theme): Promise<void>;
+  zoomIn(): void;
+  zoomOut(): void;
+  zoomToFit(): void;
+  resetZoom(): void;
+  openFolder(): void;
 }
 
 /** The palette's headings, in the order the list is read in. */
-export type ActionGroup = 'Tools' | 'Edit' | 'Order' | 'Arrange' | 'Spread' | 'View' | 'Export';
+export type ActionGroup = 'Tools' | 'Edit' | 'Order' | 'Arrange' | 'Spread' | 'View' | 'Export' | 'Scene';
 
-export interface EditorAction {
+/** An action as it is written down: its keys are written out from its bindings. */
+interface ActionSpec {
   readonly id: string;
   readonly name: string;
   readonly group: ActionGroup;
-  /** What the palette and the rail show, e.g. `G` or `⇧⌘Z`; empty when nothing picks it. */
-  readonly shortcut: string;
   readonly bindings: readonly Binding[];
+  /**
+   * The keys a row shows without binding them. The clipboard's own events carry
+   * the data, so Copy, Cut and Paste must not answer a key press as well; the
+   * shortcut is still the one a person presses.
+   */
+  readonly shortcut?: string;
   /** The least Elements the action needs selected: below it the menu leaves its row out. */
   readonly minSelected: number;
   /** Why the action cannot run now, or null when it can. */
@@ -79,49 +98,81 @@ export interface EditorAction {
   readonly run: (host: ActionHost) => void | Promise<void>;
 }
 
+export interface EditorAction extends ActionSpec {
+  /** Every key that does it, as the palette shows them: `V · 1` or `⇧⌘Z`. */
+  readonly shortcut: string;
+  /** The first of them, as the rail's tooltip shows it: `V`. */
+  readonly primary: string;
+}
+
 /** Always offered: the tools and the things that need nothing selected. */
 const always = (): null => null;
 
-/** The rail's order, which the digits follow: built once, above the tools it places. */
-const TOOL_ORDER: readonly ToolId[] = [
-  'select',
-  'rectangle',
-  'ellipse',
-  'diamond',
-  'arrow',
-  'line',
-  'text',
+/**
+ * One row's keys: every binding, in the order the row reads them, each key named
+ * once. Two bindings can answer the same key on different keyboards — `+` and
+ * `=` are both zoom in — and a row that showed `⌘+ · ⌘+` would read as two.
+ */
+function shortcutOf(spec: ActionSpec): string {
+  if (spec.shortcut !== undefined) {
+    return spec.shortcut;
+  }
+  return [...new Set(spec.bindings.map(keyLabel))].join(' · ');
+}
+
+/** One binding, as a person reads it: `⌘Z`, `⇧⌘Z`, `⌫`, `V`. */
+function keyLabel(binding: Binding): string {
+  if (binding.label !== undefined) {
+    return binding.label;
+  }
+  const shift = binding.shift === true ? '⇧' : '';
+  const meta = binding.meta === true ? '⌘' : '';
+  return `${shift}${meta}${keyName(binding.key)}`;
+}
+
+/** One key's own name, as the keycaps of the machine say it. */
+function keyName(key: string): string {
+  if (key === 'backspace') {
+    return '⌫';
+  }
+  if (key === 'delete') {
+    return 'Del';
+  }
+  if (key === ' ') {
+    return 'Space';
+  }
+  return key.length === 1 ? key.toUpperCase() : key;
+}
+
+/** A spec with the keys a row shows worked out from the keys it answers. */
+function withKeys(spec: ActionSpec): EditorAction {
+  const shortcut = shortcutOf(spec);
+  return { ...spec, shortcut, primary: shortcut.split(' · ')[0] ?? '' };
+}
+
+/** The rail's tools in the order the rail draws them: the digits follow this one list. */
+const TOOL_NAMES: readonly { readonly id: ToolId; readonly name: string; readonly letter: string }[] = [
+  { id: 'select', name: 'Select', letter: 'V' },
+  { id: 'rectangle', name: 'Rectangle', letter: 'R' },
+  { id: 'ellipse', name: 'Ellipse', letter: 'E' },
+  { id: 'diamond', name: 'Diamond', letter: 'D' },
+  { id: 'arrow', name: 'Arrow', letter: 'A' },
+  { id: 'line', name: 'Line', letter: 'S' },
+  { id: 'text', name: 'Text', letter: 'T' },
 ];
 
-/** The tools, in rail order: each draws one Element type, and Select draws nothing. */
-const TOOL_ACTIONS = [
-  tool('select', 'Select', 'V'),
-  tool('rectangle', 'Rectangle', 'R'),
-  tool('ellipse', 'Ellipse', 'E'),
-  tool('diamond', 'Diamond', 'D'),
-  tool('arrow', 'Arrow', 'A'),
-  tool('line', 'Line', 'S'),
-  tool('text', 'Text', 'T'),
-] as const satisfies readonly EditorAction[];
-
-/**
- * One tool: its letter, and the digit that picks it by its place on the rail.
- * Both are bindings of the same action, so the tool list and the keys cannot
- * drift apart.
- */
-function tool(id: ToolId, name: string, letter: string): EditorAction {
-  const position = TOOL_ORDER.indexOf(id) + 1;
-  return {
-    id,
-    name,
+/** One tool: its letter, and the digit its place on the rail gives it. */
+const TOOL_ACTIONS: readonly EditorAction[] = TOOL_NAMES.map((tool, index) =>
+  withKeys({
+    id: tool.id,
+    name: tool.name,
     group: 'Tools',
-    shortcut: letter,
-    bindings: [{ key: letter }, { key: String(position) }],
+    bindings: [{ key: tool.letter }, { key: String(index + 1) }],
     minSelected: 0,
     reason: always,
-    run: (host) => host.pickTool(id),
-  };
-}
+    run: (host) => host.pickTool(tool.id),
+  }),
+);
 
 /** Two Elements on the page are the least an alignment means anything for. */
 function needsTwoMovable(state: ActionState): string | null {
@@ -136,6 +187,15 @@ function needsSelection(state: ActionState): string | null {
   return state.selected === 0 ? 'select an Element first' : null;
 }
 
+/**
+ * Copy, Cut and Paste name a key the browser owns: the clipboard event carries
+ * the Scene text, so the row is offered only where the async API exists to run
+ * the same thing by name.
+ */
+function needsClipboard(state: ActionState): string | null {
+  return state.clipboard === false ? 'use ⌘C / ⌘V' : null;
+}
+
 /** One Arrange button: the menu's row, the palette's name, and the act it runs. */
 function arrange(
   act: ArrangeAct,
@@ -143,12 +203,11 @@ function arrange(
   label: string,
   minSelected: number,
   reason: (state: ActionState) => string | null,
-): EditorAction {
+): ActionSpec {
   return {
     id: act,
     name: `${row}: ${label}`,
     group: row,
-    shortcut: '',
     bindings: [],
     minSelected,
     reason,
@@ -156,12 +215,11 @@ function arrange(
   };
 }
 
-const OTHER_ACTIONS = [
+const OTHER_ACTIONS: readonly ActionSpec[] = [
   {
     id: 'palette',
     name: 'Open command palette',
     group: 'View',
-    shortcut: 'Q · ⌘K',
     bindings: [{ key: 'q' }, { key: 'k', meta: true }],
     minSelected: 0,
     reason: always,
@@ -171,20 +229,18 @@ const OTHER_ACTIONS = [
     id: 'undo',
     name: 'Undo',
     group: 'Edit',
-    shortcut: '⌘Z',
     bindings: [{ key: 'z', meta: true, shift: false }],
     minSelected: 0,
-    reason: (state: ActionState) => (state.canUndo === true ? null : 'nothing to undo'),
+    reason: (state) => (state.canUndo === true ? null : 'nothing to undo'),
     run: (host) => host.undo(),
   },
   {
     id: 'redo',
     name: 'Redo',
     group: 'Edit',
-    shortcut: '⇧⌘Z',
     bindings: [{ key: 'z', meta: true, shift: true }],
     minSelected: 0,
-    reason: (state: ActionState) => (state.canRedo === true ? null : 'nothing to redo'),
+    reason: (state) => (state.canRedo === true ? null : 'nothing to redo'),
     run: (host) => host.redo(),
   },
   {
@@ -193,28 +249,38 @@ const OTHER_ACTIONS = [
     id: 'copy',
     name: 'Copy',
     group: 'Edit',
-    shortcut: '⌘C',
     bindings: [],
+    shortcut: '⌘C',
     minSelected: 1,
-    reason: needsSelection,
+    reason: (state) => needsSelection(state) ?? needsClipboard(state),
     run: (host) => host.copySelection(),
   },
   {
-    // Like Copy: the paste event is the browser's, and reads the data it carries.
+    // Like Copy, and the cut event deletes what it copied.
+    id: 'cut',
+    name: 'Cut',
+    group: 'Edit',
+    bindings: [],
+    shortcut: '⌘X',
+    minSelected: 1,
+    reason: (state) => needsSelection(state) ?? needsClipboard(state),
+    run: (host) => host.cutSelection(),
+  },
+  {
+    // And the paste event reads the data it carries.
     id: 'paste',
     name: 'Paste',
     group: 'Edit',
-    shortcut: '⌘V',
     bindings: [],
+    shortcut: '⌘V',
     minSelected: 0,
-    reason: always,
+    reason: needsClipboard,
     run: (host) => host.paste(),
   },
   {
     id: 'duplicate',
     name: 'Duplicate',
     group: 'Edit',
-    shortcut: 'C · ⌘D',
     bindings: [{ key: 'c' }, { key: 'd', meta: true }],
     minSelected: 1,
     reason: needsSelection,
@@ -224,16 +290,15 @@ const OTHER_ACTIONS = [
     id: 'delete',
     name: 'Delete',
     group: 'Edit',
-    shortcut: 'X',
     bindings: [{ key: 'x' }, { key: 'backspace' }, { key: 'delete' }],
     minSelected: 1,
     reason: needsSelection,
     run: (host) => host.deleteSelection(),
   },
-  arrange('order-back', 'Order', 'back', 1, always),
-  arrange('order-backward', 'Order', 'backward', 1, always),
-  arrange('order-forward', 'Order', 'forward', 1, always),
-  arrange('order-front', 'Order', 'front', 1, always),
+  arrange('order-back', 'Order', 'back', 1, needsSelection),
+  arrange('order-backward', 'Order', 'backward', 1, needsSelection),
+  arrange('order-forward', 'Order', 'forward', 1, needsSelection),
+  arrange('order-front', 'Order', 'front', 1, needsSelection),
   arrange('align-left', 'Arrange', 'left', 2, needsTwoMovable),
   arrange('align-centre', 'Arrange', 'centre', 2, needsTwoMovable),
   arrange('align-right', 'Arrange', 'right', 2, needsTwoMovable),
@@ -246,17 +311,53 @@ const OTHER_ACTIONS = [
     id: 'grid',
     name: 'Toggle Grid',
     group: 'View',
-    shortcut: 'G',
     bindings: [{ key: 'g' }],
     minSelected: 0,
     reason: always,
     run: (host) => host.toggleGrid(),
   },
   {
+    id: 'zoom-in',
+    name: 'Zoom in',
+    group: 'View',
+    // `⌘=` is the same request on a keyboard where `+` needs Shift.
+    bindings: [{ key: '+', meta: true }, { key: '=', meta: true, label: '⌘+' }],
+    minSelected: 0,
+    reason: always,
+    run: (host) => host.zoomIn(),
+  },
+  {
+    id: 'zoom-out',
+    name: 'Zoom out',
+    group: 'View',
+    bindings: [{ key: '-', meta: true, label: '⌘−' }, { key: '_', meta: true, label: '⌘−' }],
+    minSelected: 0,
+    reason: always,
+    run: (host) => host.zoomOut(),
+  },
+  {
+    id: 'zoom-fit',
+    name: 'Zoom to fit',
+    group: 'View',
+    bindings: [{ key: '0', meta: true }],
+    minSelected: 0,
+    reason: always,
+    run: (host) => host.zoomToFit(),
+  },
+  {
+    // Back to one pixel per Scene unit, around the middle of the page.
+    id: 'zoom-reset',
+    name: 'Reset zoom',
+    group: 'View',
+    bindings: [],
+    minSelected: 0,
+    reason: always,
+    run: (host) => host.resetZoom(),
+  },
+  {
     id: 'theme',
     name: 'Toggle theme',
     group: 'View',
-    shortcut: '',
     bindings: [],
     minSelected: 0,
     reason: always,
@@ -266,7 +367,6 @@ const OTHER_ACTIONS = [
     id: 'roughness',
     name: 'Default roughness',
     group: 'View',
-    shortcut: '',
     bindings: [],
     minSelected: 0,
     reason: always,
@@ -276,7 +376,6 @@ const OTHER_ACTIONS = [
     id: 'export-light',
     name: 'Export PNG (light)',
     group: 'Export',
-    shortcut: '',
     bindings: [],
     minSelected: 0,
     reason: always,
@@ -286,19 +385,28 @@ const OTHER_ACTIONS = [
     id: 'export-dark',
     name: 'Export PNG (dark)',
     group: 'Export',
-    shortcut: '',
     bindings: [],
     minSelected: 0,
     reason: always,
     run: (host) => host.exportPng('dark'),
   },
-] as const satisfies readonly EditorAction[];
-
-/** Every action, in the order the palette lists them. */
-export const ACTIONS: readonly EditorAction[] = [...TOOL_ACTIONS, ...OTHER_ACTIONS];
+  {
+    // The status bar's own button, by name: a served page lists its Scenes here.
+    id: 'open-folder',
+    name: 'Open folder…',
+    group: 'Scene',
+    bindings: [],
+    minSelected: 0,
+    reason: always,
+    run: (host) => host.openFolder(),
+  },
+];
 
 /** The tools in rail order, each knowing the tool it picks. */
 export const TOOLS = TOOL_ACTIONS as readonly (EditorAction & { readonly id: ToolId })[];
+
+/** Every action, in the order the palette lists them. */
+export const ACTIONS: readonly EditorAction[] = [...TOOL_ACTIONS, ...OTHER_ACTIONS.map(withKeys)];
 
 /** The action a key press picks, or null when it picks none. */
 export function actionFor(event: {

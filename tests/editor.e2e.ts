@@ -1190,15 +1190,18 @@ test('Q opens the palette on every action, each with the key that does it', asyn
 
   // A tool, a Scene-wide action and an Arrange action are all reachable here,
   // and the row says which key picks it: the rail, the menu and the palette are
-  // one list of actions.
-  await expect(command(ui, 'Select · V')).toBeVisible();
+  // one list of actions. A tool names the digit its place on the rail gives it,
+  // and Delete names the Backspace and Delete beside its letter.
+  await expect(command(ui, 'Select · V · 1')).toBeVisible();
   await expect(command(ui, 'Toggle Grid · G')).toBeVisible();
+  await expect(command(ui, 'Zoom to fit · ⌘0')).toBeVisible();
+  await expect(command(ui, 'Open folder…')).toBeVisible();
   await expect(command(ui, 'Arrange: left')).toBeVisible();
   await expect(command(ui, 'Export PNG (dark)')).toBeVisible();
 
   // Nothing is selected, so the actions that need one say they cannot run.
-  await expect(command(ui, 'Delete · X')).toBeDisabled();
-  await expect(command(ui, 'Delete · X')).toContainText('select an Element first');
+  await expect(command(ui, 'Delete · X · ⌫ · Del')).toBeDisabled();
+  await expect(command(ui, 'Delete · X · ⌫ · Del')).toContainText('select an Element first');
 
   await browser.keyboard.press('Escape');
   await expect(screen.getByRole('dialog', 'Commands')).toBeHidden();
@@ -1297,6 +1300,167 @@ test('the palette stays shut while a Text is being typed', async ({ app, browser
 
   const scene = await savedScene(ui);
   expect(scene.elements.at(-1)?.content).toBe('qk');
+});
+
+/** The middle of a row, so a pointer press can land on it where it is drawn. */
+async function rowCentre(ui: Ui, name: string): Promise<{ x: number; y: number }> {
+  return ui.browser.evaluate((wanted: string) => {
+    const row = [...document.querySelectorAll('[role="option"]')].find(
+      (node) => node.getAttribute('aria-label') === wanted,
+    );
+    if (row === undefined) {
+      throw new Error(`no row called ${wanted}`);
+    }
+    const box = row.getBoundingClientRect();
+    return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+  }, name);
+}
+
+/** Which of the page's two focus stops holds the focus: the search field or the canvas. */
+function focusOf(ui: Ui): Promise<'canvas' | 'search' | 'other'> {
+  return ui.browser.evaluate(() => {
+    const active = document.activeElement;
+    if (active === document.querySelector('.canvas')) {
+      return 'canvas';
+    }
+    return active === document.querySelector('.palette input') ? 'search' : 'other';
+  });
+}
+
+test('the digits pick the tools by their place on the rail', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+  // The palette says `Ellipse · E · 3`, and `3` is the key that picks it: the
+  // digits and the rail read one list.
+  await browser.keyboard.press('3');
+  await expect(screen.getByRole('button', 'Ellipse')).toHaveAttribute('aria-pressed', 'true');
+  await browser.keyboard.press('v');
+  await expect(screen.getByRole('button', 'Select')).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('Order is offered, disabled, until something is selected', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+  // Not an empty command: a row that needs a selection says what it waits for,
+  // and Enter on it does nothing at all.
+  await palette(ui);
+  await browser.keyboard.type('order');
+  await expect(command(ui, 'Order: front')).toBeDisabled();
+  await expect(command(ui, 'Order: front')).toContainText('select an Element first');
+  await browser.keyboard.press('Enter');
+  await expect(screen.getByRole('dialog', 'Commands')).toBeVisible();
+  await browser.keyboard.press('Escape');
+
+  const before = (await savedScene(ui)).elements.map((element) => element.id);
+  await clickScene(ui, { x: 100, y: 80 });
+  await palette(ui);
+  await browser.keyboard.type('front');
+  await browser.keyboard.press('Enter');
+  await expect(screen.getByRole('dialog', 'Commands')).toBeHidden();
+  const after = (await savedScene(ui)).elements.map((element) => element.id);
+  expect(after).toEqual([...before].reverse());
+});
+
+test('shutting the palette puts the focus back on the canvas', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+  // Escape closes it and the keys belong to the page again: `g` is the Grid,
+  // not a letter the search field would have swallowed.
+  await palette(ui);
+  await browser.keyboard.press('Escape');
+  await expect(screen.getByRole('dialog', 'Commands')).toBeHidden();
+  await expect.poll(async () => focusOf(ui)).toBe('canvas');
+  const withGrid = (await shot(ui)).darkCount(GRID, 0.9);
+  await browser.keyboard.press('g');
+  await settle(ui);
+  expect((await shot(ui)).darkCount(GRID, 0.9)).toBeLessThan(withGrid - 100);
+
+  // Running a row closes the palette the same way, with the change made.
+  await palette(ui);
+  await browser.keyboard.type('grid');
+  await browser.keyboard.press('Enter');
+  await expect(screen.getByRole('dialog', 'Commands')).toBeHidden();
+  await expect.poll(async () => focusOf(ui)).toBe('canvas');
+  await expect.poll(async () => (await shot(ui)).darkCount(GRID, 0.9)).toBeGreaterThan(withGrid - 100);
+
+  // A row that cannot run keeps the palette open and the caret in the search
+  // field, so the person can keep typing instead of hunting for it.
+  await palette(ui);
+  await browser.keyboard.type('delete');
+  // A person can press a greyed row; the press is what has to leave the
+  // palette open and the caret where it was.
+  const disabled = await rowCentre(ui, 'Delete · X · ⌫ · Del');
+  await browser.mouse.move(disabled.x, disabled.y);
+  await browser.mouse.down();
+  await browser.mouse.up();
+  await expect(screen.getByRole('dialog', 'Commands')).toBeVisible();
+  await expect.poll(async () => focusOf(ui)).toBe('search');
+  await browser.keyboard.type('zzz');
+  await expect(command(ui, 'Delete · X · ⌫ · Del')).toBeHidden();
+  expect((await savedScene(ui)).elements.length).toBe(2);
+});
+
+test('Copy, Cut and Paste say to use the keys where the page has no clipboard', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+  // Selected, so the selection is not what the row is waiting for.
+  await clickScene(ui, { x: 100, y: 80 });
+  // A page served over plain HTTP has no async Clipboard API at all.
+  await browser.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+    return (navigator as { clipboard?: unknown }).clipboard === undefined;
+  });
+
+  await palette(ui);
+  await browser.keyboard.type('copy');
+  await expect(command(ui, 'Copy · ⌘C')).toBeDisabled();
+  await expect(command(ui, 'Copy · ⌘C')).toContainText('use ⌘C / ⌘V');
+  await browser.keyboard.press('Meta+a');
+  await browser.keyboard.type('paste');
+  await expect(command(ui, 'Paste · ⌘V')).toBeDisabled();
+  await expect(command(ui, 'Paste · ⌘V')).toContainText('use ⌘C / ⌘V');
+  await browser.keyboard.press('Escape');
+
+  // The keys are the browser's own clipboard events, so they still work.
+  await browser.keyboard.press('Meta+x');
+  await expect.poll(async () => (await savedScene(ui)).elements.length).toBe(1);
+  await browser.keyboard.press('Meta+v');
+  await expect.poll(async () => (await savedScene(ui)).elements.length).toBe(2);
+});
+
+test('Zoom in, Zoom out and Reset zoom run from the palette', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+  const zoomLabel = screen.getByText(/^\d+%$/);
+  await expect(zoomLabel).toHaveText('100%');
+
+  await palette(ui);
+  await browser.keyboard.type('zoom');
+  await expect(command(ui, 'Zoom in · ⌘+')).toBeVisible();
+  await browser.keyboard.press('Meta+a');
+  await browser.keyboard.type('zoom in');
+  await browser.keyboard.press('Enter');
+  await expect(zoomLabel).toHaveText('120%');
+
+  await palette(ui);
+  await browser.keyboard.type('zoom out');
+  await browser.keyboard.press('Enter');
+  await expect(zoomLabel).toHaveText('100%');
+
+  // A key zoom, then the palette puts the view back to one pixel per unit.
+  await browser.keyboard.press('Meta+=');
+  await expect(zoomLabel).toHaveText('120%');
+  await palette(ui);
+  await browser.keyboard.type('reset');
+  await browser.keyboard.press('Enter');
+  await expect(zoomLabel).toHaveText('100%');
 });
 
 // ---------------------------------------------------------------- PNG export
