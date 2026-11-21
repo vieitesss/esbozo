@@ -93,6 +93,12 @@ export const VIEW: View = { zoom: 1, panX: 470, panY: 300 };
 /** The view `MIXED_SCENE` lands in, worked out the same way. */
 export const MIXED: View = { zoom: 1, panX: 440, panY: 205 };
 
+/**
+ * The view an empty Scene lands in: its 320×240 page is fitted 1:1 and centred,
+ * so the middle of the view is Scene (160, 120) and the right edge is x = 800.
+ */
+export const EMPTY: View = { zoom: 1, panX: 480, panY: 280 };
+
 /** The view `POSTER_SCENE` lands in, worked out the same way. */
 export const POSTER: View = { zoom: 1, panX: 320, panY: 155 };
 

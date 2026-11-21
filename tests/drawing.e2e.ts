@@ -14,6 +14,7 @@
 import { describe, test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import {
+  EMPTY,
   SCENE,
   SNAPPED,
   SNAPPED_SCENE,
@@ -25,9 +26,12 @@ import {
   openEditor,
   savedFiles,
   savedScene,
+  settle,
 } from './helpers.ts';
 import type { Folders, Ui } from './helpers.ts';
 import type { Point } from './helpers.ts';
+import { shot } from './pixels.ts';
+import type { Rect } from './pixels.ts';
 
 const SCENE_SOURCE = JSON.stringify(SCENE, null, 2);
 const SCENES: Folders = { A: { 'scene.json': SCENE_SOURCE } };
@@ -45,6 +49,14 @@ async function open(ui: Ui, folders: Folders = SCENES, name = 'scene.json'): Pro
 
 /** A spot on the empty canvas, clear of both rectangles. */
 const PAPER: Point = { x: 420, y: 40 };
+
+/** The page the drag in the cancelled-gesture test would have covered. */
+const SWEPT: Rect = { x: 890, y: 340, width: 100, height: 100 };
+
+/** How dark a page region is: the ink a person would see on it. */
+async function ink(ui: Ui, region: Rect): Promise<number> {
+  return (await shot(ui)).darkCount(region, 0.6);
+}
 
 /** The Scene a test just saved, as a map by id. */
 async function saved(ui: Ui, name = 'scene.json') {
@@ -231,6 +243,48 @@ describe('drawing', () => {
       'diamond',
       'text',
     ]);
+  });
+
+  test('a cancelled gesture draws nothing, and the preview it showed goes with it', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    const bare = await ink(ui, SWEPT);
+
+    const from = at(PAPER);
+    const to = { x: from.x + SWEPT.width, y: from.y + SWEPT.height };
+    await browser.keyboard.press('r');
+    await browser.mouse.move(from.x, from.y);
+    await browser.mouse.down();
+    await browser.mouse.move(to.x, to.y);
+    await settle(ui);
+    // What the pointer dragged is on the paper while the pointer is down.
+    expect(await ink(ui, SWEPT)).toBeGreaterThan(bare + 100);
+
+    // The browser takes the gesture over, the way a touch is taken over: a
+    // cancellation, not a release.
+    await browser.evaluate((point: Point) => {
+      const target = document.elementFromPoint(point.x, point.y);
+      target?.dispatchEvent(
+        new PointerEvent('pointercancel', {
+          pointerId: 1,
+          clientX: point.x,
+          clientY: point.y,
+          bubbles: true,
+        }),
+      );
+      return true;
+    }, to);
+    await settle(ui);
+
+    // Only the finished gesture is a Scene: the preview is gone from the paper,
+    // and the pointer coming up afterwards settles nothing.
+    expect(await ink(ui, SWEPT)).toBe(bare);
+    await browser.mouse.up();
+    expect((await savedFiles(ui))['scene.json']).toBe(SCENE_SOURCE);
   });
 
   test('Space pans with a tool in hand instead of drawing', async ({ app, browser, screen }) => {

@@ -209,7 +209,7 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#canvas.addEventListener('pointerdown', this.#onPointerDown);
     this.#canvas.addEventListener('pointermove', this.#onPointerMove);
     this.#canvas.addEventListener('pointerup', this.#onPointerUp);
-    this.#canvas.addEventListener('pointercancel', this.#onPointerUp);
+    this.#canvas.addEventListener('pointercancel', this.#onPointerCancel);
     this.#canvas.addEventListener('wheel', this.#onWheel, { passive: false });
     this.#canvas.addEventListener('contextmenu', (event) => event.preventDefault());
     this.#rail.addEventListener('click', this.#onRailClick);
@@ -927,6 +927,26 @@ export class EsbozoEditorElement extends HTMLElement {
       return;
     }
     this.#drag = null;
+    this.#paint();
+  };
+
+  /**
+   * The browser took the pointer away: a touch became a scroll, or the window
+   * was hidden mid-gesture. Only a finished gesture is a Scene, so nothing of
+   * this one is recorded and nothing is saved; the preview it drew leaves the
+   * page, and the pointer coming up later settles nothing.
+   */
+  #onPointerCancel = (event: PointerEvent): void => {
+    const drag = this.#drag;
+    this.#drag = null;
+    this.#canvas.classList.remove('panning');
+    if (this.#canvas.hasPointerCapture(event.pointerId)) {
+      this.#canvas.releasePointerCapture(event.pointerId);
+    }
+    if (drag !== null && drag.kind === 'draw') {
+      // The preview drew under an id the Scene never took.
+      this.#selected = [];
+    }
     this.#paint();
   };
 
