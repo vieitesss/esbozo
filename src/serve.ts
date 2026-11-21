@@ -22,7 +22,8 @@
  * A written Scene is parsed with `parseScene` first and refused with 400 when
  * it is invalid, so the server never stores what `ez check` rejects. A Scene and
  * its SVG are committed together: one write of a name at a time, and two names
- * that a case-insensitive filesystem reads as one file share that one write.
+ * that reach one SVG — `flow.esbozo` and `flow.json`, or a case-insensitive
+ * filesystem's `alias.json` and `alias.JSON` — share that one write.
  *
  * No auth: the default bind is 127.0.0.1, and a host that reaches further is
  * the caller's choice.
@@ -265,6 +266,7 @@ async function handleScene(
   }
 
   const path = join(root, name);
+  const svg = join(root, svgFileName(name));
   if (!(await staysInside(root, path))) {
     sendJson(response, 403, { error: `${name} leaves the folder` });
     return;
@@ -317,7 +319,11 @@ async function handleScene(
   }
 
   try {
-    await serialised(queueKey(root, name), () => writePair(root, name, written));
+    // The queue is the SVG's target, case-folded: `alias.json` and `alias.JSON`
+    // are one Scene on a case-insensitive filesystem, and `flow.json` and
+    // `flow.esbozo` both replace `flow.svg`, so a name and its SVG share one
+    // queue; otherwise two writes for one file could race.
+    await serialised(svg.toLowerCase(), () => writePair(path, svg, written));
   } catch (error) {
     if (!(error instanceof WriteRefused)) {
       throw error;
@@ -393,16 +399,6 @@ class WriteRefused extends Error {
 /** The writes in flight, one queue per output pair, so two never interleave. */
 const queued = new Map<string, Promise<void>>();
 
-/**
- * The queue a write belongs to: the two files it will replace, case-folded.
- * `alias.json` and `alias.JSON` are one Scene on a case-insensitive filesystem,
- * and `flow.json` and `flow.esbozo` both replace `flow.svg`, so a name and its
- * SVG take one queue; otherwise two writes for one file could race.
- */
-function queueKey(root: string, name: string): string {
-  return join(root, svgFileName(name)).toLowerCase();
-}
-
 /** Run `job` after every earlier job for `key`, whatever those jobs did. */
 function serialised<T>(key: string, job: () => Promise<T>): Promise<T> {
   const next = (queued.get(key) ?? Promise.resolve()).then(job);
@@ -420,10 +416,8 @@ function serialised<T>(key: string, job: () => Promise<T>): Promise<T> {
 }
 
 /**
- * Replace the Scene and its SVG of one name together. Calls for one pair are
- * queued, so the two files on disk always come from a single write: the pair a
- * reader finds is the one before a write or the one after it, never a Scene from
- * one request beside an SVG from another.
+ * Replace the Scene and its SVG of one name together, at the two targets the
+ * request already named.
  *
  * Both targets are checked before anything lands, and checked as entries only:
  * a target that is not a file cannot be replaced, and its contents are never
@@ -434,9 +428,7 @@ function serialised<T>(key: string, job: () => Promise<T>): Promise<T> {
  * between the two renames can see the new Scene beside the previous SVG; the SVG
  * never leads the Scene, and both are the same write once the request answers.
  */
-async function writePair(root: string, name: string, written: SceneWrite): Promise<void> {
-  const scene = join(root, name);
-  const svg = join(root, svgFileName(name));
+async function writePair(scene: string, svg: string, written: SceneWrite): Promise<void> {
   await refuseNonFile(scene);
   await refuseNonFile(svg);
 

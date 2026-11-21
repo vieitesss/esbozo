@@ -6,11 +6,17 @@
  */
 
 /**
+ * The extension a new Scene takes, which is also the one a bare name is given:
+ * the project's own, so it needs no parsing to recognise.
+ */
+export const PRIMARY_SCENE_EXTENSION = '.esbozo';
+
+/**
  * The extensions a Scene file takes, primary first: `.esbozo` is what a new
  * Scene is written as, and `.json` stays a Scene name because that is what every
  * Scene was called before the extension existed.
  */
-const SCENE_EXTENSIONS = ['.esbozo', '.json'] as const;
+const SCENE_EXTENSIONS = [PRIMARY_SCENE_EXTENSION, '.json'] as const;
 
 type SceneExtension = (typeof SCENE_EXTENSIONS)[number];
 
@@ -33,6 +39,9 @@ export function sceneStem(sceneFileName: string): string {
 export function svgFileName(sceneFileName: string): string {
   return `${sceneStem(sceneFileName)}.svg`;
 }
+
+/** The name a new Scene takes when a person names none. */
+export const DEFAULT_SCENE_FILE_NAME = `scene${PRIMARY_SCENE_EXTENSION}`;
 
 /**
  * The biggest `.json` a folder list reads to tell a Scene from another JSON

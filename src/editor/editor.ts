@@ -29,7 +29,12 @@ import {
   serialiseScene,
 } from '../scene.js';
 import type { Element as SceneElement, Scene, TextElement } from '../scene.js';
-import { sceneExtension, sceneStem } from '../paths.js';
+import {
+  DEFAULT_SCENE_FILE_NAME,
+  PRIMARY_SCENE_EXTENSION,
+  sceneExtension,
+  sceneStem,
+} from '../paths.js';
 import {
   copies,
   drawn,
@@ -274,7 +279,7 @@ const SHELL = `
   <div class="note-head"><b>Scenes</b><span class="folder"></span></div>
   <ul class="files"></ul>
   <form class="new">
-    <input name="name" placeholder="new-scene.esbozo" aria-label="New Scene name" spellcheck="false" autocomplete="off" />
+    <input name="name" placeholder="new-scene${PRIMARY_SCENE_EXTENSION}" aria-label="New Scene name" spellcheck="false" autocomplete="off" />
     <button type="submit">New</button>
   </form>
 </div>
@@ -919,7 +924,8 @@ class EsbozoEditorElement extends HTMLElement {
       return;
     }
     if (source === null) {
-      this.#load(emptyScene(stemOf(name)), { folder, name });
+      // A new Scene takes its title from the file name: `flow.esbozo` opens as "flow".
+      this.#load(emptyScene(sceneStem(name) || 'Scene'), { folder, name });
       if (options.create === true) {
         // A person asked for this name, so it is a Scene now, SVG and all. Only
         // a 404 the page did not ask for waits for its first edit.
@@ -1358,7 +1364,7 @@ class EsbozoEditorElement extends HTMLElement {
   async #exportPng(theme: 'light' | 'dark'): Promise<void> {
     // The file name the Scene saves under, and the one a too-large page tells a
     // person to hand to the CLI.
-    const file = this.#target?.name ?? `${this.#scene.title}.esbozo`;
+    const file = this.#target?.name ?? `${this.#scene.title}${PRIMARY_SCENE_EXTENSION}`;
     try {
       await exportPng({
         scene: this.#scene,
@@ -3574,19 +3580,14 @@ function groupOf(id: string, svg: string): SVGGElement {
   return group;
 }
 
-/** A new Scene takes its title from the file name: `flow.esbozo` opens as "flow". */
-function stemOf(fileName: string): string {
-  return sceneStem(fileName) || 'Scene';
-}
-
 function normaliseSceneName(raw: string): string {
   const trimmed = raw.trim();
   if (trimmed === '') {
-    return 'scene.esbozo';
+    return DEFAULT_SCENE_FILE_NAME;
   }
   // A typed extension is kept as typed, `.json` included; a bare name takes the
   // primary one.
-  return sceneExtension(trimmed) === null ? `${trimmed}.esbozo` : trimmed;
+  return sceneExtension(trimmed) === null ? `${trimmed}${PRIMARY_SCENE_EXTENSION}` : trimmed;
 }
 
 /**

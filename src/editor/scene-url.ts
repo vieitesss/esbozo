@@ -14,6 +14,7 @@
  * put another.
  */
 import type { SceneFolder } from './files.js';
+import { DEFAULT_SCENE_FILE_NAME } from '../paths.js';
 import { Refusal } from '../scenes-api.js';
 import type { SceneWrite } from '../scenes-api.js';
 
@@ -134,7 +135,7 @@ async function ask(url: string, init: RequestInit): Promise<Response> {
 function fileNameOf(url: string): string {
   const path = url.split(/[?#]/)[0] ?? '';
   const last = path.split('/').filter((segment) => segment !== '').pop();
-  return last === undefined ? 'scene.esbozo' : decodeName(last);
+  return last === undefined ? DEFAULT_SCENE_FILE_NAME : decodeName(last);
 }
 
 function decodeName(segment: string): string {
