@@ -86,8 +86,8 @@ export interface Shaft {
   end: Point;
 }
 
-/** One measured line: where it starts and where its baseline sits. */
-interface Line {
+/** One measured line: what it draws, where it starts and where its baseline sits. */
+export interface Line {
   text: string;
   x: number;
   baseline: number;
@@ -101,8 +101,6 @@ interface Line {
   /** The line's own box, from the top of its ink down: the room a caret and a selection fill. */
   top: number;
   height: number;
-  /** How wide the line's own ink is, so its edge follows the anchor it draws at. */
-  width: number;
 }
 
 /** Words placed in a Scene: their lines, the size they draw at and the box they occupy. */
@@ -218,6 +216,16 @@ export function parseFontFile(bytes: Uint8Array): ParsedFont {
 }
 
 /**
+ * The x of every glyph boundary one line draws, in the words' own order, as the
+ * engine that draws them lays them out: one more than the line's characters, so
+ * a caret between any two glyphs has one place. Layout cannot answer this from
+ * the font file — a glyph the font lacks is a fallback font's, and a run that
+ * reads right to left is laid out right to left — so the caller that draws the
+ * words hands in where its glyphs went.
+ */
+export type GlyphBoundaries = (line: Line) => readonly number[];
+
+/**
  * The questions a Scene's words raise, answered with one font.
  *
  * `text` and `label` return placed words; `overflow` says what does not fit;
@@ -240,22 +248,24 @@ export interface Layout {
   grow<T extends Element>(element: T): T;
   /**
    * Where the caret sits for an offset into the words this Block was placed
-   * from: the glyph boundary on the line that holds it. An offset inside a run
-   * of spaces a wrapped line swallowed lands on the nearest boundary the line
-   * draws, and an offset past the words lands after their last glyph.
+   * from: the glyph boundary on the line that holds it, at the x the drawing
+   * put that boundary. An offset inside a run of spaces a wrapped line swallowed
+   * lands on the nearest boundary the line draws, and an offset past the words
+   * lands after their last glyph.
    */
-  caret(block: Block, offset: number): Caret;
+  caret(block: Block, offset: number, glyphs: GlyphBoundaries): Caret;
   /**
    * The highlight behind the words between two offsets: one box per line they
    * cover, from the glyph one starts at to the one the other ends at. Read in
-   * either order. An empty run selects nothing.
+   * either order, and left to right whatever order the words run in. An empty
+   * run selects nothing.
    */
-  selection(block: Block, from: number, to: number): Box[];
+  selection(block: Block, from: number, to: number, glyphs: GlyphBoundaries): Box[];
   /**
    * The offset into those words of the glyph boundary nearest a Scene point:
    * the line the point's height falls on, and the boundary its x is closest to.
    */
-  offsetAt(block: Block, point: Point): number;
+  offsetAt(block: Block, point: Point, glyphs: GlyphBoundaries): number;
   /**
    * The lines this Layout placed, as the font's own curves. A PNG draws these
    * instead of `<text>`, so the words it rasterises are the words it measured.
@@ -272,9 +282,9 @@ export function createLayout(parsed: ParsedFont): Layout {
     label: (element, shaft) => labelBlock(element, metrics, shaft),
     overflow: (element) => labelOverflow(element, metrics),
     grow: (element) => grown(element, metrics),
-    caret: (block, offset) => caretAt(block, offset, metrics),
-    selection: (block, from, to) => selectionAt(block, from, to, metrics),
-    offsetAt: (block, point) => offsetAt(block, point, metrics),
+    caret: (block, offset, glyphs) => caretAt(block, offset, glyphs),
+    selection: (block, from, to, glyphs) => selectionAt(block, from, to, glyphs),
+    offsetAt: (block, point, glyphs) => offsetAt(block, point, glyphs),
     ...(parsed.glyphs === undefined ? {} : { glyphs: parsed.glyphs }),
   };
   return layout;
@@ -337,7 +347,6 @@ function placed(
       baseline: top + words.lineHeight * (index + 0.5) + words.inkCentre,
       top: top + words.lineHeight * index,
       height: words.lineHeight,
-      width: line.width,
     })),
   };
 }
@@ -579,20 +588,32 @@ function breakLines(text: string, maxWidth: number, size: number, metrics: Metri
 }
 
 /** Where the caret for an offset sits: the glyph boundary on the line that holds it. */
-function caretAt(block: Block, offset: number, metrics: Metrics): Caret {
+function caretAt(block: Block, offset: number, glyphs: GlyphBoundaries): Caret {
   const index = lineAt(block.lines, offset);
   const line = block.lines[index]!;
-  const column = columnAt(line, offset);
   return {
     line: index,
-    x: lineLeft(line, block) + metrics.advance(line.text.slice(0, column), block.size),
+    x: boundaryX(glyphs(line), columnAt(line, offset)),
     y: line.top,
     height: line.height,
   };
 }
 
+/**
+ * One boundary's x, clamped to the boundaries the line really draws: an offset
+ * past the words is the place after the last glyph, never a made-up one.
+ */
+function boundaryX(xs: readonly number[], column: number): number {
+  return xs[Math.min(column, xs.length - 1)] ?? 0;
+}
+
 /** The highlight behind two offsets: the part of each line they cover. */
-function selectionAt(block: Block, from: number, to: number, metrics: Metrics): Box[] {
+function selectionAt(
+  block: Block,
+  from: number,
+  to: number,
+  glyphs: GlyphBoundaries,
+): Box[] {
   const [start, end] = from <= to ? [from, to] : [to, from];
   if (start === end) {
     return [];
@@ -604,24 +625,29 @@ function selectionAt(block: Block, from: number, to: number, metrics: Metrics): 
     if (end < first || start > last) {
       continue;
     }
-    const left = lineLeft(line, block);
-    const x = left + metrics.advance(line.text.slice(0, columnAt(line, Math.max(start, first))), block.size);
-    const right =
-      left + metrics.advance(line.text.slice(0, columnAt(line, Math.min(end, last))), block.size);
-    boxes.push({ x, y: line.top, width: Math.max(0, right - x), height: line.height });
+    const xs = glyphs(line);
+    const one = boundaryX(xs, columnAt(line, Math.max(start, first)));
+    const other = boundaryX(xs, columnAt(line, Math.min(end, last)));
+    // The two ends name the same run whatever order the words run in, so the
+    // wash is the box between them, left edge first.
+    boxes.push({
+      x: Math.min(one, other),
+      y: line.top,
+      width: Math.abs(other - one),
+      height: line.height,
+    });
   }
   return boxes;
 }
 
 /** The offset of the glyph boundary nearest a point: its line by height, its column by x. */
-function offsetAt(block: Block, point: Point, metrics: Metrics): number {
+function offsetAt(block: Block, point: Point, glyphs: GlyphBoundaries): number {
   const line = nearestLine(block.lines, point.y);
-  const left = lineLeft(line, block);
+  const xs = glyphs(line);
   let column = 0;
   let nearest = Number.POSITIVE_INFINITY;
   for (let index = 0; index < line.boundaries.length; index += 1) {
-    const x = left + metrics.advance(line.text.slice(0, index), block.size);
-    const distance = Math.abs(point.x - x);
+    const distance = Math.abs(point.x - boundaryX(xs, index));
     if (distance < nearest) {
       nearest = distance;
       column = index;
@@ -651,15 +677,6 @@ function columnAt(line: Line, offset: number): number {
     column = index;
   }
   return column;
-}
-
-/** A line's own left edge: where its ink starts, which follows the anchor it draws at. */
-function lineLeft(line: Line, block: Block): number {
-  return block.anchor === 'start'
-    ? line.x
-    : block.anchor === 'middle'
-      ? line.x - line.width / 2
-      : line.x - line.width;
 }
 
 /** The line a height falls on: the one whose own box holds it, or the nearest of them. */

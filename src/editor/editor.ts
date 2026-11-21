@@ -8,7 +8,7 @@
  * `{ folder, name }` destination.
  */
 import { createLayout } from '../layout.js';
-import type { Block, Layout, Metrics } from '../layout.js';
+import type { Block, GlyphBoundaries, Layout, Metrics } from '../layout.js';
 import { drawnShaft, drawnWords, elementBounds, elementsById, outlineBox } from '../renderer.js';
 import {
   emptyScene,
@@ -68,6 +68,7 @@ import { attachedTo, endPoint, freedEnd, isShaft, otherEnd, released, targetAt, 
 import type { End } from './snap.js';
 import { TextSession } from './text-session.js';
 import type { LineKey, TextSessionState } from './text-session.js';
+import { drawnBox, drawnGlyphs } from './drawn-glyphs.js';
 import { keptWords, shownWords, withWords, wordAt, wordsOf, wordsShift } from './words.js';
 import type { WordsShift } from './words.js';
 import { PaintCache, sceneFile } from './paint.js';
@@ -1758,14 +1759,15 @@ class EsbozoEditorElement extends HTMLElement {
     }
     const state = text.state();
     const at = (offset: number): number => this.#shift.drawn(offset);
+    const glyphs = this.#wordsGlyphs(block);
 
-    for (const box of this.#layout.selection(block, at(state.start), at(state.end))) {
+    for (const box of this.#layout.selection(block, at(state.start), at(state.end), glyphs)) {
       this.#appendRect(behind, { ...box, class: 'words-selection' });
     }
 
     const preedit = state.preedit;
     if (preedit !== null) {
-      for (const box of this.#layout.selection(block, at(preedit.from), at(preedit.to))) {
+      for (const box of this.#layout.selection(block, at(preedit.from), at(preedit.to), glyphs)) {
         this.#appendRect(behind, { ...box, class: 'preedit' });
         const page = this.#pageBox(box);
         this.#appendRect(overlay, {
@@ -1778,7 +1780,7 @@ class EsbozoEditorElement extends HTMLElement {
       }
     }
 
-    const caret = this.#layout.caret(block, at(state.caret));
+    const caret = this.#layout.caret(block, at(state.caret), glyphs);
     const page = this.#pageBox({ x: caret.x, y: caret.y, width: 0, height: caret.height });
     this.#appendRect(overlay, {
       x: page.x - CARET_WIDTH / 2,
@@ -2349,31 +2351,44 @@ class EsbozoEditorElement extends HTMLElement {
   }
 
   /**
+   * Where the drawn glyphs of the words being typed are, as the SVG that draws
+   * them laid them out. The call to `#wordsBlock` has drawn the frame they
+   * belong to, so the group asked here is the one holding their ink.
+   */
+  #wordsGlyphs(words: Block): GlyphBoundaries {
+    const id = this.#editing?.id ?? this.#draft?.id;
+    const group = id === undefined ? null : (this.#groups.get(id)?.node ?? null);
+    return drawnGlyphs(group, words);
+  }
+
+  /**
    * Where Up, Down, Home and End put the caret in the words being typed: the
    * drawn line above or below at the same column, or the start or end of the
-   * line the caret is on. A drawn line is the Layout's, not the field's: a
-   * Label wraps with no newline in the value, and the field is one pixel wide.
+   * line the caret is on — which is the line's first or last boundary, at
+   * whichever end the words begin and stop.
    */
   #wordsLine(key: LineKey, state: TextSessionState): number | null {
     const block = this.#wordsBlock();
     if (block === null) {
       return null;
     }
-    const caret = this.#layout.caret(block, this.#shift.drawn(state.caret));
+    const glyphs = this.#wordsGlyphs(block);
+    const caret = this.#layout.caret(block, this.#shift.drawn(state.caret), glyphs);
     const middle = caret.y + caret.height / 2;
+    const xs = glyphs(block.lines[caret.line]!);
     // The lines are the Layout's own boxes, one line height each: half a line
     // above or below the caret's middle is the middle of its neighbour. Home
-    // and End are the same question asked from the far left and the far right,
-    // where the nearest boundary of that line can only be its first or its last.
+    // and End ask from the line's own first and last glyph boundary, so which
+    // end of the line each is cannot depend on the direction the words run in.
     const point =
       key === 'up'
         ? { x: caret.x, y: caret.y - caret.height / 2 }
         : key === 'down'
           ? { x: caret.x, y: caret.y + caret.height * 1.5 }
           : key === 'home'
-            ? { x: block.x - 1, y: middle }
-            : { x: block.x + block.width + 1, y: middle };
-    return this.#shift.typed(this.#layout.offsetAt(block, point));
+            ? { x: xs[0]!, y: middle }
+            : { x: xs[xs.length - 1]!, y: middle };
+    return this.#shift.typed(this.#layout.offsetAt(block, point, glyphs));
   }
 
   /**
@@ -2385,19 +2400,26 @@ class EsbozoEditorElement extends HTMLElement {
     if (block === null) {
       return null;
     }
+    const glyphs = this.#wordsGlyphs(block);
+    // The words reach as far as their glyphs: a fallback font draws them in a
+    // width of its own, and a press on the paper beyond them is no press on them.
+    const words = drawnBox(block, glyphs);
     const reach = WORDS_TOLERANCE / this.#view.zoom;
     const inside =
-      point.x >= block.x - reach &&
-      point.x <= block.x + block.width + reach &&
-      point.y >= block.y - reach &&
-      point.y <= block.y + block.height + reach;
-    return inside ? this.#layout.offsetAt(block, point) : null;
+      point.x >= words.x - reach &&
+      point.x <= words.x + words.width + reach &&
+      point.y >= words.y - reach &&
+      point.y <= words.y + words.height + reach;
+    return inside ? this.#layout.offsetAt(block, point, glyphs) : null;
   }
 
   /** The nearest glyph boundary of the words, wherever the pointer went: a drag carries the caret. */
   #wordsNearest(point: Point): number | null {
     const block = this.#wordsBlock();
-    return block === null ? null : this.#layout.offsetAt(block, point);
+    if (block === null) {
+      return null;
+    }
+    return this.#layout.offsetAt(block, point, this.#wordsGlyphs(block));
   }
 
   /** An offset among the drawn glyphs, read back into the field's own words. */

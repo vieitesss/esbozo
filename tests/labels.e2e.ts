@@ -69,6 +69,9 @@ const BARE_SOURCE = JSON.stringify(
 /** A single letter: enough words to have ink, and no more. */
 const ONE_LETTER = 'w';
 
+/** Words that read right to left, in a font Kalam has no glyphs for. */
+const RTL_WORDS = 'שלום עולם';
+
 /** Where an empty Scene's first Text lands, and the room its words take there. */
 const TYPED: Rect = { x: 500, y: 320, width: 260, height: 90 };
 
@@ -1047,6 +1050,47 @@ describe('labels', () => {
     // Text: the caret has to stand on it at either anchor, not a Scene pixel
     // beside it — and a Scene pixel is six of them at this Zoom.
     expect(Math.abs(halfPixel - wholePixel)).toBeLessThan(1.5);
+  });
+
+  test('right-to-left words keep their caret, and a press, at the end they are drawn to', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'words.json': WORDS_SOURCE } }, 'words.json');
+    // Bare paper: no Grid dot can be mistaken for the caret's own pixels.
+    await browser.keyboard.press('g');
+    await stillCaret();
+
+    await doubleClickScene(ui, { x: 100, y: 80 }, WORDS);
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.fill(RTL_WORDS);
+
+    // Where the drawing put the words, inside a box with room to spare: the
+    // fallback font's ink, whose width no measurement of Kalam's own knows.
+    const ink = (await shot(ui)).darkBounds({ x: 560, y: 380, width: 165, height: 60 }, DARK);
+    expect(ink).not.toBeNull();
+    const words = ink as Rect;
+
+    // The caret follows the last letter, and a run that reads right to left
+    // ends at its left edge: the strip above the ink is where a caret taller
+    // than the words is alone, so its own column can be read.
+    const caret = (await shot(ui)).darkBounds(
+      { x: 560, y: words.y + 1, width: 165, height: 3 },
+      CARET,
+    );
+    expect(caret).not.toBeNull();
+    expect(Math.abs((caret as Rect).x - words.x)).toBeLessThan(4);
+
+    // A press where the words end, and a letter typed there, goes after them.
+    await browser.mouse.move(words.x + 2, words.y + words.height / 2);
+    await browser.mouse.down();
+    await browser.mouse.up();
+    await label.pressSequentially('X');
+    await label.press('Escape');
+
+    expect((await savedScene(ui, 'words.json')).elements[0]?.label).toBe(`${RTL_WORDS}X`);
   });
 
   test('Up walks to the line above the caret, not to a soft-wrapped row of the field', async ({

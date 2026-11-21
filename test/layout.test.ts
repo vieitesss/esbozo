@@ -13,7 +13,7 @@ import { test } from 'node:test';
 import opentype from 'opentype.js';
 import { fontBytes } from './fonts.ts';
 import { loadProjectModules } from './modules.ts';
-import type { Block, Box, Shaft } from '../src/layout.ts';
+import type { Block, Box, GlyphBoundaries, Shaft } from '../src/layout.ts';
 import type { Element, Point, TextElement } from '../src/scene.ts';
 
 const { parseScene, createLayout, parseFontFile, KALAM } = await loadProjectModules();
@@ -397,6 +397,24 @@ test('an Element without a Label, a Text and an arrow come back unchanged', () =
  * Where a line's own left edge is, from the anchor its Block draws with: the
  * x a caret at the start of that line sits on, plus the ink before the caret.
  */
+/**
+ * Where the glyph boundaries of a Block's lines are, as this test's own text
+ * engine lays them out: the font's advance for the prefix, from the line's own
+ * left edge. A browser answers with the same numbers for the element it drew —
+ * a fallback font and the words' direction included — and Layout reads that
+ * answer rather than measuring glyphs of its own.
+ */
+function glyphs(block: Block): GlyphBoundaries {
+  return (line) => {
+    const width = kalamAdvance(line.text, block.size);
+    const left =
+      block.anchor === 'start' ? line.x : block.anchor === 'middle' ? line.x - width / 2 : line.x - width;
+    return Array.from({ length: line.text.length + 1 }, (_, column) =>
+      left + kalamAdvance(line.text.slice(0, column), block.size),
+    );
+  };
+}
+
 function caretX(block: Block, line: number, prefix: string): number {
   const placed = block.lines[line]!;
   const width = kalamAdvance(placed.text, block.size);
@@ -414,7 +432,7 @@ test('the caret sits at the glyph boundary its offset names, on the line that ho
     // The newline itself is the end of the line it closes, not a third line.
     const line = offset <= 'first'.length ? 0 : 1;
     const prefix = line === 0 ? content.slice(0, offset) : content.slice('first\n'.length, offset);
-    const caret = LAYOUT.caret(block, offset);
+    const caret = LAYOUT.caret(block, offset, glyphs(block));
 
     assert.equal(caret.line, line, `offset ${offset} is on line ${line}`);
     assert.ok(
@@ -426,7 +444,7 @@ test('the caret sits at the glyph boundary its offset names, on the line that ho
   }
 
   // Every character moves the caret rightwards, so no two offsets share a slot.
-  const xs = Array.from({ length: 6 }, (_, offset) => LAYOUT.caret(block, offset).x);
+  const xs = Array.from({ length: 6 }, (_, offset) => LAYOUT.caret(block, offset, glyphs(block)).x);
   assert.deepEqual([...xs].sort((a, b) => a - b), xs);
 });
 
@@ -439,19 +457,23 @@ test('empty words still have a caret, at the edge they would start on', () => {
     ...element(oneElement({ width: 120, height: 60, label: 'x' })),
     label: '',
   } as Element)!;
-  const caret = LAYOUT.caret(empty, 0);
+  const caret = LAYOUT.caret(empty, 0, glyphs(empty));
 
   assert.equal(caret.line, 0);
   assert.equal(empty.width, 0, 'empty words are no ink wide');
   assert.equal(caret.x, empty.x, 'the caret is where the words would start');
   assert.equal(caret.y, empty.y);
   assert.ok(Math.abs(caret.height - empty.height) < 0.001, 'the caret is as tall as the empty line');
-  assert.deepEqual(LAYOUT.selection(empty, 0, 0), [], 'nothing is selected');
-  assert.equal(LAYOUT.offsetAt(empty, { x: empty.x + 40, y: empty.y + 4 }), 0, 'a press on it is offset 0');
+  assert.deepEqual(LAYOUT.selection(empty, 0, 0, glyphs(empty)), [], 'nothing is selected');
+  assert.equal(
+    LAYOUT.offsetAt(empty, { x: empty.x + 40, y: empty.y + 4 }, glyphs(empty)),
+    0,
+    'a press on it is offset 0',
+  );
 
   // A left-aligned Text starts the caret where its x is.
   const left = LAYOUT.text(words('one'));
-  assert.equal(LAYOUT.caret(left, 0).x, left.x);
+  assert.equal(LAYOUT.caret(left, 0, glyphs(left)).x, left.x);
 });
 
 test('a caret on a wrapped Label lands on the line its words broke onto', () => {
@@ -464,7 +486,7 @@ test('a caret on a wrapped Label lands on the line its words broke onto', () => 
     const start = label.indexOf(placed.text, at);
     assert.ok(start >= 0, `line ${line} is drawn from the words`);
     at = start + placed.text.length;
-    const caret = LAYOUT.caret(block, start);
+    const caret = LAYOUT.caret(block, start, glyphs(block));
     assert.equal(caret.line, line, `"${placed.text}" starts on line ${line}`);
     assert.ok(Math.abs(caret.x - caretX(block, line, '')) < 0.001, 'a caret at its start is at its edge');
   });
@@ -481,16 +503,32 @@ test('a press in the words names the glyph boundary nearest it', () => {
   const middle = block.y + block.height / 2;
   const glyph = kalamAdvance('w', block.size);
 
-  assert.equal(LAYOUT.offsetAt(block, { x: left + glyph * 0.25, y: middle }), 0, 'the left of a glyph is before it');
-  assert.equal(LAYOUT.offsetAt(block, { x: left + glyph * 0.75, y: middle }), 1, 'the right of it is after it');
   assert.equal(
-    LAYOUT.offsetAt(block, { x: left + kalamAdvance(content, block.size) + 300, y: middle }),
+    LAYOUT.offsetAt(block, { x: left + glyph * 0.25, y: middle }, glyphs(block)),
+    0,
+    'the left of a glyph is before it',
+  );
+  assert.equal(
+    LAYOUT.offsetAt(block, { x: left + glyph * 0.75, y: middle }, glyphs(block)),
+    1,
+    'the right of it is after it',
+  );
+  assert.equal(
+    LAYOUT.offsetAt(
+      block,
+      { x: left + kalamAdvance(content, block.size) + 300, y: middle },
+      glyphs(block),
+    ),
     content.length,
     'past the words is the end of the line',
   );
-  assert.equal(LAYOUT.offsetAt(block, { x: left - 300, y: block.y - 300 }), 0, 'above and left is the start');
   assert.equal(
-    LAYOUT.offsetAt(block, { x: left + 300, y: block.y + block.height + 300 }),
+    LAYOUT.offsetAt(block, { x: left - 300, y: block.y - 300 }, glyphs(block)),
+    0,
+    'above and left is the start',
+  );
+  assert.equal(
+    LAYOUT.offsetAt(block, { x: left + 300, y: block.y + block.height + 300 }, glyphs(block)),
     content.length,
     'below and right is the end',
   );
@@ -506,18 +544,25 @@ test('a press on a wrapped Label picks the line it landed on, not the nearest in
   // Lines are as wide as their own words: the far right of line one is its end,
   // even where line two's ink runs past it.
   const end = block.anchor === 'middle' ? first.x + kalamAdvance(first.text, block.size) / 2 : first.x;
-  const offset = LAYOUT.offsetAt(block, { x: end + 500, y: block.y + lineHeight / 2 });
-  assert.equal(offset, first.boundaries[first.boundaries.length - 1], 'the end of the first line');
+  // Where the words themselves say the line stops: the word the wrap moved down
+  // begins after the space that broke the line.
+  const secondStarts = label.indexOf(second.text);
+  const offset = LAYOUT.offsetAt(block, { x: end + 500, y: block.y + lineHeight / 2 }, glyphs(block));
+  assert.equal(offset, secondStarts - 1, 'the end of the first line');
 
-  const secondOffset = LAYOUT.offsetAt(block, { x: 0, y: block.y + lineHeight + lineHeight / 2 });
-  assert.equal(secondOffset, second.boundaries[0], 'the start of the second line');
+  const secondOffset = LAYOUT.offsetAt(
+    block,
+    { x: 0, y: block.y + lineHeight + lineHeight / 2 },
+    glyphs(block),
+  );
+  assert.equal(secondOffset, secondStarts, 'the start of the second line');
 });
 
 test('a selection is one box per line, behind the glyphs it covers', () => {
   const content = 'first\nsecond';
   const block = LAYOUT.text(words(content));
   const lineHeight = block.lines[1]!.baseline - block.lines[0]!.baseline;
-  const boxes = LAYOUT.selection(block, 2, 8);
+  const boxes = LAYOUT.selection(block, 2, 8, glyphs(block));
 
   assert.equal(boxes.length, 2, 'two lines');
   assert.ok(
@@ -534,7 +579,45 @@ test('a selection is one box per line, behind the glyphs it covers', () => {
   assert.ok(Math.abs(boxes[1]!.y - (boxes[0]!.y + lineHeight)) < 0.001, 'each on its own line');
 
   // The same run read from the other end is the same highlight.
-  const backwards = LAYOUT.selection(block, 8, 2);
+  const backwards = LAYOUT.selection(block, 8, 2, glyphs(block));
   assert.deepEqual(backwards, boxes);
-  assert.deepEqual(LAYOUT.selection(block, 4, 4), [], 'an empty selection draws nothing');
+  assert.deepEqual(LAYOUT.selection(block, 4, 4, glyphs(block)), [], 'an empty selection draws nothing');
+});
+
+test('words that read right to left put their boundaries the other way', () => {
+  // A browser lays a Hebrew run right to left and answers with its own glyphs:
+  // the first boundary is the line's right edge, and each one steps left. That
+  // is the whole of what Layout reads, so nothing here assumes a direction.
+  const content = 'abcd';
+  const block = LAYOUT.text(words(content));
+  const middle = block.y + block.height / 2;
+  const width = kalamAdvance(content, block.size);
+  const rightToLeft: GlyphBoundaries = () =>
+    Array.from(
+      { length: content.length + 1 },
+      (_, column) => block.x + width - kalamAdvance(content.slice(0, column), block.size),
+    );
+
+  assert.equal(LAYOUT.caret(block, 0, rightToLeft).x, block.x + width, 'the caret starts at the right edge');
+  assert.equal(LAYOUT.caret(block, content.length, rightToLeft).x, block.x, 'and ends at the left one');
+
+  // The highlight of the first two letters is the run between their boundaries,
+  // given as the box it is: a left edge and a width, whichever way it runs.
+  const [box] = LAYOUT.selection(block, 0, 2, rightToLeft);
+  assert.ok(box !== undefined);
+  assert.ok(Math.abs(box.x - (block.x + width - kalamAdvance('ab', block.size))) < 0.001, 'its left edge');
+  assert.ok(Math.abs(box.width - kalamAdvance('ab', block.size)) < 0.001, 'and its width');
+
+  // A press names the boundary nearest it, so the far left of the line is the
+  // end of the words and the far right is where they start.
+  assert.equal(
+    LAYOUT.offsetAt(block, { x: block.x - 50, y: middle }, rightToLeft),
+    content.length,
+    'the left of right-to-left words is their end',
+  );
+  assert.equal(
+    LAYOUT.offsetAt(block, { x: block.x + width + 50, y: middle }, rightToLeft),
+    0,
+    'and their right is their start',
+  );
 });
