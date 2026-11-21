@@ -779,21 +779,20 @@ export class EsbozoEditorElement extends HTMLElement {
     if (this.#drag !== null || this.#menu.hidden) {
       return;
     }
-    const selected = this.#selectedElements();
-    const selection = boxOf(selected, elementsById(this.#scene.elements), this.#layout);
-    this.#view = clearedView(this.#view, selection, this.#noteBox(), this.#viewportSize(), MENU_GAP);
-  }
-
-  /** Where the docked note sits, as the browser laid it out. */
-  #noteBox(): Box {
-    const note = this.#menu.getBoundingClientRect();
     const canvas = this.#canvas.getBoundingClientRect();
-    return {
-      x: note.left - canvas.left,
-      y: note.top - canvas.top,
-      width: note.width,
-      height: note.height,
-    };
+    const note = this.#menu.getBoundingClientRect();
+    const selected = this.#selectedElements();
+    this.#view = clearedView(this.#view, {
+      selection: boxOf(selected, elementsById(this.#scene.elements), this.#layout),
+      note: {
+        x: note.left - canvas.left,
+        y: note.top - canvas.top,
+        width: note.width,
+        height: note.height,
+      },
+      left: this.#rail.getBoundingClientRect().right - canvas.left + MENU_GAP,
+      gap: MENU_GAP,
+    });
   }
 
   // ------------------------------------------------------------------ pointer

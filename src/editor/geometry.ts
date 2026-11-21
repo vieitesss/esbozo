@@ -311,24 +311,31 @@ function overlaps(one: Box, other: Box): boolean {
   );
 }
 
+/** What the page leaves for a selection: the room beside the docked note. */
+export interface Clearance {
+  /** The selection's box, in Scene units, or null when nothing is selected. */
+  selection: Box | null;
+  /** The docked note's box on the page, in screen units. */
+  note: Box;
+  /** The leftmost the selection may sit on the page, in screen units: past the tools. */
+  left: number;
+  /** Breathing room between the selection and the note. */
+  gap: number;
+}
+
 /**
  * The view that keeps the selection out from under the docked Style menu.
  *
  * One rectangle policy, run when the selection or the window changes: when the
  * selection's box on screen and the note's box share any area, the view pans
  * left just far enough to clear the note by `gap`, and the selection's left edge
- * stays on the canvas. When panning cannot do it, because the selection is wider
- * than the room the note leaves, the view zooms out just far enough for the whole
- * selection to sit beside the note, keeping its middle where it was vertically.
- * Both are view changes: the Scene is never touched.
+ * still clears the tools. When panning cannot do it, because the selection is
+ * wider than the room the note leaves, the view zooms out just far enough for the
+ * whole selection to sit in that room, keeping its middle where it was
+ * vertically. Both are view changes: the Scene is never touched.
  */
-export function clearedView(
-  view: View,
-  selection: Box | null,
-  note: Box,
-  viewport: { width: number; height: number },
-  gap: number,
-): View {
+export function clearedView(view: View, room: Clearance): View {
+  const { selection, note, gap } = room;
   if (selection === null || selection.width <= 0) {
     return view;
   }
@@ -345,23 +352,23 @@ export function clearedView(
   if (shift <= 0) {
     return view;
   }
-  if (shown.x - shift >= 0) {
+  if (shown.x - shift >= room.left) {
     return { ...view, panX: view.panX - shift };
   }
-  const room = note.x - gap;
-  if (room <= 0) {
+  const free = note.x - gap - room.left;
+  if (free <= 0) {
     return view;
   }
-  const zoom = clampZoom(Math.min(view.zoom, room / selection.width));
+  const zoom = clampZoom(Math.min(view.zoom, free / selection.width));
   if (zoom >= view.zoom) {
     return view;
   }
   // The selection keeps its middle where the eye left it, and its right edge
-  // stops a gap short of the note.
+  // stops a gap short of the note, so the whole of it is on the page.
   const middle = shown.y + shown.height / 2;
   return {
     zoom,
-    panX: room - (selection.x + selection.width) * zoom,
+    panX: note.x - gap - (selection.x + selection.width) * zoom,
     panY: middle - (selection.y + selection.height / 2) * zoom,
   };
 }
