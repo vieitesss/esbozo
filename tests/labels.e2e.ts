@@ -66,6 +66,20 @@ const BARE_SOURCE = JSON.stringify(
   2,
 );
 
+/** A right-aligned Text with a blank middle line: the row Up walks into. */
+const ALIGNED_SOURCE = JSON.stringify(
+  {
+    version: 1,
+    title: 'Aligned',
+    defaults: { roughness: 1 },
+    elements: [
+      { id: 'words', type: 'text', x: 300, y: 40, content: 'alpha\n\nbeta', textAlign: 'right' },
+    ],
+  },
+  null,
+  2,
+);
+
 /** A single letter: enough words to have ink, and no more. */
 const ONE_LETTER = 'w';
 
@@ -1308,6 +1322,41 @@ describe('labels', () => {
     await label.press('Escape');
 
     expect((await savedScene(ui, 'words.json')).elements[0]?.label).toBe('waxX\nwax\nwax');
+  });
+
+  test('Up into a blank line of right-aligned words stands the caret where that line anchors', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': ALIGNED_SOURCE } }, 'scene.json');
+    await stillCaret();
+
+    // The words are the only ink on the page, and the view is the editor's own
+    // fit of them, so where they are is read from the pixels rather than from a
+    // fixture's view: the middle of their ink is the blank line between them.
+    const ink = (await shot(ui)).darkBounds({ x: 400, y: 250, width: 480, height: 300 }, DARK) as Rect;
+    expect(ink).not.toBeNull();
+    await screen.doubleTapAt({ x: ink.x + ink.width - 6, y: ink.y + ink.height / 2 });
+
+    // Up takes the blank line the words were written with, at the column the
+    // caret is in. A blank line draws no glyph, so it has one place to stand in:
+    // the edge its own alignment anchors on, here the right edge of every line.
+    await browser.keyboard.press('ArrowUp');
+    // Inside the ink's own bounds: the box drawn around the selected Element
+    // stands five pixels outside them, and it is dark too.
+    const caret = (await shot(ui)).darkBounds(
+      { x: ink.x - 2, y: ink.y + ink.height / 2 - 4, width: ink.width + 4, height: 8 },
+      CARET,
+    );
+    expect(caret).not.toBeNull();
+    expect(Math.abs((caret as Rect).x - (ink.x + ink.width))).toBeLessThan(4);
+
+    // And a letter typed there lands on that line, not on either word's.
+    await browser.keyboard.type('X');
+    await browser.keyboard.press('Escape');
+    expect((await savedScene(ui)).elements[0]?.content).toBe('alpha\nX\nbeta');
   });
 
   test('a wrapped Label walks its drawn lines too: Up takes the line above', async ({

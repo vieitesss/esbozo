@@ -26,8 +26,10 @@ export function drawnGlyphs(group: Element | null, block: Block): LineGlyphs {
   let at = 0;
   for (const line of block.lines) {
     if (line.text === '') {
-      // An empty line is no ink wide, so every anchor puts its edge in one place.
-      drawn.set(line, { boundaries: [block.x], glyphs: [] });
+      // An empty line draws no glyph to answer with, so its one boundary is the
+      // edge it anchors on: the left one, the centre or the right one, whatever
+      // the other lines are wide. The widest line's left edge is none of those.
+      drawn.set(line, { boundaries: [line.x], glyphs: [] });
       continue;
     }
     const node = nodes[at];
