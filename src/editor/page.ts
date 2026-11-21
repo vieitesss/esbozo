@@ -32,7 +32,7 @@ import type { Block, Layout, LineGlyphs } from '../layout.js';
 import { HANDLES, boxBetween, boxOf, clearedView, handlePoint, unionOf } from './geometry.js';
 import type { Box, Point } from './geometry.js';
 import type { Drag } from './gestures.js';
-import { PaintCache } from './paint.js';
+import { PaintCache, paintedInk } from './paint.js';
 import type { Paint, SceneFiles } from './paint.js';
 import { isShaft } from './snap.js';
 import { drawnBox, drawnGlyphs } from './drawn-glyphs.js';
@@ -154,10 +154,13 @@ export class Page {
   /**
    * The ink the page painted for an Element: the box a press answers to, read
    * from the drawing already made instead of made again, so a pick measures
-   * nothing.
+   * nothing. Only the frame drawn for this very Scene answers, and only for the
+   * very Element it drew: a Scene edited since — a nudge, a move, an undo,
+   * another Scene under the same ids — holds Elements the page has not drawn
+   * yet, and a press on those measures.
    */
-  ink(id: string): Box | null {
-    return this.#painted?.elements.get(id)?.ink ?? null;
+  ink(element: SceneElement): Box | null {
+    return paintedInk(this.#painted, this.#paintedScene, this.#host.scene(), element);
   }
 
   /**
@@ -374,7 +377,7 @@ export class Page {
         // A font landed while the pointer was down: every Label may break
         // differently, so the drawings this gesture carries are made again —
         // once, here, before the transforms go back on. A move frame that
-        // changed no measurement draws nothing, as before.
+        // changed no measurement draws nothing.
         this.#drawElements(this.#host.scene().elements);
       }
       this.#moveGroups(drag);

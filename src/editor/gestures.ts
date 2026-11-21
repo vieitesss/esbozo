@@ -434,13 +434,14 @@ export class Gestures {
     const reach = PICK_TOLERANCE / viewport.view.zoom;
     // One picker, in layer order: a higher Element's ink answers first, and a
     // shaft's Label answers before the shaft it is written about. The boxes are
-    // the ones the page painted, so no Element is drawn to find out.
+    // the ones the page painted for the Scene it holds, so no Element is drawn
+    // to find out.
     const pick = pickAt(
       this.#host.scene().elements,
       point,
       reach,
       this.#host.layout(),
-      (element) => page.ink(element.id),
+      (element) => page.ink(element),
     );
     // A double-click opens the words under its *first* click: selecting what it
     // landed on can dock the note and pan the view, so what the second click
