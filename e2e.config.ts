@@ -36,10 +36,24 @@ if (process.env['OPENCODE_API_KEY'] === undefined && existsSync(env)) {
 const engine = web({ viewport: { width: 1280, height: 800 } });
 keepSurface(engine);
 
+/**
+ * One judgement of the live screen is one model call, and a slow model is the
+ * model's business: 30 s (e2e's default) failed a `pnpm e2e:agent` run with
+ * `STEP_TIMEOUT: model call exceeded the remaining step timeout`, on a screen
+ * the run before had judged. Double that, and give an attempt room for the
+ * handful of judgements one of these files makes, so a slow call does not eat
+ * the next one's budget.
+ */
+const JUDGMENT_TIMEOUT_MS = 60_000;
+const ATTEMPT_TIMEOUT_MS = 180_000;
+
 export default {
+  // Room for every judgement a test makes, not for a slower page.
+  timeout: ATTEMPT_TIMEOUT_MS,
   agents: {
     default: {
       model: opencodeConsole('go/muse-spark-1.3-contributor'),
+      judgmentTimeout: JUDGMENT_TIMEOUT_MS,
       system:
         'You are a careful QA agent for a drawing editor. Judge only what the screen shows: the ink it paints, the Grid, the theme, and the status line. Do not guess at the markup behind it.',
     },
