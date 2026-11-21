@@ -148,6 +148,28 @@ test('the page transfers compressed when the client asks, in the best encoding i
     assert.deepEqual(Buffer.from(await answer.arrayBuffer()), script);
   }
 
+  // A weight on identity is a weight like any other: every coding is ranked,
+  // and the highest q wins — so a client whose first choice is the file itself
+  // gets the file, and one that prefers gzip to plain bytes gets gzip.
+  for (const asked of [
+    'gzip;q=0.3, br;q=0.8, identity;q=1',
+    'br;q=0.5, identity;q=0.9',
+    'identity;q=0.2, br;q=0.1',
+  ]) {
+    const answer = await fetch(`${server.url}/editor.js`, { headers: { 'accept-encoding': asked } });
+    assert.equal(answer.status, 200, `${asked} is served`);
+    assert.equal(answer.headers.get('content-encoding'), null, `${asked} gets the file itself`);
+    assert.deepEqual(Buffer.from(await answer.arrayBuffer()), script);
+  }
+  for (const [asked, encoding] of [
+    ['identity;q=0.2, gzip;q=0.6', 'gzip'],
+    ['identity;q=0.2, br;q=0.3, gzip;q=0.3', 'br'],
+  ] as const) {
+    const answer = await fetch(`${server.url}/editor.js`, { headers: { 'accept-encoding': asked } });
+    assert.equal(answer.status, 200, `${asked} is served`);
+    assert.equal(answer.headers.get('content-encoding'), encoding, `${asked} is answered in ${encoding}`);
+  }
+
   // Nothing it can send is acceptable: identity itself is refused, so the page
   // is not sent at all rather than sent in an encoding the client said no to.
   for (const asked of ['identity;q=0', 'br;q=0, gzip;q=0, identity;q=0', '*;q=0']) {
@@ -163,6 +185,21 @@ test('the page transfers compressed when the client asks, in the best encoding i
   assert.equal(font.status, 200);
   assert.equal(font.headers.get('content-encoding'), null);
   assert.deepEqual(Buffer.from(await font.arrayBuffer()), await file('/fonts/Kalam-Regular.ttf'));
+
+  // The file itself is the only thing a font can be sent as — whichever weight
+  // its coding is given — so refusing identity refuses the font.
+  const weighed = await fetch(`${server.url}/fonts/Kalam-Regular.ttf`, {
+    headers: { 'accept-encoding': 'br;q=1, identity;q=0.1' },
+  });
+  assert.equal(weighed.status, 200, 'the font is sent as itself, at the only weight left');
+  assert.equal(weighed.headers.get('content-encoding'), null);
+  for (const asked of ['identity;q=0', '*;q=0', 'br;q=0.9, gzip;q=0.9, identity;q=0']) {
+    const answer = await fetch(`${server.url}/fonts/Kalam-Regular.ttf`, {
+      headers: { 'accept-encoding': asked },
+    });
+    assert.equal(answer.status, 406, `${asked} cannot be answered with a font`);
+    assert.match(await answer.text(), /content coding/);
+  }
 });
 
 test('the build compresses every text page file beside itself, and serves those bytes', async () => {

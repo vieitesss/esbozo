@@ -547,54 +547,55 @@ async function servePageAsset(
     sendJson(response, 404, { error: `no page file ${pathname}` });
     return;
   }
-  if (compresses(asset.mime)) {
-    const taken = takenBy(request.headers['accept-encoding']);
-    for (const coding of taken.codings) {
-      const variant = `${path}.${SUFFIX[coding]}`;
-      const size = await fileSize(variant);
-      if (size === null) {
-        // The build writes both variants of every text page file: a dist without
-        // one offers the other, and the file itself when that is acceptable.
-        continue;
-      }
+  // Everything the request takes, best first. A coding the build wrote beside
+  // the file is on offer only for a text page file; the file itself is on offer
+  // for all of them, the font included.
+  const compressible = compresses(asset.mime);
+  for (const encoding of takenBy(request.headers['accept-encoding'])) {
+    if (encoding === 'identity') {
       response.writeHead(200, {
         'content-type': asset.mime,
         'cache-control': 'no-store',
-        'content-encoding': coding,
-        'content-length': String(size),
         vary: 'accept-encoding',
       });
-      createReadStream(variant).pipe(response);
+      createReadStream(path).pipe(response);
       return;
     }
-    if (!taken.identity) {
-      // The client refused every encoding this page is written in, the file
-      // itself included: there is nothing left it takes.
-      response.writeHead(406, {
-        'content-type': 'application/json; charset=utf-8',
-        'cache-control': 'no-store',
-        vary: 'accept-encoding',
-      });
-      response.end(
-        JSON.stringify({
-          error: `this page is sent as ${CODINGS.join(', ')} or with no content coding, and the request takes none of them`,
-        }),
-      );
-      return;
+    if (!compressible) {
+      continue;
+    }
+    const variant = `${path}.${SUFFIX[encoding]}`;
+    const size = await fileSize(variant);
+    if (size === null) {
+      // The build writes both variants of every text page file: a dist without
+      // one offers the other, and the file itself when that is acceptable.
+      continue;
     }
     response.writeHead(200, {
       'content-type': asset.mime,
       'cache-control': 'no-store',
+      'content-encoding': encoding,
+      'content-length': String(size),
       vary: 'accept-encoding',
     });
-    createReadStream(path).pipe(response);
+    createReadStream(variant).pipe(response);
     return;
   }
-  response.writeHead(200, {
-    'content-type': asset.mime,
+  // The request refused everything this page file is written in, the file
+  // itself included: a text page can be compressed, the font cannot, and there
+  // is nothing left either of them may be sent as.
+  response.writeHead(406, {
+    'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
+    vary: 'accept-encoding',
   });
-  createReadStream(path).pipe(response);
+  response.end(
+    JSON.stringify({
+      error: compressible
+        ? `this page is sent as ${CODINGS.join(', ')} or with no content coding, and the request takes none of them`
+        : 'this page is sent with no content coding, and the request takes none of it',
+    }),
+  );
 }
 
 /**
@@ -606,7 +607,7 @@ function compresses(mime: string): boolean {
   return mime.startsWith('text/');
 }
 
-/** The encodings the build writes beside a text page file, best first on a tie. */
+/** The encodings a page file can be sent in, best first on a tie. */
 const CODINGS = ['br', 'gzip'] as const;
 
 /** One content coding the build wrote. */
@@ -615,20 +616,32 @@ type Coding = (typeof CODINGS)[number];
 /** The suffix the build writes a coding under, beside the file it stands for. */
 const SUFFIX: Record<Coding, string> = { br: 'br', gzip: 'gz' };
 
-interface Taken {
-  /** The encodings the request takes, best first. */
-  readonly codings: readonly Coding[];
-  /** Whether it takes the file as it is. */
-  readonly identity: boolean;
-}
+/** A page file as it goes on the wire: a coding the build wrote, or the file itself. */
+type Encoding = Coding | 'identity';
+
+/** A coding the request does not take, so it is never sent. */
+const REFUSED = 0;
+
+/** An encoding the request takes without a weight of its own: acceptable, ranked last. */
+const UNRANKED = -1;
 
 /**
- * What a request takes of what the page can be sent in. A header with no weight,
- * or a weight of zero, is an encoding the client does not take; `*` stands for
- * the ones it does not name. Identity is acceptable unless the request refuses
- * it by name or refuses everything it does not name.
+ * What a request takes of what a page file can be sent in, best first.
+ *
+ * Every encoding is ranked by its weight, `identity` — the file as it is —
+ * included: a client that gives it the highest q gets the plain bytes, because
+ * that is what it said it would rather have. Ties keep the order below: the
+ * page prefers its best compression, and the file itself last. A header with no
+ * weight, or a weight of zero, is an encoding the client does not take; `*`
+ * stands for the ones it does not name.
+ *
+ * Identity is acceptable unless the request refuses it, by name or by refusing
+ * everything it does not name. Unnamed and unweighed, it is still acceptable but
+ * ranks below every coding the request gives a weight to, so `gzip;q=0.3` is
+ * answered with gzip: a client that says nothing about the file itself has not
+ * asked for it instead of the compression it did ask for.
  */
-function takenBy(header: string | undefined): Taken {
+function takenBy(header: string | undefined): readonly Encoding[] {
   const weights = new Map<string, number>();
   for (const part of (header ?? '').split(',')) {
     const [rawName, ...parameters] = part.trim().toLowerCase().split(';');
@@ -646,14 +659,19 @@ function takenBy(header: string | undefined): Taken {
     }
     weights.set(name, weight);
   }
+  const unnamed = weights.get('*');
   const named = weights.get('identity');
-  return {
-    codings: CODINGS.map((coding) => ({ coding, weight: weights.get(coding) ?? weights.get('*') ?? 0 }))
-      .filter((offer) => offer.weight > 0)
-      .sort((left, right) => right.weight - left.weight)
-      .map((offer) => offer.coding),
-    identity: named === undefined ? weights.get('*') !== 0 : named > 0,
-  };
+  const ranked = [
+    { encoding: 'br', weight: weights.get('br') ?? unnamed ?? 0 },
+    { encoding: 'gzip', weight: weights.get('gzip') ?? unnamed ?? 0 },
+    // Acceptable, but below any weight the request spelled out.
+    { encoding: 'identity', weight: named ?? (unnamed === 0 ? REFUSED : UNRANKED) },
+  ] as const;
+  // A stable sort, so equal weights stay in the order above.
+  return ranked
+    .filter((offer) => offer.weight !== REFUSED)
+    .sort((left, right) => right.weight - left.weight)
+    .map((offer) => offer.encoding);
 }
 
 /** The size of a file, or null when there is none: a variant the dist lacks. */
