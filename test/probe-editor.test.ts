@@ -1,11 +1,12 @@
 /**
- * The probe helper, run as a probe writer runs it.
+ * The probe helper, run as a probe writer runs it: `pnpm probe`, against the
+ * built page.
  *
- * Two probes go through a real Chromium against the built page: one answers with
- * the page's title, one throws. Each run is a child process of its own, so what
- * is asserted is what the helper prints and the code it exits with — and that
- * the port it served on is free again once the process is gone, whether the probe
- * returned or threw.
+ * Two probes go through a real Chromium against the built editor: one reads the
+ * status line while a Space pan runs, one throws. Each run is a child process of
+ * its own, so what is asserted is what the documented command prints and the
+ * code it exits with — and that the port it served on is free again once the
+ * process is gone, whether the probe returned or threw.
  *
  * `pnpm test` builds first, so `dist/` is there for these runs.
  */
@@ -18,10 +19,27 @@ import { join } from 'node:path';
 import { test, type TestContext } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-const PROBE = fileURLToPath(new URL('../scripts/probe-editor.mjs', import.meta.url));
+/** The repository the `pnpm probe` script runs in. */
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
-/** The title the built editor page declares, so a served page is the page read. */
-const EDITOR_TITLE = 'esbozo';
+/**
+ * A probe that holds Space and answers the status line: `Panning` is a word only
+ * the running editor writes, so a page that never ran its JS cannot answer it.
+ */
+const PAN_PROBE = `export default async ({ page }) => {
+  await page.getByRole('button', { name: 'Select' }).waitFor();
+  await page.keyboard.down(' ');
+  const status = await page.getByRole('contentinfo').innerText();
+  await page.keyboard.up(' ');
+  return status;
+};
+`;
+
+/**
+ * The status line while the pan runs: the one thing the served page answers to a
+ * key press, and what a page of static HTML never says.
+ */
+const PAN_STATUS = /Panning/;
 
 /** What one run of the helper left behind: its exit code and its two streams. */
 interface Run {
@@ -39,11 +57,18 @@ async function probeSource(t: TestContext, source: string): Promise<string> {
   return file;
 }
 
-/** Runs the helper as a person runs it, and answers what it left behind. */
+/**
+ * Runs the documented command, and answers what it left behind. pnpm's own
+ * banner is silenced so the streams the run prints are the helper's alone.
+ */
 async function helper(args: readonly string[], input?: { source: string; folder: string }): Promise<Run> {
   return await new Promise((resolve, reject) => {
     const env = input && { ...process.env, TMPDIR: input.folder, TEMP: input.folder };
-    const child = spawn(process.execPath, [PROBE, ...args], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn('pnpm', ['--silent', 'probe', ...args], {
+      cwd: ROOT,
+      env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
     child.stdin.end(input?.source);
     let stdout = '';
     let stderr = '';
@@ -52,6 +77,14 @@ async function helper(args: readonly string[], input?: { source: string; folder:
     child.once('error', reject);
     child.once('close', (code) => resolve({ code: code ?? -1, stdout, stderr }));
   });
+}
+
+/**
+ * The probe folders a run left in the `TMPDIR` it was handed: one per run that
+ * never cleaned up, and nothing else, since pnpm keeps a cache of its own there.
+ */
+async function strays(folder: string): Promise<string[]> {
+  return (await readdir(folder)).filter((name) => name.startsWith('esbozo-probe-'));
 }
 
 /** The port the helper says it is serving on, or a loud failure. */
@@ -73,12 +106,12 @@ async function released(port: number): Promise<boolean> {
   });
 }
 
-test('a probe reads the live page and the helper prints what it returned', async (t) => {
-  const file = await probeSource(t, 'export default async ({ page }) => await page.title();\n');
+test('a probe reads the running editor: a held Space names the pan in the status line', async (t) => {
+  const file = await probeSource(t, PAN_PROBE);
   const run = await helper([file]);
 
   assert.equal(run.code, 0, run.stderr);
-  assert.equal(JSON.parse(run.stdout), EDITOR_TITLE);
+  assert.match(JSON.parse(run.stdout), PAN_STATUS);
   const port = portOf(run.stderr);
   assert.equal(await released(port), true, `the helper left ${port} open`);
 });
@@ -95,7 +128,7 @@ test('a stdin probe with no built page boots nothing and leaves no temporary mod
   assert.match(run.stderr, /pnpm build/);
   assert.doesNotMatch(run.stderr, /probing http:\/\//);
   assert.equal(run.stdout, '');
-  assert.deepEqual(await readdir(empty), []);
+  assert.deepEqual(await strays(empty), []);
 });
 
 test('a throwing probe exits non-zero, prints the error, and leaves no server', async (t) => {
