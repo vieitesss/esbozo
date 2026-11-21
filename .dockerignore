@@ -1,0 +1,20 @@
+# Keep the build context to what `pnpm build` reads: the sources, the lockfile
+# and the font. Everything here is either generated, a secret, or read only by
+# a person (`docs`, `test`), and never by the image.
+.git
+.github
+.agents
+.e2e
+.env
+.env.*
+node_modules
+dist
+*.tsbuildinfo
+docs
+e2e.config.ts
+GLOSSARY.md
+README.md
+prototypes
+skills
+test
+tests

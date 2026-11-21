@@ -1,0 +1,50 @@
+# syntax=docker/dockerfile:1
+
+# The image: `ez serve` on a mounted folder of Scenes.
+#
+# Two stages, because the runtime needs `node` and `dist/` and nothing else.
+# esbuild inlines every dependency of the CLI into `dist/cli.js` — roughjs,
+# opentype and resvg's wasm — so the second stage carries no `node_modules`.
+# `test/bundle.test.ts` holds that split honest: it renders, draws a PNG and
+# serves the page from a folder that holds `dist/` alone.
+
+FROM node:22-slim AS build
+
+# The pnpm this repository's lockfile was written with: corepack would stop and
+# ask for a version otherwise. Bump both together.
+ARG PNPM_VERSION=11.24.0
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN corepack enable && corepack prepare "pnpm@${PNPM_VERSION}" --activate
+
+WORKDIR /app
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
+
+COPY scripts ./scripts
+COPY src ./src
+COPY fonts ./fonts
+RUN pnpm build
+
+
+FROM node:22-slim AS runtime
+
+ENV NODE_ENV=production
+WORKDIR /app
+COPY --from=build /app/dist ./dist
+COPY LICENSE ./
+
+# The folder the Scenes live in, owned by the user the server runs as, so a
+# named volume starts out writable instead of root-owned.
+RUN mkdir -p /scenes && chown node:node /scenes
+
+# Nobody draws as root inside the container.
+USER node
+
+VOLUME ["/scenes"]
+EXPOSE 4320
+
+# The CLI binds 127.0.0.1 by default, and no published port can reach a
+# loopback inside the container, so the image passes the container's own
+# address. What follows the image name appends here, so `docker run … --read-only`
+# keeps this host; a later `--host` wins, because `ez serve` reads the last one.
+ENTRYPOINT ["node", "/app/dist/cli.js", "serve", "/scenes", "--host", "0.0.0.0"]
