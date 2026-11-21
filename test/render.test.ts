@@ -34,6 +34,14 @@ interface Scene {
   elements: SceneElement[];
 }
 
+/** A rectangle in page pixels, as a written SVG names it. */
+interface Box {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 const SAMPLE_SCENE: Scene = {
   version: 1,
   title: 'Two boxes',
@@ -400,11 +408,11 @@ test('a failed write exits 4, which no other failure uses', async () => {
   assert.match(run.stderr, /cannot write SVG .*scene\.svg/);
 });
 
-test('a shaft Label keeps its block and draws each line from its textAlign edge', async () => {
-  /** The words of a two-line shaft Label, as each line is drawn. */
-  const linesOf = async (
+test('a shaft Label keeps one block, and each line reads from the edge its textAlign names', async () => {
+  /** One drawing of a two-line shaft Label: the lines it draws, and the paper its block sits on. */
+  const drawing = async (
     textAlign: string,
-  ): Promise<{ x: number; anchor: string; text: string }[]> => {
+  ): Promise<{ lines: { x: number; y: number; anchor: string }[]; paper: Box }> => {
     const svg = await renderOne({
       version: 1,
       title: 'Aligned',
@@ -422,29 +430,33 @@ test('a shaft Label keeps its block and draws each line from its textAlign edge'
         },
       ],
     });
-    // check-rules: markup of a written SVG file, not the page
-    return [...svg.matchAll(/<text x="([^"]*)"[^>]*text-anchor="([^"]*)"[^>]*>([^<]*)<\/text>/g)].map(
-      (found) => ({ x: Number(found[1]), anchor: found[2]!, text: found[3]! }),
-    );
+    return { lines: textTags(svg).map(placeOf), paper: paperOf(svg) };
   };
 
-  const centred = await linesOf('center');
-  const left = await linesOf('left');
-  const right = await linesOf('right');
-  assert.equal(centred.length, 2, 'a newline breaks a shaft Label into two lines');
-  assert.equal(centred[0]!.anchor, 'middle');
-  assert.equal(centred[0]!.x, 200, 'centred, as every shaft Label was before an alignment');
+  const centred = await drawing('center');
+  const left = await drawing('left');
+  const right = await drawing('right');
+  assert.equal(centred.lines.length, 2, 'a newline breaks a shaft Label into two lines');
+  assert.equal(centred.lines[0]!.anchor, 'middle');
+  assert.equal(centred.lines[0]!.x, 200, 'centred, as every shaft Label was before an alignment');
 
   // One block either way: the lines read from its left edge, or its right one,
-  // and the block keeps the middle of the shaft.
-  assert.equal(left[0]!.anchor, 'start');
-  assert.equal(right[0]!.anchor, 'end');
-  assert.equal(left[0]!.x + right[0]!.x, 400, 'the two edges straddle the shaft’s middle');
-  assert.ok(left[0]!.x < centred[0]!.x && centred[0]!.x < right[0]!.x, 'and sit either side');
-  for (const [index, line] of left.entries()) {
-    assert.equal(line.x, left[0]!.x, 'every left line starts at the same edge');
-    assert.equal(right[index]!.x, right[0]!.x, 'and every right line ends at the other');
+  // and the block itself keeps the middle of the shaft, so the paper behind it
+  // covers the same box whatever the alignment says.
+  assert.equal(left.lines[0]!.anchor, 'start');
+  assert.equal(right.lines[0]!.anchor, 'end');
+  assert.equal(left.lines[0]!.x + right.lines[0]!.x, 400, 'the two edges straddle the shaft’s middle');
+  assert.ok(
+    left.lines[0]!.x < centred.lines[0]!.x && centred.lines[0]!.x < right.lines[0]!.x,
+    'and sit either side',
+  );
+  for (const [index, line] of left.lines.entries()) {
+    assert.equal(line.x, left.lines[0]!.x, 'every left line starts at the same edge');
+    assert.equal(right.lines[index]!.x, right.lines[0]!.x, 'and every right line ends at the other');
+    assert.equal(line.y, centred.lines[index]!.y, 'and every line keeps the height it had');
   }
+  assert.deepEqual(left.paper, centred.paper, 'the paper keeps one box on the left edge');
+  assert.deepEqual(right.paper, centred.paper, 'and one on the right');
 });
 
 test('a shaft Label with labelAt sits at the fraction and to the side it names', async () => {
@@ -506,15 +518,13 @@ test('every shaft Label has paper behind it, and a Scene with none writes no pap
   assert.deepEqual(bare.match(/<rect\b/g) ?? [], [], 'nothing to knock out, nothing knocked out');
 
   const svg = await renderOne(lineScene([0, 100], [400, 100]));
+  const paper = paperOf(svg);
   // check-rules: markup of a written SVG file, not the page
-  const rect = /<rect\b[^>]*>/.exec(svg)?.[0] ?? '';
-  assert.match(rect, /fill="var\(--paper, #fbf8f1\)"/, 'the words sit on paper, not on what runs under them');
-  assert.ok(svg.indexOf(rect) < svg.indexOf('<text'), 'and the paper goes under the words');
+  assert.ok(svg.indexOf(`<rect x="${paper.x}"`) < svg.indexOf('<text'), 'and the paper goes under the words');
 
   const words = textOf(svg);
-  const [x, y, width, height] = ['x', 'y', 'width', 'height'].map((name) => attributeOf(rect, name));
-  assert.ok(x! <= words.x && words.x <= x! + width!, 'the paper covers the words across');
-  assert.ok(y! <= words.y && words.y <= y! + height!, 'and down');
+  assert.ok(paper.x <= words.x && words.x <= paper.x + paper.width, 'the paper covers the words across');
+  assert.ok(paper.y <= words.y && words.y <= paper.y + paper.height, 'and down');
 });
 
 async function renderOne(scene: unknown): Promise<string> {
@@ -558,21 +568,49 @@ async function placedLabel(
   return textOf(await renderOne(lineScene(started, ended, labelAt)));
 }
 
-/** The one `<text>` a drawing wrote, with the place it puts its words. */
+/** One `<text>` tag a drawing wrote, with the place it puts its words. */
 function textOf(svg: string): { x: number; y: number; anchor: string } {
-  // check-rules: markup of a written SVG file, not the page
-  const tag = /<text\b[^>]*>/.exec(svg)?.[0];
+  const [tag] = textTags(svg);
   assert.ok(tag !== undefined, 'the Scene wrote its words');
+  return placeOf(tag);
+}
+
+/** Every `<text>` tag a drawing wrote, in the order it wrote them. */
+function textTags(svg: string): string[] {
+  // check-rules: markup of a written SVG file, not the page
+  return [...svg.matchAll(/<text\b[^>]*>/g)].map((found) => found[0]);
+}
+
+/** Where a `<text>` tag puts its words, and the edge it anchors them by. */
+function placeOf(tag: string): { x: number; y: number; anchor: string } {
   return {
     x: attributeOf(tag, 'x'),
     y: attributeOf(tag, 'y'),
-    anchor: /text-anchor="([^"]*)"/.exec(tag)?.[1] ?? '',
+    anchor: attributeIn(tag, 'text-anchor'),
+  };
+}
+
+/** The paper a drawing knocked out behind a shaft's Label, as the box it covers. */
+function paperOf(svg: string): Box {
+  // check-rules: markup of a written SVG file, not the page
+  const tag = /<rect\b[^>]*fill="var\(--paper, #fbf8f1\)"[^>]*>/.exec(svg)?.[0];
+  assert.ok(tag !== undefined, 'the words sit on paper, not on what runs under them');
+  return {
+    x: attributeOf(tag, 'x'),
+    y: attributeOf(tag, 'y'),
+    width: attributeOf(tag, 'width'),
+    height: attributeOf(tag, 'height'),
   };
 }
 
 /** One attribute of a written tag, as the number the drawing put there. */
 function attributeOf(tag: string, name: string): number {
-  return Number(new RegExp(`\\b${name}="([^"]*)"`).exec(tag)?.[1]);
+  return Number(attributeIn(tag, name));
+}
+
+/** One attribute of a written tag, as the text the drawing put there. */
+function attributeIn(tag: string, name: string): string {
+  return new RegExp(`\\b${name}="([^"]*)"`).exec(tag)?.[1] ?? '';
 }
 
 /** A position the drawing rounded to two decimals: a hundredth of a pixel of slack either way. */
