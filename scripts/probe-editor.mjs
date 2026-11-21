@@ -216,6 +216,7 @@ async function main() {
   const chosen = options(process.argv.slice(2));
   const folder = resolve(chosen.folder);
   const file = await probeFile(chosen.probe);
+  if (interrupted) return;
   let probe;
   try {
     ({ default: probe } = await import(pathToFileURL(file).href));
@@ -236,7 +237,11 @@ async function main() {
     throw new Error(`no built page at ${built}: run pnpm build first`);
   }
 
+  // A signal ends the run where the person ended it: what `stop` is closing is
+  // given back, but nothing more is taken up or announced after it.
+  if (interrupted) return;
   const browser = await own(chromium.launch(), (launched) => launched.close());
+  if (interrupted) return;
   const served = await own(
     serve(folder),
     ({ server }) => new Promise((closed) => {
@@ -244,6 +249,7 @@ async function main() {
       server.closeAllConnections();
     }),
   );
+  if (interrupted) return;
   const url = `http://127.0.0.1:${served.port}${EDITOR_PAGE.path}`;
   process.stderr.write(`probing ${url}\n`);
   const page = await browser.newPage({ viewport: VIEWPORT });

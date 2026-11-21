@@ -2,11 +2,12 @@
  * The probe helper, run as a probe writer runs it: `pnpm probe`, against the
  * built page.
  *
- * Two probes go through a real Chromium against the built editor: one reads the
- * status line while a Space pan runs, one throws. Each run is a child process of
- * its own, so what is asserted is what the documented command prints and the
- * code it exits with — and that the browser it started and the port it served on
- * are gone once the process is gone, whether the probe returned or threw.
+ * Probes run through a real Chromium against the built editor: one reads the
+ * status line while a Space pan runs, one is interrupted while its browser is
+ * still starting, one throws. Each run is a child process of its own, so what is
+ * asserted is what the documented command prints and the code it exits with —
+ * and that the browser it started, the port it served on, and the module it wrote
+ * are gone once the process is gone, however the run ended.
  *
  * `pnpm test` builds first, so `dist/` is there for these runs.
  */
@@ -280,7 +281,8 @@ test('an interrupted setup leaves no probe folder, no server, and no browser', a
   // proves nothing about a resource that was still on its way.
   assert.doesNotMatch(run.stderr, /probing http:\/\//, 'the interrupt landed after setup');
   assert.notEqual(run.browsers.length, 0, 'the interrupt never caught the browser starting');
-  assert.deepEqual(await strays(empty), [], `the helper left ${await strays(empty)} behind`);
+  const left = await strays(empty);
+  assert.deepEqual(left, [], `the helper left ${left} behind`);
   assert.deepEqual(await stillRunning(run.browsers), [], `the helper left Chromium ${run.browsers} running`);
 });
 
