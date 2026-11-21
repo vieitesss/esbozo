@@ -13,7 +13,7 @@ import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import { cliRender, dragBy, MIXED, MIXED_SCENE, SCENE, clickScene } from './helpers.ts';
+import { cliRender, dragBy, MIXED, MIXED_SCENE, SCENE, clickScene, settle } from './helpers.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
 import { startServe, tempFolder } from '../test/cli.ts';
@@ -99,22 +99,27 @@ test('a Scene switch stacks by the new Scene, however the old drawings were reus
     const ui = { app, browser, screen };
     await app.open(`${server.url}/editor.html`);
     await expect(screen.getByRole('status')).toHaveText('saved');
+    await settle(ui);
 
     // `a` draws the ink box first, so the paper box covers it.
     expect((await shot(ui)).meanLuminance(OVERLAP)).toBeGreaterThan(0.85);
 
     // `b` holds the same two ids the other way round, and both boxes are drawn
-    // again: the stacking has to be the new Scene's, not the old one's.
+    // again: the stacking has to be the new Scene's, not the old one's. The
+    // status line says `saved` for any Scene, so the name is what says this one
+    // opened, and the frame after it is what the shot reads.
     await screen.getByRole('button', 'Scenes').click();
     await screen.getByRole('button', { name: 'b.json' }).click();
-    await expect(screen.getByRole('status')).toHaveText('saved');
+    await expect(screen.getByText(/\/ b\.json$/)).toBeVisible();
+    await settle(ui);
     const switched = await shot(ui);
     expect(switched.meanLuminance(OVERLAP)).toBeLessThan(0.2);
 
     // And back again: the order is the Scene's each time, never the last one's.
     await screen.getByRole('button', 'Scenes').click();
     await screen.getByRole('button', { name: 'a.json' }).click();
-    await expect(screen.getByRole('status')).toHaveText('saved');
+    await expect(screen.getByText(/\/ a\.json$/)).toBeVisible();
+    await settle(ui);
     expect((await shot(ui)).meanLuminance(OVERLAP)).toBeGreaterThan(0.85);
   } finally {
     await server.stop();
