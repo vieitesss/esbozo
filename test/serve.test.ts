@@ -119,6 +119,23 @@ test('the list names the Scenes at the top level and says the folder is writable
   });
 });
 
+test('the list offers only names the API opens', async () => {
+  const folder = await tempFolder();
+  await writeFile(join(folder, '.hidden.json'), '{}', 'utf8');
+  await writeFile(join(folder, 'upper.JSON'), '{}', 'utf8');
+  await writeFile(join(folder, 'scene.json'), '{}', 'utf8');
+  const server = await served(folder);
+
+  const listed = JSON.parse((await request(server, '/api/scenes')).body) as { scenes: string[] };
+  assert.deepEqual(listed.scenes, ['scene.json', 'upper.JSON']);
+  for (const name of listed.scenes) {
+    assert.equal((await request(server, `/api/scenes/${name}`)).status, 200, `${name} opens`);
+  }
+
+  // A hidden file is not a Scene the folder offers, so it is not listed either.
+  assert.equal((await request(server, '/api/scenes/.hidden.json')).status, 400);
+});
+
 test('a Scene reads back byte for byte, and a missing one is not found', async () => {
   const folder = await sceneFolder(SCENE, 'sketch.json');
   const server = await served(folder);

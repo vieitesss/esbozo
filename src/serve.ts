@@ -198,11 +198,14 @@ function rawPathProblem(raw: string): string | null {
   return null;
 }
 
-/** The Scene file names at the top level of the folder, sorted. No recursion. */
+/**
+ * The Scene file names at the top level of the folder, sorted. No recursion, and
+ * one rule with the API: every name here is a name the API opens.
+ */
 async function listScenes(root: string): Promise<string[]> {
   const entries = await readdir(root, { withFileTypes: true });
   return entries
-    .filter((entry) => entry.isFile() && /\.json$/i.test(entry.name))
+    .filter((entry) => entry.isFile() && nameProblem(entry.name) === null)
     .map((entry) => entry.name)
     .sort((left, right) => left.localeCompare(right));
 }
