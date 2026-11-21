@@ -36,15 +36,19 @@ export function boxOf(
   byId: ReadonlyMap<string, Element>,
   layout: Layout,
 ): Box | null {
-  if (elements.length === 0) {
+  return unionOf(elements.map((element) => elementBounds(element, byId, layout)));
+}
+
+/** The box around every given box, or null when there is none. */
+export function unionOf(boxes: readonly Box[]): Box | null {
+  if (boxes.length === 0) {
     return null;
   }
   let left = Number.POSITIVE_INFINITY;
   let top = Number.POSITIVE_INFINITY;
   let right = Number.NEGATIVE_INFINITY;
   let bottom = Number.NEGATIVE_INFINITY;
-  for (const element of elements) {
-    const box = elementBounds(element, byId, layout);
+  for (const box of boxes) {
     left = Math.min(left, box.x);
     top = Math.min(top, box.y);
     right = Math.max(right, box.x + box.width);
@@ -294,5 +298,70 @@ export function fittedView(
     zoom,
     panX: viewport.width / 2 - (box.x + box.width / 2) * zoom,
     panY: viewport.height / 2 - (box.y + box.height / 2) * zoom,
+  };
+}
+
+/** Whether two boxes share any area at all. */
+function overlaps(one: Box, other: Box): boolean {
+  return (
+    one.x < other.x + other.width &&
+    other.x < one.x + one.width &&
+    one.y < other.y + other.height &&
+    other.y < one.y + one.height
+  );
+}
+
+/**
+ * The view that keeps the selection out from under the docked Style menu.
+ *
+ * One rectangle policy, run when the selection or the window changes: when the
+ * selection's box on screen and the note's box share any area, the view pans
+ * left just far enough to clear the note by `gap`, and the selection's left edge
+ * stays on the canvas. When panning cannot do it, because the selection is wider
+ * than the room the note leaves, the view zooms out just far enough for the whole
+ * selection to sit beside the note, keeping its middle where it was vertically.
+ * Both are view changes: the Scene is never touched.
+ */
+export function clearedView(
+  view: View,
+  selection: Box | null,
+  note: Box,
+  viewport: { width: number; height: number },
+  gap: number,
+): View {
+  if (selection === null || selection.width <= 0) {
+    return view;
+  }
+  const shown: Box = {
+    x: selection.x * view.zoom + view.panX,
+    y: selection.y * view.zoom + view.panY,
+    width: selection.width * view.zoom,
+    height: selection.height * view.zoom,
+  };
+  if (!overlaps(shown, note)) {
+    return view;
+  }
+  const shift = shown.x + shown.width + gap - note.x;
+  if (shift <= 0) {
+    return view;
+  }
+  if (shown.x - shift >= 0) {
+    return { ...view, panX: view.panX - shift };
+  }
+  const room = note.x - gap;
+  if (room <= 0) {
+    return view;
+  }
+  const zoom = clampZoom(Math.min(view.zoom, room / selection.width));
+  if (zoom >= view.zoom) {
+    return view;
+  }
+  // The selection keeps its middle where the eye left it, and its right edge
+  // stops a gap short of the note.
+  const middle = shown.y + shown.height / 2;
+  return {
+    zoom,
+    panX: room - (selection.x + selection.width) * zoom,
+    panY: middle - (selection.y + selection.height / 2) * zoom,
   };
 }

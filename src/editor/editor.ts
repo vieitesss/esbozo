@@ -43,6 +43,7 @@ import {
   HANDLES,
   boxBetween,
   boxOf,
+  clearedView,
   elementAt,
   elementsInBox,
   fittedView,
@@ -398,7 +399,7 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#whereLabel.textContent = `${target.folder.name} / ${target.name}`;
     this.#note.hidden = true;
     this.#setTool('select');
-    this.#paint();
+    this.#refresh();
   }
 
   #selectedElements(): SceneElement[] {
@@ -572,7 +573,7 @@ export class EsbozoEditorElement extends HTMLElement {
       return;
     }
     this.#scene = next;
-    this.#paint();
+    this.#refresh();
     void this.#save();
   }
 
@@ -598,13 +599,22 @@ export class EsbozoEditorElement extends HTMLElement {
   // ------------------------------------------------------------------ painting
 
   /**
+   * A change of selection or of what the selection holds: the note follows it,
+   * the view makes room for the note, and the page repaints. Both happen outside
+   * the paint, so a redraw can never move the view under the pointer.
+   */
+  #refresh(): void {
+    this.#syncMenu();
+    this.#clearOfMenu();
+    this.#paint();
+  }
+
+  /**
    * Pan, zoom and the Grid follow the pointer at once, because they are only
    * numbers the view group already carries. Repainting the Scene is what costs,
-   * so that waits for the next frame. The Style menu is synced first, because
-   * it may pan the view to keep itself off the selection.
+   * so that waits for the next frame.
    */
   #paint(): void {
-    this.#syncMenu();
     this.#applyView();
     if (this.#paintQueued) {
       return;
@@ -733,8 +743,8 @@ export class EsbozoEditorElement extends HTMLElement {
 
   /**
    * The Style menu is there only with a selection. Its markup is rebuilt only
-   * when the selection or its style changes, so a drag that changes neither
-   * leaves the note alone, and a pick is read back from the same note.
+   * when a field the note renders changes, so a drag that moves or resizes the
+   * selection leaves the note alone, and a pick is read back from the same note.
    */
   #syncMenu(): void {
     const selected = this.#selectedElements();
@@ -748,31 +758,34 @@ export class EsbozoEditorElement extends HTMLElement {
       this.#menuFor = signature;
       this.#menu.innerHTML = styleNote(selected);
     }
-    this.#panClearOfMenu(selected);
   }
 
   /**
-   * The note is docked to the right edge and must never sit on top of what it
-   * edits, so the view pans left just far enough to clear it. Panning waits for
-   * the end of a drag: moving the view out from under the pointer mid-drag would
-   * make the Element chase it. A selection wider than the free space cannot
-   * clear the note, so it stays where it is.
+   * The note is docked to the right edge and must never sit on what it edits.
+   * One rectangle policy does it: the view pans left just far enough, and zooms
+   * out just far enough when a pan cannot clear a wide selection. Panning waits
+   * for the end of a drag, because moving the view out from under the pointer
+   * mid-drag would make the Element chase it.
    */
-  #panClearOfMenu(selected: readonly SceneElement[]): void {
-    if (this.#drag !== null) {
+  #clearOfMenu(): void {
+    if (this.#drag !== null || this.#menu.hidden) {
       return;
     }
-    const boxes = selected.map((element) => this.#boundsOf(element));
-    const { zoom, panX, panY } = this.#view;
-    const left = Math.min(...boxes.map((box) => box.x)) * zoom + panX;
-    const right = Math.max(...boxes.map((box) => box.x + box.width)) * zoom + panX;
-    const noteLeft = this.#menu.getBoundingClientRect().left;
-    const overflow = right + MENU_GAP - noteLeft;
-    const room = left - MENU_GAP;
-    if (overflow <= 0 || room <= 0) {
-      return;
-    }
-    this.#view = { zoom, panX: panX - Math.min(overflow, room), panY };
+    const selected = this.#selectedElements();
+    const selection = boxOf(selected, elementsById(this.#scene.elements), this.#layout);
+    this.#view = clearedView(this.#view, selection, this.#noteBox(), this.#viewportSize(), MENU_GAP);
+  }
+
+  /** Where the docked note sits, as the browser laid it out. */
+  #noteBox(): Box {
+    const note = this.#menu.getBoundingClientRect();
+    const canvas = this.#canvas.getBoundingClientRect();
+    return {
+      x: note.left - canvas.left,
+      y: note.top - canvas.top,
+      width: note.width,
+      height: note.height,
+    };
   }
 
   // ------------------------------------------------------------------ pointer
@@ -848,7 +861,7 @@ export class EsbozoEditorElement extends HTMLElement {
       }
       const origins = new Map(this.#selectedElements().map((element) => [element.id, element]));
       this.#drag = { kind: 'move', from: point, origins, shown: new Map() };
-      this.#paint();
+      this.#refresh();
       return;
     }
 
@@ -856,7 +869,7 @@ export class EsbozoEditorElement extends HTMLElement {
       this.#selected = [];
     }
     this.#drag = { kind: 'box', from: point, to: point, additive: event.shiftKey };
-    this.#paint();
+    this.#refresh();
   };
 
   /**
@@ -1025,19 +1038,21 @@ export class EsbozoEditorElement extends HTMLElement {
         (element) => element.id,
       );
       this.#selected = drag.additive ? [...new Set([...this.#selected, ...picked])] : picked;
-      this.#paint();
+      this.#refresh();
       return;
     }
     if (drag.kind === 'move' || drag.kind === 'resize') {
       // The gesture is over: what the page showed becomes the Scene, as one step.
       this.#scene = this.#shownScene();
       this.#drag = null;
-      this.#paint();
+      // With the gesture settled the note may make room for where the selection
+      // ended up.
+      this.#refresh();
       this.#record();
       return;
     }
     this.#drag = null;
-    this.#paint();
+    this.#refresh();
   };
 
   /**
@@ -1057,7 +1072,7 @@ export class EsbozoEditorElement extends HTMLElement {
       // The preview drew under an id the Scene never took.
       this.#selected = [];
     }
-    this.#paint();
+    this.#refresh();
   };
 
   #onWheel = (event: WheelEvent): void => {
@@ -1095,6 +1110,7 @@ export class EsbozoEditorElement extends HTMLElement {
       this.#note.hidden = true;
       this.#selected = [];
       this.#setTool('select');
+      this.#refresh();
       return;
     }
     if (this.#editShortcut(event)) {
@@ -1162,7 +1178,8 @@ export class EsbozoEditorElement extends HTMLElement {
 
   #onResize = (): void => {
     this.#drawRailArt();
-    this.#paint();
+    // The window changed, so the room the note leaves has too.
+    this.#refresh();
   };
 
   #nudge(dx: number, dy: number): void {
@@ -1173,7 +1190,7 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#scene.elements = this.#scene.elements.map((element) =>
       selected.has(element.id) ? moved(element, dx, dy) : element,
     );
-    this.#paint();
+    this.#refresh();
     // A nudge that cannot move what is selected records and saves nothing, and
     // a burst of them is one step: the same undo takes the whole nudge back.
     const now = Date.now();

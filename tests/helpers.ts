@@ -226,6 +226,23 @@ export const EDGE_1366: View = { zoom: 1, panX: 253, panY: 304 };
 
 
 
+
+/**
+ * One bar wider than the room left of the docked note at 1366×768: no pan can
+ * clear the note, so the view zooms out just far enough to show it beside.
+ */
+export const WIDE_SCENE = {
+  version: 1,
+  title: 'Wide',
+  defaults: { roughness: 1 },
+  elements: [
+    { id: 'bar', type: 'rectangle', x: 40, y: 40, width: 1120, height: 90, fill: { kind: 'solid', grey: 6 } },
+  ],
+};
+
+/** The view `WIDE_SCENE` lands in at 1366×768, worked out the same way as `VIEW`. */
+export const WIDE_1366: View = { zoom: 1, panX: 83, panY: 299 };
+
 /** A Scene the validator rejects: `box-a` has no width. */
 export const BROKEN_SCENE = {
   version: 1,

@@ -30,6 +30,8 @@ import {
   SNAPPED_SCENE,
   THREE,
   THREE_SCENE,
+  WIDE_1366,
+  WIDE_SCENE,
   allowWrites,
   at,
   browseFolder,
@@ -55,6 +57,7 @@ const SNAPPED_SOURCE = JSON.stringify(SNAPPED_SCENE, null, 2);
 const BROKEN_SOURCE = JSON.stringify(BROKEN_SCENE, null, 2);
 const THREE_SOURCE = JSON.stringify(THREE_SCENE, null, 2);
 const EDGE_SOURCE = JSON.stringify(EDGE_SCENE, null, 2);
+const WIDE_SOURCE = JSON.stringify(WIDE_SCENE, null, 2);
 
 /** The middle of `b`, the one solid grey box in the fixture. */
 const GREY_BOX: Rect = { x: 700, y: 390, width: 40, height: 40 };
@@ -729,6 +732,29 @@ test('the docked note never covers the selection: the view pans clear of it', as
   expect(after.count).toBeGreaterThan(0);
   // The box moved left, which is what makes room for the note.
   expect(after.x).toBeLessThan(before.x - 20);
+});
+
+test('a selection wider than the room beside the note zooms out to fit', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await ui.browser.setViewport({ width: 1366, height: 768 });
+  await openEditor(ui, { A: { 'wide.json': WIDE_SOURCE } }, 'wide.json');
+
+  const zoomLabel = ui.screen.getByText(/^\d+%$/);
+  await expect(zoomLabel).toHaveText('100%');
+
+  // A bar wider than everything left of the note: no pan can clear it, so the
+  // view zooms out just far enough to show the whole bar beside the note.
+  await clickScene(ui, { x: 200, y: 80 }, [], WIDE_1366);
+  await expect(ui.screen.getByRole('dialog', 'Style')).toBeVisible();
+  await expect
+    .poll(async () => Number((await zoomLabel.textContent())?.replace('%', '')))
+    .toBeLessThan(100);
+
+  // The bar is still painted where the note leaves room, and a zoom is a view
+  // change: the Scene on disk is byte for byte the one that was opened.
+  const bar: Rect = { x: 200, y: 300, width: 600, height: 150 };
+  expect((await shot(ui)).darkCount(bar, 0.6)).toBeGreaterThan(45000);
+  expect((await savedFiles(ui))['wide.json']).toBe(WIDE_SOURCE);
 });
 
 test('the docked note fits a 1366×768 window', async ({ app, browser, screen }) => {
