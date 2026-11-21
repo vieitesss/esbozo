@@ -13,7 +13,7 @@ import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import { cliRender, MIXED, MIXED_SCENE, SCENE, clickScene } from './helpers.ts';
+import { EMPTY, at, cliRender, drag, MIXED, MIXED_SCENE, SCENE, clickScene } from './helpers.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
 import { startServe, tempFolder } from '../test/cli.ts';
@@ -82,7 +82,16 @@ test('the served editor lists, opens and autosaves Scenes, saving Scene and SVG 
     await expect(screen.getByRole('button', 'three.json')).toBeVisible();
     await expect(screen.getByLabel('New Scene name')).toHaveValue('fresh.json');
 
+    // Opening it writes nothing: a name nobody has drawn is not a Scene yet.
     await screen.getByRole('button', 'New').click();
+    await expect(screen.getByRole('status')).toHaveText('new Scene');
+    await expect
+      .poll(async () => (await readdir(folder)).sort())
+      .toEqual(['one.json', 'three.json', 'two.json', 'two.svg']);
+
+    // The first edit is what writes it, through the same API as any other save.
+    await browser.keyboard.press('r');
+    await drag({ app, browser, screen }, at({ x: 420, y: 40 }, EMPTY), at({ x: 540, y: 140 }, EMPTY));
     await expect
       .poll(async () => (await readdir(folder)).sort())
       .toEqual(['fresh.json', 'fresh.svg', 'one.json', 'three.json', 'two.json', 'two.svg']);
