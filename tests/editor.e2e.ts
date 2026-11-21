@@ -1586,6 +1586,29 @@ test('the ? button opens the Shortcuts sheet, and Escape shuts it', async ({ app
   await expect(ui.screen.getByRole('dialog', 'Style')).toBeVisible();
 });
 
+test('a press on the page shuts the Shortcuts sheet and draws nothing', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+  const help = ui.screen.getByRole('button', 'Shortcuts');
+  const sheet = ui.screen.getByRole('dialog', 'Shortcuts');
+
+  // Open, shut with the button, open again: the toggle leaves the tool in Select
+  // and the Scene where it was, so the press below has nothing to draw with.
+  await help.click();
+  await expect(sheet).toBeVisible();
+  await help.click();
+  await expect(sheet).toBeHidden();
+  await help.click();
+  await expect(sheet).toBeVisible();
+
+  await clickScene(ui, { x: 60, y: 300 });
+  await expect(sheet).toBeHidden();
+  await expect(help).toHaveAttribute('aria-expanded', 'false');
+  expect((await savedScene(ui)).elements.map((element) => element.id)).toEqual(
+    SCENE.elements.map((element) => element.id),
+  );
+});
+
 test('the docked note never covers the selection: the view pans clear of it', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'edge.json': EDGE_SOURCE } }, 'edge.json');
