@@ -1538,6 +1538,51 @@ describe('labels', () => {
     expect((await savedScene(ui)).elements[0]?.label).toBe('X');
   });
 
+  test('the words of a filled Element are washed over the fill, and under their ink', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': MIXED_SOURCE } }, 'scene.json');
+    await stillCaret();
+
+    // The filled oval of `MIXED_SCENE`: its paper is more than half ink, so a
+    // wash the whole Element is painted over is a wash nobody can see.
+    await doubleClickScene(ui, { x: 120, y: 110 }, MIXED);
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.pressSequentially('orders');
+    await settle(ui);
+
+    // The words' own ink inside the fill, read without the caret beside it: the
+    // caret's blue is lighter than any glyph of the Scene's ink.
+    const before = await shot(ui);
+    const ink = before.darkBounds({ x: 520, y: 295, width: 90, height: 45 }, GLYPH) as Rect;
+    expect(ink).not.toBeNull();
+    // A strip of the words' line above their ink: fill alone in the frame
+    // before the drag, and the wash over that fill in the one after it.
+    const strip: Rect = { x: ink.x + 3, y: ink.y - 7, width: ink.width - 6, height: 4 };
+
+    // A drag across the words selects every one of them.
+    await browser.mouse.move(ink.x - 4, ink.y + ink.height / 2);
+    await browser.mouse.down();
+    await browser.mouse.move(ink.x + ink.width + 20, ink.y + ink.height / 2);
+    await browser.mouse.up();
+    const selected = await shot(ui);
+
+    expect(selected.meanLuminance(strip)).toBeLessThan(before.meanLuminance(strip) - 0.02);
+    // Behind the glyphs and not over them: the ink keeps the colour it had.
+    const glyphs: Rect = { x: ink.x, y: ink.y, width: ink.width, height: ink.height };
+    expect(selected.darkCount(glyphs, INK_ONLY)).toBeGreaterThan(
+      before.darkCount(glyphs, INK_ONLY) * 0.9,
+    );
+
+    // And the wash belongs to a selection: a letter replaces all of the words.
+    await label.pressSequentially('X');
+    await label.press('Escape');
+    expect((await savedScene(ui)).elements[0]?.label).toBe('X');
+  });
+
   test('a double-click inside the drawn words selects a word', async ({ app, browser, screen }) => {
     const ui = { app, browser, screen };
     await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');

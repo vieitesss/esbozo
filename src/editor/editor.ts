@@ -202,7 +202,6 @@ const SHELL = `
       <rect class="grid-rect" x="-100000" y="-100000" width="200000" height="200000"></rect>
     </g>
     <g class="viewport">
-      <g class="highlight"></g>
       <g class="painted"></g>
     </g>
     <g class="overlay"></g>
@@ -362,10 +361,11 @@ class EsbozoEditorElement extends HTMLElement {
   #canvas!: SVGSVGElement;
   #paintedLayer!: SVGGElement;
   /**
-   * What is drawn under the words rather than over them: the selection's wash
-   * and an input method's, so the glyphs keep the ink they are drawn in.
+   * The washes behind the words being typed, in the group that drew them: over
+   * the Element's fill and under its glyphs, so a filled Element cannot cover
+   * them and they cannot lift the ink of what was written.
    */
-  #highlight!: SVGGElement;
+  #washes: SVGRectElement[] = [];
   #overlay!: SVGGElement;
   /**
    * The caret and the preedit's rule, in a layer of their own inside the overlay:
@@ -463,7 +463,6 @@ class EsbozoEditorElement extends HTMLElement {
     this.#surface = this.querySelector('.surface')!;
     this.#canvas = this.querySelector('.canvas')!;
     this.#paintedLayer = this.querySelector('.painted')!;
-    this.#highlight = this.querySelector('.highlight')!;
     this.#overlay = this.querySelector('.overlay')!;
     this.#gridRect = this.querySelector('.grid-rect')!;
     this.#gridLayer = this.querySelector('.grid')!;
@@ -1797,7 +1796,7 @@ class EsbozoEditorElement extends HTMLElement {
   #drawWords(): void {
     this.#wordsLayer?.remove();
     this.#wordsLayer = null;
-    this.#highlight.replaceChildren();
+    this.#clearWash();
     const text = this.#text;
     const block = this.#wordsBlock();
     if (text === null || block === null) {
@@ -1812,13 +1811,13 @@ class EsbozoEditorElement extends HTMLElement {
     const glyphs = this.#wordsGlyphs(block);
 
     for (const box of this.#layout.selection(block, at(state.start), at(state.end), glyphs)) {
-      this.#appendRect(this.#highlight, { ...box, class: 'words-selection' });
+      this.#appendWash(box, 'words-selection');
     }
 
     const preedit = state.preedit;
     if (preedit !== null) {
       for (const box of this.#layout.selection(block, at(preedit.from), at(preedit.to), glyphs)) {
-        this.#appendRect(this.#highlight, { ...box, class: 'preedit' });
+        this.#appendWash(box, 'preedit');
         const page = this.#pageBox(box);
         this.#appendRect(layer, {
           x: page.x,
@@ -1923,13 +1922,25 @@ class EsbozoEditorElement extends HTMLElement {
     parent: SVGGElement,
     attributes: { x: number; y: number; width: number; height: number; class: string },
   ): SVGRectElement {
+    const node = this.#rect(attributes);
+    parent.append(node);
+    return node;
+  }
+
+  /** One rectangle of the page's own drawing, at the place it was measured. */
+  #rect(attributes: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    class: string;
+  }): SVGRectElement {
     const node = document.createElementNS(SVG_NS, 'rect');
     node.setAttribute('x', String(attributes.x));
     node.setAttribute('y', String(attributes.y));
     node.setAttribute('width', String(Math.max(attributes.width, 0)));
     node.setAttribute('height', String(Math.max(attributes.height, 0)));
     node.setAttribute('class', attributes.class);
-    parent.append(node);
     return node;
   }
 
@@ -2410,9 +2421,37 @@ class EsbozoEditorElement extends HTMLElement {
    * belong to, so the group asked here is the one holding their ink.
    */
   #wordsGlyphs(words: Block): LineGlyphs {
+    return drawnGlyphs(this.#wordsGroup(), words);
+  }
+
+  /** The group the page drew the words being typed in: where their wash goes. */
+  #wordsGroup(): SVGGElement | null {
     const id = this.#editing?.id ?? this.#draft?.id;
-    const group = id === undefined ? null : (this.#groups.get(id)?.node ?? null);
-    return drawnGlyphs(group, words);
+    return id === undefined ? null : (this.#groups.get(id)?.node ?? null);
+  }
+
+  /**
+   * The wash behind a run of the words being typed, put into the Element's own
+   * drawing: above the fill it was painted with and under the glyphs, which are
+   * the last thing that drawing holds.
+   */
+  #appendWash(box: Box, name: 'words-selection' | 'preedit'): void {
+    const group = this.#wordsGroup();
+    if (group === null) {
+      return;
+    }
+    const wash = this.#rect({ ...box, class: name });
+    const glyph = [...group.children].find((child) => child.tagName.toLowerCase() === 'text');
+    group.insertBefore(wash, glyph ?? null);
+    this.#washes.push(wash);
+  }
+
+  /** Nothing of a frame before is left behind: the washes go with the caret that replaced them. */
+  #clearWash(): void {
+    for (const wash of this.#washes) {
+      wash.remove();
+    }
+    this.#washes = [];
   }
 
   /**

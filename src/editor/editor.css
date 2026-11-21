@@ -281,8 +281,9 @@ esbozo-editor .caret {
   esbozo-editor .caret { animation: none; opacity: 1; }
 }
 
-/* what the selection covers, drawn on the canvas under the glyphs so their ink
-   keeps its colour, and the preedit an input method is still composing: the
+/* what the selection covers, drawn in the Element's own group over its fill and
+   under its glyphs, so their ink keeps its colour and a filled Element cannot
+   cover the highlight; and the preedit an input method is still composing: the
    words are drawn already, so the rule beneath them is what says they are not
    confirmed yet */
 esbozo-editor .words-selection {
