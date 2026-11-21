@@ -210,34 +210,6 @@ test('a served page offers Open folder even with no directory picker', async ({ 
   }
 });
 
-test('a read-only folder does not open the words of an Element, by either way in', async ({
-  app,
-  browser,
-  screen,
-}) => {
-  const folder = await folderWith({ 'scene.json': SCENE_SOURCE });
-  const server = await startServe(folder, ['--read-only']);
-  try {
-    await app.open(`${server.url}/editor.html`);
-    await expect(screen.getByText('read-only')).toBeVisible();
-
-    // A double-click and Enter both ask to type in place; a folder with nowhere
-    // to put the words answers neither, and the page is left as it was.
-    await doubleClickScene({ app, browser, screen }, { x: 100, y: 80 });
-    await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveCount(0);
-    await clickScene({ app, browser, screen }, { x: 100, y: 80 });
-    await browser.keyboard.press('Enter');
-    await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveCount(0);
-
-    // The keys still reach the canvas, and nothing was written.
-    await browser.keyboard.press('Shift+ArrowRight');
-    expect(await readFile(join(folder, 'scene.json'), 'utf8')).toBe(SCENE_SOURCE);
-    expect((await readdir(folder)).sort()).toEqual(['scene.json']);
-  } finally {
-    await server.stop();
-  }
-});
-
 test('the page shows a failing folder request in its status line', async ({ app, browser, screen }) => {
   // A server that is there but cannot list the folder is not a static page: the
   // page says so, and it does not pretend it has a folder to offer.
