@@ -169,12 +169,12 @@ test('opening a Scene file paints it with the Renderer', async ({ app, browser, 
 
 test('a Scene that will not parse is reported and left alone on disk', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
-  await openEditor(ui, { A: { 'broken.json': BROKEN_SOURCE } }, 'broken.json');
+  await openEditor(ui, { A: { 'broken.esbozo': BROKEN_SOURCE } }, 'broken.esbozo');
 
   await expect(ui.screen.getByRole('status')).toContainText('width must be at least 1 pixel');
   await expect(ui.screen.getByRole('status')).toContainText('box-a');
   const files = await savedFiles(ui);
-  expect(files['broken.json']).toBe(BROKEN_SOURCE);
+  expect(files['broken.esbozo']).toBe(BROKEN_SOURCE);
   expect(files['broken.svg']).toBeUndefined();
 });
 

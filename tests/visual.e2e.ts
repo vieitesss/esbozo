@@ -63,7 +63,7 @@ const LONG_LABEL = 'words that wrap and grow';
 
 test('a Scene that will not parse is reported, naming the box-a width problem', async ({ agent, app, browser, screen }) => {
   const ui = { agent, app, browser, screen };
-  await openEditor(ui, { A: { 'broken.json': BROKEN_SOURCE } }, 'broken.json');
+  await openEditor(ui, { A: { 'broken.esbozo': BROKEN_SOURCE } }, 'broken.esbozo');
 
   await ui.agent.assert(
     'a message on the page says that box-a is wrong: its width must be at least 1 pixel',
