@@ -109,6 +109,41 @@ export function elementAt(
   return halo;
 }
 
+/** A shaft's Label a press landed on: the Element it belongs to, and the box its words paint. */
+export interface PressedLabel {
+  readonly element: Element;
+  readonly box: Box;
+}
+
+/**
+ * The topmost arrow's or line's Label whose words a point lands on, or null.
+ * A Label is words a person can press wherever it sits, over its own shaft
+ * included, so it answers before the shaft under it: a press on it takes hold
+ * of the words, and the shaft is moved by its ink elsewhere.
+ */
+export function pressedLabel(
+  elements: readonly Element[],
+  point: Point,
+  layout: Layout,
+): PressedLabel | null {
+  const byId = elementsById(elements);
+  for (let index = elements.length - 1; index >= 0; index--) {
+    const element = elements[index]!;
+    if (element.type !== 'arrow' && element.type !== 'line') {
+      continue;
+    }
+    const label = shaftLabel(element, byId, layout);
+    if (label === null) {
+      continue;
+    }
+    const box = labelInkBounds(label);
+    if (holds(box, point)) {
+      return { element, box };
+    }
+  }
+  return null;
+}
+
 /** A box grown by `reach` on every side, or the box itself when it has none. */
 function grownBy(box: Box, reach: number): Box {
   if (reach === 0) {

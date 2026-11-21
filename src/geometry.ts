@@ -1108,6 +1108,27 @@ export function shaftLabelAnchor(
   };
 }
 
+/**
+ * The `labelAt` that puts a shaft's Label centre on a point: how far along the
+ * drawn shaft the point falls, held inside the shaft, and how far to its side —
+ * signed along the side `shaftLabelAnchor` measures from, so 0 is on the shaft.
+ * The inverse of `shaftLabelAnchor`, so a drag reads back the place the ink
+ * would show.
+ */
+export function labelAtFor(
+  shaft: { start: Point; end: Point },
+  anchor: Point,
+): { t: number; offset: number } {
+  const along = { x: shaft.end.x - shaft.start.x, y: shaft.end.y - shaft.start.y };
+  const lengthSquared = along.x * along.x + along.y * along.y;
+  const travelled = (anchor.x - shaft.start.x) * along.x + (anchor.y - shaft.start.y) * along.y;
+  const side = shaftSide(shaft);
+  return {
+    t: lengthSquared === 0 ? 0 : Math.min(1, Math.max(0, travelled / lengthSquared)),
+    offset: (anchor.x - shaft.start.x) * side.x + (anchor.y - shaft.start.y) * side.y,
+  };
+}
+
 /** A bar head: a short stroke across the end, perpendicular to the arrow. */
 export function barThrough(
   apex: Point,
