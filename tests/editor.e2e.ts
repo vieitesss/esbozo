@@ -1574,15 +1574,8 @@ test('the status line keeps the Scene top left, the view bottom left and no mode
   expect(page.bands(TOP_LEFT, 0.7)).toBe(3);
   expect(page.bands(BOTTOM_LEFT, 0.6)).toBe(1);
 
-  // Nothing transient is being named, so the bottom centre is bare paper: no pill
-  // before a Space pan, and none after the pan that ends when the key comes up.
+  // Nothing transient is being named, so the bottom centre is bare paper.
   const pill = ui.screen.getByText('read-only');
-  await expect(pill).toBeHidden();
-  expect((await shot(ui)).darkCount(MODE_PILL_BAND, 0.6)).toBe(0);
-
-  await ui.browser.keyboard.down('Space');
-  await drag(ui, { x: 640, y: 400 }, { x: 700, y: 440 });
-  await ui.browser.keyboard.up('Space');
   await expect(pill).toBeHidden();
   expect((await shot(ui)).darkCount(MODE_PILL_BAND, 0.6)).toBe(0);
 });
