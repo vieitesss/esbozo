@@ -23,7 +23,7 @@ import type { ActionGroup, ActionState } from './actions.js';
 import { movableCount } from './arrange.js';
 import { ENDS, endPoint } from './snap.js';
 import type { End } from './snap.js';
-import { controlsFor, roughnessLabel, sharedValue } from './style.js';
+import { controlsFor, sharedValue } from './style.js';
 import type { StyleControl } from './style.js';
 
 const TYPE_NAMES: Record<Element['type'], string> = {
@@ -80,14 +80,6 @@ function snapSignature(elements: readonly Element[]): string {
     return '';
   }
   return JSON.stringify(ENDS.map((end) => endPoint(first, end).snap ?? null));
-}
-
-/**
- * The status bar's Scene-wide default, in the hand: `rough` for the label and the
- * value in ink, so the word the button cycles reads as the answer, not more copy.
- */
-export function roughnessNote(roughness: number): string {
-  return `rough <b>${roughnessLabel(roughness)}</b>`;
 }
 
 function styleRows(elements: readonly Element[]): string {

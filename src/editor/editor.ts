@@ -30,8 +30,8 @@ import { Connection } from './connection.js';
 import type { FolderSource, FontSource, SaveTarget } from './connection.js';
 import { Page } from './page.js';
 import { CommandPalette } from './palette.js';
-import { menuSignature, roughnessNote, styleNote } from './menu.js';
-import { nextRoughness, styled } from './style.js';
+import { menuSignature, styleNote } from './menu.js';
+import { nextRoughness, roughnessLabel, styled } from './style.js';
 import type { StyleKey } from './style.js';
 import { canPickFolder } from './files.js';
 import { servedFolder } from './server-folder.js';
@@ -357,8 +357,7 @@ class EsbozoEditorElement extends HTMLElement {
     // A Space held while the page loses the focus never sends its release: the
     // pan has to end here, or the pointer stays a hand on the way back.
     document.addEventListener('pointerdown', this.#gestures.anyPress);
-    // After it, so the press that shuts the sheet still reaches the page it
-    // landed on: a person pressing the canvas has asked for the canvas too.
+    // Dismiss on the bubble path so the target still handles the press.
     document.addEventListener('pointerdown', this.#shutSheetOnPress);
     document.addEventListener('visibilitychange', this.#gestures.release);
     window.addEventListener('blur', this.#gestures.release);
@@ -1339,12 +1338,7 @@ class EsbozoEditorElement extends HTMLElement {
     }
   };
 
-  /**
-   * The Shortcuts sheet: a note laid over the page, open while the `?` says so.
-   * It takes no keys of its own and holds no focus, so the only way it is open is
-   * the button that names it, and the only ways it shuts are Escape, the button
-   * again, and a press anywhere else on the page.
-   */
+  /** Keep the sheet's visibility and the help button's expanded state in sync. */
   #showSheet(open: boolean): void {
     this.#sheet.hidden = !open;
     this.#helpButton.setAttribute('aria-expanded', String(open));
@@ -1375,7 +1369,8 @@ class EsbozoEditorElement extends HTMLElement {
   }
 
   #showDefaultRoughness(): void {
-    this.#roughButton.innerHTML = roughnessNote(this.#scene.defaults.roughness);
+    const value = roughnessLabel(this.#scene.defaults.roughness);
+    this.#roughButton.innerHTML = `rough <b>${value}</b>`;
   }
 
   #onMenuClick = (event: Event): void => {

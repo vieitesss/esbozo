@@ -1524,6 +1524,9 @@ test('undoing the Scene default roughness puts the status bar back', async ({ ap
   expect((await savedScene(ui)).defaults?.roughness).toBe(1);
 });
 
+/** The bottom-centre band around the mode pill at 1366 × 768. */
+const MODE_PILL_BAND: Rect = { x: 601, y: 690, width: 164, height: 70 };
+
 test('the status line keeps the Scene top left, the view bottom left and no mode pill', async ({
   app,
   browser,
@@ -1551,8 +1554,6 @@ test('the status line keeps the Scene top left, the view bottom left and no mode
   // view is doing stays in the bottom left, one line of Grid, roughness and zoom.
   const TOP_LEFT: Rect = { x: 0, y: 0, width: 360, height: 96 };
   const BOTTOM_LEFT: Rect = { x: 0, y: 690, width: 360, height: 70 };
-  // The bottom centre, where a mode would be named: the 164 pixels around it.
-  const BOTTOM_MIDDLE: Rect = { x: 601, y: 690, width: 164, height: 70 };
   const page = await shot(ui);
   expect(page.bands(TOP_LEFT, 0.7)).toBe(3);
   expect(page.bands(BOTTOM_LEFT, 0.6)).toBe(1);
@@ -1561,13 +1562,13 @@ test('the status line keeps the Scene top left, the view bottom left and no mode
   // before a Space pan, and none after the pan that ends when the key comes up.
   const pill = ui.screen.getByText('read-only');
   await expect(pill).toBeHidden();
-  expect((await shot(ui)).darkCount(BOTTOM_MIDDLE, 0.6)).toBe(0);
+  expect((await shot(ui)).darkCount(MODE_PILL_BAND, 0.6)).toBe(0);
 
   await ui.browser.keyboard.down('Space');
   await drag(ui, { x: 640, y: 400 }, { x: 700, y: 440 });
   await ui.browser.keyboard.up('Space');
   await expect(pill).toBeHidden();
-  expect((await shot(ui)).darkCount(BOTTOM_MIDDLE, 0.6)).toBe(0);
+  expect((await shot(ui)).darkCount(MODE_PILL_BAND, 0.6)).toBe(0);
 });
 
 test('a held Space names the pan in the mode pill, and the release puts it away', async ({
@@ -1580,8 +1581,6 @@ test('a held Space names the pan in the mode pill, and the release puts it away'
   await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
   await expect(ui.screen.getByRole('status')).toHaveText('saved');
 
-  // The bottom centre, where a mode would be named: the 164 pixels around it.
-  const BOTTOM_MIDDLE: Rect = { x: 601, y: 690, width: 164, height: 70 };
   const pill = ui.screen.getByText('Panning');
   await expect(pill).toBeHidden();
 
@@ -1589,7 +1588,7 @@ test('a held Space names the pan in the mode pill, and the release puts it away'
   // pointer has moved anywhere, and the band that was bare paper carries ink.
   await ui.browser.keyboard.down('Space');
   await expect(pill).toBeVisible();
-  expect((await shot(ui)).darkCount(BOTTOM_MIDDLE, 0.6)).toBeGreaterThan(0);
+  expect((await shot(ui)).darkCount(MODE_PILL_BAND, 0.6)).toBeGreaterThan(0);
 
   // The pan the key carries keeps the word it gave.
   await drag(ui, { x: 640, y: 400 }, { x: 700, y: 440 });
@@ -1598,7 +1597,7 @@ test('a held Space names the pan in the mode pill, and the release puts it away'
   // The key comes up: the word goes with the pan, and the band is bare again.
   await ui.browser.keyboard.up('Space');
   await expect(pill).toBeHidden();
-  expect((await shot(ui)).darkCount(BOTTOM_MIDDLE, 0.6)).toBe(0);
+  expect((await shot(ui)).darkCount(MODE_PILL_BAND, 0.6)).toBe(0);
 });
 
 test('a middle drag names the pan in the mode pill while the button is down', async ({
@@ -1640,8 +1639,6 @@ test('a window blur while Space is held takes the pill with the pan', async ({
   await ui.browser.setViewport({ width: 1366, height: 768 });
   await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
 
-  // The bottom centre, where a mode would be named: the 164 pixels around it.
-  const BOTTOM_MIDDLE: Rect = { x: 601, y: 690, width: 164, height: 70 };
   const pill = ui.screen.getByText('Panning');
   await ui.browser.keyboard.down('Space');
   await expect(pill).toBeVisible();
@@ -1654,7 +1651,7 @@ test('a window blur while Space is held takes the pill with the pan', async ({
     return true;
   });
   await expect(pill).toBeHidden();
-  expect((await shot(ui)).darkCount(BOTTOM_MIDDLE, 0.6)).toBe(0);
+  expect((await shot(ui)).darkCount(MODE_PILL_BAND, 0.6)).toBe(0);
   await browser.keyboard.up('Space');
 });
 
@@ -1731,7 +1728,7 @@ test('the ? button opens the Shortcuts sheet, and Escape shuts it', async ({ app
   await help.click();
   await expect(help).toHaveAttribute('aria-expanded', 'true');
   await expect(sheet).toBeVisible();
-  // The same five keys the hint row named, each with what it does.
+  // Each shortcut has a visible key or gesture.
   for (const key of ['Space', 'wheel', '⌘ +/−', 'G', 'Q']) {
     await expect(sheet).toContainText(key);
   }
