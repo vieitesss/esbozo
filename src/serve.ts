@@ -318,15 +318,25 @@ async function staysInside(root: string, path: string): Promise<boolean> {
   }
 }
 
+/**
+ * A Scene is a file's bytes: a name that holds anything else — a folder, a pipe
+ * — is not a Scene, and answers as a name that is not there. Nothing is opened
+ * before its entry has said it is a file, so no read waits on what is not one.
+ */
 async function readScene(path: string): Promise<string | null> {
+  let found: Stats;
   try {
-    return await readFile(path, 'utf8');
+    found = await stat(path);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return null;
     }
     throw error;
   }
+  if (!found.isFile()) {
+    return null;
+  }
+  return readFile(path, 'utf8');
 }
 
 interface SceneWrite {

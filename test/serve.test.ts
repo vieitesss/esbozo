@@ -170,6 +170,32 @@ test('a Scene reads back byte for byte, and a missing one is not found', async (
   assert.match(missing.body, /no Scene named other\.json/);
 });
 
+/**
+ * A name that holds something other than a file is not a Scene, and it is
+ * answered the way any other name that is not a Scene file is: not found. A
+ * folder is the shape this can take in a real one, left there by a person.
+ */
+test('a name that holds a folder instead of a file is not found', async () => {
+  const folder = await sceneFolder(SCENE);
+  await mkdir(join(folder, 'folder.json'));
+  await writeFile(join(folder, 'folder.json', 'inner.json'), SCENE_SOURCE, 'utf8');
+  await mkdir(join(folder, 'empty.json'));
+  const server = await served(folder);
+
+  for (const name of ['folder.json', 'empty.json']) {
+    const answer = await request(server, `/api/scenes/${name}`);
+    assert.equal(answer.status, 404, `${name} answered ${answer.status}`);
+    assert.match(answer.body, new RegExp(`no Scene named ${name}`));
+  }
+
+  // It is not a name the list offers either, so both agree on what a Scene is.
+  const listed = JSON.parse((await request(server, '/api/scenes')).body) as { scenes: string[] };
+  assert.deepEqual(listed.scenes, ['scene.json']);
+
+  // The file the folder does hold still reads back byte for byte.
+  assert.equal((await request(server, '/api/scenes/scene.json')).body, SCENE_SOURCE);
+});
+
 test('a write stores the Scene and its SVG side by side', async () => {
   const folder = await sceneFolder(SCENE);
   const server = await served(folder);
