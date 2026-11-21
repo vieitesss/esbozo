@@ -19,7 +19,7 @@ jobs:
           node-version-file: package.json
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm check
       - name: Install the browser the suite launches
         run: pnpm exec e2e-web install chromium --with-deps
+      - run: pnpm check
       - run: pnpm e2e
