@@ -926,6 +926,23 @@ export async function cliRender(scene: unknown, font?: string): Promise<string> 
   return readFile(join(folder, 'scene.svg'), 'utf8');
 }
 
+/** `ez check` on a Scene, in a temp folder: its exit code, and what it reported. */
+export async function cliCheck(
+  scene: unknown,
+): Promise<{ code: number; reported: string }> {
+  const folder = await mkdtemp(join(tmpdir(), 'esbozo-check-'));
+  await writeFile(join(folder, 'scene.json'), JSON.stringify(scene, null, 2), 'utf8');
+  try {
+    const { stdout, stderr } = await run(process.execPath, [CLI, 'check', 'scene.json'], {
+      cwd: folder,
+    });
+    return { code: 0, reported: `${stdout}${stderr}` };
+  } catch (error) {
+    const failure = error as { code?: number; stdout?: string; stderr?: string };
+    return { code: failure.code ?? 1, reported: `${failure.stdout ?? ''}${failure.stderr ?? ''}` };
+  }
+}
+
 /** The editor saved both files, and the SVG is the CLI's own output. */
 export async function expectSvgMatchesCli(ui: Ui, name = 'scene.json', folder = FOLDER): Promise<void> {
   await expect(ui.screen.getByRole('status')).toHaveText('saved');
