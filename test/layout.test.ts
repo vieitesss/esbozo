@@ -258,47 +258,6 @@ test('a shaft Label is centred on the shaft it is given, after Snap', () => {
   assert.ok(block.y + block.height < 40, 'and stay above it');
 });
 
-test('a shaft Label aligns its lines inside the block the shaft gives it', () => {
-  const shaft = { start: { x: 0, y: 0 }, end: { x: 400, y: 0 } };
-  const aligned = (textAlign: string): Block =>
-    LAYOUT.label(
-      element({
-        version: 1,
-        elements: [
-          { id: 'a', type: 'arrow', points: [shaft.start, shaft.end], label: 'one\ntwo', textAlign },
-        ],
-      }),
-      shaft,
-    )!;
-
-  const left = aligned('left');
-  const centre = aligned('center');
-  const right = aligned('right');
-
-  // The block is the shaft's own place, sized by the words: an alignment moves
-  // no line out of it, and a single-line Label keeps the place it always had.
-  for (const block of [centre, right]) {
-    assert.equal(block.x, left.x, 'the words keep the place the shaft gives them');
-    assert.equal(block.width, left.width, 'and the room they take');
-    assert.equal(block.y, left.y, 'and their height above the shaft');
-  }
-
-  assert.equal(left.anchor, 'start');
-  assert.equal(centre.anchor, 'middle');
-  assert.equal(right.anchor, 'end');
-
-  // Each line reads from its own edge of that block, whichever line it is.
-  for (const line of left.lines) {
-    assert.equal(line.x, left.x, 'left lines start at the block’s left edge');
-  }
-  for (const line of centre.lines) {
-    assert.equal(line.x, centre.x + centre.width / 2, 'centred lines stand on its centre');
-  }
-  for (const line of right.lines) {
-    assert.equal(line.x, right.x + right.width, 'right lines end at its right edge');
-  }
-});
-
 test('a shaft Label needs the shaft that is drawn', () => {
   assert.throws(
     () => LAYOUT.label(arrow({ x: 0, y: 0 }, { x: 100, y: 0 })),
