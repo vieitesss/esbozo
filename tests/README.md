@@ -28,10 +28,13 @@ synthetic `compositionstart`/`compositionend` events.
 `tests/cdp.ts` reaches the page through `surfaceOf(engine)`: `e2e.config.ts`
 keeps its `web()` handle there, and e2e loads the config in each worker process,
 so a test reads back the live page of the run it is in. It exports
-`imeCompose(text)`, `imeCommit()`, `throttleCpu(rate)`, and `livePage()` for a
-test's own page setup. `imeCommit()` confirms a preedit that is still open, and
-refuses one the browser already ended (a blur ends a composition) rather than
-typing the words a second time. `cdp.e2e.ts` is the proof, on a plain
+`imeCompose(text)`, `imeCommit()`, `throttleCpu(rate)`, `stillCaret()`, and
+`livePage()` for a test's own page setup. `imeCommit()` confirms a preedit that
+is still open, and refuses one the browser already ended (a blur ends a
+composition) rather than typing the words a second time. `stillCaret()` asks for
+`prefers-reduced-motion: reduce`, which the page answers with a caret that does
+not blink: a screenshot of a flickering caret catches it in either half, and a
+pixel test cannot say where it is. `cdp.e2e.ts` is the proof, on a plain
 `<textarea>` and not the editor: the preedit is the field's value while the
 composition is open, the commit and the click-away each end it, and 4×
 throttling measurably slows the page. `labels.e2e.ts` then drives the editor's

@@ -8,8 +8,8 @@
  * `{ folder, name }` destination.
  */
 import { createLayout } from '../layout.js';
-import type { Layout, Metrics } from '../layout.js';
-import { drawnShaft, elementBounds, elementsById, outlineBox } from '../renderer.js';
+import type { Block, Layout, Metrics } from '../layout.js';
+import { drawnShaft, drawnWords, elementBounds, elementsById, outlineBox } from '../renderer.js';
 import {
   emptyScene,
   isOutlined,
@@ -67,8 +67,7 @@ import { railArt, railMarkup } from './rail.js';
 import { attachedTo, endPoint, freedEnd, isShaft, otherEnd, released, targetAt, withEnd } from './snap.js';
 import type { End } from './snap.js';
 import { TextSession } from './text-session.js';
-import type { TextSessionPlace } from './text-session.js';
-import { keptWords, withWords, wordsOf } from './words.js';
+import { drawnOffset, keptWords, shownWords, typedOffset, withWords, wordAt, wordsOf } from './words.js';
 import { PaintCache, sceneFile } from './paint.js';
 import type { SceneFiles } from './paint.js';
 import type { Paint } from './paint.js';
@@ -85,6 +84,12 @@ const NUDGE_WITH_SHIFT = 10;
 const ZOOM_STEP = 1.2;
 /** How far off the ink a click still picks an arrow or line, in screen pixels. */
 const PICK_TOLERANCE = 6;
+/** How far off the drawn words a press is still a press in them, in screen pixels. */
+const WORDS_TOLERANCE = 8;
+/** How wide the caret is drawn, in screen pixels: the drawing is the ink, not a field's own. */
+const CARET_WIDTH = 2;
+/** How thick the rule under a preedit is, in screen pixels. */
+const PREEDIT_RULE = 1.5;
 /** How far a copy, a pasted Element or a duplicate lands from what it copies, in Scene units. */
 const COPY_OFFSET = { x: 16, y: 16 };
 /** Nudges closer together than this are one undo step: a held arrow key is one gesture. */
@@ -159,6 +164,11 @@ type Drag =
       shown: SceneElement;
     }
   | { kind: 'text'; at: Point }
+  | {
+      kind: 'words';
+      /** Where the selection is anchored, as an offset into the words the page draws. */
+      from: number;
+    }
   | { kind: 'box'; from: Point; to: Point; additive: boolean };
 
 /**
@@ -290,6 +300,11 @@ class EsbozoEditorElement extends HTMLElement {
   #press: Press | null = null;
   /** The click before it: the first half of a double-click, until something else happens. */
   #lastClick: Press | null = null;
+  /**
+   * The press inside the words being typed, until the next one: a second press
+   * in the same place there selects the word instead of moving the caret.
+   */
+  #wordsClick: Press | null = null;
   /**
    * The click the note owes the press that opened the words over it. That press
    * was cancelled, so Chromium's click is the press's own and must run nothing.
@@ -1420,8 +1435,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#syncMenu();
     this.#clearOfMenu();
     // The view may have moved to make room for the note: the words being typed
-    // move with it rather than staying behind on the page.
-    this.#plotField();
+    // travel with it, caret and all, rather than staying behind on the page.
     this.#paint();
   }
 
@@ -1458,8 +1472,8 @@ class EsbozoEditorElement extends HTMLElement {
     // Zoom is not part of a double-click: the next press starts a new one.
     this.#press = null;
     this.#lastClick = null;
+    this.#wordsClick = null;
     this.#clearOfMenu();
-    this.#plotField();
     this.#paint();
   }
 
@@ -1706,6 +1720,54 @@ class EsbozoEditorElement extends HTMLElement {
         });
       }
     }
+    this.#drawWords(overlay);
+  }
+
+  /**
+   * The caret, the selection and an input method's preedit, drawn where the
+   * Renderer put the glyphs. The page is the only ink, so the field's own caret
+   * and highlight are never on screen; it is moved over the caret instead, which
+   * is where a browser opens the candidate window of an input method.
+   */
+  #drawWords(overlay: SVGGElement): void {
+    const text = this.#text;
+    const block = this.#wordsBlock();
+    if (text === null || block === null) {
+      return;
+    }
+    const state = text.state();
+    const drawn = this.#drawnWords();
+    const at = (offset: number): number => drawnOffset(state.words, drawn, offset);
+
+    for (const box of this.#layout.selection(block, at(state.start), at(state.end))) {
+      this.#appendRect(overlay, { ...this.#pageBox(box), class: 'words-selection' });
+    }
+
+    const preedit = state.preedit;
+    if (preedit !== null) {
+      for (const box of this.#layout.selection(block, at(preedit.from), at(preedit.to))) {
+        const page = this.#pageBox(box);
+        this.#appendRect(overlay, { ...page, class: 'preedit' });
+        this.#appendRect(overlay, {
+          x: page.x,
+          y: page.y + page.height - PREEDIT_RULE,
+          width: page.width,
+          height: PREEDIT_RULE,
+          class: 'preedit-rule',
+        });
+      }
+    }
+
+    const caret = this.#layout.caret(block, at(state.caret));
+    const page = this.#pageBox({ x: caret.x, y: caret.y, width: 0, height: caret.height });
+    this.#appendRect(overlay, {
+      x: page.x - CARET_WIDTH / 2,
+      y: page.y,
+      width: CARET_WIDTH,
+      height: page.height,
+      class: 'caret',
+    });
+    text.spot(page);
   }
 
   /** Where an Element draws on the page now: what was painted for it, moved by a drag in flight. */
@@ -1917,11 +1979,23 @@ class EsbozoEditorElement extends HTMLElement {
       return;
     }
     if (this.#text !== null && event.button === 0) {
-      // The click that takes the focus off the words commits them, and goes no
-      // further: it is not also a click on the canvas. A middle press is a pan,
-      // which leaves the words open where they are.
+      // A press inside the words being typed moves their caret: it is the
+      // words', not the canvas's, and the page keeps the focus in the field.
+      const offset = this.#wordsOffset(this.#scenePoint(event));
+      if (offset !== null) {
+        event.preventDefault();
+        this.#capture(event);
+        this.#press = null;
+        this.#lastClick = null;
+        this.#pressWords(event, offset);
+        return;
+      }
+      // Any other click takes the focus off the words and commits them, and
+      // goes no further: it is not also a click on the canvas. A middle press is
+      // a pan, which leaves the words open where they are.
       this.#press = null;
       this.#lastClick = null;
+      this.#wordsClick = null;
       this.#text.finish();
       return;
     }
@@ -2145,14 +2219,14 @@ class EsbozoEditorElement extends HTMLElement {
     }
     this.#setTool('select');
     // The Text the words will make, drawn on the page as they arrive: the page
-    // shows what saving would render, and the field only holds the caret.
+    // shows what saving would render, and the field is only the caret and the keys.
     this.#draft = newText(at, '', freshId('text', idsOf(this.#scene.elements)), this.#scene.defaults);
     this.#text = new TextSession({
       host: this,
       name: 'Text',
-      place: () => this.#fieldPlace(),
       words: '',
       typed: (words) => this.#showTyped(words),
+      moved: () => this.#paint(),
       commit: (words) => this.#commitText(words),
       ended: () => this.#endText(),
     });
@@ -2161,8 +2235,8 @@ class EsbozoEditorElement extends HTMLElement {
 
   /**
    * Open the in-place editor on an Element's words. The page draws them at once,
-   * and the box sits beside them; nothing of the Scene changes until the words
-   * are committed.
+   * where they will save, and the caret sits on those glyphs; nothing of the
+   * Scene changes until the words are committed.
    */
   #openWords(element: SceneElement): void {
     // A page with nowhere to save the words opens none, by either way in: one
@@ -2179,14 +2253,14 @@ class EsbozoEditorElement extends HTMLElement {
       element: withWords(element, wordsOf(element), this.#layout),
     };
     // The note follows the selection, and the view makes room for it before the
-    // field is placed: a pan under an open field would leave it behind the words.
+    // field takes the focus: the words stay clear of the note under the caret.
     this.#refresh();
     this.#text = new TextSession({
       host: this,
       name: element.type === 'text' ? 'Text' : 'Label',
-      place: () => this.#fieldPlace(),
       words: wordsOf(element),
       typed: (words) => this.#showWords(element, words),
+      moved: () => this.#paint(),
       commit: (words) => this.#commitWords(element, words),
       ended: () => this.#endText(),
     });
@@ -2208,10 +2282,9 @@ class EsbozoEditorElement extends HTMLElement {
       // not move when the session ends.
       const kept = words === wordsOf(element) ? words : keptWords(words);
       this.#editing = { id: element.id, element: withWords(element, kept, this.#layout) };
-      // The grown Element is what the note must not cover, and the box follows it.
+      // The grown Element is what the note must not cover.
       this.#clearOfMenu();
     }
-    this.#plotField();
     this.#paint();
   }
 
@@ -2224,43 +2297,86 @@ class EsbozoEditorElement extends HTMLElement {
     if (!hasXmlInvalidChars(words)) {
       this.#draft = { ...draft, content: keptWords(words) };
     }
-    this.#plotField();
     this.#paint();
   }
 
   /**
-   * Where the box sits: beside what is being edited, on the page, clear of the
-   * note. Asked again on every keystroke and on every move of the view.
+   * The Block the page is drawing for the words being typed: the Renderer's own
+   * placement of them, from the one Layout that wraps them, so the caret sits on
+   * the glyphs and nowhere else. An emptied Label keeps its empty line here, or
+   * the words would have no place for a caret at all.
    */
-  #fieldPlace(): TextSessionPlace {
-    const area = this.#fieldArea();
-    if (area === null) {
-      throw new Error('no words are being edited, so there is no place for the field');
-    }
-    return { area, page: this.#viewportSize(), note: this.#noteBox() };
-  }
-
-  /**
-   * The page box of the words the field edits: the Element grown for them, or
-   * where a new Text's words will land. It is the Renderer's own bounds in the
-   * pixels the overlay draws in, so the box is placed against what is drawn.
-   */
-  #fieldArea(): Box | null {
+  #wordsBlock(): Block | null {
     const element = this.#editing?.element ?? this.#draft;
     if (element === null) {
       return null;
     }
-    const bounds = elementBounds(element, elementsById(this.#shownElements()), this.#layout);
-    return this.#pageBox(bounds);
+    const byId = this.#painted?.byId ?? elementsById(this.#shownElements());
+    return drawnWords(shownWords(element), byId, this.#layout);
   }
 
-  /** Move the open box to where the words it holds now belong. */
-  #plotField(): void {
+  /** The words the page is drawing while they are typed: what the field's offsets are read against. */
+  #drawnWords(): string {
+    const element = this.#editing?.element ?? this.#draft;
+    return element === null ? '' : wordsOf(element);
+  }
+
+  /**
+   * Where a press lands in the words being typed: the drawn offset of the glyph
+   * boundary nearest the pointer, or null when the press is off the words.
+   */
+  #wordsOffset(point: Point): number | null {
+    const block = this.#wordsBlock();
+    if (block === null) {
+      return null;
+    }
+    const reach = WORDS_TOLERANCE / this.#view.zoom;
+    const inside =
+      point.x >= block.x - reach &&
+      point.x <= block.x + block.width + reach &&
+      point.y >= block.y - reach &&
+      point.y <= block.y + block.height + reach;
+    return inside ? this.#layout.offsetAt(block, point) : null;
+  }
+
+  /** The nearest glyph boundary of the words, wherever the pointer went: a drag carries the caret. */
+  #wordsNearest(point: Point): number | null {
+    const block = this.#wordsBlock();
+    return block === null ? null : this.#layout.offsetAt(block, point);
+  }
+
+  /** An offset among the drawn glyphs, read back into the field's own words. */
+  #typedOffset(drawn: number): number {
+    const text = this.#text;
+    return typedOffset(text?.state().words ?? '', this.#drawnWords(), drawn);
+  }
+
+  /**
+   * A press inside the words being typed. One press puts the caret at the glyph
+   * under the pointer; a second one in the same place selects the word there;
+   * and dragging the pointer carries the other end of the selection with it.
+   */
+  #pressWords(event: PointerEvent, offset: number): void {
     const text = this.#text;
     if (text === null) {
       return;
     }
-    text.place(this.#fieldPlace());
+    const press: Press = { id: null, at: this.#screenPoint(event), time: event.timeStamp };
+    const previous = this.#wordsClick;
+    this.#wordsClick = press;
+    const at = this.#typedOffset(offset);
+    if (previous !== null && this.#isDoubleClick(previous, press)) {
+      this.#wordsClick = null;
+      const word = wordAt(text.state().words, at);
+      text.select(word.from, word.to);
+      return;
+    }
+    const state = text.state();
+    // Shift keeps the end of the selection that is not the caret: a press adds
+    // to the words already chosen instead of throwing them away.
+    const from = event.shiftKey ? (state.caret === state.end ? state.start : state.end) : at;
+    text.select(from, at);
+    this.#drag = { kind: 'words', from: offset };
   }
 
   /**
@@ -2323,6 +2439,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#text = null;
     this.#editing = null;
     this.#draft = null;
+    this.#wordsClick = null;
     text?.discard();
     this.#paint();
   }
@@ -2392,13 +2509,21 @@ class EsbozoEditorElement extends HTMLElement {
         panX: drag.start.panX + (point.x - drag.fromScreen.x),
         panY: drag.start.panY + (point.y - drag.fromScreen.y),
       };
-      // The words follow the page they are drawn on, box and all.
-      this.#plotField();
+      // The words follow the page they are drawn on, caret and all.
       this.#paint();
       return;
     }
 
     const point = this.#scenePoint(event);
+    if (drag.kind === 'words') {
+      // A drag inside the words takes the caret with it: the other end of the
+      // selection stays where the press put it, and the pointer may leave them.
+      const offset = this.#wordsNearest(point);
+      if (offset !== null) {
+        this.#text?.select(this.#typedOffset(drag.from), this.#typedOffset(offset));
+      }
+      return;
+    }
     if (drag.kind === 'box') {
       drag.to = point;
       this.#paint();
@@ -2496,6 +2621,12 @@ class EsbozoEditorElement extends HTMLElement {
       this.#openTextInput(drag.at);
       return;
     }
+    if (drag.kind === 'words') {
+      // The selection the drag made is the field's already: the release settles
+      // nothing and the words stay open.
+      this.#drag = null;
+      return;
+    }
     if (drag.kind === 'draw') {
       this.#drag = null;
       this.#finishDrawing(drag, this.#scenePoint(event), event.altKey);
@@ -2568,6 +2699,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#releasePointer();
     this.#press = null;
     this.#lastClick = null;
+    this.#wordsClick = null;
     this.#board.classList.remove('panning');
     if (drag !== null && drag.kind === 'draw') {
       // The preview drew under an id the Scene never took.
@@ -2726,6 +2858,7 @@ class EsbozoEditorElement extends HTMLElement {
   #onKeyDown = (event: KeyboardEvent): void => {
     // A key between two clicks means the person is typing, not double-clicking.
     this.#lastClick = null;
+    this.#wordsClick = null;
     if (active !== this || !this.#takesKeys(event.target)) {
       return;
     }

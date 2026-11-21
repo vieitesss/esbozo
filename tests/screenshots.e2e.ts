@@ -9,6 +9,7 @@
 import { copyFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from '@e2e-dev/web';
+import { stillCaret } from './cdp.ts';
 import {
   BESIDE,
   BESIDE_SCENE,
@@ -49,8 +50,10 @@ test.skipIf(shots === undefined || shots === '')(
     await copyFile(await ui.app.screenshot('editor-dark'), join(folder, 'editor-dark.png'));
 
     // And a Label being typed: the box grows for the words as they arrive, the
-    // page draws them where they will save, and the small field sits below.
-    await ui.screen.getByRole('button', 'Light').click();
+    // page draws them where they will save, and the caret stands in them. Its
+    // blink is held still, so the picture shows the caret the page really draws.
+    await ui.screen.getByRole('button', { name: 'Light' }).click();
+    await stillCaret();
     await doubleClickScene(ui, { x: 340, y: 390 }, POSTER);
     await ui.screen
       .getByRole('textbox', { name: 'Label' })
@@ -62,7 +65,7 @@ test.skipIf(shots === undefined || shots === '')(
     );
 
     // And an arrow's Label, which hangs to its own side of the shaft: the words
-    // are drawn where they will save, and the field sits below the arrow.
+    // are drawn where they will save, and the caret is among them.
     await openEditor(
       ui,
       { A: { 'beside.json': JSON.stringify(BESIDE_SCENE, null, 2) } },

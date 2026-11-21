@@ -207,14 +207,16 @@ test('a new Text is typed in place, in the hand it draws in, and stays as words 
   await clickScene(ui, { x: 420, y: 300 });
   await screen.getByRole('textbox', { name: 'Text' }).pressSequentially('draw me');
 
+  // The words are drawn by the canvas and the caret is drawn on them: there is
+  // no box holding a second copy of what is being typed.
   await ui.agent.assert(
-    'the words "draw me" sit on the empty paper where they were typed, in a handwritten style as the Scene writes them, and a small plain box holding the same words as they are typed sits a little below them',
+    'the words "draw me" sit on the empty paper where they were typed, in a handwritten style as the Scene writes them, and a thin vertical line stands among those words as a cursor; no box, bar or second copy of the words is drawn anywhere else on the page',
     { vision: 'only' },
   );
 
   await screen.getByRole('textbox', { name: 'Text' }).press('Escape');
   await ui.agent.assert(
-    'the words "draw me" are still on the empty paper in the same hand, and there is no cursor or text field beside them',
+    'the words "draw me" are still on the empty paper in the same hand, with no cursor line among them and no edit field holding them; nothing on the page holds a second copy of those words',
     { vision: 'only' },
   );
 });
@@ -365,7 +367,7 @@ test('a box grows for the Label typed into it, and the words wrap inside its out
   // as they were typed, and that they sit inside it, wrapped, with nothing drawn
   // around them that the Scene would not draw.
   await ui.agent.assert(
-    'the left-hand hand-drawn rectangle has grown taller and holds the words written inside it as three wrapped lines, every word inside the outline, and a small plain box holding the same words as they are typed sits a little below the rectangle',
+    'the left-hand hand-drawn rectangle has grown taller and holds the words written inside it as three wrapped lines, every word inside the outline, and no box holding a second copy of those words is drawn below the rectangle',
     { vision: 'only' },
   );
 

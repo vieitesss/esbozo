@@ -472,6 +472,19 @@ function placement(
   }
 }
 
+/**
+ * The words an Element draws, as the Renderer placed them: the Block a caret
+ * and a selection sit in. A Text's own content, the Label wrapped inside a
+ * container, or the Label beside the shaft Snap drew; null when there are none.
+ */
+export function drawnWords(
+  element: Element,
+  byId: ReadonlyMap<string, Element>,
+  layout: Layout,
+): Block | null {
+  return placement(element, byId, layout).words;
+}
+
 /** The box a shaft covers, before its words are added. */
 function shaftBox(shaft: Shaft): Box {
   return {

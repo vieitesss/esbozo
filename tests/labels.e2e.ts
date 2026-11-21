@@ -36,7 +36,7 @@ import {
   savedFiles,
   savedScene,
 } from './helpers.ts';
-import { imeCommit, imeCompose, livePage } from './cdp.ts';
+import { imeCommit, imeCompose, livePage, stillCaret } from './cdp.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
 
@@ -51,25 +51,6 @@ const BESIDE_SOURCE = JSON.stringify(BESIDE_SCENE, null, 2);
 const SHIFTED_SOURCE = JSON.stringify(SHIFTED_SCENE, null, 2);
 const BLANK_SOURCE = JSON.stringify(BLANK_SCENE, null, 2);
 
-/** The page the suite runs in, in CSS pixels: the edges the field may never cross. */
-const PAGE = { width: 1280, height: 800 };
-
-/**
- * A middle-button drag of the page's own mouse, which is what a pan is: the
- * fixture's pointer has one button, and a synthesized event would skip the
- * focus change a real press makes.
- */
-async function panPage(from: { x: number; y: number }, dx: number, dy: number): Promise<void> {
-  const page = livePage();
-  await page.mouse.move(from.x, from.y);
-  await page.mouse.down({ button: 'middle' });
-  for (let step = 1; step <= 5; step += 1) {
-    const share = step / 5;
-    await page.mouse.move(from.x + dx * share, from.y + dy * share);
-  }
-  await page.mouse.up({ button: 'middle' });
-}
-
 /** A Label long enough that the box it is typed into has to grow downwards. */
 const LONG_LABEL = 'words that wrap and grow';
 
@@ -81,6 +62,20 @@ const HUGE_WORD = LONG_WORD + LONG_WORD;
 
 /** Ink: the ink of a Scene is near black on near white, so half way is the line. */
 const DARK = 0.5;
+
+/**
+ * The caret's blue is lighter than ink, and a column of it is a pixel or two of
+ * antialiasing; a Grid dot is fainter still. So a caret is looked for between
+ * the two: darker than paper and a dot, lighter than ink.
+ */
+const CARET = 0.7;
+
+/**
+ * The inside of `SCENE`'s left-hand box on the page, clear of its outline and of
+ * the resize handles of the selection around it. The box's own words are the
+ * only ink that can be in here.
+ */
+const INSIDE: Rect = { x: 517, y: 346, width: 106, height: 66 };
 
 describe('labels', () => {
   test('double-clicking a box Element types its Label in place, and the Scene keeps the words', async ({
@@ -604,8 +599,8 @@ describe('labels', () => {
     await doubleClickScene(ui, { x: 100, y: 80 });
     const label = screen.getByRole('textbox', { name: 'Label' });
     await label.pressSequentially('Orders');
-    // Two kinds of ink hold the same words: the canvas draws them inside the
-    // box, and the plain field does beside it. Both have to travel with the pan.
+    // The ink of the words travels with the page: it is the canvas's, drawn at
+    // the glyphs, and nothing else on the screen holds a copy of them.
     const written: Rect = { x: 545, y: 368, width: 52, height: 20 };
     const writtenCarried: Rect = {
       x: written.x + 100,
@@ -613,16 +608,8 @@ describe('labels', () => {
       width: written.width,
       height: written.height,
     };
-    const field: Rect = { x: 516, y: 430, width: 60, height: 22 };
-    const fieldCarried: Rect = {
-      x: field.x + 100,
-      y: field.y + 70,
-      width: field.width,
-      height: field.height,
-    };
     const drawn = await shot(ui);
     expect(drawn.darkCount(written, DARK)).toBeGreaterThan(0);
-    expect(drawn.darkCount(field, DARK)).toBeGreaterThan(0);
 
     // The middle button is a pan, not a click away: the words stay open, and
     // the page's own mouse sends it, because the fixture's pointer has one
@@ -642,8 +629,6 @@ describe('labels', () => {
     const panned = await shot(ui);
     expect(panned.darkCount(written, DARK)).toBe(0);
     expect(panned.darkCount(writtenCarried, DARK)).toBeGreaterThan(0);
-    expect(panned.darkCount(field, DARK)).toBe(0);
-    expect(panned.darkCount(fieldCarried, DARK)).toBeGreaterThan(0);
     // Nothing of the pan is a Scene: the words are nobody's until they land.
     expect(await savedFiles(ui)).toEqual(before);
 
@@ -655,7 +640,7 @@ describe('labels', () => {
     expect((await savedScene(ui)).elements[0]?.label).toBe('Orders');
   });
 
-  test('a wheel zoom carries the open field of a new Text with the page', async ({
+  test('a wheel zoom carries the words of a new Text, and their caret, with the page', async ({
     app,
     browser,
     screen,
@@ -675,7 +660,7 @@ describe('labels', () => {
     await browser.mouse.wheel(0, 300);
     await expect(screen.getByText(/^\d+%$/)).toHaveText('64%');
 
-    // The words are drawn where the zoom puts them, and the box is still their own.
+    // The words are drawn where the zoom puts them, and the caret is still on them.
     const zoomed = await shot(ui);
     expect(zoomed.darkCount(typed, DARK)).toBe(0);
     expect(zoomed.darkCount({ x: 668, y: 486, width: 130, height: 22 }, DARK)).toBeGreaterThan(0);
@@ -685,7 +670,7 @@ describe('labels', () => {
     expect((await savedScene(ui)).elements.length).toBe(3);
   });
 
-  test('a Label long enough to reach the note is panned clear of it, box and all', async ({
+  test('a Label long enough to reach the note is panned clear of it, caret and all', async ({
     app,
     browser,
     screen,
@@ -702,7 +687,7 @@ describe('labels', () => {
     await label.pressSequentially(HUGE_WORD);
 
     // The words the person typed are on the page, and neither the grown Element
-    // nor the box holding the caret is drawn over the note: its ink is its own.
+    // nor the caret on its glyphs is drawn over the note: its ink is its own.
     const grown = await shot(ui);
     expect(grown.darkCount(noteRoom, DARK)).toBeLessThanOrEqual(baseline + 50);
 
@@ -914,6 +899,156 @@ describe('labels', () => {
     expect(scene.elements[0]?.label).toBe('upward');
   });
 
+  test('the caret is drawn where the words are typed, and no copy of them is drawn beside', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+    await stillCaret();
+
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    // An empty Label is no words and no outline of its own: the only ink inside
+    // the box is the caret, and it is where the words would start.
+    const drawn = await shot(ui);
+    const caret = drawn.darkBounds(INSIDE, CARET);
+    expect(caret).not.toBeNull();
+    const slot = caret as Rect;
+    expect(slot.width).toBeLessThan(4);
+    expect(slot.height).toBeGreaterThan(20);
+    expect(Math.abs(slot.x + slot.width / 2 - 570)).toBeLessThan(2);
+
+    // Nothing is drawn beside the words any more: the plain field that used to
+    // mirror them lived under the box, and bare paper is there now.
+    expect(drawn.darkCount({ x: 500, y: 430, width: 150, height: 40 }, DARK)).toBe(0);
+  });
+
+  test('a press inside the drawn words puts the caret on the glyph under it', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.pressSequentially('orders and');
+    // Where the page drew the words: their ink, not a field's.
+    const ink = (await shot(ui)).darkBounds(INSIDE, DARK);
+    expect(ink).not.toBeNull();
+    const words = ink as Rect;
+
+    // A press in the middle of them is the words', not the canvas's.
+    await browser.mouse.move(words.x + words.width / 2, words.y + words.height / 2);
+    await browser.mouse.down();
+    await browser.mouse.up();
+    await expect(label).toHaveValue('orders and');
+    await label.pressSequentially('X');
+    await label.press('Escape');
+
+    // The letter landed where the press did: among the words, at neither end.
+    const landed = (await savedScene(ui)).elements[0]?.label ?? '';
+    expect(landed.length).toBe('orders and'.length + 1);
+    expect(landed.replace('X', '')).toBe('orders and');
+    expect(landed.indexOf('X')).toBeGreaterThan(0);
+  });
+
+  test('a drag inside the drawn words selects them, and the selection is drawn behind the glyphs', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.pressSequentially('orders');
+    const ink = (await shot(ui)).darkBounds(INSIDE, DARK);
+    const words = ink as Rect;
+    const before = await shot(ui);
+
+    // A drag that starts at the first glyph and runs past the last one selects
+    // every word the line drew.
+    await browser.mouse.move(words.x - 3, words.y + words.height / 2);
+    await browser.mouse.down();
+    await browser.mouse.move(words.x + words.width + 30, words.y + words.height / 2);
+    await browser.mouse.up();
+    await expect(label).toHaveValue('orders');
+
+    // The highlight is a wash behind the glyphs, drawn on the canvas.
+    const selected = await shot(ui);
+    const glyphs: Rect = { x: words.x, y: words.y, width: words.width, height: words.height };
+    expect(before.meanLuminance(glyphs)).toBeGreaterThan(selected.meanLuminance(glyphs) + 0.02);
+
+    // Typing replaces what was selected: the words the press took in are gone.
+    await label.pressSequentially('X');
+    await label.press('Escape');
+    expect((await savedScene(ui)).elements[0]?.label).toBe('X');
+  });
+
+  test('a double-click inside the drawn words selects a word', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.pressSequentially('ab cd');
+    const ink = (await shot(ui)).darkBounds(INSIDE, DARK);
+    const words = ink as Rect;
+
+    // A double-click on the second word takes it whole, and a letter replaces it.
+    await screen.doubleTapAt({
+      x: words.x + words.width * 0.65,
+      y: words.y + words.height / 2,
+    });
+    await label.pressSequentially('X');
+    await label.press('Escape');
+
+    expect((await savedScene(ui)).elements[0]?.label).toBe('ab X');
+  });
+
+  test("an input method's preedit is drawn in place and underlined, and its words land on commit", async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+    await stillCaret();
+
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await imeCompose('abc');
+    await expect(label).toHaveValue('abc');
+
+    // The preedit is words the page draws like any others, with a rule under
+    // them: they are the input method's until the person picks one. The rule is
+    // at the bottom of the line, which for the box's 18px words is page y 391.
+    const composing = await shot(ui);
+    expect(composing.darkCount(INSIDE, DARK)).toBeGreaterThan(50);
+    const rule: Rect = { x: INSIDE.x, y: 391, width: INSIDE.width, height: 3 };
+    expect(composing.darkCount(rule, DARK)).toBeGreaterThan(10);
+
+    await imeCommit();
+    await label.press('Escape');
+    const landed = await shot(ui);
+
+    // The words land where they were drawn, and the rule under them goes. They
+    // are measured where the landed page inked them, which is clear of both the
+    // caret at their end and the rule below them.
+    expect(landed.darkCount(rule, DARK)).toBe(0);
+    const glyphs = landed.darkBounds(INSIDE, DARK) as Rect;
+    const live = composing.darkCentre(glyphs, DARK);
+    const saved = landed.darkCentre(glyphs, DARK);
+    expect(live.count).toBeGreaterThan(50);
+    expect(Math.abs(live.x - saved.x)).toBeLessThan(1);
+    expect(Math.abs(live.y - saved.y)).toBeLessThan(1);
+    expect((await savedScene(ui)).elements[0]?.label).toBe('abc');
+  });
+
   test('the canvas shows the words as they will save, on every keystroke', async ({
     app,
     browser,
@@ -1034,89 +1169,6 @@ describe('labels', () => {
     expect(await savedFiles(ui)).toEqual(before);
   });
 
-  test('the field sits under its Element, above it when there is no room, and never off the page', async ({
-    app,
-    browser,
-    screen,
-  }) => {
-    const ui = { app, browser, screen };
-    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
-
-    await doubleClickScene(ui, { x: 100, y: 80 });
-    const label = screen.getByRole('textbox', { name: 'Label' });
-    // A press is where its point lands: in the field it moves the caret, on the
-    // page it is the page's and the words end. So the points below say where the
-    // field has to be, and a field somewhere else loses its words to the canvas.
-    const press = async (where: string, x: number, y: number): Promise<void> => {
-      await browser.mouse.move(x, y);
-      await browser.mouse.down();
-      await browser.mouse.up();
-      await expect(label, where).toHaveCount(1);
-    };
-
-    // The box is at page y 340..420: the field goes under it, on the page.
-    await press('under the box', 555, 440);
-
-    // The box taken down to the page's bottom edge leaves no room under it: the
-    // field is on the page above the box rather than below it.
-    await panPage(at({ x: 100, y: 80 }), 0, 360);
-    await press('above the box', 555, 680);
-
-    // A pan that takes the box off the top of the page leaves the field behind:
-    // it stays where the page is, in the room the page has at its own top edge.
-    await panPage({ x: 900, y: 700 }, 0, -480);
-    await panPage({ x: 900, y: 700 }, 0, -480);
-    await press('the box panned off the top', 555, 25);
-
-    // A pan off the page's left edge is that edge for the field too.
-    await panPage({ x: 900, y: 400 }, -700, 0);
-    await press('the box panned off the left', 55, 25);
-
-    // And a zoom around the page's bottom edge takes the box far past the top.
-    await browser.mouse.move(640, 780);
-    await browser.mouse.wheel(0, -400);
-    await browser.mouse.wheel(0, -400);
-    await browser.mouse.wheel(0, -400);
-    await press('the box zoomed away', 55, 25);
-
-    // The words are still theirs, and nothing of the view was a Scene.
-    await expect(label).toHaveValue('');
-    await label.press('Escape');
-    expect((await savedScene(ui)).elements[0]?.x).toBe(40);
-  });
-
-  test('a ninety-line paste scrolls inside the field, which never grows past the page', async ({
-    app,
-    browser,
-    screen,
-  }) => {
-    const ui = { app, browser, screen };
-    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
-
-    await doubleClickScene(ui, { x: 100, y: 80 });
-    const label = screen.getByRole('textbox', { name: 'Label' });
-    // Ninety lines arrive at once, as a paste does: one value, one input.
-    const lines = Array.from({ length: 90 }, (_, index) => `line ${index + 1}`).join('\n');
-    await label.fill(lines);
-
-    // The end of the words is still reachable, so the field scrolls its value
-    // rather than cutting it: one more letter lands after the last line.
-    await label.pressSequentially('!');
-    await expect(label).toHaveValue(`${lines}!`);
-
-    // The field takes the page's room and no more: a press five pixels above the
-    // page's bottom edge is past a field that fits the page, so it is the
-    // canvas's press and the words land. A field that grew with the paste is
-    // still under that point.
-    await browser.mouse.move(555, PAGE.height - 5);
-    await browser.mouse.down();
-    await browser.mouse.up();
-    await expect(label).toHaveCount(0);
-    await expect(screen.getByRole('status')).toHaveText('saved');
-
-    expect((await savedScene(ui)).elements[0]?.label).toBe(`${lines}!`);
-  });
-
   test('whitespace alone is not words: it clears a Label, and is not refused', async ({
     app,
     browser,
@@ -1188,11 +1240,14 @@ describe('labels', () => {
 
     // What the page drew while the words were typed is what the Scene draws once
     // they land: the same ink in the same place, no jump as the blank line goes.
-    // The same Renderer draws both, so the two centres are the same pixel, not
-    // merely close.
+    // The same Renderer draws both, so the ink lands on the same rows; the one
+    // ink the page draws while typing and not after is the caret, and the region
+    // is mostly outline, so a caret's worth of ink moves the centre by under 4px
+    // where a line that jumped would move it by a whole line's 29.
     const live = typing.darkCentre(inside, DARK);
     expect(live.count).toBeGreaterThan(100);
-    expect(Math.abs(live.y - saved.darkCentre(inside, DARK).y)).toBeLessThan(0.5);
+    expect(Math.abs(live.y - saved.darkCentre(inside, DARK).y)).toBeLessThan(4);
+    expect(typing.bands(inside, DARK)).toBe(saved.bands(inside, DARK));
     expect((await savedScene(ui, 'blank.json')).elements[0]?.label).toBe('Keep!');
   });
 
@@ -1221,10 +1276,13 @@ describe('labels', () => {
 
     // Escape leaves the words exactly as they were, so the ink it leaves is the
     // ink the page drew while they were typed: no jump back as the session ends.
+    // As above, the caret is the one ink that goes, and it is worth under 4px of
+    // centre where a line that moved would be worth 29.
     const inside: Rect = { x: 556, y: 356, width: 184, height: 104 };
     const live = typing.darkCentre(inside, DARK);
     expect(live.count).toBeGreaterThan(100);
-    expect(Math.abs(live.y - left.darkCentre(inside, DARK).y)).toBeLessThan(0.5);
+    expect(Math.abs(live.y - left.darkCentre(inside, DARK).y)).toBeLessThan(4);
+    expect(typing.bands(inside, DARK)).toBe(left.bands(inside, DARK));
     expect(await savedFiles(ui)).toEqual(before);
   });
 });

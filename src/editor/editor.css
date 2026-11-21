@@ -238,30 +238,28 @@ esbozo-editor .rail button svg {
 esbozo-editor .rail button svg .ghost { opacity: 0.3; transform: translate(0.8px, 0.7px); }
 esbozo-editor .rail button[aria-pressed="true"] svg .ghost { opacity: 0.45; }
 
-/* the box words are typed in: a small plain field beside the Element, holding
-   the caret, the selection and an input method's preedit. It is not the words:
-   the canvas draws those, at the size and in the hand the Scene saves them in,
-   so nothing here has to line up with them and nothing here can drift. */
+/* the field words are typed in: a real textarea, so the focus, the keys, the
+   selection, the clipboard, undo, an input method and the accessibility tree
+   keep working, and nothing of what it holds is ever seen. The canvas draws the
+   words, the caret, the selection and the preedit where the Renderer put the
+   glyphs; this sits over the caret, invisible, and takes no pointer, so a press
+   in the words is the words'. */
 esbozo-editor .text-input {
   position: absolute;
   z-index: 30;
-  min-width: 12ch;
-  max-width: 40ch;
   margin: 0;
-  padding: 3px 6px;
-  border: 1px solid var(--line-strong);
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--paper) 94%, var(--ink));
-  box-shadow: 0 1px 0 var(--line), 0 8px 16px -14px var(--shadow);
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
   outline: none;
   resize: none;
-  /* a paste longer than the page scrolls here, inside the room the page has */
-  overflow-x: hidden;
-  overflow-y: auto;
-  field-sizing: content;
-  white-space: pre;
-  color: var(--ink);
-  caret-color: var(--sel);
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  caret-color: transparent;
   font-family: var(--font-ui);
   font-size: 12px;
   line-height: 1.4;
@@ -269,8 +267,41 @@ esbozo-editor .text-input {
   -webkit-user-select: text;
 }
 
-esbozo-editor .text-input:focus {
-  border-color: var(--sel);
+/* a selection inside the field must not paint itself: the canvas draws it */
+esbozo-editor .text-input::selection { background: transparent; }
+
+/* the caret, drawn on the canvas at the glyphs. It blinks from CSS, so a blink
+   costs no frame, and a person who asked for less motion keeps it still. */
+esbozo-editor .caret {
+  fill: var(--sel);
+  animation: esbozo-caret-blink 1.06s steps(1, end) infinite;
+}
+
+@keyframes esbozo-caret-blink {
+  0%, 50% { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  esbozo-editor .caret { animation: none; opacity: 1; }
+}
+
+/* what the selection covers, behind the glyphs, and the preedit an input method
+   is still composing: the words are drawn already, so the rule beneath them is
+   what says they are not confirmed yet */
+esbozo-editor .words-selection {
+  fill: color-mix(in srgb, var(--sel) 22%, transparent);
+  pointer-events: none;
+}
+
+esbozo-editor .preedit {
+  fill: color-mix(in srgb, var(--sel) 10%, transparent);
+  pointer-events: none;
+}
+
+esbozo-editor .preedit-rule {
+  fill: var(--sel);
+  pointer-events: none;
 }
 
 /* a Label that does not fit its Element, on the rule `ez check` reports */

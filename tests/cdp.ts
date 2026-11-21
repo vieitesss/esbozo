@@ -19,6 +19,10 @@
  *   words that were never confirmed.
  * - **A slow machine.** `Emulation.setCPUThrottlingRate` is how a perf budget
  *   is measured against a 4× slower CPU than this one.
+ * - **A still caret.** A blinking caret is caught by a screenshot in either half
+ *   of its blink, so a pixel test cannot say where it is; the page draws it still
+ *   when the person asked for less motion (`prefers-reduced-motion: reduce`),
+ *   and `stillCaret` asks for exactly that.
  *
  * Driving the page out of band is what the engine documents `surfaceOf` for: the
  * harness stays the notary for what it witnesses, and a test that needs more
@@ -186,4 +190,17 @@ export async function imeCommit(chosen?: string): Promise<void> {
 export async function throttleCpu(rate: number): Promise<void> {
   const cdp = await session();
   await cdp.send('Emulation.setCPUThrottlingRate', { rate });
+}
+
+/**
+ * Stops the caret's blink for the rest of the attempt: the page keeps the caret
+ * still when the person asked for less motion, and a still caret is the one
+ * picture a pixel test can measure. It is a media query, not an editor setting,
+ * so nothing of the page's own state is reached into.
+ */
+export async function stillCaret(): Promise<void> {
+  const cdp = await session();
+  await cdp.send('Emulation.setEmulatedMedia', {
+    features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+  });
 }
