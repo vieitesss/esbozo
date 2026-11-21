@@ -2,8 +2,8 @@
  * Seam 2: a saved `.svg` opened on its own, in a browser.
  *
  * `ez render` writes the file a person opens by double-clicking it, drops into
- * an `<img>` or commits beside a README. Nothing around that document declares
- * a CSS variable, so every colour it paints is the fallback the Renderer writes
+ * an `<img>` or commits beside a README. Nothing around that file declares a
+ * CSS variable, so every colour it paints is the fallback the Renderer writes
  * with each `var()`: paper stays paper, ink stays visible. The page here is
  * that file alone, served as `image/svg+xml` and opened at the top of the
  * window, so no host stylesheet can answer for a variable the drawing names.
@@ -82,8 +82,7 @@ test('a saved SVG opened on its own paints paper, keeps its strokes and reads it
     // draws this edge at all.
     expect(view.darkCount(INK_OUTLINE, DARK)).toBeGreaterThan(50);
 
-    // And the words: `fill="var(--ink)"` on its own paints nothing a browser
-    // can colour, so they are missing or black.
+    // And the words carry a fill a browser can paint, so the glyphs are drawn.
     expect(view.darkCount(INK_WORDS, DARK)).toBeGreaterThan(20);
 
     // A grey-6 fill is the ink itself, and it is ink, not the page's white.
