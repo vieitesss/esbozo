@@ -41,6 +41,8 @@ export default {
         // Port 0 asks e2e for a free port and fills it into `{port}`, so parallel
         // worktrees never share a server and a stale one is never reused.
         url: 'http://127.0.0.1:0',
+        // Copy and paste are part of what these tests drive.
+        permissions: { 'clipboard-read': 'grant', 'clipboard-write': 'grant' },
         command: {
           executable: process.execPath,
           args: ['scripts/serve.mjs', 'dist', '{port}'],

@@ -325,7 +325,10 @@ export interface SavedElement {
   width?: number;
   height?: number;
   content?: string;
-  points?: Array<{ x: number; y: number }>;
+  points?: Array<{ x: number; y: number; snap?: string }>;
+  fill?: { kind: string; grey: number };
+  stroke?: { width: string; style: string };
+  tone?: string;
 }
 
 export interface SavedScene {
