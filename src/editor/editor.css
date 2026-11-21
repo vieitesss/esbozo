@@ -282,7 +282,9 @@ esbozo-editor::before {
   font-size: 11.5px;
 }
 
-.note::before {
+/* a strip of tape across the top of each note */
+.note::before,
+.style-note::before {
   content: "";
   position: absolute;
   left: 50%;
@@ -372,20 +374,6 @@ esbozo-editor::before {
   border-radius: 4px;
   box-shadow: 0 1px 0 var(--line), 0 14px 26px -16px var(--shadow), 2px 3px 0 -1px var(--line);
   font-size: 11.5px;
-}
-
-/* a strip of tape across the top, as on the Scenes note */
-.style-note::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: -9px;
-  width: 62px;
-  height: 17px;
-  transform: translateX(-50%) rotate(1.6deg);
-  background: var(--tape);
-  border-left: 1px dashed color-mix(in srgb, var(--ink) 12%, transparent);
-  border-right: 1px dashed color-mix(in srgb, var(--ink) 12%, transparent);
 }
 
 /* scroll rather than overflow a short window, and drop the tape so it is not clipped */

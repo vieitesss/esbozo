@@ -224,6 +224,8 @@ export const EDGE: View = { zoom: 1, panX: 210, panY: 320 };
 /** The view `EDGE_SCENE` lands in at 1366×768, for the window the note must fit. */
 export const EDGE_1366: View = { zoom: 1, panX: 253, panY: 304 };
 
+
+
 /** A Scene the validator rejects: `box-a` has no width. */
 export const BROKEN_SCENE = {
   version: 1,

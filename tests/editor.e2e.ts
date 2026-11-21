@@ -537,9 +537,25 @@ describe('a page that starts in system dark', () => {
   });
 });
 
-/** A row of the Style menu, by the name it gives its buttons. */
+/**
+ * One control of the Style menu, by the name it gives itself: the row's name
+ * and the value's, so a test asks for the button a person clicks and never for
+ * the markup around it. A control that is not offered has no such button.
+ */
+function control(ui: Ui, name: string) {
+  return ui.screen.getByRole('button', { name });
+}
+
+/** A row of the Style menu, for the plain words it shows beside its buttons. */
 function row(ui: Ui, name: string) {
   return ui.screen.getByRole('group', name);
+}
+
+/** None of these controls is offered: the buttons themselves are absent. */
+async function expectNoControl(ui: Ui, names: readonly string[]): Promise<void> {
+  for (const name of names) {
+    expect(await control(ui, name).count(), name).toBe(0);
+  }
 }
 
 test('the Style menu is open only while something is selected', async ({ app, browser, screen }) => {
@@ -562,13 +578,13 @@ test('every style control changes the selected Element in the saved Scene', asyn
 
   // One pick per row, each its own autosaved edit; the Scene after all of them
   // is what proves none was lost or written over another.
-  await row(ui, 'Rough').getByRole('button', 'cartoonist').click();
-  await row(ui, 'Stroke').getByRole('button', 'extra').click();
-  await row(ui, 'Line').getByRole('button', 'dotted').click();
-  await row(ui, 'Fill').getByRole('button', 'cross').click();
-  await row(ui, 'Grey').getByRole('button', 'grey 5').click();
-  await row(ui, 'Tone').getByRole('button', 'muted').click();
-  await row(ui, 'Corners').getByRole('button', 'round').click();
+  await control(ui, 'Rough: cartoonist').click();
+  await control(ui, 'Stroke: extra').click();
+  await control(ui, 'Line: dotted').click();
+  await control(ui, 'Fill: cross').click();
+  await control(ui, 'Grey: grey 5').click();
+  await control(ui, 'Tone: muted').click();
+  await control(ui, 'Corners: round').click();
 
   const scene = await savedScene(ui);
   const box = scene.elements.find((element) => element.id === 'a');
@@ -601,14 +617,18 @@ test('the menu offers only the controls the selection can use', async ({ app, br
 
   // An arrow is a stroke: heads, no fill, no corners, nothing to roughen.
   await clickScene(ui, { x: 200, y: 280 }, [], MIXED);
-  await expect(row(ui, 'Head ←')).toBeVisible();
-  await expect(row(ui, 'Head →')).toBeVisible();
-  expect(await row(ui, 'Fill').count()).toBe(0);
-  expect(await row(ui, 'Grey').count()).toBe(0);
-  expect(await row(ui, 'Corners').count()).toBe(0);
+  await expect(control(ui, 'Head ←: dot')).toBeVisible();
+  await expect(control(ui, 'Head →: bar')).toBeVisible();
+  await expect(control(ui, 'Rough: cartoonist')).toBeVisible();
+  await expectNoControl(ui, [
+    'Fill: hachure',
+    'Grey: grey 5',
+    'Corners: round',
+    'Align: left',
+  ]);
 
-  await row(ui, 'Head ←').getByRole('button', 'dot').click();
-  await row(ui, 'Head →').getByRole('button', 'bar').click();
+  await control(ui, 'Head ←: dot').click();
+  await control(ui, 'Head →: bar').click();
   let scene = await savedScene(ui);
   expect(scene.elements.find((element) => element.id === 'shaft')?.heads).toEqual({
     start: 'dot',
@@ -617,19 +637,38 @@ test('the menu offers only the controls the selection can use', async ({ app, br
 
   // A Text is only words: no stroke to widen, but a size and an alignment.
   await clickScene(ui, { x: 277, y: 110 }, [], MIXED);
-  await expect(row(ui, 'Size')).toBeVisible();
-  await expect(row(ui, 'Align')).toBeVisible();
-  expect(await row(ui, 'Rough').count()).toBe(0);
-  expect(await row(ui, 'Stroke').count()).toBe(0);
+  await expect(control(ui, 'Size: L')).toBeVisible();
+  await expect(control(ui, 'Align: centre')).toBeVisible();
+  await expectNoControl(ui, ['Rough: cartoonist', 'Stroke: extra']);
 
-  await row(ui, 'Size').getByRole('button', 'L').click();
-  await row(ui, 'Align').getByRole('button', 'centre').click();
+  await control(ui, 'Size: L').click();
+  await control(ui, 'Align: centre').click();
   scene = await savedScene(ui);
   const word = scene.elements.find((element) => element.id === 'word');
   expect({ fontSize: word?.fontSize, textAlign: word?.textAlign }).toEqual({
     fontSize: 'L',
     textAlign: 'center',
   });
+});
+
+test('Align is offered for words and boxes, and hidden when the selection holds a shaft', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': MIXED_SOURCE } }, 'scene.json');
+
+  // An ellipse's Label and a Text both take an alignment: no shaft is selected.
+  await clickScene(ui, { x: 120, y: 110 }, [], MIXED);
+  await clickScene(ui, { x: 277, y: 110 }, ['Shift'], MIXED);
+  await expect(control(ui, 'Align: right')).toBeVisible();
+  await control(ui, 'Align: right').click();
+  const scene = await savedScene(ui);
+  const saved = new Map(scene.elements.map((element) => [element.id, element]));
+  expect([saved.get('oval')?.textAlign, saved.get('word')?.textAlign]).toEqual(['right', 'right']);
+
+  // Adding the arrow takes Align away: a shaft's Label is always centred, so
+  // the pick would save a value the drawing never shows. Size still applies.
+  await clickScene(ui, { x: 200, y: 280 }, ['Shift'], MIXED);
+  await expectNoControl(ui, ['Align: left', 'Align: centre', 'Align: right']);
+  await expect(control(ui, 'Size: L')).toBeVisible();
 });
 
 test('a pick writes to every selected Element, and a row that shares no value says mixed', async ({ app, browser, screen }) => {
@@ -639,13 +678,13 @@ test('a pick writes to every selected Element, and a row that shares no value sa
   await clickScene(ui, { x: 250, y: 110 }, ['Shift']);
 
   // `a` and `b` are both bold and sharp, and disagree on line and tone.
-  await expect(row(ui, 'Rough').getByRole('button', 'artist', { pressed: true })).toBeVisible();
+  await expect(control(ui, 'Rough: artist')).toHaveAttribute('aria-pressed', 'true');
   await expect(row(ui, 'Line').getByText('mixed')).toBeVisible();
   await expect(row(ui, 'Tone').getByText('mixed')).toBeVisible();
-  expect(await row(ui, 'Line').getByRole('button', 'solid', { pressed: true }).count()).toBe(0);
+  await expect(control(ui, 'Line: solid')).not.toHaveAttribute('aria-pressed', 'true');
 
-  await row(ui, 'Tone').getByRole('button', 'ink').click();
-  await row(ui, 'Line').getByRole('button', 'dotted').click();
+  await control(ui, 'Tone: ink').click();
+  await control(ui, 'Line: dotted').click();
 
   const scene = await savedScene(ui);
   const saved = new Map(scene.elements.map((element) => [element.id, element]));
@@ -680,17 +719,16 @@ test('the docked note never covers the selection: the view pans clear of it', as
   // The right-hand box sits under where the note will dock.
   await clickScene(ui, { x: 760, y: 80 }, [], EDGE);
   await expect(ui.screen.getByRole('dialog', 'Style')).toBeVisible();
-  const note = await ui.screen.getByRole('dialog', 'Style').boundingBox();
-  expect(note).not.toBeNull();
+
+  // Panning is a view change, so the Scene on disk is untouched. Whether the
+  // ink ends up clear of the note is a judgement of the painted page, made in
+  // `tests/visual.e2e.ts`: the note is opaque, so pixels cannot see behind it.
+  expect((await savedFiles(ui))['edge.json']).toBe(EDGE_SOURCE);
 
   const after = (await shot(ui)).darkCentre(LEFT_OF_NOTE, 0.6);
   expect(after.count).toBeGreaterThan(0);
-  // The box moved left far enough that its right edge is off the note.
+  // The box moved left, which is what makes room for the note.
   expect(after.x).toBeLessThan(before.x - 20);
-  expect(after.x + 60).toBeLessThan(note?.x ?? Number.POSITIVE_INFINITY);
-
-  // Panning is a view change: the Scene on disk is untouched.
-  expect((await savedFiles(ui))['edge.json']).toBe(EDGE_SOURCE);
 });
 
 test('the docked note fits a 1366×768 window', async ({ app, browser, screen }) => {
@@ -701,14 +739,13 @@ test('the docked note fits a 1366×768 window', async ({ app, browser, screen })
   // A rectangle shows the longest set of rows: look, fill, greys, corners, words.
   await clickScene(ui, { x: 80, y: 70 }, [], EDGE_1366);
   await expect(ui.screen.getByRole('dialog', 'Style')).toBeVisible();
-  const note = await ui.screen.getByRole('dialog', 'Style').boundingBox();
-  expect(note).not.toBeNull();
-  const box = note!;
-  expect(box.y).toBeGreaterThanOrEqual(0);
-  expect(box.x + box.width).toBeLessThanOrEqual(1366);
-  expect(box.y + box.height).toBeLessThanOrEqual(768);
-  await expect(row(ui, 'Corners')).toBeVisible();
-  await expect(row(ui, 'Order')).toBeVisible();
+
+  // Every row is offered, the last one included, and the note needed no zoom to
+  // make room in this window. That its whole shape sits inside the window is a
+  // judgement of the painted page, in `tests/visual.e2e.ts`.
+  await expect(control(ui, 'Corners: sharp')).toBeVisible();
+  await expect(control(ui, 'Order: front')).toBeVisible();
+  await expect(ui.screen.getByText(/^\d+%$/)).toHaveText('100%');
 });
 
 test('Arrange moves the selection through the layers and leaves its geometry alone', async ({ app, browser, screen }) => {
@@ -719,16 +756,16 @@ test('Arrange moves the selection through the layers and leaves its geometry alo
   await clickScene(ui, { x: 200, y: 220 }, [], THREE);
   const ids = async () => (await savedScene(ui, 'three.json')).elements.map((element) => element.id);
 
-  await row(ui, 'Order').getByRole('button', 'front').click();
+  await control(ui, 'Order: front').click();
   expect(await ids()).toEqual(['p', 'r', 'q']);
 
-  await row(ui, 'Order').getByRole('button', 'back').click();
+  await control(ui, 'Order: back').click();
   expect(await ids()).toEqual(['q', 'p', 'r']);
 
-  await row(ui, 'Order').getByRole('button', 'forward').click();
+  await control(ui, 'Order: forward').click();
   expect(await ids()).toEqual(['p', 'q', 'r']);
 
-  await row(ui, 'Order').getByRole('button', 'backward').click();
+  await control(ui, 'Order: backward').click();
   expect(await ids()).toEqual(['q', 'p', 'r']);
 
   // Layer order is not geometry: every box keeps the box it had.
@@ -754,44 +791,44 @@ test('Arrange lines the selection up on each edge and in each middle', async ({ 
 
   // A box around all three, clear of the rail and the note.
   await drag(ui, at({ x: 10, y: 10 }, THREE), at({ x: 490, y: 270 }, THREE));
-  await expect(row(ui, 'Arrange')).toBeVisible();
+  await expect(control(ui, 'Arrange: left')).toBeVisible();
 
-  await row(ui, 'Arrange').getByRole('button', 'left').click();
+  await control(ui, 'Arrange: left').click();
   expect(await corners()).toEqual([
     [40, 40],
     [40, 200],
     [40, 100],
   ]);
 
-  await row(ui, 'Arrange').getByRole('button', 'right').click();
+  await control(ui, 'Arrange: right').click();
   expect(await corners()).toEqual([
     [40, 40],
     [60, 200],
     [80, 100],
   ]);
 
-  await row(ui, 'Arrange').getByRole('button', 'top').click();
+  await control(ui, 'Arrange: top').click();
   expect(await corners()).toEqual([
     [40, 40],
     [60, 40],
     [80, 40],
   ]);
 
-  await row(ui, 'Arrange').getByRole('button', 'bottom').click();
+  await control(ui, 'Arrange: bottom').click();
   expect(await corners()).toEqual([
     [40, 40],
     [60, 60],
     [80, 40],
   ]);
 
-  await row(ui, 'Arrange').getByRole('button', 'centre').click();
+  await control(ui, 'Arrange: centre').click();
   expect(await corners()).toEqual([
     [40, 40],
     [50, 60],
     [60, 40],
   ]);
 
-  await row(ui, 'Arrange').getByRole('button', 'middle').click();
+  await control(ui, 'Arrange: middle').click();
   expect(await corners()).toEqual([
     [40, 40],
     [50, 50],
@@ -807,10 +844,10 @@ test('Arrange spreads the selection with equal gaps on each axis', async ({ app,
 
   // Left to right: 40, 400 and 40 wide 100, 80, 60. The outer two stay put and
   // the gaps even out at 90, so the middle one moves from 160 to 230.
-  await row(ui, 'Spread').getByRole('button', 'horizontal').click();
+  await control(ui, 'Spread: horizontal').click();
   // Top to bottom: 40, 100 and 200 tall 60, 60, 40; the gaps even out at 20, so
   // the middle of the three moves from 100 to 120.
-  await row(ui, 'Spread').getByRole('button', 'vertical').click();
+  await control(ui, 'Spread: vertical').click();
 
   const scene = await savedScene(ui, 'three.json');
   const saved = new Map(scene.elements.map((element) => [element.id, element]));
@@ -820,3 +857,4 @@ test('Arrange spreads the selection with equal gaps on each axis', async ({ app,
     [400, 120],
   ]);
 });
+

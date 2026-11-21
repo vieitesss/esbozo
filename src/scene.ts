@@ -78,35 +78,39 @@
  * memory (the editor assigns `x = 40.2`) saves, hashes and draws as the Scene
  * that reopens. Characters XML cannot represent are rejected here, because the
  * title and the Text content end up in the SVG.
+ *
+ * The values and ranges below are the schema's, and they are exported: the
+ * Style menu offers exactly what a Scene may hold and keeps only the words a
+ * person reads, so a control can never save a value the file would reject.
  */
 import { sha256, sha256Hex } from './sha256.js';
 
 const SCENE_VERSION = 1;
 
-const STROKE_WIDTHS = ['thin', 'bold', 'extra'] as const;
+export const STROKE_WIDTHS = ['thin', 'bold', 'extra'] as const;
 export type StrokeWidth = (typeof STROKE_WIDTHS)[number];
 
-const STROKE_STYLES = ['solid', 'dashed', 'dotted'] as const;
+export const STROKE_STYLES = ['solid', 'dashed', 'dotted'] as const;
 export type StrokeStyle = (typeof STROKE_STYLES)[number];
 
 /** `none` draws no fill. `hachure` and `cross-hatch` are hand-drawn lines (Rough.js), `solid` is a flat wash. */
-const FILL_KINDS = ['none', 'solid', 'hachure', 'cross-hatch'] as const;
+export const FILL_KINDS = ['none', 'solid', 'hachure', 'cross-hatch'] as const;
 export type FillKind = (typeof FILL_KINDS)[number];
 
 /** Colours are never spelled out: they come from the host's CSS variables. */
-const TONES = ['ink', 'muted'] as const;
+export const TONES = ['ink', 'muted'] as const;
 export type Tone = (typeof TONES)[number];
 
-const CORNERS = ['sharp', 'round'] as const;
+export const CORNERS = ['sharp', 'round'] as const;
 export type Corners = (typeof CORNERS)[number];
 
-const FONT_SIZES = ['S', 'M', 'L', 'XL'] as const;
+export const FONT_SIZES = ['S', 'M', 'L', 'XL'] as const;
 export type FontSize = (typeof FONT_SIZES)[number];
 
-const TEXT_ALIGNS = ['left', 'center', 'right'] as const;
+export const TEXT_ALIGNS = ['left', 'center', 'right'] as const;
 export type TextAlign = (typeof TEXT_ALIGNS)[number];
 
-const HEADS = ['none', 'arrow', 'dot', 'bar'] as const;
+export const HEADS = ['none', 'arrow', 'dot', 'bar'] as const;
 export type Head = (typeof HEADS)[number];
 
 /**
@@ -114,8 +118,8 @@ export type Head = (typeof HEADS)[number];
  * and 2 cartoonist. The number keeps the Scene short and lets the editor step
  * through the looks; the names live in the docs and the Style menu.
  */
-const ROUGHNESS_MIN = 0;
-const ROUGHNESS_MAX = 2;
+export const ROUGHNESS_MIN = 0;
+export const ROUGHNESS_MAX = 2;
 
 const ELEMENT_TYPES = ['rectangle', 'ellipse', 'diamond', 'arrow', 'line', 'text'] as const;
 
@@ -128,8 +132,8 @@ export function isOutlined(element: Element): element is OutlinedElement {
 }
 
 /** The seven-grey ladder runs from paper (0) to ink (6). */
-const GREY_MIN = 0;
-const GREY_MAX = 6;
+export const GREY_MIN = 0;
+export const GREY_MAX = 6;
 
 export interface Stroke {
   width: StrokeWidth;

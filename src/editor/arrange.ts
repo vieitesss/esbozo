@@ -32,6 +32,19 @@ export type ArrangeAct =
 /** Where an Element covers, in Scene units. */
 export type BoundsOf = (element: Element) => Box;
 
+/** Whether Arrange may move this Element: a Snapped end follows its target by itself. */
+export function movable(element: Element): boolean {
+  if (element.type === 'arrow' || element.type === 'line') {
+    return element.points.every((point) => point.snap === undefined);
+  }
+  return true;
+}
+
+/** How many of these Elements Arrange can move at all. */
+export function movableCount(elements: readonly Element[]): number {
+  return elements.filter(movable).length;
+}
+
 /** The Element list after an arrange action. Layer order is list order. */
 export function arranged(
   elements: readonly Element[],

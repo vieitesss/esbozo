@@ -4,16 +4,21 @@
  * One function returns the note's markup for a selection, and the editor swaps
  * it in when the selection or its style changes. Buttons carry what they do in
  * their dataset: `data-style` and `data-value` pick a style (see `style.ts`),
- * `data-act` rearranges (see `arrange.ts`). Nothing here reads or writes the
- * Scene, so the menu can be rebuilt at any time without losing an edit.
+ * `data-act` rearranges (see `arrange.ts`). Each button also names itself, the
+ * row and the value together, so a control is known by what it says rather than
+ * by the markup around it. Nothing here reads or writes the Scene, so the menu
+ * can be rebuilt at any time without losing an edit.
  *
  * The note is shorter than the prototype's: rows are grouped into the Element's
  * look, its words and Arrange, so a whole selection's controls fit a 768px-high
  * window. A group only shows the controls every selected Element can use, and a
- * row whose Elements share no value says `mixed`.
+ * row whose Elements share no value says `mixed`. An Arrange button whose
+ * action has nothing it can move is offered disabled, rather than silently
+ * saving nothing.
  */
 import { greyColour } from '../renderer.js';
 import type { Element } from '../scene.js';
+import { movableCount } from './arrange.js';
 import type { ArrangeAct } from './arrange.js';
 import { controlsFor, roughnessLabel, sharedValue } from './style.js';
 import type { StyleControl } from './style.js';
@@ -37,15 +42,24 @@ export function styleNote(elements: readonly Element[]): string {
     elements.length === 1
       ? `<div class="head"><b>${TYPE_NAMES[first.type]}</b><span>${escapeHtml(first.id)}</span></div>`
       : `<div class="head"><b>${elements.length} Elements</b><span>multiple</span></div>`;
-  return `${head}${styleRows(elements)}${arrangeRows(elements.length)}`;
+  return `${head}${styleRows(elements)}${arrangeRows(elements)}`;
 }
 
 /**
- * A rebuild key for the note: the selection's ids, types and styles, in order.
- * A drag that changes none of them leaves the markup alone.
+ * A rebuild key for the note: the fields the note renders, and nothing else.
+ * Moving or resizing an Element leaves every one of them alone, so a drag that
+ * changes no style leaves the markup as it is.
  */
 export function menuSignature(elements: readonly Element[]): string {
-  return JSON.stringify(elements);
+  const first = elements[0];
+  if (first === undefined) {
+    return '';
+  }
+  const head = elements.length === 1 ? `${first.type}:${first.id}` : `${elements.length}`;
+  const styles = controlsFor(elements).map(
+    (control) => `${control.key}=${sharedValue(elements, control.key) ?? 'mixed'}`,
+  );
+  return `${head}|${movableCount(elements)}|${styles.join(',')}`;
 }
 
 /** The status bar's Scene-wide default, in the hand: `rough · artist`. */
@@ -73,30 +87,43 @@ function controlRow(control: StyleControl, elements: readonly Element[]): string
   );
 }
 
+/** One button, named by its row and its value: `Grey: grey 6`. */
+function buttonName(label: string, choice: string): string {
+  return `${label}: ${choice}`;
+}
+
 function choiceButton(
   control: StyleControl,
   value: string,
   label: string,
   pressed: boolean,
 ): string {
-  const state = ` data-style="${control.key}" data-value="${value}" aria-pressed="${pressed}"`;
+  const state =
+    ` data-style="${control.key}" data-value="${value}" aria-pressed="${pressed}"` +
+    ` aria-label="${buttonName(control.label, label)}"`;
   if (control.swatches === true) {
     const colour = greyColour(Number(value));
-    return `<button type="button" class="swatch"${state} aria-label="${label}" title="${label}" style="background: ${colour}"></button>`;
+    return `<button type="button"${state} title="${label}" style="background: ${colour}"></button>`;
   }
   return `<button type="button"${state}>${label}</button>`;
 }
 
-function arrangeRows(count: number): string {
+/**
+ * The Arrange rows. Order is always there; aligning needs two Elements and
+ * spreading three, and each row's buttons are disabled when too few of the
+ * selected Elements can move for the action to mean anything.
+ */
+function arrangeRows(elements: readonly Element[]): string {
+  const movable = movableCount(elements);
   const rows = [
     actRow('Order', [
       { act: 'order-back', label: 'back' },
       { act: 'order-backward', label: 'backward' },
       { act: 'order-forward', label: 'forward' },
       { act: 'order-front', label: 'front' },
-    ]),
+    ], true),
   ];
-  if (count >= 2) {
+  if (elements.length >= 2) {
     rows.push(
       actRow('Arrange', [
         { act: 'align-left', label: 'left' },
@@ -105,23 +132,32 @@ function arrangeRows(count: number): string {
         { act: 'align-top', label: 'top' },
         { act: 'align-middle', label: 'middle' },
         { act: 'align-bottom', label: 'bottom' },
-      ]),
+      ], movable >= 2),
     );
   }
-  if (count >= 3) {
+  if (elements.length >= 3) {
     rows.push(
       actRow('Spread', [
         { act: 'distribute-horizontal', label: 'horizontal' },
         { act: 'distribute-vertical', label: 'vertical' },
-      ]),
+      ], movable >= 3),
     );
   }
   return `<div class="group">${rows.join('')}</div>`;
 }
 
-function actRow(label: string, buttons: readonly { act: ArrangeAct; label: string }[]): string {
+function actRow(
+  label: string,
+  buttons: readonly { act: ArrangeAct; label: string }[],
+  enabled: boolean,
+): string {
   const markup = buttons
-    .map((button) => `<button type="button" data-act="${button.act}">${button.label}</button>`)
+    .map(
+      (button) =>
+        `<button type="button" data-act="${button.act}"` +
+        `${enabled ? '' : ' disabled'} aria-label="${buttonName(label, button.label)}">` +
+        `${button.label}</button>`,
+    )
     .join('');
   return (
     `<div class="row"><span class="row-label">${label}</span>` +
