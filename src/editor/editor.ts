@@ -220,6 +220,10 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#files.addEventListener('click', this.#onFileClick);
     document.addEventListener('keydown', this.#onKeyDown);
     document.addEventListener('keyup', this.#onKeyUp);
+    // A Space held while the page loses the focus never sends its release: the
+    // pan has to end here, or the pointer stays a hand on the way back.
+    document.addEventListener('visibilitychange', this.#endSpacePan);
+    window.addEventListener('blur', this.#endSpacePan);
     window.addEventListener('resize', this.#onResize);
 
     requestAnimationFrame(() => this.#drawRailArt());
@@ -233,7 +237,9 @@ export class EsbozoEditorElement extends HTMLElement {
     document.removeEventListener('paste', this.#onPaste);
     document.removeEventListener('keydown', this.#onKeyDown);
     document.removeEventListener('keyup', this.#onKeyUp);
+    document.removeEventListener('visibilitychange', this.#endSpacePan);
     window.removeEventListener('resize', this.#onResize);
+    window.removeEventListener('blur', this.#endSpacePan);
   }
 
   /**
@@ -1056,10 +1062,18 @@ export class EsbozoEditorElement extends HTMLElement {
 
   #onKeyUp = (event: KeyboardEvent): void => {
     if (event.key === ' ' || event.code === 'Space') {
-      this.#spaceDown = false;
-      this.#canvas.classList.remove('hand');
-      this.#canvas.classList.toggle('pen', this.#tool !== 'select');
+      this.#endSpacePan();
     }
+  };
+
+  /** End a Space pan: the key came up, or the page lost the focus that held it. */
+  #endSpacePan = (): void => {
+    if (!this.#spaceDown) {
+      return;
+    }
+    this.#spaceDown = false;
+    this.#canvas.classList.remove('hand');
+    this.#canvas.classList.toggle('pen', this.#tool !== 'select');
   };
 
   #onResize = (): void => {
