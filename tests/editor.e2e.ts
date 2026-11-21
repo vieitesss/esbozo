@@ -1553,6 +1553,39 @@ test('the status line keeps the Scene top left, the view bottom left and no mode
   expect((await shot(ui)).darkCount(BOTTOM_MIDDLE, 0.6)).toBe(0);
 });
 
+test('the ? button opens the Shortcuts sheet, and Escape shuts it', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+  // The keys are no longer a permanent row under the page: nothing on the page
+  // says them until the sheet is asked for.
+  await expect(ui.screen.getByText(/Q commands/)).toHaveCount(0);
+
+  const help = ui.screen.getByRole('button', 'Shortcuts');
+  const sheet = ui.screen.getByRole('dialog', 'Shortcuts');
+  await expect(help).toHaveAttribute('aria-expanded', 'false');
+  await expect(sheet).toBeHidden();
+
+  // A selection first, because opening the sheet is not allowed to change it.
+  await clickScene(ui, { x: 100, y: 80 });
+  await expect(ui.screen.getByRole('dialog', 'Style')).toBeVisible();
+
+  await help.click();
+  await expect(help).toHaveAttribute('aria-expanded', 'true');
+  await expect(sheet).toBeVisible();
+  // The same five keys the hint row named, each with what it does.
+  for (const key of ['Space', 'wheel', '⌘ +/−', 'G', 'Q']) {
+    await expect(sheet).toContainText(key);
+  }
+
+  // The sheet is the topmost thing the page opened: its Escape shuts it, leaves
+  // the selection alone, and the next Escape is the page's as it always was.
+  await ui.browser.keyboard.press('Escape');
+  await expect(sheet).toBeHidden();
+  await expect(help).toHaveAttribute('aria-expanded', 'false');
+  await expect(ui.screen.getByRole('dialog', 'Style')).toBeVisible();
+});
+
 test('the docked note never covers the selection: the view pans clear of it', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'edge.json': EDGE_SOURCE } }, 'edge.json');

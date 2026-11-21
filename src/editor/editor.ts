@@ -128,6 +128,8 @@ class EsbozoEditorElement extends HTMLElement {
   #savedLabel!: HTMLElement;
   #menu!: HTMLElement;
   #roughButton!: HTMLButtonElement;
+  #sheet!: HTMLElement;
+  #helpButton!: HTMLButtonElement;
   #palette!: CommandPalette;
 
   /**
@@ -213,6 +215,8 @@ class EsbozoEditorElement extends HTMLElement {
     this.#savedLabel = this.querySelector('.saved')!;
     this.#menu = this.querySelector('.style-note')!;
     this.#roughButton = this.querySelector('[data-act="roughness"]')!;
+    this.#sheet = this.querySelector('.shortcuts')!;
+    this.#helpButton = this.querySelector('[data-act="shortcuts"]')!;
     this.#palette = new CommandPalette({
       root: this.querySelector('.palette')!,
       state: () => this.#actionState(),
@@ -363,6 +367,9 @@ class EsbozoEditorElement extends HTMLElement {
     // A Space held while the page loses the focus never sends its release: the
     // pan has to end here, or the pointer stays a hand on the way back.
     document.addEventListener('pointerdown', this.#gestures.anyPress);
+    // After it, so the press that shuts the sheet still reaches the page it
+    // landed on: a person pressing the canvas has asked for the canvas too.
+    document.addEventListener('pointerdown', this.#shutSheetOnPress);
     document.addEventListener('visibilitychange', this.#gestures.release);
     window.addEventListener('blur', this.#gestures.release);
     window.addEventListener('resize', this.#onResize);
@@ -382,6 +389,7 @@ class EsbozoEditorElement extends HTMLElement {
     document.removeEventListener('keydown', this.#onKeyDown);
     document.removeEventListener('keyup', this.#onKeyUp);
     document.removeEventListener('pointerdown', this.#gestures.anyPress);
+    document.removeEventListener('pointerdown', this.#shutSheetOnPress);
     document.removeEventListener('visibilitychange', this.#gestures.release);
     this.#rail.removeEventListener('click', this.#onRailClick);
     this.#menu.removeEventListener('click', this.#onMenuClick);
@@ -443,6 +451,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#history.reset(serialiseScene(this.#scene));
     this.#menu.hidden = true;
     this.#note.hidden = true;
+    this.#showSheet(false);
     this.#whereLabel.textContent = '';
     this.#setSaved('idle');
     this.#page.paint();
@@ -1185,6 +1194,13 @@ class EsbozoEditorElement extends HTMLElement {
       }
       return;
     }
+    if (!this.#sheet.hidden && event.key === 'Escape') {
+      // The sheet is the topmost thing the page opened: its Escape shuts it and
+      // leaves the Scene's selection where the person left it.
+      event.preventDefault();
+      this.#showSheet(false);
+      return;
+    }
     if (event.key === 'Escape' && this.#gestures.drag?.kind === 'label') {
       // Half a Label is not a Scene: Escape drops the words back to the place the
       // Scene holds, and the release that follows settles nothing. It answers
@@ -1321,7 +1337,32 @@ class EsbozoEditorElement extends HTMLElement {
       this.#toggleGrid();
     } else if (action === 'roughness') {
       this.#stepDefaultRoughness();
+    } else if (action === 'shortcuts') {
+      this.#showSheet(this.#sheet.hidden);
     }
+  };
+
+  /**
+   * The Shortcuts sheet: a note laid over the page, open while the `?` says so.
+   * It takes no keys of its own and holds no focus, so the only way it is open is
+   * the button that names it, and the only ways it shuts are Escape, the button
+   * again, and a press anywhere else on the page.
+   */
+  #showSheet(open: boolean): void {
+    this.#sheet.hidden = !open;
+    this.#helpButton.setAttribute('aria-expanded', String(open));
+  }
+
+  /** A press outside the sheet shuts it, and still lands where it was aimed. */
+  #shutSheetOnPress = (event: PointerEvent): void => {
+    if (this.#sheet.hidden) {
+      return;
+    }
+    const target = event.target as Node | null;
+    if (target !== null && (this.#sheet.contains(target) || this.#helpButton.contains(target))) {
+      return;
+    }
+    this.#showSheet(false);
   };
 
   /**

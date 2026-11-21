@@ -49,7 +49,19 @@ export const SHELL = `
     <button type="button" data-act="roughness" title="Scene default roughness for new Elements"></button>
     <span class="zoom">100%</span>
   </div>
-  <span class="hint">Space pan · wheel zoom · ⌘ +/− · G Grid · Q commands</span>
+  <div class="corner-help">
+    <div class="shortcuts" role="dialog" aria-label="Shortcuts" hidden>
+      <h4>Shortcuts</h4>
+      <dl class="keys">
+        <dt>Space</dt><dd>pan · middle-click too</dd>
+        <dt>wheel</dt><dd>zoom</dd>
+        <dt>⌘ +/−</dt><dd>zoom</dd>
+        <dt>G</dt><dd>Grid</dd>
+        <dt>Q</dt><dd>commands</dd>
+      </dl>
+    </div>
+    <button type="button" data-act="shortcuts" aria-label="Shortcuts" aria-expanded="false">?</button>
+  </div>
 </footer>
 <div class="palette" role="dialog" aria-label="Commands" hidden>
   <input
