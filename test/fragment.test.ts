@@ -15,7 +15,10 @@ const { parseScene, parseFragment, serialiseFragment } = await loadProjectModule
 
 const BOX = { id: 'box', type: 'rectangle', x: 40, y: 40, width: 120, height: 80 };
 
-/** An arrow whose near end Snaps to `box`, so the pair is a drawing and the arrow alone is not. */
+/**
+ * An arrow whose near end Snaps to `box`: copied together the pair is a fragment
+ * that keeps its Snap, and the arrow alone is a fragment that loses it.
+ */
 const ARROW = {
   id: 'link',
   type: 'arrow',
