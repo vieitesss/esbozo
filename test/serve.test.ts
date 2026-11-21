@@ -13,6 +13,7 @@ import { request as httpRequest } from 'node:http';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { brotliDecompressSync, gunzipSync } from 'node:zlib';
+import { buildId } from '../src/build-id.ts';
 import { PAGE_ASSETS } from '../src/page-assets.ts';
 import { MAX_LISTED_SCENE_BYTES } from '../src/paths.ts';
 import { promisify } from 'node:util';
@@ -912,6 +913,16 @@ function buildOn(startup: string): string {
   assert.ok(found !== null, `the startup line names no build: ${startup}`);
   return found[1]!;
 }
+
+test('a build outside a git checkout is unknown, not a failed build', () => {
+  assert.equal(buildId(() => null), 'unknown');
+
+  const answers = (commit: string, status: string | null) => (args: readonly string[]) =>
+    args[0] === 'rev-parse' ? commit : status;
+  assert.equal(buildId(answers('abc1234\n', '')), 'abc1234');
+  assert.equal(buildId(answers('abc1234\n', ' M src/serve.ts\n')), 'abc1234-dirty');
+  assert.equal(buildId(answers('abc1234\n', null)), 'unknown');
+});
 
 async function assertMissing(path: string): Promise<void> {
   await assert.rejects(stat(path), `${path} was not written`);
