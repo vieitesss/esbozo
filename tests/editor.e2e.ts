@@ -99,6 +99,51 @@ const BIG_SOURCE = JSON.stringify(BIG_SCENE, null, 2);
 const XL_SOURCE = JSON.stringify(XL_WORDS_SCENE, null, 2);
 const WIDE_WALL_SOURCE = JSON.stringify(WIDE_WALL_SCENE, null, 2);
 
+/** One solid box, alone on its page: ink a cancelled gesture has to put back. */
+const BLOCK_SCENE = {
+  version: 1,
+  title: 'Block',
+  defaults: { roughness: 1 },
+  elements: [
+    {
+      id: 'block',
+      type: 'rectangle',
+      x: 40,
+      y: 40,
+      width: 120,
+      height: 80,
+      fill: { kind: 'solid', grey: 6 },
+    },
+  ],
+};
+const BLOCK_SOURCE = JSON.stringify(BLOCK_SCENE, null, 2);
+
+/** The view a lone 120x80 box lands in: its page is fitted one to one. */
+const BLOCK = { zoom: 1, panX: 540, panY: 320 };
+
+/** Inside the box where the Scene has it: solid ink. */
+const HELD_BLOCK: Rect = { x: 600, y: 380, width: 40, height: 40 };
+/** Inside the box where a drag carries it: paper once the gesture is gone. */
+const MOVED_BLOCK: Rect = { x: 660, y: 500, width: 40, height: 40 };
+
+/**
+ * Press the block and carry it 60 by 120, leaving the pointer down: half a
+ * gesture, painted and not yet a Scene.
+ */
+async function carryBlock(ui: Ui): Promise<void> {
+  const from = at({ x: 100, y: 80 }, BLOCK);
+  const to = at({ x: 160, y: 200 }, BLOCK);
+  await ui.browser.mouse.move(from.x, from.y);
+  await ui.browser.mouse.down();
+  for (let step = 1; step <= 6; step += 1) {
+    await ui.browser.mouse.move(
+      from.x + ((to.x - from.x) * step) / 6,
+      from.y + ((to.y - from.y) * step) / 6,
+    );
+  }
+  await settle(ui);
+}
+
 /** The middle of `b`, the one solid grey box in the fixture. */
 const GREY_BOX: Rect = { x: 700, y: 390, width: 40, height: 40 };
 /** Bare paper: no Element, no rail, no status, no note. */
@@ -169,6 +214,51 @@ test('dragging an Element moves it smoothly and autosaves Scene plus SVG', async
   await expectSvgMatchesCli(ui);
   expect(prompts).toEqual([]);
   await stop();
+});
+
+test('a gesture the browser takes away leaves none of its preview on the page', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'block.json': BLOCK_SOURCE } }, 'block.json');
+
+  // Half a drag: the press selected `block`, the moves carried it down and
+  // right, and the pointer is still down.
+  await carryBlock(ui);
+  expect((await shot(ui)).meanLuminance(MOVED_BLOCK)).toBeLessThan(0.2);
+
+  // The browser takes the pointer away, as a touch that became a scroll does.
+  await browser.evaluate(() => {
+    document
+      .querySelector('esbozo-editor .board')!
+      .dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, pointerId: 1, isPrimary: true }));
+    return true;
+  });
+  await settle(ui);
+
+  // Nothing of the gesture is left: the drawing is where the Scene has it, and
+  // where the pointer carried it is paper again.
+  const cancelled = await shot(ui);
+  expect(cancelled.meanLuminance(HELD_BLOCK)).toBeLessThan(0.2);
+  expect(cancelled.meanLuminance(MOVED_BLOCK)).toBeGreaterThan(0.85);
+  await browser.mouse.up();
+  const scene = await savedScene(ui, 'block.json');
+  expect({ x: scene.elements[0]?.x, y: scene.elements[0]?.y }).toEqual({ x: 40, y: 40 });
+
+  // The same for the focus leaving the page mid-gesture, which sends no pointer
+  // event at all: the preview leaves with the gesture it belonged to.
+  await carryBlock(ui);
+  expect((await shot(ui)).meanLuminance(MOVED_BLOCK)).toBeLessThan(0.2);
+  await browser.evaluate(() => {
+    window.dispatchEvent(new Event('blur'));
+    return true;
+  });
+  await settle(ui);
+
+  const blurred = await shot(ui);
+  expect(blurred.meanLuminance(HELD_BLOCK)).toBeLessThan(0.2);
+  expect(blurred.meanLuminance(MOVED_BLOCK)).toBeGreaterThan(0.85);
+  await browser.mouse.up();
+  const after = await savedScene(ui, 'block.json');
+  expect({ x: after.elements[0]?.x, y: after.elements[0]?.y }).toEqual({ x: 40, y: 40 });
 });
 
 test('click selects one Element, shift-click adds another, and both move', async ({ app, browser, screen }) => {

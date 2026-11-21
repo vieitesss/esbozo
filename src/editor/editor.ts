@@ -439,8 +439,8 @@ export class EsbozoEditorElement extends HTMLElement {
     document.addEventListener('keyup', this.#onKeyUp);
     // A Space held while the page loses the focus never sends its release: the
     // pan has to end here, or the pointer stays a hand on the way back.
-    document.addEventListener('visibilitychange', this.#endSpacePan);
-    window.addEventListener('blur', this.#endSpacePan);
+    document.addEventListener('visibilitychange', this.#endGesture);
+    window.addEventListener('blur', this.#endGesture);
     window.addEventListener('resize', this.#onResize);
 
     requestAnimationFrame(() => this.#drawRailArt());
@@ -457,7 +457,7 @@ export class EsbozoEditorElement extends HTMLElement {
     document.removeEventListener('paste', this.#onPaste);
     document.removeEventListener('keydown', this.#onKeyDown);
     document.removeEventListener('keyup', this.#onKeyUp);
-    document.removeEventListener('visibilitychange', this.#endSpacePan);
+    document.removeEventListener('visibilitychange', this.#endGesture);
     this.#rail.removeEventListener('click', this.#onRailClick);
     this.querySelector('.status')?.removeEventListener('click', this.#onStatusClick);
     this.#newScene.removeEventListener('submit', this.#onNewScene);
@@ -466,7 +466,7 @@ export class EsbozoEditorElement extends HTMLElement {
     this.removeEventListener('focusin', this.#onFocusIn);
     this.removeEventListener('focusout', this.#onFocusOut);
     window.removeEventListener('resize', this.#onResize);
-    window.removeEventListener('blur', this.#endSpacePan);
+    window.removeEventListener('blur', this.#endGesture);
     this.#wired = false;
     if (active === this) {
       active = null;
@@ -2131,18 +2131,36 @@ export class EsbozoEditorElement extends HTMLElement {
    * page, and the pointer coming up later settles nothing.
    */
   #onPointerCancel = (event: PointerEvent): void => {
-    const drag = this.#drag;
-    this.#drag = null;
-    this.#board.classList.remove('panning');
     if (this.#board.hasPointerCapture(event.pointerId)) {
       this.#board.releasePointerCapture(event.pointerId);
     }
+    this.#cancelDrag();
+  };
+
+  /**
+   * The page lost the focus, or was hidden: no pointer of this gesture will
+   * ever come up here. A Space pan ends, and half a drag is dropped with the
+   * preview it painted — the same page a cancelled pointer leaves, so the frame
+   * that follows draws the Scene as it is held.
+   */
+  #endGesture = (): void => {
+    this.#endSpacePan();
+    if (this.#drag !== null) {
+      this.#cancelDrag();
+    }
+  };
+
+  /** Drop the gesture in flight: the Scene keeps what it had, and the page shows that. */
+  #cancelDrag(): void {
+    const drag = this.#drag;
+    this.#drag = null;
+    this.#board.classList.remove('panning');
     if (drag !== null && drag.kind === 'draw') {
       // The preview drew under an id the Scene never took.
       this.#selected = [];
     }
     this.#refresh();
-  };
+  }
 
   #onWheel = (event: WheelEvent): void => {
     event.preventDefault();
