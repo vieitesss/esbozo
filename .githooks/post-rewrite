@@ -1,0 +1,12 @@
+#!/bin/sh
+# A rebase must never fold this branch's commits into one: the branch keeps one
+# commit per green step, and a squash is how that was lost once already. Opt-in
+# once per clone, with the pre-commit beside it:
+#
+#   git config core.hooksPath .githooks
+#
+# The judgement is `scripts/squash-guard.mjs`, proved by
+# `test/squash-guard.test.ts`; this only hands it the reason and the pairs.
+set -e
+
+exec node "$(git rev-parse --show-toplevel)/scripts/squash-guard.mjs" "$@"
