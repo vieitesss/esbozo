@@ -20,11 +20,20 @@ import { after, before, test } from 'node:test';
 const run = promisify(execFile);
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const IMAGE = 'esbozo:test';
+/** The sweep this suite runs before it starts anything, for a killed run's leftovers. */
+const SWEEP = fileURLToPath(new URL('../scripts/sweep-containers.mjs', import.meta.url));
+/**
+ * What a pid means on this client — this boot and pid namespace — asked of the
+ * sweep itself, so the value a container is labelled with is the value the sweep
+ * compares against, and the two cannot drift.
+ */
+const IDENTITY = await machineIdentity();
 /**
  * The labels every container this suite starts carries: the test mark, and the
- * pid and host of the process that owns it. `scripts/sweep-containers.mjs` reads
- * the same three names, and removes only the containers no live owner answers
- * for, so a killed run's leftovers do not outlive the next one.
+ * pid, host and machine identity of the process that owns it.
+ * `scripts/sweep-containers.mjs` reads the same four names, and removes only the
+ * containers whose own owner is gone, so a killed run's leftovers do not outlive
+ * the next one.
  */
 const LABELS = [
   '--label',
@@ -33,9 +42,9 @@ const LABELS = [
   `esbozo-test-pid=${process.pid}`,
   '--label',
   `esbozo-test-host=${hostname()}`,
+  '--label',
+  `esbozo-test-identity=${IDENTITY}`,
 ];
-/** The sweep this suite runs before it starts anything, for a killed run's leftovers. */
-const SWEEP = fileURLToPath(new URL('../scripts/sweep-containers.mjs', import.meta.url));
 /** The port the image serves on, so a published port maps this one. */
 const PORT = 4320;
 /**
@@ -76,6 +85,12 @@ async function sweep(): Promise<void> {
   if (stdout !== '') {
     process.stdout.write(stdout);
   }
+}
+
+/** The identity a container's owner label carries, as the sweep reads it off this machine. */
+async function machineIdentity(): Promise<string> {
+  const { stdout } = await run(process.execPath, [SWEEP, '--identity']);
+  return stdout.trim();
 }
 
 /** Why the image cannot be tested here, or `null` when it can. */
