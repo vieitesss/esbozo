@@ -2112,7 +2112,18 @@ describe('labels', () => {
     // Taken by their middle, so the drag keeps the hold it took: 120px right is
     // a fifth more of the shaft, and 40px up is 40 more pixels to the side the
     // words already sit on. Both are what the file has to keep.
-    await dragBy(ui, { x: 300, y: 139 }, 120, -40, LABELLED);
+    const from = at({ x: 300, y: 139 }, LABELLED);
+    await browser.mouse.move(from.x, from.y);
+    await browser.mouse.down();
+    // Half way, with the button still down: the words are already drawn where the
+    // pointer is, so the place is chosen on the page and not only once it saves.
+    await browser.mouse.move(from.x + 60, from.y - 20);
+    await settle(ui);
+    const halfway = await shot(ui);
+    expect(halfway.darkCount({ x: 660, y: 344, width: 80, height: 24 }, DARK)).toBeGreaterThan(20);
+    expect(halfway.darkCount({ x: 660, y: 376, width: 80, height: 14 }, DARK)).toBe(0);
+    await browser.mouse.move(from.x + 120, from.y - 40);
+    await browser.mouse.up();
     expect((await savedScene(ui, 'labelled.json')).elements[0]?.labelAt).toEqual({
       t: 0.8,
       offset: 101,
