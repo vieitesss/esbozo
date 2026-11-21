@@ -208,7 +208,7 @@ test('a new Text is typed in place, in the hand it draws in, and stays as words 
   await screen.getByRole('textbox', { name: 'Text' }).pressSequentially('draw me');
 
   await ui.agent.assert(
-    'the words "draw me" sit on the empty paper where they were typed, in a handwritten style as the drawing writes them, and a small plain box holding the same words as they are typed sits a little below them',
+    'the words "draw me" sit on the empty paper where they were typed, in a handwritten style as the Scene writes them, and a small plain box holding the same words as they are typed sits a little below them',
     { vision: 'only' },
   );
 

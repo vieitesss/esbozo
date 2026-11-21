@@ -489,7 +489,10 @@ describe('labels', () => {
     await doubleClickScene(ui, { x: 100, y: 80 });
     const label = screen.getByRole('textbox', { name: 'Label' });
     await label.pressSequentially('Orders');
-    const before = await label.boundingBox();
+    // The box sits under the box it edits, and its words are ink like any other.
+    const under: Rect = { x: 512, y: 428, width: 120, height: 24 };
+    const carried: Rect = { x: under.x - 60, y: under.y - 40, width: under.width, height: under.height };
+    expect((await shot(ui)).darkCount(under, DARK)).toBeGreaterThan(0);
 
     // The middle button is a pan, not a click away: the words stay open.
     const from = at({ x: 100, y: 80 });
@@ -497,9 +500,10 @@ describe('labels', () => {
 
     await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveCount(1);
     await expect(label).toHaveValue('Orders');
-    const after = await label.boundingBox();
-    expect(after?.x).toBeDefined();
-    expect(Math.round((after?.x ?? 0) - (before?.x ?? 0))).toBe(-60);
+    // And the pan carried the box with the page: its words left where they were.
+    const panned = await shot(ui);
+    expect(panned.darkCount(under, DARK)).toBe(0);
+    expect(panned.darkCount(carried, DARK)).toBeGreaterThan(0);
 
     await label.press('Escape');
     expect((await savedScene(ui)).elements[0]?.label).toBe('Orders');
@@ -517,16 +521,20 @@ describe('labels', () => {
     await clickScene(ui, { x: 420, y: 300 });
     const field = screen.getByRole('textbox', { name: 'Text' });
     await field.pressSequentially('hello');
-    const before = await field.boundingBox();
+    const typed: Rect = { x: 880, y: 590, width: 120, height: 40 };
+    expect((await shot(ui)).darkCount(typed, DARK)).toBeGreaterThan(0);
 
     // A zoom around a point away from the words moves the page under them.
     await browser.mouse.move(300, 300);
-    await browser.mouse.wheel(0, -300);
+    await browser.mouse.wheel(0, 300);
+    await expect(screen.getByText(/^\d+%$/)).toHaveText('64%');
 
-    const after = await field.boundingBox();
-    expect(Math.abs((after?.x ?? 0) - (before?.x ?? 0))).toBeGreaterThan(20);
-    expect(after?.x ?? -1).toBeGreaterThanOrEqual(0);
-    expect(after?.y ?? -1).toBeGreaterThanOrEqual(0);
+    // The words are drawn where the zoom puts them, and the box is still their own.
+    const zoomed = await shot(ui);
+    expect(zoomed.darkCount(typed, DARK)).toBe(0);
+    expect(zoomed.darkCount({ x: 668, y: 486, width: 130, height: 22 }, DARK)).toBeGreaterThan(0);
+    await expect(field).toHaveValue('hello');
+
     await field.press('Escape');
     expect((await savedScene(ui)).elements.length).toBe(3);
   });
@@ -541,17 +549,21 @@ describe('labels', () => {
 
     await doubleClickScene(ui, { x: 100, y: 80 }, ROOM);
     const label = screen.getByRole('textbox', { name: 'Label' });
-    await label.pressSequentially(HUGE_WORD);
-    const box = await label.boundingBox();
-    const note = await screen.getByRole('dialog', { name: 'Style' }).boundingBox();
-    await label.press('Escape');
+    // The note's room: docked to the right edge, 312px wide, a 16px margin out.
+    const noteRoom: Rect = { x: 944, y: 120, width: 330, height: 600 };
+    const baseline = (await shot(ui)).darkCount(noteRoom, DARK);
 
-    // The box sits under the Element's own left edge, so the Element ends at the
-    // box's left plus the width the words gave it: the note is past both.
-    const grown = (await savedScene(ui, 'room.json')).elements[0];
-    expect(grown?.width).toBeGreaterThan(400);
-    expect((box?.x ?? 0) + (grown?.width ?? 0)).toBeLessThan(note?.x ?? 0);
-    expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThan(note?.x ?? 0);
+    await label.pressSequentially(HUGE_WORD);
+
+    // The words the person typed are on the page, and neither the grown Element
+    // nor the box holding the caret is drawn over the note: its ink is its own.
+    const grown = await shot(ui);
+    expect(grown.darkCount(noteRoom, DARK)).toBeLessThanOrEqual(baseline + 50);
+
+    await label.press('Escape');
+    const element = (await savedScene(ui, 'room.json')).elements[0];
+    expect(element?.label).toBe(HUGE_WORD);
+    expect(element?.width).toBeGreaterThan(400);
   });
 
   test('a lone control character is refused, and never deletes a Label', async ({
