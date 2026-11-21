@@ -1570,6 +1570,116 @@ test('the status line keeps the Scene top left, the view bottom left and no mode
   expect((await shot(ui)).darkCount(BOTTOM_MIDDLE, 0.6)).toBe(0);
 });
 
+test('a held Space names the pan in the mode pill, and the release puts it away', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await ui.browser.setViewport({ width: 1366, height: 768 });
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+  await expect(ui.screen.getByRole('status')).toHaveText('saved');
+
+  // The bottom centre, where a mode would be named: the 164 pixels around it.
+  const BOTTOM_MIDDLE: Rect = { x: 601, y: 690, width: 164, height: 70 };
+  const pill = ui.screen.getByText('Panning');
+  await expect(pill).toBeHidden();
+
+  // The key alone holds the page in the hand: the pill says so before the
+  // pointer has moved anywhere, and the band that was bare paper carries ink.
+  await ui.browser.keyboard.down('Space');
+  await expect(pill).toBeVisible();
+  expect((await shot(ui)).darkCount(BOTTOM_MIDDLE, 0.6)).toBeGreaterThan(0);
+
+  // The pan the key carries keeps the word it gave.
+  await drag(ui, { x: 640, y: 400 }, { x: 700, y: 440 });
+  await expect(pill).toBeVisible();
+
+  // The key comes up: the word goes with the pan, and the band is bare again.
+  await ui.browser.keyboard.up('Space');
+  await expect(pill).toBeHidden();
+  expect((await shot(ui)).darkCount(BOTTOM_MIDDLE, 0.6)).toBe(0);
+});
+
+test('a middle drag names the pan in the mode pill while the button is down', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await ui.browser.setViewport({ width: 1366, height: 768 });
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+  await expect(ui.screen.getByRole('status')).toHaveText('saved');
+
+  // The bottom centre, where a mode would be named: the 164 pixels around it.
+  const BOTTOM_MIDDLE: Rect = { x: 601, y: 690, width: 164, height: 70 };
+  const pill = ui.screen.getByText('Panning');
+  await expect(pill).toBeHidden();
+
+  // A middle press on the paper pans it: the word is the drag's while the button
+  // is down, and the pointer carrying the page does not take it away.
+  const mouse = livePage().mouse;
+  await mouse.move(300, 650);
+  await mouse.down({ button: 'middle' });
+  await expect(pill).toBeVisible();
+  await mouse.move(320, 680);
+  await expect(pill).toBeVisible();
+
+  // The button coming up puts the word away with the pan it named.
+  await mouse.up({ button: 'middle' });
+  await expect(pill).toBeHidden();
+  expect((await shot(ui)).darkCount(BOTTOM_MIDDLE, 0.6)).toBe(0);
+});
+
+test('a window blur while Space is held takes the pill with the pan', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await ui.browser.setViewport({ width: 1366, height: 768 });
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+  // The bottom centre, where a mode would be named: the 164 pixels around it.
+  const BOTTOM_MIDDLE: Rect = { x: 601, y: 690, width: 164, height: 70 };
+  const pill = ui.screen.getByText('Panning');
+  await ui.browser.keyboard.down('Space');
+  await expect(pill).toBeVisible();
+
+  // The focus leaves the page while the key is still held: no release ever comes
+  // here, so the page lets the pan go rather than keep the word for a hold it no
+  // longer has.
+  await browser.evaluate(() => {
+    window.dispatchEvent(new Event('blur'));
+    return true;
+  });
+  await expect(pill).toBeHidden();
+  expect((await shot(ui)).darkCount(BOTTOM_MIDDLE, 0.6)).toBe(0);
+  await browser.keyboard.up('Space');
+});
+
+test('another Scene takes the pan word with the Scene it named', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await ui.browser.setViewport({ width: 1366, height: 768 });
+  await openEditor(
+    ui,
+    { A: { 'scene.json': SCENE_SOURCE, 'other.json': THREE_SOURCE } },
+    'scene.json',
+  );
+
+  const pill = ui.screen.getByText('Panning');
+  await ui.browser.keyboard.down('Space');
+  await expect(pill).toBeVisible();
+
+  // Another Scene comes into the page while the key is still held: the pan was
+  // the one the page held before, and neither it nor its word survives the
+  // switch.
+  await ui.screen.getByRole('button', /Open folder/).click();
+  await ui.screen.getByRole('button', 'other.json').click();
+  await expect(pill).toBeHidden();
+  await ui.browser.keyboard.up('Space');
+});
+
 test('the ? button opens the Shortcuts sheet, and Escape shuts it', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');

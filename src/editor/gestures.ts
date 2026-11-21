@@ -177,6 +177,8 @@ interface GestureHost {
   applyScene(next: Scene, options?: { amend?: boolean; select?: readonly string[] }): void;
   /** The note follows the selection, the view makes room for it, the page repaints. */
   refresh(): void;
+  /** The page is held in the hand, or let go of: the status bar names the pan while it lasts. */
+  panning(on: boolean): void;
 }
 
 export class Gestures {
@@ -199,6 +201,8 @@ export class Gestures {
    */
   #cancelledClick = false;
   #spaceDown = false;
+  /** The pointer is carrying the page: a pan drag is in flight. */
+  #panDrag = false;
 
   constructor(host: GestureHost) {
     this.#host = host;
@@ -247,6 +251,32 @@ export class Gestures {
     this.#spaceDown = true;
     this.#host.board.classList.add('hand');
     this.#host.board.classList.remove('pen');
+    this.#showPanning();
+  }
+
+  /**
+   * The page is held in the hand while a Space press lasts or a pan drag runs.
+   * The status bar says so for exactly that long.
+   */
+  #showPanning(): void {
+    this.#host.panning(this.#spaceDown || this.#panDrag);
+  }
+
+  /** A pan drag begins: the grabbing cursor and the status bar's word follow one flag. */
+  #beginPan(): void {
+    this.#panDrag = true;
+    this.#host.board.classList.add('panning');
+    this.#showPanning();
+  }
+
+  /**
+   * The pan drag is over, however it ended: the cursor is the hand's again, and
+   * a Space still held keeps the word the press gave.
+   */
+  #endPan(): void {
+    this.#panDrag = false;
+    this.#host.board.classList.remove('panning');
+    this.#showPanning();
   }
 
   /**
@@ -258,14 +288,14 @@ export class Gestures {
     if (this.#drag !== null && this.#drag.kind === 'pan') {
       this.#drag = null;
       this.#releasePointer();
-      this.#host.board.classList.remove('panning');
+      this.#endPan();
     }
-    if (!this.#spaceDown) {
-      return;
+    if (this.#spaceDown) {
+      this.#spaceDown = false;
+      this.#host.board.classList.remove('hand');
+      this.#host.board.classList.toggle('pen', this.#host.tool() !== 'select');
     }
-    this.#spaceDown = false;
-    this.#host.board.classList.remove('hand');
-    this.#host.board.classList.toggle('pen', this.#host.tool() !== 'select');
+    this.#showPanning();
   }
 
   /**
@@ -277,7 +307,7 @@ export class Gestures {
     this.#drag = null;
     this.#releasePointer();
     this.#forgetPress();
-    this.#host.board.classList.remove('panning');
+    this.#endPan();
     if (drag !== null && drag.kind === 'draw') {
       // The preview drew under an id the Scene never took.
       this.#host.select([]);
@@ -384,7 +414,7 @@ export class Gestures {
         fromScreen: viewport.screenPoint(event),
         start: { ...viewport.view },
       };
-      this.#host.board.classList.add('panning');
+      this.#beginPan();
       return;
     }
     const tool = this.#host.tool();
@@ -634,7 +664,7 @@ export class Gestures {
   up = (event: PointerEvent): void => {
     const { viewport } = this.#host.page;
     const drag = this.#drag;
-    this.#host.board.classList.remove('panning');
+    this.#endPan();
     // The pointer comes up for this gesture or for one already ended: either way
     // it is the browser's again.
     this.#releasePointer();
