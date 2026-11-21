@@ -97,9 +97,7 @@ export function elementAt(
     }
     // An outlined Element's ink strays outside its box and a Text's glyphs hang
     // past its own: both are the Element, and the tolerance is added on top.
-    const ink = isOutlined(element) || element.type === 'text'
-      ? inkBounds(element, byId, layout)
-      : elementBounds(element, byId, layout);
+    const ink = inkBounds(element, byId, layout);
     if (holds(ink, point)) {
       return element;
     }
