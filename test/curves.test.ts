@@ -495,7 +495,7 @@ test('a tiny or doubled-back leg softens its corner instead of breaking the ink'
   assert.ok(points.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y)));
 });
 
-test('a curved shaft draws its dash pattern along the whole path', async () => {
+test('a curved shaft draws its dash pattern along an unbroken stroke', async () => {
   for (const style of ['dashed', 'dotted'] as const) {
     const svg = await ink(
       oneArrow(
@@ -510,8 +510,22 @@ test('a curved shaft draws its dash pattern along the whole path', async () => {
 
     const dashed = tags(svg, 'path').filter((tag) => attribute(tag, 'stroke-dasharray') !== undefined);
     assert.equal(dashed.length, 1, `${style}: one pattern fits one path`);
-    const [start] = drawnPoints(attribute(dashed[0]!, 'd') ?? '');
-    assert.ok(near(start!.x, 0, 1) && near(start!.y, 0, 1), `${style}: the pattern starts at the shaft`);
+    const d = attribute(dashed[0]!, 'd') ?? '';
+    // One subpath per stroke pass, each running the whole shaft: a move per
+    // piece would start the pattern again at every bend.
+    const subpaths = d.split('M').slice(1);
+    assert.equal(subpaths.length, 2, `${style}: one subpath per stroke pass, got ${subpaths.length}`);
+    for (const subpath of subpaths) {
+      const drawn = inkSamples(`M${subpath}`);
+      assert.ok(
+        drawn.some((point) => near(point.x, 0) && near(point.y, 0)),
+        `${style}: the stroke starts at the shaft`,
+      );
+      assert.ok(
+        drawn.some((point) => near(point.x, 200) && near(point.y, 0)),
+        `${style}: and runs to its end`,
+      );
+    }
   }
 });
 

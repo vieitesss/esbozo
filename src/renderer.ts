@@ -714,12 +714,16 @@ function arrowOrLineSvg(
     // the drawn ends stay where the geometry put them.
     preserveVertices: true,
   };
-  for (const drawn of generator.toPaths(generator.path(shaftData(path), lineOptions))) {
-    paths.push(
-      `<path d="${pathData(drawn.d)}" fill="none" stroke="${drawn.stroke}"` +
-        ` stroke-width="${formatNumber(drawn.strokeWidth)}"${dash}/>`,
-    );
-  }
+  // Rough.js starts a new subpath at every piece it draws, so the passes are
+  // joined back into one stroke each before they are written.
+  const shaft = generator.path(shaftData(path), lineOptions);
+  const d = strokePasses(shaft)
+    .map((ops) => generator.opsToPath({ type: 'path', ops }))
+    .join(' ');
+  paths.push(
+    `<path d="${pathData(d)}" fill="none" stroke="${colour}"` +
+      ` stroke-width="${formatNumber(width)}"${dash}/>`,
+  );
 
   const headLength = HEAD_LENGTH_PX[element.stroke.width];
   const arriving = shaftTangentAt(path, 1);
@@ -760,6 +764,39 @@ function paperBehind(words: Block | null): string {
     ` width="${formatNumber(paper.width)}" height="${formatNumber(paper.height)}"` +
     ` fill="${PAPER}"/>`
   );
+}
+
+/**
+ * The stroke passes of a roughened shaft, each as one unbroken subpath.
+ *
+ * Rough.js draws every piece of a path on its own, twice, and starts each with a
+ * move of its own: written out as they come, a stroke pattern would begin again
+ * at every bend and the ink would look struck from separate strokes. The pieces
+ * of one pass are joined here instead, the end of one carrying the pen on into
+ * the next, so a dash runs the whole length of the shaft it was fitted to.
+ */
+function strokePasses(drawable: Drawable): OpSet['ops'][] {
+  const passes: OpSet['ops'][] = [];
+  const passOf = (index: number): OpSet['ops'] => passes[index] ?? (passes[index] = []);
+  let drawing = -1;
+  for (const op of drawable.sets[0]?.ops ?? []) {
+    if (op.op !== 'move') {
+      passOf(drawing % 2).push(op);
+      continue;
+    }
+    drawing += 1;
+    const pass = passOf(drawing % 2);
+    const last = pass[pass.length - 1]?.data;
+    // The first move of a pass places the pen. A later one either continues the
+    // same stroke from where the piece before it left off, or — when the pen is
+    // already there — asks for nothing at all.
+    if (last === undefined) {
+      pass.push(op);
+    } else if (last[last.length - 2] !== op.data[0] || last[last.length - 1] !== op.data[1]) {
+      pass.push({ op: 'lineTo', data: op.data });
+    }
+  }
+  return passes.filter((ops) => ops.length > 0);
 }
 
 /** One arrow head, pointing along the arrow with its apex on the end. */
