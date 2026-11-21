@@ -492,7 +492,9 @@ export function parseFragment(source: string, defaults: SceneStyle): Element[] |
   }
   const parsed = parseScene(
     JSON.stringify({
-      version: raw['version'] ?? SCENE_VERSION,
+      // An omitted version is the current one; a version that is there is left
+      // for Scene validation to judge, so `null` is refused like any other.
+      ...('version' in raw ? { version: raw['version'] } : { version: SCENE_VERSION }),
       title: DEFAULT_TITLE,
       defaults,
       elements: localised(elements),

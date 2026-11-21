@@ -77,7 +77,10 @@ test('a fragment from another schema is refused, and an unversioned one is the c
   const defaults = SCENE.defaults;
   const box = BOX;
 
+  // Only an omitted version defaults. A version that is there is the one
+  // Scene validation judges, so `null` is as wrong as 42.
   assert.equal(parseFragment(JSON.stringify({ version: 42, elements: [box] }), defaults), null);
+  assert.equal(parseFragment(JSON.stringify({ version: null, elements: [box] }), defaults), null);
   const unversioned = parseFragment(JSON.stringify({ elements: [box] }), defaults);
   assert.ok(unversioned, 'a fragment with no version is the current one');
   assert.equal(unversioned[0]?.id, 'box');
