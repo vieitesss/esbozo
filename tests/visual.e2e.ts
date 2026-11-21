@@ -27,6 +27,7 @@ import {
   EDGE_SCENE,
   MIXED,
   MIXED_SCENE,
+  OVERFLOW,
   OVERFLOW_SCENE,
   SCENE,
   SNAP,
@@ -39,6 +40,7 @@ import {
   clickScene,
   doubleClickScene,
   drag,
+  dragBy,
   openEditor,
   savedFiles,
 } from './helpers.ts';
@@ -206,13 +208,13 @@ test('a new Text is typed in place, in the hand it draws in, and stays as words 
   await screen.getByRole('textbox', { name: 'Text' }).pressSequentially('draw me');
 
   await ui.agent.assert(
-    'the words "draw me" sit on the empty paper where they were typed, in a handwritten style, with no box or form around them',
+    'the words "draw me" sit on the empty paper where they were typed, in a handwritten style as the drawing writes them, and a small plain box holding the same words as they are typed sits a little below them',
     { vision: 'only' },
   );
 
   await screen.getByRole('textbox', { name: 'Text' }).press('Escape');
   await ui.agent.assert(
-    'the words "draw me" are still on the empty paper, in the same hand, and there is no cursor or input field beside them. The words stay selected after being committed, so a thin dashed box hugs them: that box is the editor’s own selection, not a form',
+    'the words "draw me" are still on the empty paper in the same hand, and the small plain box is gone',
     { vision: 'only' },
   );
 });
@@ -248,8 +250,11 @@ test('a Label that does not fit its Element is outlined in red, as ez check repo
   const ui = { agent, app, browser, screen };
   await openEditor(ui, { A: { 'overflow.json': OVERFLOW_SOURCE } }, 'overflow.json');
 
-  // The words spill out of the box and a red outline says so; `ez check` exits 6
-  // on the same Scene, in `tests/labels.e2e.ts`.
+  // The same edit `tests/labels.e2e.ts` makes, so both tests judge the bytes the
+  // editor saved: the box shrunk by its east handle until its words no longer
+  // fit, the words spilling out above and below it, and a red outline saying so.
+  await clickScene(ui, { x: 60, y: 60 }, [], OVERFLOW);
+  await dragBy(ui, { x: 140, y: 60 }, -40, 0, OVERFLOW);
   await ui.agent.assert(
     'a small hand-drawn rectangle holds words that spill out above and below it, and a red outline frames those words',
     { vision: 'only' },
@@ -376,13 +381,13 @@ test('a box grows for the Label typed into it, and the words wrap inside its out
   // as they were typed, and that they sit inside it, wrapped, with nothing drawn
   // around them that the Scene would not draw.
   await ui.agent.assert(
-    'the left-hand hand-drawn rectangle has grown taller and holds the words written inside it as three wrapped lines, every word inside the outline, with no box or border around the words themselves',
+    'the left-hand hand-drawn rectangle has grown taller and holds the words written inside it as three wrapped lines, every word inside the outline, and a small plain box holding the same words as they are typed sits a little below the rectangle',
     { vision: 'only' },
   );
 
   await label.press('Escape');
   await ui.agent.assert(
-    'the same three lines of words are still inside the left-hand rectangle, every line within its outline. The Element is still selected, so a thin dashed selection box with small square handles sits just outside the rectangle: nothing else is drawn around the words themselves',
+    'the same three lines of words are still inside the left-hand rectangle, every line within its outline, and the small plain box is gone. The Element is still selected, so a thin dashed selection box with small square handles sits just outside the rectangle',
     { vision: 'only' },
   );
 });

@@ -10,6 +10,8 @@ import { copyFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from '@e2e-dev/web';
 import {
+  BESIDE,
+  BESIDE_SCENE,
   POSTER,
   POSTER_SCENE,
   clickScene,
@@ -46,8 +48,8 @@ test.skipIf(shots === undefined || shots === '')(
     await settle(ui);
     await copyFile(await ui.app.screenshot('editor-dark'), join(folder, 'editor-dark.png'));
 
-    // And a Label being typed in place: the field over the words, and the box
-    // grown for them as they arrive.
+    // And a Label being typed: the box grows for the words as they arrive, the
+    // page draws them where they will save, and the small field sits below.
     await ui.screen.getByRole('button', 'Light').click();
     await doubleClickScene(ui, { x: 340, y: 390 }, POSTER);
     await ui.screen
@@ -57,6 +59,22 @@ test.skipIf(shots === undefined || shots === '')(
     await copyFile(
       await ui.app.screenshot('editor-label-editing'),
       join(folder, 'editor-label-editing.png'),
+    );
+
+    // And an arrow's Label, which hangs to its own side of the shaft: the words
+    // are drawn where they will save, and the field sits below the arrow.
+    await openEditor(
+      ui,
+      { A: { 'beside.json': JSON.stringify(BESIDE_SCENE, null, 2) } },
+      'beside.json',
+    );
+    await ui.browser.evaluate(() => document.fonts.ready.then(() => true));
+    await doubleClickScene(ui, { x: 287, y: 220 }, BESIDE);
+    await ui.screen.getByRole('textbox', { name: 'Label' }).fill('upward');
+    await settle(ui);
+    await copyFile(
+      await ui.app.screenshot('editor-arrow-label-editing'),
+      join(folder, 'editor-arrow-label-editing.png'),
     );
   },
 );

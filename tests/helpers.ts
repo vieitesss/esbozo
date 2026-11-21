@@ -998,7 +998,13 @@ export async function doubleClickScene(
  * confirmed words. CDP's `Input.imeSetComposition` is not reachable from a test
  * in this harness, so those are the events dispatched here, with
  * `InputEvent.isComposing` set the way the browser sets it: the editor sees the
- * same events either way.
+ * same events either way. Issue #23 brings a CDP helper that drives a real IME.
+ *
+ * The focus leaving a composing field is also Chromium's own move: it confirms
+ * the preedit first — the value keeps it and `compositionend` follows — so the
+ * blur is staged here too, in the capture pass, before anything the page put on
+ * the field hears it. That is the order a real IME loses words in, and the
+ * reason an outside press has to end the session before the focus leaves.
  */
 export async function composing(ui: Ui, preedit: string): Promise<void> {
   await ui.browser.evaluate((text) => {
@@ -1019,8 +1025,62 @@ export async function composing(ui: Ui, preedit: string): Promise<void> {
         inputType: 'insertCompositionText',
       }),
     );
+    field.addEventListener(
+      'blur',
+      () => {
+        field.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: text }));
+        field.dispatchEvent(
+          new InputEvent('input', {
+            bubbles: true,
+            isComposing: false,
+            data: text,
+            inputType: 'insertCompositionText',
+          }),
+        );
+      },
+      { capture: true, once: true },
+    );
     return true;
   }, preedit);
+}
+
+/**
+ * A drag with the middle button, which a person uses to pan and a click test
+ * cannot ask for: the harness's pointer has one button. The events are the ones
+ * Chromium sends for a middle drag, at the node under the pointer.
+ */
+export async function middleDrag(ui: Ui, from: Point, to: Point): Promise<void> {
+  await ui.browser.evaluate((corners) => {
+    const [first, last] = corners as [[number, number], [number, number]];
+    const start = { x: first[0], y: first[1] };
+    const end = { x: last[0], y: last[1] };
+    const node = document.elementFromPoint(start.x, start.y) ?? document.body;
+    const send = (type: string, x: number, y: number, buttons: number): void => {
+      node.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          pointerId: 1,
+          pointerType: 'mouse',
+          isPrimary: true,
+          button: type === 'pointermove' ? -1 : 1,
+          buttons,
+          clientX: x,
+          clientY: y,
+        }),
+      );
+    };
+    send('pointerdown', start.x, start.y, 4);
+    for (let step = 1; step <= 5; step += 1) {
+      const share = step / 5;
+      send('pointermove', start.x + (end.x - start.x) * share, start.y + (end.y - start.y) * share, 4);
+    }
+    send('pointerup', end.x, end.y, 0);
+    return true;
+  }, [
+    [from.x, from.y],
+    [to.x, to.y],
+  ]);
 }
 
 /** Confirm the open composition, as the IME does when the person picks a candidate. */
@@ -1093,8 +1153,15 @@ export async function cliRender(scene: unknown, font?: string): Promise<string> 
 export async function cliCheck(
   scene: unknown,
 ): Promise<{ code: number; reported: string }> {
+  return cliCheckBytes(JSON.stringify(scene, null, 2));
+}
+
+/** `ez check` on the bytes a Scene file holds, exactly as they were saved. */
+export async function cliCheckBytes(
+  source: string,
+): Promise<{ code: number; reported: string }> {
   const folder = await mkdtemp(join(tmpdir(), 'esbozo-check-'));
-  await writeFile(join(folder, 'scene.json'), JSON.stringify(scene, null, 2), 'utf8');
+  await writeFile(join(folder, 'scene.json'), source, 'utf8');
   try {
     const { stdout, stderr } = await run(process.execPath, [CLI, 'check', 'scene.json'], {
       cwd: folder,

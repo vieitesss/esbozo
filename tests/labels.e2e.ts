@@ -11,6 +11,8 @@ import { expect } from 'e2e';
 import {
   BESIDE,
   BESIDE_SCENE,
+  EDGE,
+  EDGE_SCENE,
   MIXED,
   MIXED_SCENE,
   OVERFLOW,
@@ -23,13 +25,16 @@ import {
   SPACED_SCENE,
   WORDS,
   WORDS_SCENE,
+  at,
   cancelComposition,
-  clickScene,
   cliCheck,
+  cliCheckBytes,
+  clickScene,
   composing,
   confirmComposition,
   doubleClickScene,
   dragBy,
+  middleDrag,
   openEditor,
   savedFiles,
   savedScene,
@@ -45,12 +50,16 @@ const ROOM_SOURCE = JSON.stringify(ROOM_SCENE, null, 2);
 const SPACED_SOURCE = JSON.stringify(SPACED_SCENE, null, 2);
 const BESIDE_SOURCE = JSON.stringify(BESIDE_SCENE, null, 2);
 const SHIFTED_SOURCE = JSON.stringify(SHIFTED_SCENE, null, 2);
+const EDGE_SOURCE = JSON.stringify(EDGE_SCENE, null, 2);
 
 /** A Label long enough that the box it is typed into has to grow downwards. */
 const LONG_LABEL = 'words that wrap and grow';
 
 /** A single word too wide for the box it is typed into. */
 const LONG_WORD = 'antidisestablishmentarianism';
+
+/** A word wide enough that the grown Element reaches under the docked note. */
+const HUGE_WORD = LONG_WORD + LONG_WORD;
 
 /** Ink: the ink of a Scene is near black on near white, so half way is the line. */
 const DARK = 0.5;
@@ -329,7 +338,9 @@ describe('labels', () => {
     const scene = await savedScene(ui, 'overflow.json');
     expect(scene.elements[0]?.width).toBe(60);
 
-    const checked = await cliCheck(scene);
+    // The bytes the check reads are the ones the editor wrote, unturned.
+    const files = await savedFiles(ui);
+    const checked = await cliCheckBytes(files['overflow.json'] ?? '');
     expect(checked.code).toBe(6);
     expect(checked.reported).toContain('box: label does not fit');
   });
@@ -351,6 +362,32 @@ describe('labels', () => {
 
     // Finishing the session drops the preedit: only confirmed words are words.
     await clickScene(ui, { x: 700, y: 600 });
+    await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveCount(0);
+    expect(await savedFiles(ui)).toEqual(before);
+  });
+
+  test('an outside press finishes the words before an input method can confirm them', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+    const before = await savedFiles(ui);
+
+    // The rail takes the focus off the field. Chromium confirms an open preedit
+    // when that happens, so the session has to end first or the preedit is kept.
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    await composing(ui, 'にほん');
+    await screen.getByRole('navigation', { name: 'Tools' }).click({ position: { x: 2, y: 2 } });
+    await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveCount(0);
+    expect(await savedFiles(ui)).toEqual(before);
+
+    // The Style note docks over the page, and is no different: the words are
+    // finished before anything it does can take the focus.
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    await composing(ui, 'にほん');
+    await screen.getByRole('dialog', { name: 'Style' }).click({ position: { x: 4, y: 4 } });
     await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveCount(0);
     expect(await savedFiles(ui)).toEqual(before);
   });
@@ -405,6 +442,167 @@ describe('labels', () => {
     expect(scene.elements.find((element) => element.id === 'other')?.label).toBeUndefined();
   });
 
+  test('a double-click whose second press lands on the Style note opens the first click’s words', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'edge.json': EDGE_SOURCE } }, 'edge.json');
+
+    // `far` sits under where the note docks: the first click selects it and the
+    // note slides over the pointer, so the second press of the double-click
+    // lands on the note itself. The words that open are still `far`'s.
+    await doubleClickScene(ui, { x: 790, y: 80 }, EDGE);
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await expect(label).toHaveValue('');
+    await label.pressSequentially('at the edge');
+    await label.press('Escape');
+
+    const scene = await savedScene(ui, 'edge.json');
+    expect(scene.elements.find((element) => element.id === 'far')?.label).toBe('at the edge');
+    expect(scene.elements.find((element) => element.id === 'near')?.label).toBeUndefined();
+  });
+
+  test('a click, a zoom and another click are not a double-click', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+    await clickScene(ui, { x: 100, y: 80 });
+    await browser.mouse.move(400, 300);
+    await browser.mouse.wheel(0, -120);
+    await clickScene(ui, { x: 100, y: 80 });
+
+    // The zoom is a view change, not part of the double-click: nothing opened.
+    await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveCount(0);
+  });
+
+  test('a middle-drag pans the page and leaves the words open', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.pressSequentially('Orders');
+    const before = await label.boundingBox();
+
+    // The middle button is a pan, not a click away: the words stay open.
+    const from = at({ x: 100, y: 80 });
+    await middleDrag(ui, from, { x: from.x - 60, y: from.y - 40 });
+
+    await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveCount(1);
+    await expect(label).toHaveValue('Orders');
+    const after = await label.boundingBox();
+    expect(after?.x).toBeDefined();
+    expect(Math.round((after?.x ?? 0) - (before?.x ?? 0))).toBe(-60);
+
+    await label.press('Escape');
+    expect((await savedScene(ui)).elements[0]?.label).toBe('Orders');
+  });
+
+  test('a wheel zoom carries the open field of a new Text with the page', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+    await browser.keyboard.press('t');
+    await clickScene(ui, { x: 420, y: 300 });
+    const field = screen.getByRole('textbox', { name: 'Text' });
+    await field.pressSequentially('hello');
+    const before = await field.boundingBox();
+
+    // A zoom around a point away from the words moves the page under them.
+    await browser.mouse.move(300, 300);
+    await browser.mouse.wheel(0, -300);
+
+    const after = await field.boundingBox();
+    expect(Math.abs((after?.x ?? 0) - (before?.x ?? 0))).toBeGreaterThan(20);
+    expect(after?.x ?? -1).toBeGreaterThanOrEqual(0);
+    expect(after?.y ?? -1).toBeGreaterThanOrEqual(0);
+    await field.press('Escape');
+    expect((await savedScene(ui)).elements.length).toBe(3);
+  });
+
+  test('a Label long enough to reach the note is panned clear of it, box and all', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'room.json': ROOM_SOURCE } }, 'room.json');
+
+    await doubleClickScene(ui, { x: 100, y: 80 }, ROOM);
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.pressSequentially(HUGE_WORD);
+    const box = await label.boundingBox();
+    const note = await screen.getByRole('dialog', { name: 'Style' }).boundingBox();
+    await label.press('Escape');
+
+    // The box sits under the Element's own left edge, so the Element ends at the
+    // box's left plus the width the words gave it: the note is past both.
+    const grown = (await savedScene(ui, 'room.json')).elements[0];
+    expect(grown?.width).toBeGreaterThan(400);
+    expect((box?.x ?? 0) + (grown?.width ?? 0)).toBeLessThan(note?.x ?? 0);
+    expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThan(note?.x ?? 0);
+  });
+
+  test('a lone control character is refused, and never deletes a Label', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+    const before = await savedFiles(ui);
+
+    // U+000B is whitespace to a trim and unrepresentable to XML: it may never
+    // become the empty words that quietly take the Label away.
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.fill('\u000B');
+    await clickScene(ui, { x: 700, y: 600 });
+
+    // Refused words keep the field and say why; Escape is the way out of them.
+    await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveCount(1);
+    await expect(screen.getByRole('status')).toContainText('label must be');
+    expect(await savedFiles(ui)).toEqual(before);
+    await label.press('Escape');
+    await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveCount(0);
+    expect(await savedFiles(ui)).toEqual(before);
+  });
+
+  test('a lone control character is refused, and never deletes a Text', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': MIXED_SOURCE } }, 'scene.json');
+
+    const before = await savedFiles(ui);
+    await doubleClickScene(ui, { x: 277, y: 110 }, MIXED);
+    const text = screen.getByRole('textbox', { name: 'Text' });
+    await text.fill('\u000B');
+    await clickScene(ui, { x: 700, y: 600 }, [], MIXED);
+
+    await expect(screen.getByRole('textbox', { name: 'Text' })).toHaveCount(1);
+    await expect(screen.getByRole('status')).toContainText('content must be');
+    expect(await savedFiles(ui)).toEqual(before);
+    await text.press('Escape');
+    await expect(screen.getByRole('textbox', { name: 'Text' })).toHaveCount(0);
+    const scene = JSON.parse((await savedFiles(ui))['scene.json'] ?? '') as {
+      elements: Array<{ id: string }>;
+    };
+    expect(scene.elements.map((element) => element.id).sort()).toEqual(['oval', 'shaft', 'word']);
+  });
+
   test("a double-click on an arrow's words edits them, though they are ink beside the shaft", async ({
     app,
     browser,
@@ -425,7 +623,7 @@ describe('labels', () => {
     expect(scene.elements[0]?.label).toBe('upward');
   });
 
-  test('the field writes the words exactly where the Scene draws them', async ({
+  test('the canvas shows the words as they will save, on every keystroke', async ({
     app,
     browser,
     screen,
@@ -433,8 +631,9 @@ describe('labels', () => {
     const ui = { app, browser, screen };
     await openEditor(ui, { A: { 'words.json': WORDS_SOURCE } }, 'words.json');
 
-    // The box is at page (548, 348) in `WORDS`; its words fit inside it, so the
-    // space between the two views is the ink of the same two lines.
+    // The box is at page (548, 348); its words fit inside it, so the space
+    // between the two views is the ink of the same two lines, and the box the
+    // caret sits in is below it, out of the way.
     const inside: Rect = { x: 556, y: 356, width: 184, height: 104 };
     const drawn = await shot(ui);
     const before = drawn.darkCentre(inside, DARK);
@@ -442,13 +641,18 @@ describe('labels', () => {
 
     await doubleClickScene(ui, { x: 100, y: 80 }, WORDS);
     await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveValue(LONG_LABEL);
-    const typed = await shot(ui);
-    const after = typed.darkCentre(inside, DARK);
+    const typing = await shot(ui);
+    await screen.getByRole('textbox', { name: 'Label' }).press('Escape');
+    const saved = await shot(ui);
 
-    // Same words, same size, same lines, same place: only the painter changed.
-    expect(Math.abs(after.x - before.x)).toBeLessThan(2);
-    expect(Math.abs(after.y - before.y)).toBeLessThan(2);
-    expect(typed.bands(inside, DARK)).toBe(drawn.bands(inside, DARK));
+    // The page is the words: same size, same lines, same place while they are
+    // typed as after they are saved, because one Renderer draws both.
+    for (const view of [typing, saved]) {
+      const centre = view.darkCentre(inside, DARK);
+      expect(Math.abs(centre.x - before.x)).toBeLessThan(2);
+      expect(Math.abs(centre.y - before.y)).toBeLessThan(2);
+      expect(view.bands(inside, DARK)).toBe(drawn.bands(inside, DARK));
+    }
   });
 
   test('one long word grows the box and stays on one line while it is typed', async ({
@@ -465,10 +669,10 @@ describe('labels', () => {
     const typing = await shot(ui);
     await label.press('Escape');
 
-    // The box grew sideways for the word, so the field did too: the word is on
-    // one line inside an outline that holds it, not a narrow field splitting it
-    // and spilling out. Everything past the width the author gave the box —
-    // and inside the grown one — is one line of the word's own ink.
+    // The page drew the grown box and the word in it as they arrived: the word
+    // is on one line inside an outline that holds it, not cut off at the width
+    // the author gave the box. Everything past that width — and inside the
+    // grown outline — is one line of the word's own ink.
     const box = (await savedScene(ui, 'room.json')).elements[0];
     expect(box?.width).toBeGreaterThan(200);
     expect(box?.height).toBe(80);
