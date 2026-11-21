@@ -508,14 +508,17 @@ function drawnPoints(
     return settledEnds([points[0], points[1]], startTarget, endTarget);
   }
   const drawn = points.map((point) => ({ x: point.x, y: point.y }));
+  // A loop is one Snap held at both ends — the same Element — and not two
+  // Elements that happen to land in the same place: those two ends are two
+  // Snaps, each aiming at the bend point beside it.
   if (
     last === 2 &&
-    startTarget !== undefined &&
-    endTarget !== undefined &&
-    sameOutline(startTarget, endTarget)
+    points[0].snap !== undefined &&
+    points[0].snap === points[last]!.snap &&
+    startTarget !== undefined
   ) {
-    // A loop: both ends Snap to the same target, so both aim at the one bend
-    // point between them and would land on one point of its outline.
+    // Both ends Snap to the same target, so both aim at the one bend point
+    // between them and would land on one point of its outline.
     [drawn[0], drawn[last]] = loopEnds(startTarget, points[1]);
     return drawn;
   }
@@ -533,27 +536,25 @@ function drawnPoints(
  * aim past the one bend point, spread either side of it across the direction the
  * loop leaves in, so the shaft leaves the outline at one point, loops through
  * the bend and comes back at another instead of retracing one line.
+ *
+ * The spread is the box's own half-width only while the bend is as close as
+ * that; a bend further away spreads as far as it sits, so the angle between the
+ * two aims never falls below a right angle. A 2px box with a bend 400px off
+ * would otherwise put both ends on the same point of its outline and draw the
+ * loop as one line retraced.
  */
 function loopEnds(target: Outline, bend: Point): [Point, Point] {
-  const through = unit(centreOf(target), bend);
+  const centre = centreOf(target);
+  const through = unit(centre, bend);
   const across = { x: -through.y, y: through.x };
-  const spread = Math.min(target.width, target.height) / 2;
+  const spread = Math.max(
+    Math.min(target.width, target.height) / 2,
+    Math.hypot(bend.x - centre.x, bend.y - centre.y),
+  );
   return [
     pointOnOutline(target, { x: bend.x + across.x * spread, y: bend.y + across.y * spread }),
     pointOnOutline(target, { x: bend.x - across.x * spread, y: bend.y - across.y * spread }),
   ];
-}
-
-/** Whether two Snap targets are one outline: the same shape in the same place. */
-function sameOutline(left: Outline, right: Outline): boolean {
-  return (
-    left.type === right.type &&
-    left.x === right.x &&
-    left.y === right.y &&
-    left.width === right.width &&
-    left.height === right.height &&
-    left.corners === right.corners
-  );
 }
 
 /**

@@ -528,6 +528,81 @@ test('a self-loop leaves its box at one point and comes back at another', async 
   assert.ok(Math.max(...ink_.map((point) => point.x)) >= Math.max(start.x, end.x), 'the ink reaches both ends');
 });
 
+test('a self-loop on a tiny target still leaves and returns at two points', async () => {
+  // A 2px box with a bend 400px away: a spread measured by the box alone is a
+  // fraction of a degree across from where it sits, so both ends would land on
+  // one point of the outline and the loop would retrace a single line. The
+  // spread grows with the distance the bend is at, so the two ends always leave
+  // at a corner of their own.
+  const svg = await ink({
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [
+      { id: 'dot', type: 'rectangle', x: 0, y: 0, width: 2, height: 2, tone: 'muted' },
+      {
+        id: 'loop',
+        type: 'line',
+        heads: { start: 'none', end: 'none' },
+        points: [
+          { x: 1, y: 0, snap: 'dot' },
+          { x: 1, y: -400 },
+          { x: 1, y: 2, snap: 'dot' },
+        ],
+      },
+    ],
+  });
+
+  const shaft = tags(svg, 'path').find((tag) => attribute(tag, 'stroke') === 'var(--ink)');
+  assert.ok(shaft !== undefined, 'the loop is drawn');
+  const drawn = drawnPoints(firstPass(attribute(shaft, 'd') ?? ''));
+  const start = drawn[0]!;
+  const end = drawn[drawn.length - 1]!;
+  assert.ok(
+    [start, end].every((point) => point.x >= -0.01 && point.x <= 2.01),
+    `both ends stop on the box outline, got ${start.x} and ${end.x}`,
+  );
+  assert.ok(
+    Math.abs(start.x - end.x) >= 1,
+    `the loop leaves and returns at two points, got ${start.x} and ${end.x}`,
+  );
+});
+
+test('two targets that share an outline are two targets, not one loop', async () => {
+  // Each end Snaps to its own Element, and the two Elements happen to sit in
+  // the same place. A loop is one Element's outline, held by the same Snap at
+  // both ends; two Snaps aim at the bend point beside each end, so both land on
+  // the point the ray through the bend reaches and the shaft retraces it.
+  const svg = await ink({
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [
+      { id: 'left', type: 'rectangle', x: 100, y: 100, width: 100, height: 100, tone: 'muted' },
+      { id: 'right', type: 'rectangle', x: 100, y: 100, width: 100, height: 100, tone: 'muted' },
+      {
+        id: 'a',
+        type: 'line',
+        heads: { start: 'none', end: 'none' },
+        points: [
+          { x: 150, y: 100, snap: 'left' },
+          { x: 150, y: 30 },
+          { x: 200, y: 150, snap: 'right' },
+        ],
+      },
+    ],
+  });
+
+  const shaft = tags(svg, 'path').find((tag) => attribute(tag, 'stroke') === 'var(--ink)');
+  assert.ok(shaft !== undefined, 'the shaft is drawn');
+  const drawn = drawnPoints(firstPass(attribute(shaft, 'd') ?? ''));
+  const start = drawn[0]!;
+  const end = drawn[drawn.length - 1]!;
+  assert.ok(
+    near(start.x, 150) && near(end.x, 150),
+    `both ends aim at the bend, got ${start.x} and ${end.x}`,
+  );
+  assert.ok(near(start.y, 100) && near(end.y, 100), 'and land on the shared top edge');
+});
+
 test('a line bends and softens its corners the same way an arrow does', async () => {
   const points = [
     { x: 0, y: 0 },
