@@ -955,6 +955,109 @@ describe('labels', () => {
     expect(landed.indexOf('X')).toBeGreaterThan(0);
   });
 
+  test('Up walks to the line above the caret, not to a soft-wrapped row of the field', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'words.json': WORDS_SOURCE } }, 'words.json');
+
+    await doubleClickScene(ui, { x: 100, y: 80 }, WORDS);
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    // Three lines of the person's own, with the caret after the last of them.
+    await label.fill('');
+    await label.pressSequentially('wax');
+    await label.press('Enter');
+    await label.pressSequentially('wax');
+    await label.press('Enter');
+    await label.pressSequentially('wax');
+
+    // Up takes the drawn line above at the same column, which is the end of the
+    // second line. A field this narrow would soft-wrap one letter per line and
+    // walk those rows instead: one letter back, inside the last word.
+    await label.press('ArrowUp');
+    await label.pressSequentially('X');
+    await label.press('Escape');
+
+    expect((await savedScene(ui, 'words.json')).elements[0]?.label).toBe('wax\nwaxX\nwax');
+  });
+
+  test('Home walks to the start of the drawn line the caret is on', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'words.json': WORDS_SOURCE } }, 'words.json');
+
+    await doubleClickScene(ui, { x: 100, y: 80 }, WORDS);
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.fill('');
+    await label.pressSequentially('wax');
+    await label.press('Enter');
+    await label.pressSequentially('wax');
+    await label.press('Enter');
+    await label.pressSequentially('wax');
+
+    // Home takes the start of the last drawn line, not of the row the field
+    // soft-wrapped the last letter into and not of the whole value.
+    await label.press('Home');
+    await label.pressSequentially('X');
+    await label.press('Escape');
+
+    expect((await savedScene(ui, 'words.json')).elements[0]?.label).toBe('wax\nwax\nXwax');
+  });
+
+  test('End walks to the end of the drawn line, not to the end of the field', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'words.json': WORDS_SOURCE } }, 'words.json');
+
+    await doubleClickScene(ui, { x: 100, y: 80 }, WORDS);
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.fill('');
+    await label.pressSequentially('wax');
+    await label.press('Enter');
+    await label.pressSequentially('wax');
+    await label.press('Enter');
+    await label.pressSequentially('wax');
+
+    // Up and Home are the keys it takes to stand on the first drawn line, and
+    // End there is that line's end rather than the value's.
+    await label.press('Home');
+    await label.press('ArrowUp');
+    await label.press('ArrowUp');
+    await label.press('End');
+    await label.pressSequentially('X');
+    await label.press('Escape');
+
+    expect((await savedScene(ui, 'words.json')).elements[0]?.label).toBe('waxX\nwax\nwax');
+  });
+
+  test('a wrapped Label walks its drawn lines too: Up takes the line above', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+    // The two words are the same word, so they wrap into two drawn lines of the
+    // same width with no newline in the value: the line above ends in the column
+    // the last line ends in. A field of its own would walk one letter-wide row
+    // of the wrapped words instead.
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.pressSequentially('waxwaxwax waxwaxwax');
+    await label.press('ArrowUp');
+    await label.pressSequentially('X');
+    await label.press('Escape');
+
+    // The letter lands at the end of the first drawn line, before the space the
+    // wrap broke on — not a letter back inside the last word.
+    expect((await savedScene(ui)).elements[0]?.label).toBe('waxwaxwaxX waxwaxwax');
+  });
+
   test('a drag inside the drawn words selects them, and the selection is drawn behind the glyphs', async ({
     app,
     browser,

@@ -67,6 +67,7 @@ import { railArt, railMarkup } from './rail.js';
 import { attachedTo, endPoint, freedEnd, isShaft, otherEnd, released, targetAt, withEnd } from './snap.js';
 import type { End } from './snap.js';
 import { TextSession } from './text-session.js';
+import type { LineKey, TextSessionState } from './text-session.js';
 import { drawnOffset, keptWords, shownWords, typedOffset, withWords, wordAt, wordsOf } from './words.js';
 import { PaintCache, sceneFile } from './paint.js';
 import type { SceneFiles } from './paint.js';
@@ -2227,6 +2228,7 @@ class EsbozoEditorElement extends HTMLElement {
       words: '',
       typed: (words) => this.#showTyped(words),
       moved: () => this.#paint(),
+      line: (key, state) => this.#wordsLine(key, state),
       commit: (words) => this.#commitText(words),
       ended: () => this.#endText(),
     });
@@ -2261,6 +2263,7 @@ class EsbozoEditorElement extends HTMLElement {
       words: wordsOf(element),
       typed: (words) => this.#showWords(element, words),
       moved: () => this.#paint(),
+      line: (key, state) => this.#wordsLine(key, state),
       commit: (words) => this.#commitWords(element, words),
       ended: () => this.#endText(),
     });
@@ -2319,6 +2322,35 @@ class EsbozoEditorElement extends HTMLElement {
   #drawnWords(): string {
     const element = this.#editing?.element ?? this.#draft;
     return element === null ? '' : wordsOf(element);
+  }
+
+  /**
+   * Where Up, Down, Home and End put the caret in the words being typed: the
+   * drawn line above or below at the same column, or the start or end of the
+   * line the caret is on. A drawn line is the Layout's, not the field's: a
+   * Label wraps with no newline in the value, and the field is one pixel wide.
+   */
+  #wordsLine(key: LineKey, state: TextSessionState): number | null {
+    const block = this.#wordsBlock();
+    if (block === null) {
+      return null;
+    }
+    const drawn = this.#drawnWords();
+    const caret = this.#layout.caret(block, drawnOffset(state.words, drawn, state.caret));
+    const middle = caret.y + caret.height / 2;
+    // The lines are the Layout's own boxes, one line height each: half a line
+    // above or below the caret's middle is the middle of its neighbour. Home
+    // and End are the same question asked from the far left and the far right,
+    // where the nearest boundary of that line can only be its first or its last.
+    const point =
+      key === 'up'
+        ? { x: caret.x, y: caret.y - caret.height / 2 }
+        : key === 'down'
+          ? { x: caret.x, y: caret.y + caret.height * 1.5 }
+          : key === 'home'
+            ? { x: block.x - 1, y: middle }
+            : { x: block.x + block.width + 1, y: middle };
+    return typedOffset(state.words, drawn, this.#layout.offsetAt(block, point));
   }
 
   /**

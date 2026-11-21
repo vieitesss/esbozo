@@ -15,8 +15,10 @@
  * composing. The caller maps those offsets onto the glyphs the same Layout
  * placed, draws the caret and the highlight there, and asks for a redraw
  * through `moved` whenever they change — a keystroke, an arrow key, a press
- * inside the words, a composition. Nothing here measures or draws, so nothing
- * here can drift from the drawing.
+ * inside the words, a composition. The keys that walk a line, Up, Down, Home
+ * and End, are the caller's too, through `line`: the field's own lines are not
+ * the drawn ones. Nothing here measures or draws, so nothing here can drift
+ * from the drawing.
  *
  * A newline the person types is a line break the Scene keeps. Enter on an empty
  * line, Escape and a click away end the session; the raw value is handed to the
@@ -29,6 +31,17 @@
  * only what was confirmed.
  */
 import type { Box } from './geometry.js';
+
+/** The keys whose caret walks the lines the words are drawn on. */
+export type LineKey = 'up' | 'down' | 'home' | 'end';
+
+/** The key a `KeyboardEvent` names, when it is one of those. */
+const LINE_KEYS: Record<string, LineKey | undefined> = {
+  ArrowUp: 'up',
+  ArrowDown: 'down',
+  Home: 'home',
+  End: 'end',
+};
 
 /** What the field holds now: the words, the caret, the selection and a preedit still open. */
 export interface TextSessionState {
@@ -61,6 +74,14 @@ interface TextSessionOptions {
   readonly typed?: (words: string) => void;
   /** Called whenever what the field holds or where its caret is changes, so the page can draw it. */
   readonly moved?: () => void;
+  /**
+   * Where a key that walks the lines the words are drawn on puts the caret, as
+   * an offset into the field's words, or null to leave the key to the field. A
+   * drawn line is not the field's line: a Label wraps into several with no
+   * newline in the value, so only the caller that laid the words out knows
+   * where they are.
+   */
+  readonly line?: (key: LineKey, state: TextSessionState) => number | null;
   /** Called once, with the field's value as it stands, untrimmed: true when the words may land. */
   readonly commit: (words: string) => boolean;
   /** Called once the session is over, by any way out: the caller drops what it drew. */
@@ -70,6 +91,7 @@ interface TextSessionOptions {
 export class TextSession {
   readonly #input: HTMLTextAreaElement;
   readonly #moved: () => void;
+  readonly #line: ((key: LineKey, state: TextSessionState) => number | null) | null;
   readonly #commit: (words: string) => boolean;
   readonly #ended: () => void;
   #open = true;
@@ -81,11 +103,15 @@ export class TextSession {
   #preeditFrom: number | null = null;
 
   constructor(options: TextSessionOptions) {
-    const { host, name, words, typed, moved, commit, ended } = options;
+    const { host, name, words, typed, moved, line, commit, ended } = options;
     const input = document.createElement('textarea');
     input.className = 'text-input';
     input.setAttribute('aria-label', name);
     input.rows = 1;
+    // The field is a sink for the keys, not a view of the words: a field this
+    // narrow would soft-wrap one letter per line, and the browser's own caret
+    // arithmetic would walk those rows instead of the lines that are drawn.
+    input.wrap = 'off';
     input.spellcheck = false;
     input.value = words;
     input.addEventListener('keydown', this.#onKeyDown);
@@ -104,6 +130,7 @@ export class TextSession {
     }
     this.#input = input;
     this.#moved = moved ?? ((): void => {});
+    this.#line = line ?? null;
     this.#commit = commit;
     this.#ended = ended;
     host.append(input);
@@ -230,6 +257,9 @@ export class TextSession {
     if (event.isComposing || this.#composing) {
       return;
     }
+    if (this.#keydownLine(event)) {
+      return;
+    }
     if (event.key === 'Escape') {
       event.preventDefault();
       // Escape leaves the words when they cannot land: refused words are the
@@ -250,6 +280,32 @@ export class TextSession {
       this.finish();
     }
   };
+
+  /**
+   * Where a line key takes the caret among the drawn lines, asked of the caller
+   * that laid them out; false when the key is the field's own after all.
+   */
+  #keydownLine(event: KeyboardEvent): boolean {
+    const key = LINE_KEYS[event.key];
+    if (key === undefined || this.#line === null) {
+      return false;
+    }
+    // A chord is not a walk: Cmd+Left and Ctrl+End belong to the field.
+    if (event.altKey || event.ctrlKey || event.metaKey) {
+      return false;
+    }
+    const at = this.#line(key, this.state());
+    if (at === null) {
+      return false;
+    }
+    event.preventDefault();
+    // Shift keeps the end of the selection that is not the caret, so the walk
+    // grows the selection instead of throwing it away.
+    const state = this.state();
+    const anchor = state.caret === state.end ? state.start : state.end;
+    this.select(event.shiftKey ? anchor : at, at);
+    return true;
+  }
 
   #onBlur = (): void => {
     if (!this.#open) {
