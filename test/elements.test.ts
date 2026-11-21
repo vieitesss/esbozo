@@ -55,6 +55,7 @@ test('a Scene with every Element type and style value renders', async () => {
   const svg = await renderOne(fixture);
 
   assert.match(svg, /data-scene-hash="sha256:[0-9a-f]{64}"/);
+  // check-rules: markup of a written SVG file, not the page
   assert.match(svg, /<title>Every Element type and style<\/title>/);
 
   // Every Element shows up as what it draws: words for a Text, ink for
@@ -881,6 +882,7 @@ test('a Text without words exits 3 and names the Element', async () => {
 
 /** Every `<tag ...>` of one kind, in document order. */
 function tags(svg: string, name: string): string[] {
+  // check-rules: markup of a written SVG file, not the page
   return [...svg.matchAll(new RegExp(`<${name}\\b[^>]*>`, 'g'))].map((match) => match[0]);
 }
 
@@ -890,7 +892,7 @@ function attribute(tag: string, name: string): string | undefined {
 
 /** Each `<text>` Element with its content, so a test can ask what one Text drew. */
 function textElements(svg: string): string[] {
-  // check-rules: markup of the CLI's SVG, not the page
+  // check-rules: markup of a written SVG file, not the page
   return [...svg.matchAll(/<text\b[^>]*>[\s\S]*?<\/text>/g)].map((match) => match[0]);
 }
 

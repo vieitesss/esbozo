@@ -62,9 +62,9 @@ test('render writes the SVG beside the Scene and prints its path', async () => {
   const svgPath = join(folder, 'scene.svg');
   assert.equal(run.stdout.trim(), svgPath);
   const svg = await readFile(svgPath, 'utf8');
-  // check-rules: markup of the CLI's SVG, not the page
+  // check-rules: markup of a written SVG file, not the page
   assert.match(svg, /^<svg [^>]*xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
-  // check-rules: markup of the CLI's SVG, not the page
+  // check-rules: markup of a written SVG file, not the page
   assert.match(svg, /^<svg [^>]*>[\s\n]*<title>Two boxes<\/title>/);
   assert.equal(fillsOf(svg).length, 1, 'the solid-filled Element painted a fill');
   assert.deepEqual(mixesIn(svg), [], 'the Element that writes no fill painted no lines');
@@ -198,6 +198,7 @@ test('the root SVG carries the Scene title as its accessible name, with no share
 test('the title is escaped, so any text XML can carry survives', async () => {
   const svg = await renderOne({ version: 1, title: 'A & B <tag> "quoted" ✓', elements: [] });
 
+  // check-rules: markup of a written SVG file, not the page
   assert.match(svg, /<title>A &amp; B &lt;tag&gt; &quot;quoted&quot; ✓<\/title>/);
 });
 
@@ -229,7 +230,9 @@ test('the SVG carries the Scene hash and a title and no script or external refer
   const svg = await renderOne(SAMPLE_SCENE);
 
   assert.match(svg, /data-scene-hash="sha256:[0-9a-f]{64}"/);
+  // check-rules: markup of a written SVG file, not the page
   assert.match(svg, /<title>Two boxes<\/title>/);
+  // check-rules: markup of a written SVG file, not the page
   assert.doesNotMatch(svg, /<script/i);
   assert.doesNotMatch(svg, /\burl\(/i);
   assert.doesNotMatch(svg, /xlink/i);
@@ -304,6 +307,7 @@ test('unknown keys are reported once with their Scene, defaults or Element conte
 test('an empty Scene still renders a titled SVG page', async () => {
   const svg = await renderOne({ version: 1, title: 'Blank', elements: [] });
 
+  // check-rules: markup of a written SVG file, not the page
   assert.match(svg, /<title>Blank<\/title>/);
   assert.match(svg, /viewBox="0 0 320 240"/);
 });
@@ -419,6 +423,7 @@ function idsOf(svg: string): string[] {
 
 /** The root `<svg>` start tag: everything before its first child. */
 function rootTag(svg: string): string {
+  // check-rules: markup of a written SVG file, not the page
   return /^<svg\b[^>]*>/.exec(svg)?.[0] ?? '';
 }
 
@@ -436,11 +441,12 @@ function accessibleName(svg: string): string {
   if (label !== undefined) {
     return decodeXml(label);
   }
-  // check-rules: markup of the CLI's SVG, not the page
+  // check-rules: markup of a written SVG file, not the page
   return decodeXml(/^<svg\b[^>]*>\s*<title>([^<]*)<\/title>/.exec(svg)?.[1] ?? '');
 }
 
 function textOfId(svg: string, id: string): string {
+  // check-rules: markup of a written SVG file, not the page
   const target = new RegExp(`<([a-z]+)\\b[^>]*\\bid="${id}"[^>]*>([^<]*)</\\1>`).exec(svg);
   return decodeXml(target?.[2] ?? '');
 }

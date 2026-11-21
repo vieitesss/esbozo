@@ -206,7 +206,7 @@ test('a font that lands while an Element is being moved redraws it before the re
   const lines = (): Promise<string[]> =>
     browser.evaluate(() =>
       Array.from(
-        document.querySelectorAll('.painted [data-element="l"] text'),
+        document.querySelectorAll('.painted [data-element="l"] > *'),
         (line) => line.textContent,
       ),
     );
@@ -1361,7 +1361,7 @@ test('the pointer measures the paper the view draws on, not the host’s border 
 
     // Where the arrow's shaft is drawn on the page, read from the drawing.
     const shaft = (await browser.evaluate(() => {
-      const drawn = document.querySelector('g[data-element="link"]')!.getBoundingClientRect();
+      const drawn = document.querySelector('[data-element="link"]')!.getBoundingClientRect();
       return { x: drawn.left + drawn.width / 2, y: drawn.top + drawn.height / 2 };
     })) as { x: number; y: number };
     // The shaft is there: the click below is a click on visible ink.

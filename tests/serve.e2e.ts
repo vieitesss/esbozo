@@ -172,6 +172,7 @@ test('the served editor lists, opens and autosaves Scenes, saving Scene and SVG 
       .poll(async () => (await readdir(folder)).sort())
       .toEqual(['fresh.json', 'fresh.svg', 'one.json', 'three.json', 'two.json', 'two.svg']);
     await expect(screen.getByRole('status')).toHaveText('saved');
+    // check-rules: markup of a written SVG file, not the page
     expect(await readFile(join(folder, 'fresh.svg'), 'utf8')).toMatch(/<title[^>]*>fresh<\/title>/);
     expect(JSON.parse(await readFile(join(folder, 'fresh.json'), 'utf8'))).toMatchObject({
       title: 'fresh',

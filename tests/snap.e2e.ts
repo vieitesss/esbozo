@@ -95,7 +95,7 @@ function reaches(point: Point, expected: Point, tolerance = 0.5): boolean {
 
 /** Every path's drawn points, in document order: where each move, line and curve ends. */
 function drawnPaths(svg: string): Point[][] {
-  // check-rules: markup of the SVG the save wrote, not the page
+  // check-rules: markup of a written SVG file, not the page
   return [...svg.matchAll(/<path\b[^>]*\bd="([^"]*)"/g)].map((match) => {
     const points: Point[] = [];
     for (const [, command = '', args = ''] of (match[1] ?? '').matchAll(/([A-Za-z])([^A-Za-z]*)/g)) {

@@ -189,6 +189,7 @@ test('a Scene that is not there opens empty and is saved as Scene and SVG', asyn
   const scene = JSON.parse(files['fresh.json'] ?? '{}');
   expect(scene.elements).toEqual([]);
   expect(scene.title).toBe('fresh');
+  // check-rules: markup of a written SVG file, not the page
   expect(files['fresh.svg']).toMatch(/<title[^>]*>fresh<\/title>/);
 
   // An empty Scene paints nothing where the grey box would have been.

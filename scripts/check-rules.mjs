@@ -15,14 +15,20 @@
  *
  * Usage: node scripts/check-rules.mjs [root]
  *
- * Plain Node, no dependencies, and no configuration but the root: `pnpm check`
- * runs it on the project, and `test/check-rules.test.ts` runs it on fixtures.
+ * The files are read as the compiler reads them — a parse tree, not a guess at
+ * where the strings are — so an import split by a comment, an export alias and
+ * a template literal are all seen for what they are. `pnpm check` runs it on the
+ * project, and `test/check-rules.test.ts` runs it on fixtures.
  */
 import { readdir, readFile } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 
 const ROOT = process.argv[2] ?? fileURLToPath(new URL('..', import.meta.url));
+
+/** Where the rules look: the sources, the suites, and the scripts a person runs. */
+const ROOTS = ['src', 'test', 'tests', 'scripts'];
 
 /** The modules that ship to a browser, so no Node builtin may reach them. */
 const BROWSER_SAFE = /^src\/(?:scene|renderer|layout|geometry|paths|sha256)\.ts$|^src\/editor\//;
@@ -30,50 +36,66 @@ const BROWSER_SAFE = /^src\/(?:scene|renderer|layout|geometry|paths|sha256)\.ts$
 /** The suites whose job is to drive the outside, never the inside. */
 const SUITES = /^(?:test|tests)\//;
 
-/**
- * The files allowed to name a `src/` module, each for a reason:
- * `test/modules.ts` is the module seam itself, and `test/sha256.test.ts` imports
- * the dependency-free digest to compare it with OpenSSL, which is the point of
- * that suite.
- */
-const SEAMS = ['test/modules.ts', 'test/sha256.test.ts'];
-
-/** The tag names an SVG is written with, and so the ones a test may not select on. */
-const TAGS = [
-  'svg', 'g', 'path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon',
-  'text', 'tspan', 'defs', 'use', 'marker',
-];
-
-/** The calls a tag name reaches the page through. */
-const SELECTORS = /(?:\bquerySelector(?:All)?|\bgetElementsByTagName|\blocator|\$+)\s*\(\s*$/;
-
-/** The calls that open a file, so a `src/` argument to one is a test reading source. */
-const READERS = /\b(?:readFile|readFileSync|createReadStream|readdir|open)\s*\(\s*$/;
-
-/** The calls whose first argument names a test. */
-const TEST_CALL = /\b(?:test|it|describe|test\.only|test\.skip)\s*\(\s*$/;
-
-/** The specifier contexts, whose strings are paths rather than copy. */
-const SPECIFIER = /\b(?:from|import|export|require\s*\()\s*$/;
-
 /** The checker and its fixtures name the very things it bans, on purpose. */
 const SELF = /^(?:scripts\/check-rules\.mjs|test\/check-rules\.test\.ts)$/;
 
-/** Checks that need no filesystem: one file's text, and where it lives. */
-const RULES = [nodeImports, avoidTerms, testSeams];
+/**
+ * The one comment this script takes: a markup regex may parse the SVG a save
+ * wrote, because that file is public output. The wording is exact on purpose —
+ * a string that happens to hold `check-rules:` excuses nothing.
+ */
+const EXCUSE = '// check-rules: markup of a written SVG file, not the page';
 
-/** The Avoid terms GLOSSARY.md rejects. */
-const rejected = avoidTermsOf(await readFile(join(ROOT, 'GLOSSARY.md'), 'utf8').catch(() => ''));
+/**
+ * The tag names the page draws its Scene with, and the one HTML tag a test
+ * reaches for by name where a role is the seam. A host page's own chrome — its
+ * headings, its inputs — is that page's business, and is not checked.
+ */
+const TAGS = new Set([
+  'svg', 'g', 'path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon',
+  'text', 'tspan', 'textPath', 'defs', 'use', 'marker', 'title', 'desc', 'symbol',
+  'image', 'pattern', 'clipPath', 'linearGradient', 'radialGradient', 'stop', 'mask',
+  'filter', 'foreignObject', 'animate', 'button',
+]);
+
+/** The calls a tag name reaches the page through. */
+const SELECTOR_CALLS = new Set(['querySelector', 'querySelectorAll', 'getElementsByTagName', 'locator', '$', '$$']);
+
+/** The calls that open a file, so a `src/` argument to one is a test reading source. */
+const READERS = new Set(['readFile', 'readFileSync', 'createReadStream', 'readdir', 'readdirSync', 'open', 'openSync']);
+
+/** The calls whose first argument names a test. */
+const TEST_CALLS = new Set(['test', 'it', 'describe', 'suite', 'bench']);
+
+/** The tags a page and its drawing are written with, so a regex that names one reads markup. */
+const MARKUP_TAGS = new Set([
+  ...TAGS,
+  'div', 'span', 'p', 'section', 'main', 'header', 'footer', 'nav', 'article', 'aside',
+  'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'thead', 'tbody', 'tr', 'td', 'th',
+  'ul', 'ol', 'li', 'dl', 'dt', 'dd', 'a', 'img', 'input', 'textarea', 'select', 'option',
+  'label', 'form', 'iframe', 'video', 'audio', 'script', 'style', 'link', 'meta', 'html',
+  'head', 'body', 'canvas', 'pre', 'code', 'em', 'strong', 'b', 'i', 'small', 'figure',
+  'figcaption', 'blockquote', 'hr', 'br',
+]);
+
+/** The `src/` a test may not open: a path segment, whether written whole or by `join`. */
+const SRC = /(?:^|\/)src(?:\/|$)/;
+
+/** The rules, each one file: its parse tree, its text, and where to report. */
+const RULES = [nodeImports, avoidTerms, testSeams];
 
 /** Every finding the rules make, as `path:line: message`. */
 const findings = [];
 
+const terms = await glossary(join(ROOT, 'GLOSSARY.md'));
+
 for (const path of await files(ROOT)) {
   const text = await readFile(join(ROOT, path), 'utf8');
+  const source = parse(path, text);
   const file = {
     path,
     text,
-    ...scan(text),
+    source,
     report: (at, message) => findings.push(`${path}:${lineAt(text, at)}: ${message}`),
   };
   for (const rule of RULES) rule(file);
@@ -86,11 +108,11 @@ if (findings.length > 0) {
 }
 
 /** Rule 1: a Node builtin in a module the browser loads. */
-function nodeImports({ path, report, strings }) {
-  if (!BROWSER_SAFE.test(path)) return;
-  for (const { body, at, before } of strings) {
-    if (body.startsWith('node:') && SPECIFIER.test(before)) {
-      report(at, `node import "${body}" in a browser-safe module`);
+function nodeImports(file) {
+  if (!BROWSER_SAFE.test(file.path)) return;
+  for (const { value, at } of specifiers(file.source)) {
+    if (value.startsWith('node:')) {
+      file.report(at, `node import "${value}" in a browser-safe module`);
     }
   }
 }
@@ -99,69 +121,200 @@ function nodeImports({ path, report, strings }) {
  * Rule 2: a GLOSSARY.md _Avoid_ term, as a name, a test name or copy.
  *
  * An entry with a parenthetical qualifier — `label (for free-standing text)` —
- * is one sense of a word the glossary prefers elsewhere (`Label` is a headword),
- * so no mechanical rule can tell those senses apart. Those entries are left to a
- * person. Every other term is matched whole, word by word, so `keyboard` is not
- * `board` and `shaped` is not `shape`.
+ * is one sense of the word, so no mechanical rule can tell the senses apart.
+ * Every such entry is left to a person; the rest are matched whole, word by
+ * word, with the plain inflections a name takes (`shapes`, `shaped`). `Node`
+ * followed by a version, `-compatible`, `.js` or `runtime` names the runtime,
+ * not an Element, so it is not the term.
  */
-function avoidTerms({ path, report, code, strings }) {
-  if (rejected.length === 0 || SELF.test(path)) return;
+function avoidTerms(file) {
+  const { path, source, report } = file;
+  if (SELF.test(path)) return;
 
-  for (const [name, at] of exportedNames(code)) {
-    const hit = findTerm(rejected, words(name));
-    if (hit !== undefined) report(at, `avoid term "${hit}" in name "${name}"`);
+  const specifierNodes = new Set(specifiers(source).map((spec) => spec.node));
+  const testNames = testNameNodes(source);
+
+  for (const name of exportedNames(source)) {
+    const hit = avoidTermIn(name.text);
+    if (hit !== undefined) report(name.at, `avoid term "${hit}" in name "${name.text}"`);
   }
 
-  for (const { body, at, before } of strings) {
-    const hit = findTerm(rejected, words(body));
-    if (hit === undefined) continue;
-    if (TEST_CALL.test(before)) report(at, `avoid term "${hit}" in test name "${body}"`);
-    else if (isCopy(body, before)) report(at, `avoid term "${hit}" in copy "${body}"`);
+  for (const literal of literals(source)) {
+    if (specifierNodes.has(literal.node)) continue;
+    if (testNames.has(literal.node)) {
+      const hit = avoidTermIn(literal.text);
+      if (hit !== undefined) report(literal.at, `avoid term "${hit}" in test name "${literal.text}"`);
+      continue;
+    }
+    for (const run of copyRuns(literal.text)) {
+      if (!isCopy(run.text)) continue;
+      const hit = avoidTermIn(run.text);
+      if (hit !== undefined) {
+        report(literal.at + run.at, `avoid term "${hit}" in copy "${run.text.trim()}"`);
+      }
+    }
   }
 }
 
 /** Rule 3: a test that reaches past the seam it is testing. */
-function testSeams({ path, text, report, code, strings, regexes }) {
+function testSeams(file) {
+  const { path, text, source, report } = file;
   if (!SUITES.test(path) || SELF.test(path)) return;
 
-  for (const match of code.matchAll(/\bboundingBox\s*\(/g)) {
-    report(match.index, "bounding box: assert on what the page shows, not on the SVG's geometry");
-  }
+  const comments = commentsOf(text, source);
+  const excused = (at) => {
+    const line = lineAt(text, at);
+    return comments.some(
+      (comment) =>
+        comment.text.trim() === EXCUSE && [line, line - 1].includes(lineAt(text, comment.at)),
+    );
+  };
 
-  const markup = new RegExp(`<\\s*/?\\s*(?:${TAGS.join('|')})\\b`, 'i');
-  for (const { body, at, kind } of [...regexes, ...strings]) {
-    if (kind === 'regex' && markup.test(body) && !excused(text, at)) {
-      report(at, 'markup in a regex: drive the page, do not read the SVG it wrote');
+  every(source, (node) => {
+    if (ts.isRegularExpressionLiteral(node)) {
+      const body = patternOf(node.getText(source));
+      if (body.includes('data-element-id')) {
+        report(node.getStart(source), 'data-element-id reaches into the page: use a role, a name or a key');
+      } else if (namesMarkup(body) && !excused(node.getStart(source))) {
+        report(node.getStart(source), 'markup in a regex: drive the page, do not read the SVG it wrote');
+      }
+      return;
     }
-    if (body.includes('data-element-id')) {
+
+    if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
+      const method = methodName(node.expression);
+      if (method === 'RegExp') {
+        const [first] = node.arguments ?? [];
+        const body = first === undefined ? undefined : patternSource(first);
+        if (body !== undefined && namesMarkup(body) && !excused(node.getStart(source))) {
+          report(node.getStart(source), 'markup in a regex: drive the page, do not read the SVG it wrote');
+        }
+        return;
+      }
+    }
+
+    if (!ts.isCallExpression(node)) return;
+    const method = methodName(node.expression);
+    if (method === undefined) return;
+    const [first] = node.arguments;
+
+    if (method === 'boundingBox') {
+      report(node.getStart(source), "bounding box: assert on what the page shows, not on the SVG's geometry");
+      return;
+    }
+
+    if (SELECTOR_CALLS.has(method) && first !== undefined) {
+      const selector = textOf(first);
+      if (selector !== undefined && tagNamed(selector.trim()) !== undefined) {
+        report(first.getStart(source), `tag-name selector "${selector.trim()}": use a role, a name or a key`);
+      }
+      return;
+    }
+
+    if (READERS.has(method)) {
+      const named = pathLiterals(node.arguments);
+      const hit = named.find((part) => part === 'src' || SRC.test(part));
+      if (hit !== undefined) {
+        report(node.getStart(source), `a test reads "${hit}": the module seam is test/modules.ts`);
+      }
+    }
+  });
+
+  for (const literal of literals(source)) {
+    if (literal.text.includes('data-element-id')) {
+      const at = literal.at + literal.text.indexOf('data-element-id');
       report(at, 'data-element-id reaches into the page: use a role, a name or a key');
     }
   }
+}
 
-  for (const { body, at, before } of strings) {
-    if (SELECTORS.test(before) && TAGS.includes(body.trim().toLowerCase())) {
-      report(at, `tag-name selector "${body.trim()}": use a role, a name or a key`);
-    }
-    if (SEAMS.includes(path)) continue;
-    if (!READERS.test(before) || !/(?:^|\/)src\//.test(body)) continue;
-    report(at, `a test reads "${body}": the module seam is ${SEAMS[0]}`);
+/** The text of a regex literal's pattern, without its slashes and flags. */
+function patternOf(literal) {
+  const close = literal.lastIndexOf('/');
+  return literal.slice(1, close === 0 ? literal.length : close);
+}
+
+/**
+ * A `RegExp(...)` argument as a pattern. A template's literal parts are joined
+ * by one letter of the drawing's own words, so `<${name}[^>]*>` still reads as
+ * the tag it builds.
+ */
+function patternSource(node) {
+  const literal = textOf(node);
+  if (literal !== undefined) return literal;
+  if (ts.isTemplateExpression(node)) {
+    return [node.head.text, ...node.templateSpans.map((span) => span.literal.text)].join('g');
   }
+  return undefined;
+}
+
+/**
+ * Whether a pattern, or the text of a string, names markup: a tag of the page or
+ * of the drawing, or a custom element. A usage line's `<scene>` and `<file>` are
+ * placeholders, not tags, and stay quiet.
+ */
+function namesMarkup(text) {
+  for (const match of text.matchAll(/<\/?([A-Za-z][\w:-]*)/g)) {
+    const name = match[1].toLowerCase();
+    if (MARKUP_TAGS.has(name) || name.includes('-')) return true;
+  }
+  return false;
+}
+
+/** The tag a selector names, if it names one: `svg path`, `g[data-element]`, `button`. */
+function tagNamed(selector) {
+  for (const part of selector.split(/[\s>+~,]+/)) {
+    if (part === '') continue;
+    const match = /^([A-Za-z][\w-]*)/.exec(part);
+    if (match !== null && TAGS.has(match[1].toLowerCase())) return match[1].toLowerCase();
+  }
+  return undefined;
+}
+
+/** Every literal in the file's arguments: the parts of a path a reader may open. */
+function pathLiterals(nodes) {
+  const parts = [];
+  for (const node of nodes) {
+    every(node, (child) => {
+      const text = ts.isTemplateExpression(child) ? undefined : textOf(child);
+      if (text !== undefined) parts.push(text);
+      if (ts.isTemplateExpression(child)) {
+        parts.push(child.head.text, ...child.templateSpans.map((span) => span.literal.text));
+      }
+    });
+  }
+  return parts;
+}
+
+/** The terms a glossary's `_Avoid_:` lines reject, or a loud failure. */
+async function glossary(file) {
+  let markdown;
+  try {
+    markdown = await readFile(file, 'utf8');
+  } catch (error) {
+    fail(`GLOSSARY.md: cannot read the Avoid list: ${error.code ?? error.message}`);
+  }
+  const found = avoidTermsOf(markdown);
+  if (found.length === 0) fail('GLOSSARY.md: no _Avoid_ entries, so rule 2 would check nothing');
+  return found;
+}
+
+/** Stop with a message a person can act on: a missing policy is not a quiet pass. */
+function fail(message) {
+  process.stdout.write(`${message}\n`);
+  process.exit(1);
 }
 
 /** The terms a glossary's `_Avoid_:` lines reject. */
 function avoidTermsOf(markdown) {
-  const headwords = new Set(
-    [...markdown.matchAll(/^\*\*(.+?)\*\*:/gm)].map(([, headword]) => headword.trim().toLowerCase()),
-  );
   const terms = [];
   for (const [, list] of markdown.matchAll(/^_Avoid_:(.*(?:\n(?!\*|_|$).*)*)/gm)) {
     for (const entry of list.split(',')) {
-      const qualified = /\([^)]*\)/.test(entry);
-      const bare = entry.replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+      // A qualifier makes the entry one sense of a word the glossary uses
+      // elsewhere: `label (for free-standing text)`. A person picks the sense.
+      if (/\([^)]*\)/.test(entry)) continue;
+      const bare = entry.replace(/\s+/g, ' ').trim().toLowerCase();
       if (bare === '' || !/[a-z]/.test(bare)) continue;
-      // One sense of the glossary's own word: `label` is a headword, and only
-      // free-standing Text is the wrong sense. A person reads that, not a script.
-      if (qualified && headwords.has(bare)) continue;
       terms.push(bare);
     }
   }
@@ -169,42 +322,93 @@ function avoidTermsOf(markdown) {
 }
 
 /** Whether a string reads as copy a person sees, rather than as code or a path. */
-function isCopy(body, before) {
-  if (SPECIFIER.test(before)) return false;
-  if (!/^[A-Za-z][A-Za-z0-9 ,.!?'’—–-]*$/.test(body)) return false;
+function isCopy(body) {
+  const text = body.trim();
+  if (!/^[A-Za-z][A-Za-z0-9 ,.!?;:'’"()\-–—]*$/.test(text)) return false;
   // `esbozo-editor .board` is a selector, not a sentence a person reads.
-  if (/\.\s*[a-z]/i.test(body)) return false;
+  if (/\.\s*[a-z]/i.test(text)) return false;
   // A sentence or a UI label: words with spaces, or one capitalised word.
-  return body.includes(' ') || /^[A-Z]/.test(body);
+  return text.includes(' ') || /^[A-Z]/.test(text);
 }
 
-/** Whether a word is the term, or the term's plural: `drawings` is `drawing`. */
-function same(word, term) {
-  return word === term || word === `${term}s`;
+/**
+ * The runs of a literal that a person reads: the whole string, or — in a
+ * template that is markup — the words between its tags and the labels its
+ * attributes carry, because a button's text is copy like any other.
+ */
+function copyRuns(text) {
+  if (!text.includes('<')) return [{ text, at: 0 }];
+  const runs = [];
+  let cursor = 0;
+  for (const tag of text.matchAll(/<[^>]*>/g)) {
+    if (tag.index > cursor) runs.push({ text: text.slice(cursor, tag.index), at: cursor });
+    for (const attribute of tag[0].matchAll(/\b(?:aria-label|title|placeholder|alt)\s*=\s*"([^"]*)"/g)) {
+      runs.push({ text: attribute[1], at: tag.index + attribute.index + attribute[0].indexOf('"') + 1 });
+    }
+    cursor = tag.index + tag[0].length;
+  }
+  if (cursor < text.length) runs.push({ text: text.slice(cursor), at: cursor });
+  return runs;
 }
 
-/** Whether any of the terms appears as that run of whole words in these words. */
-function findTerm(terms, found) {
+/** The Avoid term this text holds, if it holds one. */
+function avoidTermIn(text) {
+  const found = words(text);
   for (const term of terms) {
     const wanted = term.split(' ');
     for (let at = 0; at + wanted.length <= found.length; at += 1) {
-      if (wanted.every((word, step) => same(found[at + step], word))) return term;
+      if (!wanted.every((word, step) => same(found[at + step].word, word))) continue;
+      // `Node 22`, `Node-compatible`, `Node.js` and the `Node runtime` name the
+      // runtime the code runs on, not an Element.
+      if (wanted.length === 1 && term === 'node' && namesRuntime(text, found[at].end)) continue;
+      return term;
     }
   }
   return undefined;
 }
 
+/** Whether what follows a `node` makes it the runtime's name. */
+function namesRuntime(text, end) {
+  return /^\s*(?:\d|-compatible|\.js|runtime)/i.test(text.slice(end));
+}
+
+/** Whether a word is the term, or the plain inflection of it: `shapes`, `shaped`. */
+function same(word, term) {
+  return [`${term}`, `${term}s`, `${term}es`, `${term}d`, `${term}ed`].includes(word);
+}
+
 /**
- * A name or a line of copy as whole words: `ShapeElement` is `shape` and
- * `element`, and `node_modules` is one word, not `node`.
+ * A name or a line of copy as whole words, each with where it sits: `ShapeElement`
+ * is `shape` and `element`, `SHAPE_ELEMENT` is two words, and `node_modules` is
+ * one word, not `node`.
  */
 function words(text) {
-  return text
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
-    .split(/[^A-Za-z0-9_]+/)
-    .filter((word) => word !== '')
-    .map((word) => word.toLowerCase());
+  const found = [];
+  for (const token of text.matchAll(/[A-Za-z0-9_]+/g)) {
+    const raw = token[0];
+    const base = token.index;
+    if (raw.includes('_') && /^[A-Z0-9_]+$/.test(raw)) {
+      let at = 0;
+      for (const piece of raw.split('_')) {
+        if (piece !== '') found.push({ word: piece.toLowerCase(), at: base + at, end: base + at + piece.length });
+        at += piece.length + 1;
+      }
+      continue;
+    }
+    let start = 0;
+    for (let index = 1; index <= raw.length; index += 1) {
+      const next = raw[index] ?? '';
+      const before = raw[index - 1];
+      const boundary =
+        index === raw.length ||
+        (/[a-z0-9]/.test(before) && /[A-Z]/.test(next)) ||
+        (/[A-Z]/.test(before) && /[A-Z]/.test(next) && /[a-z]/.test(raw[index + 1] ?? ''));
+      if (!boundary) continue;
+      found.push({ word: raw.slice(start, index).toLowerCase(), at: base + start, end: base + index });
+      start = index;
+    }
+  }
+  return found;
 }
 
 /**
@@ -212,109 +416,180 @@ function words(text) {
  * other code and other people have to live with. A local called `node` for a
  * DOM node is that module's own business, and the glossary has no quarrel.
  */
-function exportedNames(code) {
+function exportedNames(source) {
   const found = [];
-  for (const pattern of [
-    /\bexport\s+(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?(?:class|interface|type|enum|function|const|let|var)\s+([A-Za-z_$][\w$]*)/g,
-    /\bexport\s+default\s+(?:async\s+)?(?:class|function)\s+([A-Za-z_$][\w$]*)/g,
-  ]) {
-    for (const match of code.matchAll(pattern)) found.push([match[1], match.index]);
+  for (const statement of source.statements) {
+    if (ts.isExportDeclaration(statement)) {
+      if (statement.exportClause !== undefined && ts.isNamedExports(statement.exportClause)) {
+        for (const element of statement.exportClause.elements) {
+          found.push(named(source, element.name));
+        }
+      }
+      continue;
+    }
+    const modifiers = ts.canHaveModifiers(statement) ? (ts.getModifiers(statement) ?? []) : [];
+    if (!modifiers.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) continue;
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        for (const name of bindingNames(declaration.name)) found.push(named(source, name));
+      }
+      continue;
+    }
+    const name = statement.name;
+    if (name !== undefined) found.push(named(source, name));
+  }
+  return found.filter((entry) => entry !== undefined);
+}
+
+/** A node as the name it writes, and where it writes it. */
+function named(source, node) {
+  return { text: node.getText(source), at: node.getStart(source) };
+}
+
+/** The names a binding introduces: `const { a, b } = x` names two. */
+function bindingNames(binding) {
+  if (ts.isIdentifier(binding)) return [binding];
+  const names = [];
+  for (const element of binding.elements) {
+    if (ts.isBindingElement(element)) names.push(...bindingNames(element.name));
+  }
+  return names;
+}
+
+/** The literals in a test call's first argument: the name a failure prints. */
+function testNameNodes(source) {
+  const found = new Set();
+  every(source, (node) => {
+    if (!ts.isCallExpression(node) || !isTestCall(node.expression)) return;
+    const [first] = node.arguments;
+    if (first !== undefined) found.add(first);
+  });
+  return found;
+}
+
+/** Whether a callee is `test`, `it`, `describe` or one of their `.only` forms. */
+function isTestCall(expression) {
+  let callee = expression;
+  while (ts.isPropertyAccessExpression(callee)) callee = callee.expression;
+  return ts.isIdentifier(callee) && TEST_CALLS.has(callee.text);
+}
+
+/** The name a call is made by: `page.locator(...)` is a `locator`. */
+function methodName(expression) {
+  if (expression === undefined) return undefined;
+  if (ts.isPropertyAccessExpression(expression)) return expression.name.text;
+  if (ts.isIdentifier(expression)) return expression.text;
+  return undefined;
+}
+
+/** The specifiers a file imports, exports or requires, however it writes them. */
+function specifiers(source) {
+  const found = [];
+  const add = (node) => {
+    const value = textOf(node);
+    if (value !== undefined) found.push({ value, node, at: node.getStart(source) });
+  };
+  every(source, (node) => {
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
+      const specifier = node.moduleSpecifier;
+      if (specifier !== undefined) add(specifier);
+      return;
+    }
+    if (ts.isImportTypeNode(node)) {
+      if (ts.isLiteralTypeNode(node.argument)) add(node.argument.literal);
+      return;
+    }
+    if (!ts.isCallExpression(node)) return;
+    const dynamic = node.expression.kind === ts.SyntaxKind.ImportKeyword;
+    const required = ts.isIdentifier(node.expression) && node.expression.text === 'require';
+    if (!dynamic && !required) return;
+    const [first] = node.arguments;
+    if (first !== undefined) add(first);
+  });
+  return found;
+}
+
+/** A string literal's text, when the node is one. */
+function textOf(node) {
+  return ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) ? node.text : undefined;
+}
+
+/** Every string in a file, as its text, its offset and the node the compiler made. */
+function literals(source) {
+  const found = [];
+  every(source, (node) => {
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+      found.push({ node, text: node.text, at: node.getStart(source) + 1 });
+      return;
+    }
+    if (!ts.isTemplateExpression(node)) return;
+    found.push({ node: node.head, text: node.head.text, at: node.head.getStart(source) + 1 });
+    for (const span of node.templateSpans) {
+      found.push({ node: span.literal, text: span.literal.text, at: span.literal.getStart(source) + 1 });
+    }
+  });
+  return found;
+}
+
+/** Every line of the file that is a comment, rather than a string that looks like one. */
+function commentsOf(text, source) {
+  const spans = [];
+  every(source, (node) => {
+    if (
+      ts.isStringLiteral(node) ||
+      ts.isNoSubstitutionTemplateLiteral(node) ||
+      ts.isTemplateExpression(node) ||
+      ts.isRegularExpressionLiteral(node)
+    ) {
+      spans.push([node.getStart(source), node.getEnd()]);
+    }
+  });
+  spans.sort((left, right) => left[0] - right[0]);
+
+  const found = [];
+  let span = 0;
+  let at = 0;
+  while (at < text.length) {
+    while (span < spans.length && spans[span][1] <= at) span += 1;
+    const here = spans[span];
+    if (here !== undefined && at >= here[0] && at < here[1]) {
+      at = here[1];
+      continue;
+    }
+    if (text.startsWith('//', at)) {
+      const end = text.indexOf('\n', at);
+      const stop = end === -1 ? text.length : end;
+      found.push({ at, text: text.slice(at, stop) });
+      at = stop;
+      continue;
+    }
+    if (text.startsWith('/*', at)) {
+      const end = text.indexOf('*/', at + 2);
+      at = end === -1 ? text.length : end + 2;
+      continue;
+    }
+    at += 1;
   }
   return found;
 }
 
-/**
- * A file as this script sees it: its code with comments and strings blanked, and
- * the strings and regexes it holds, each with the text that calls it.
- */
-function scan(text) {
-  const code = [...text];
-  const strings = [];
-  const regexes = [];
-  let at = 0;
-  let last = '';
-  while (at < text.length) {
-    const here = text[at];
-    const end =
-      here === '/' && text[at + 1] === '/' ? endOfLine(text, at)
-      : here === '/' && text[at + 1] === '*' ? endOfBlock(text, at)
-      : here === "'" || here === '"' || here === '`' ? endOfString(text, at)
-      : here === '/' && /^(?:[(,=:[!&|?{};]|return)$/.test(last) ? endOfRegex(text, at)
-      : null;
-    if (end === null) {
-      if (!/\s/.test(here)) last = here;
-      at += 1;
-      continue;
-    }
-    const before = text.slice(Math.max(0, at - 32), at).trimStart();
-    if (here === "'" || here === '"' || here === '`') {
-      if (text[end] !== here) {
-        // An unterminated string is a syntax error: the compiler's to report.
-        last = here;
-        at += 1;
-        continue;
-      }
-      strings.push({ body: text.slice(at + 1, end), at: at + 1, before, kind: 'string' });
-    } else if (here === '/' && text[at + 1] !== '/' && text[at + 1] !== '*') {
-      regexes.push({ body: text.slice(at + 1, end), at: at + 1, before, kind: 'regex' });
-    }
-    for (let index = at; index < end + 1; index += 1) {
-      if (code[index] !== '\n') code[index] = ' ';
-    }
-    at = end + 1;
-  }
-  return { code: code.join(''), strings, regexes };
+/** A file as the compiler reads it, from its extension. */
+function parse(path, text) {
+  const extension = path.slice(path.lastIndexOf('.'));
+  const kinds = {
+    '.ts': ts.ScriptKind.TS,
+    '.tsx': ts.ScriptKind.TSX,
+    '.js': ts.ScriptKind.JS,
+    '.mjs': ts.ScriptKind.JS,
+    '.cjs': ts.ScriptKind.JS,
+  };
+  return ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, kinds[extension] ?? ts.ScriptKind.TS);
 }
 
-function endOfLine(text, at) {
-  const newline = text.indexOf('\n', at);
-  return newline === -1 ? text.length : newline - 1;
-}
-
-function endOfBlock(text, at) {
-  const close = text.indexOf('*/', at + 2);
-  return close === -1 ? text.length - 1 : close + 1;
-}
-
-function endOfString(text, at) {
-  const quote = text[at];
-  let index = at + 1;
-  while (index < text.length) {
-    if (text[index] === '\\') index += 2;
-    else if (text[index] === quote) return index;
-    else if (text[index] === '\n' && quote !== '`') return index;
-    else index += 1;
-  }
-  return text.length;
-}
-
-function endOfRegex(text, at) {
-  let index = at + 1;
-  let inClass = false;
-  while (index < text.length) {
-    const here = text[index];
-    if (here === '\\') index += 2;
-    else if (here === '[') {
-      inClass = true;
-      index += 1;
-    } else if (here === ']') {
-      inClass = false;
-      index += 1;
-    } else if (here === '/' && !inClass) return index;
-    else if (here === '\n') return at;
-    else index += 1;
-  }
-  return at;
-}
-
-/**
- * Whether the finding carries the one comment this script takes: the SVG a unit
- * test parses is the CLI's written file, its public output, not the page.
- */
-function excused(text, at) {
-  const all = text.split('\n');
-  const line = lineAt(text, at);
-  return /check-rules:/.test(all[line - 1] ?? '') || /check-rules:/.test(all[line - 2] ?? '');
+/** Every node of the tree, the root included. */
+function every(node, visit) {
+  visit(node);
+  ts.forEachChild(node, (child) => every(child, visit));
 }
 
 /** The 1-based line an offset sits on. */
@@ -325,11 +600,21 @@ function lineAt(text, at) {
 /** The files the rules read, relative to the root and `/`-separated. */
 async function files(root) {
   const found = [];
-  for (const entry of await readdir(root, { withFileTypes: true, recursive: true })) {
-    if (!entry.isFile()) continue;
-    const path = relative(root, join(entry.parentPath, entry.name)).split(sep).join('/');
-    if (/^(?:node_modules|dist|\.e2e|\.git)\//.test(path)) continue;
-    if (/\.(?:ts|tsx|js|mjs|cjs)$/.test(path)) found.push(path);
+  for (const name of ROOTS) {
+    const top = join(root, name);
+    let entries;
+    try {
+      entries = await readdir(top, { withFileTypes: true, recursive: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      const path = `${name}/${relative(top, join(entry.parentPath, entry.name)).split(sep).join('/')}`;
+      if (path.includes('node_modules/')) continue;
+      if (!/\.(?:ts|tsx|js|mjs|cjs)$/.test(path)) continue;
+      found.push(path);
+    }
   }
   return found.sort();
 }

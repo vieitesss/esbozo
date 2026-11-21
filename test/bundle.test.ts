@@ -49,7 +49,7 @@ test('the bundled CLI renders and draws a PNG with no node_modules beside it', a
 
   const rendered = await run(process.execPath, [cli, 'render', 'scene.json'], { cwd: folder });
   assert.match(rendered.stdout, /scene\.svg\n$/, 'render prints the path it wrote');
-  // check-rules: markup of the CLI's SVG, not the page
+  // check-rules: markup of a written SVG file, not the page
   assert.match(await readFile(join(folder, 'scene.svg'), 'utf8'), /^<svg[\s>]/);
 
   const drawn = await run(process.execPath, [cli, 'png', 'scene.json', '--theme', 'dark'], {
