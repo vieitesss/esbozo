@@ -5,19 +5,20 @@
  * Two probes go through a real Chromium against the built editor: one reads the
  * status line while a Space pan runs, one throws. Each run is a child process of
  * its own, so what is asserted is what the documented command prints and the
- * code it exits with — and that the port it served on is free again once the
- * process is gone, whether the probe returned or threw.
+ * code it exits with — and that the browser it started and the port it served on
+ * are gone once the process is gone, whether the probe returned or threw.
  *
  * `pnpm test` builds first, so `dist/` is there for these runs.
  */
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test, type TestContext } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 
 /** The repository the `pnpm probe` script runs in. */
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -41,11 +42,14 @@ const PAN_PROBE = `export default async ({ page }) => {
  */
 const PAN_STATUS = /Panning/;
 
-/** What one run of the helper left behind: its exit code and its two streams. */
+/** What one run of the helper left behind: its exit code, its two streams, and
+ * the browser processes it started. */
 interface Run {
   code: number;
   stdout: string;
   stderr: string;
+  /** The pids of the Chromium processes the run started, watched as it ran. */
+  browsers: number[];
 }
 
 /** Writes one probe module in a folder of its own, and answers its path. */
@@ -69,14 +73,116 @@ async function helper(args: readonly string[], input?: { source: string; folder:
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    const watching = child.pid === undefined ? undefined : watchBrowsers(child.pid);
     child.stdin.end(input?.source);
     let stdout = '';
     let stderr = '';
     child.stdout.setEncoding('utf8').on('data', (chunk: string) => (stdout += chunk));
     child.stderr.setEncoding('utf8').on('data', (chunk: string) => (stderr += chunk));
     child.once('error', reject);
-    child.once('close', (code) => resolve({ code: code ?? -1, stdout, stderr }));
+    child.once('close', (code) => {
+      void (watching?.stop() ?? Promise.resolve()).then(() =>
+        resolve({
+          code: code ?? -1,
+          stdout,
+          stderr,
+          browsers: [...(watching?.browsers ?? [])],
+        }),
+      );
+    });
   });
+}
+
+/** One process as `ps` lists it: its pid, the pid that started it, and its command. */
+interface Proc {
+  pid: number;
+  ppid: number;
+  command: string;
+}
+
+/** Every process running now: the browser a run started is found there, without
+ * the helper having to name it on a stream the probe's own output shares. */
+async function processList(): Promise<Proc[]> {
+  const { stdout } = await promisify(execFile)('ps', ['-A', '-o', 'pid=,ppid=,command=']);
+  return stdout.split('\n').flatMap((line) => {
+    const match = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
+    return match === null ? [] : [{ pid: Number(match[1]), ppid: Number(match[2]), command: match[3] ?? '' }];
+  });
+}
+
+/** The pids `root` started, at any depth, as one reading of the process list sees them. */
+function descendants(all: readonly Proc[], root: number): Set<number> {
+  const children = new Map<number, number[]>();
+  for (const proc of all) {
+    const siblings = children.get(proc.ppid) ?? [];
+    siblings.push(proc.pid);
+    children.set(proc.ppid, siblings);
+  }
+  const found = new Set<number>();
+  const queue = [root];
+  while (queue.length > 0) {
+    for (const pid of children.get(queue.pop()!) ?? []) {
+      found.add(pid);
+      queue.push(pid);
+    }
+  }
+  return found;
+}
+
+/**
+ * Whether a command is the browser itself rather than one of its helpers: the
+ * browser names no `--type=`, while its zygotes, renderers and crash handler do,
+ * and crashpad is a process of its own.
+ */
+function isBrowser(command: string): boolean {
+  return /chrom/i.test(command) && !command.includes('--type=') && !command.includes('crashpad');
+}
+
+/** Every Chromium process a run started, by pid, read every 25 ms while it runs. */
+function watchBrowsers(root: number): {
+  browsers: Set<number>;
+  stop: () => Promise<void>;
+} {
+  const browsers = new Set<number>();
+  let scanning: Promise<void> | undefined;
+  const scan = async (): Promise<void> => {
+    if (scanning !== undefined) return await scanning;
+    scanning = (async () => {
+      try {
+        const all = await processList();
+        const started = descendants(all, root);
+        for (const proc of all) if (started.has(proc.pid) && isBrowser(proc.command)) browsers.add(proc.pid);
+      } catch {
+        // A scan that raced a process exit is read again on the next tick.
+      } finally {
+        scanning = undefined;
+      }
+    })();
+    return await scanning;
+  };
+  const timer = setInterval(() => void scan(), 25);
+  return {
+    browsers,
+    stop: async () => {
+      clearInterval(timer);
+      await scan();
+    },
+  };
+}
+
+/** How long a run's browser is given to leave the process list. */
+const BROWSER_EXIT = 5_000;
+
+/** The pids of `pids` still running once a run's browser has had time to exit. */
+async function stillRunning(pids: readonly number[]): Promise<number[]> {
+  const deadline = Date.now() + BROWSER_EXIT;
+  let alive = [...pids];
+  while (alive.length > 0 && Date.now() < deadline) {
+    const running = new Set((await processList()).map((proc) => proc.pid));
+    alive = alive.filter((pid) => running.has(pid));
+    if (alive.length > 0) await new Promise((done) => setTimeout(done, 50));
+  }
+  return alive;
 }
 
 /**
@@ -114,6 +220,8 @@ test('a probe reads the running editor: a held Space names the pan in the status
   assert.match(JSON.parse(run.stdout), PAN_STATUS);
   const port = portOf(run.stderr);
   assert.equal(await released(port), true, `the helper left ${port} open`);
+  assert.notEqual(run.browsers.length, 0, 'the run started no Chromium the test could see');
+  assert.deepEqual(await stillRunning(run.browsers), [], `the helper left Chromium ${run.browsers} running`);
 });
 
 test('a stdin probe with no built page boots nothing and leaves no temporary module', async (t) => {
@@ -129,6 +237,7 @@ test('a stdin probe with no built page boots nothing and leaves no temporary mod
   assert.doesNotMatch(run.stderr, /probing http:\/\//);
   assert.equal(run.stdout, '');
   assert.deepEqual(await strays(empty), []);
+  assert.deepEqual(run.browsers, [], 'a run with no built page started a browser');
 });
 
 test('a throwing probe exits non-zero, prints the error, and leaves no server', async (t) => {
@@ -143,4 +252,6 @@ test('a throwing probe exits non-zero, prints the error, and leaves no server', 
   assert.equal(run.stdout, '');
   const port = portOf(run.stderr);
   assert.equal(await released(port), true, `the helper left ${port} open`);
+  assert.notEqual(run.browsers.length, 0, 'the run started no Chromium the test could see');
+  assert.deepEqual(await stillRunning(run.browsers), [], `the helper left Chromium ${run.browsers} running`);
 });
