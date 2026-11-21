@@ -296,8 +296,8 @@ function firstPass(d: string): string {
  * The point half way along a path's ink, measured by walking the ink itself in
  * fine steps: the length of the whole path, then the point that length leads to.
  */
-function arcMiddle(d: string): Point {
-  const points = inkSamples(d, 2000);
+function arcMiddle(d: string, along = 2000): Point {
+  const points = inkSamples(d, along);
   const lengths = [0];
   for (let index = 1; index < points.length; index += 1) {
     const before = points[index - 1]!;
@@ -996,6 +996,36 @@ test('labelAt puts the words on the middle of a long curve, not the middle of it
 
   const shaft = firstPass(attribute(shaftFrom(svg, { x: 0, y: 0 }), 'd') ?? '');
   const middle = arcMiddle(shaft);
+  const centre = wordsCentre(svg);
+  const missed = Math.hypot(centre.x - middle.x, centre.y - middle.y);
+  assert.ok(missed < 0.5, `the words sit on the middle of the ink, ${missed}px off`);
+});
+
+test('labelAt still finds the middle when the same curve is 250 times as long', async () => {
+  // The middle of a curve is found by its own arc length, and a curve 250 times
+  // as long holds 250 times as much ink between two steps of any fixed table.
+  // The steps are integrated over their own spans and the fraction of a step is
+  // solved for on the curve, so the words stay on the middle however far the
+  // ink runs.
+  const far = 250;
+  const svg = await ink(
+    oneArrow(
+      [
+        { x: 0, y: 0 },
+        { x: 10000 * far, y: 15000 * far, corner: 'round' },
+        { x: 30000 * far, y: 0, corner: 'round' },
+        { x: 100000 * far, y: 10000 * far },
+      ],
+      {
+        label: 'middle',
+        labelAt: { t: 0.5, offset: 0 },
+        heads: { start: 'none', end: 'none' },
+      },
+    ),
+  );
+
+  const shaft = firstPass(attribute(shaftFrom(svg, { x: 0, y: 0 }), 'd') ?? '');
+  const middle = arcMiddle(shaft, 100000);
   const centre = wordsCentre(svg);
   const missed = Math.hypot(centre.x - middle.x, centre.y - middle.y);
   assert.ok(missed < 0.5, `the words sit on the middle of the ink, ${missed}px off`);

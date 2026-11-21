@@ -422,9 +422,16 @@ const FILLET_RADIUS = 7;
  */
 const CURVE_FLATNESS = 0.1;
 
-/** The fewest and the most chords one curve is measured by. */
+/** The fewest and the most steps one curve is measured in. */
 const CURVE_MIN_STEPS = 16;
 const CURVE_MAX_STEPS = 1024;
+
+/**
+ * How many times the arc inside one step is halved to find where a distance
+ * lands in it: enough that the bracket is a float's own resolution, and cheap
+ * enough to solve for every Label and every head a Scene draws.
+ */
+const CURVE_SOLVE_STEPS = 40;
 
 /**
  * How small a quadratic's square term may be, against the rest of it, before the
@@ -754,22 +761,57 @@ function curve(from: Point, control1: Point, control2: Point, to: Point): ShaftP
 function arcsOf(from: Point, control1: Point, control2: Point, to: Point): number[] {
   const steps = curveSteps(from, control1, control2, to);
   const arcs = [0];
-  let previous = from;
   let length = 0;
   for (let step = 1; step <= steps; step += 1) {
-    const point = pointOnCurve(from, control1, control2, to, step / steps);
-    length += Math.hypot(point.x - previous.x, point.y - previous.y);
+    length += arcOf(from, control1, control2, to, (step - 1) / steps, step / steps);
     arcs.push(length);
-    previous = point;
   }
   return arcs;
 }
 
 /**
- * How many chords one curve is measured by: as many as it takes for a chord to
- * sit within `CURVE_FLATNESS` of the ink. A chord `1 / steps` of the way along
- * the curve falls about `bend / (8 · steps²)` short of it, where `bend` is the
- * curve's own second derivative — six times how sharply its control points turn.
+ * The Gauss-Legendre nodes and weights on `[-1, 1]` a curve is integrated with,
+ * five points of them: a cubic's speed is a square root of a quintic, smooth
+ * enough that five samples of it per span measure the span to the last bit a
+ * float holds. The chord between a span's two ends does not: it falls short of
+ * the ink by the span's own curvature, and a long curve's dozen hundred of them
+ * fall short by more than a pixel.
+ */
+const GAUSS_NODES = [-0.906179845938664, -0.5384693101056831, 0, 0.5384693101056831, 0.906179845938664];
+const GAUSS_WEIGHTS = [
+  0.2369268850561891, 0.4786286704993665, 0.5688888888888889, 0.4786286704993665, 0.2369268850561891,
+];
+
+/** The arc length of one curve between two of its own parameters, integrated over the span. */
+function arcOf(
+  from: Point,
+  control1: Point,
+  control2: Point,
+  to: Point,
+  start: number,
+  end: number,
+): number {
+  const half = (end - start) / 2;
+  const middle = (start + end) / 2;
+  let total = 0;
+  for (const [index, node] of GAUSS_NODES.entries()) {
+    total += GAUSS_WEIGHTS[index]! * curveSpeed(from, control1, control2, to, middle + half * node);
+  }
+  return total * half;
+}
+
+/** How fast one curve moves along its own parameter at `u`: how long its derivative is. */
+function curveSpeed(from: Point, control1: Point, control2: Point, to: Point, u: number): number {
+  const tangent = curveTangent(from, control1, control2, to, u);
+  return Math.hypot(tangent.x, tangent.y);
+}
+
+/**
+ * How many steps one curve's arc is measured in: as many as it takes for a step
+ * to be as flat as `CURVE_FLATNESS`, so a short gentle bend is measured in a
+ * handful and a long sweeping one in hundreds. Each step is integrated over its
+ * own span, so the count is how finely the table brackets a distance, not how
+ * closely it follows the ink.
  */
 function curveSteps(from: Point, control1: Point, control2: Point, to: Point): number {
   const tight = Math.max(
@@ -862,8 +904,10 @@ function placeOn(path: ShaftPath, t: number): { piece: ShaftPiece; u: number } {
 
 /**
  * How far along a piece, as its own parameter, a distance from its start lands:
- * a bisection over the piece's own arc lengths, so a long curve is found in a
- * dozen steps instead of walked chord by chord.
+ * a bisection over the piece's own arc lengths to the step the distance falls
+ * in, then the fraction of that step solved for on the curve. A fraction of a
+ * step is not a fraction of the arc it holds, and on a long curve the two are
+ * far enough apart to move the words off the ink's middle.
  */
 function uAt(piece: ShaftPiece, distance: number): number {
   if (piece.kind === 'straight') {
@@ -881,9 +925,36 @@ function uAt(piece: ShaftPiece, distance: number): number {
       long = middle;
     }
   }
-  const chord = arcs[long]! - arcs[short]!;
-  const inside = chord === 0 ? 0 : (distance - arcs[short]!) / chord;
-  return (short + Math.min(1, Math.max(0, inside))) / steps;
+  const from = short / steps;
+  const to = long / steps;
+  const within = distance - arcs[short]!;
+  if (within <= 0) {
+    return from;
+  }
+  if (within >= arcs[long]! - arcs[short]!) {
+    return to;
+  }
+  return whereOnCurve(piece, from, to, within);
+}
+
+/**
+ * Where along one curve between two of its own parameters an arc of `distance`
+ * from the first reaches: a bisection over the arc itself, so the answer is the
+ * ink's own place rather than a share of the bracket.
+ */
+function whereOnCurve(piece: CurvedPiece, from: number, to: number, distance: number): number {
+  let short = from;
+  let long = to;
+  for (let step = 0; step < CURVE_SOLVE_STEPS; step += 1) {
+    const middle = (short + long) / 2;
+    const reached = arcOf(piece.from, piece.control1, piece.control2, piece.to, from, middle);
+    if (reached < distance) {
+      short = middle;
+    } else {
+      long = middle;
+    }
+  }
+  return (short + long) / 2;
 }
 
 /** The point a piece reaches at its own parameter `u`. */
@@ -914,19 +985,25 @@ function pointOnCurve(
 }
 
 /** The derivative of a curve piece at its own parameter `u`, before it is normalised. */
-function tangentOf(piece: CurvedPiece, u: number): Point {  const rest = 1 - u;
+function tangentOf(piece: CurvedPiece, u: number): Point {
+  return curveTangent(piece.from, piece.control1, piece.control2, piece.to, u);
+}
+
+/** The derivative of one cubic at its own parameter `u`, before it is normalised. */
+function curveTangent(
+  from: Point,
+  control1: Point,
+  control2: Point,
+  to: Point,
+  u: number,
+): Point {
+  const rest = 1 - u;
   const before = 3 * rest * rest;
   const first = 6 * rest * u;
   const second = 3 * u * u;
   return {
-    x:
-      (piece.control1.x - piece.from.x) * before +
-      (piece.control2.x - piece.control1.x) * first +
-      (piece.to.x - piece.control2.x) * second,
-    y:
-      (piece.control1.y - piece.from.y) * before +
-      (piece.control2.y - piece.control1.y) * first +
-      (piece.to.y - piece.control2.y) * second,
+    x: (control1.x - from.x) * before + (control2.x - control1.x) * first + (to.x - control2.x) * second,
+    y: (control1.y - from.y) * before + (control2.y - control1.y) * first + (to.y - control2.y) * second,
   };
 }
 
