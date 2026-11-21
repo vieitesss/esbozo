@@ -77,6 +77,42 @@ export function livePage(): ReturnType<PlaywrightLiveSurface['page']> {
   return liveSurface().page();
 }
 
+/**
+ * Takes the focus off the page for real, as the person picking another window
+ * does: an input inside an iframe of this page takes it, and the browser blurs
+ * this page's window on its own. A test cannot dispatch that event and be
+ * believed — a synthesized `blur` reaches the same listener while the browser's
+ * own pointer state stays as it was — so a gesture that ends out of sight is
+ * proved here. Resolves once the page has really lost the focus.
+ */
+const TAKE_FOCUS = `new Promise((resolve) => {
+  const frame = document.createElement('iframe');
+  frame.setAttribute('aria-hidden', 'true');
+  frame.style.cssText = 'position:fixed;left:-20px;top:-20px;width:1px;height:1px;border:0';
+  document.body.append(frame);
+  const input = frame.contentDocument.createElement('input');
+  frame.contentDocument.body.append(input);
+  addEventListener('blur', () => resolve(true), { once: true });
+  setTimeout(() => resolve(false), 2000);
+  input.focus();
+})`;
+
+/**
+ * Blurs the page through that iframe, and refuses a page that never let the
+ * focus go: the test that follows is about what the editor does when it does.
+ */
+export async function blurPage(): Promise<void> {
+  const cdp = await session();
+  const answer = (await cdp.send('Runtime.evaluate', {
+    expression: TAKE_FOCUS,
+    awaitPromise: true,
+    returnByValue: true,
+  })) as { result?: { value?: unknown } };
+  if (answer.result?.value !== true) {
+    throw new Error('the page never lost the focus: nothing to blur');
+  }
+}
+
 function liveSurface(): PlaywrightLiveSurface {
   if (live === undefined) {
     throw new Error(

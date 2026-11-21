@@ -29,7 +29,7 @@ import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import { EMPTY, SCENE, SNAPPED_SCENE, VIEW, at, cliRender, clickScene, doubleClickScene, drag, settle } from './helpers.ts';
 import type { Ui, View } from './helpers.ts';
-import { livePage } from './cdp.ts';
+import { blurPage, livePage } from './cdp.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
 import { ez, tempFolder } from '../test/cli.ts';
@@ -453,6 +453,35 @@ test('an element with no save attribute is read-only: it says so and refuses eve
     await browser.keyboard.press('Control+Equal');
     await expect(screen.getByText('120%')).toBeVisible();
     await expect(screen.getByText('read-only')).toBeVisible();
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('a press that started no drag still lets the pointer go when the page loses the focus', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder());
+  try {
+    await app.open(`${embed.url}/read-only.html`);
+    await expect(screen.getByText('read-only')).toBeVisible();
+
+    // A read-only press takes the pointer the way every press does, and starts no
+    // drag: there is nothing under it a move could change. The person then picks
+    // another window with the button still down, and that window is where the
+    // button comes up, so no release of this gesture ever reaches the page.
+    const box = at({ x: 100, y: 80 }, VIEW);
+    await browser.mouse.move(box.x, box.y);
+    await browser.mouse.down();
+    await blurPage();
+
+    // Back on the page, a click is a click: a pointer the page kept for a gesture
+    // nobody can release would send this one to the board instead, and the Grid
+    // would never hear it.
+    await screen.getByRole('button', 'Grid').click();
+    await expect(screen.getByRole('button', 'Grid')).toHaveAttribute('aria-pressed', 'false');
   } finally {
     await embed.stop();
   }

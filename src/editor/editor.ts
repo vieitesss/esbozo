@@ -2539,15 +2539,23 @@ class EsbozoEditorElement extends HTMLElement {
 
   /**
    * The page lost the focus, or was hidden: no pointer of this gesture will
-   * ever come up here. A Space pan ends, and half a drag is dropped with the
-   * preview it painted — the same page a cancelled pointer leaves, so the frame
-   * that follows draws the Scene as it is held.
+   * ever come up here. A Space pan ends, a press that started no drag lets go of
+   * the pointer it took, and half a drag is dropped with the preview it painted —
+   * the same page a cancelled pointer leaves, so the frame that follows draws the
+   * Scene as it is held.
    */
   #endGesture = (): void => {
     this.#endSpacePan();
     if (this.#drag !== null) {
       this.#cancelDrag();
+      return;
     }
+    // A press that started no drag still took the pointer — a read-only page
+    // selects and moves nothing — and no pointer of this gesture comes up here
+    // either. The capture goes with the press, or the page keeps a pointer for a
+    // click nobody will make.
+    this.#releasePointer();
+    this.#press = null;
   };
 
   /** Drop the gesture in flight: the Scene keeps what it had, and the page shows that. */
