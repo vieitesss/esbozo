@@ -32,6 +32,11 @@ import type { Point } from './helpers.ts';
 const SCENE_SOURCE = JSON.stringify(SCENE, null, 2);
 const SCENES: Folders = { A: { 'scene.json': SCENE_SOURCE } };
 const SNAPPED_SOURCE = JSON.stringify(SNAPPED_SCENE, null, 2);
+const EMPTY_SOURCE = JSON.stringify(
+  { version: 1, title: 'Empty', defaults: {}, elements: [] },
+  null,
+  2,
+);
 
 /** Open a Scene from its folder, `scene.json` by default: two rectangles, `a` and `b`. */
 async function open(ui: Ui, folders: Folders = SCENES, name = 'scene.json'): Promise<void> {
@@ -110,13 +115,6 @@ describe('drawing', () => {
       'line',
     ]);
 
-    // A drawn Element carries the Scene's defaults, not a copy of the editor's
-    // idea of them: this Scene draws with a hachure fill and bold solid stroke.
-    const ellipse = elements[3];
-    expect(ellipse?.fill).toEqual({ kind: 'hachure', grey: 2 });
-    expect(ellipse?.stroke).toEqual({ width: 'bold', style: 'solid' });
-    expect(ellipse?.tone).toBe('ink');
-
     // An arrow and a line are exactly two free ends: Snap is #8's.
     expect(elements[5]?.points).toEqual([
       { x: 420, y: 200 },
@@ -128,17 +126,27 @@ describe('drawing', () => {
     ]);
   });
 
-  test('a drawn Element takes the Scene defaults of roughness and fill, not the editor latest look', async ({
+  test('a drawn Element takes the Scene defaults, not the editor latest look', async ({
     app,
     browser,
     screen,
   }) => {
     const ui = { app, browser, screen };
-    // An empty Scene: the page is the empty page, so the view is known here.
+    // An empty Scene whose defaults are all written out, so this judges
+    // inheritance rather than the Scene's own fallbacks. The page is the empty
+    // page, so the view is known here.
     const ROUGH_SCENE = {
       version: 1,
       title: 'Rough',
-      defaults: { roughness: 0, fill: { kind: 'none' } },
+      defaults: {
+        roughness: 0,
+        stroke: { width: 'extra', style: 'dotted' },
+        fill: { kind: 'none' },
+        tone: 'muted',
+        corners: 'round',
+        fontSize: 'L',
+        textAlign: 'right',
+      },
       elements: [],
     };
     await openEditor(
@@ -158,8 +166,18 @@ describe('drawing', () => {
       x: drawn?.x,
       y: drawn?.y,
       roughness: drawn?.roughness,
+      stroke: drawn?.stroke,
       fill: drawn?.fill,
-    }).toEqual({ type: 'diamond', x: 40, y: 40, roughness: 0, fill: { kind: 'none', grey: 2 } });
+      tone: drawn?.tone,
+    }).toEqual({
+      type: 'diamond',
+      x: 40,
+      y: 40,
+      roughness: 0,
+      stroke: { width: 'extra', style: 'dotted' },
+      fill: { kind: 'none', grey: 2 },
+      tone: 'muted',
+    });
   });
 
   test('a plain click with a box tool draws a default box, and with a stroke tool draws nothing', async ({
@@ -227,6 +245,25 @@ describe('drawing', () => {
     // Panning is a view change: the Scene on disk is untouched.
     expect((await savedFiles(ui))['scene.json']).toBe(SCENE_SOURCE);
   });
+
+  test('Space pan ends even when the release never arrives', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    // Space goes down, then the page loses the focus: the release happens in
+    // another window and never reaches this one.
+    await browser.keyboard.press('r');
+    await browser.keyboard.down('Space');
+    await browser.evaluate(() => {
+      window.dispatchEvent(new Event('blur'));
+      return true;
+    });
+    await drag(ui, at(PAPER), at({ x: PAPER.x + 100, y: PAPER.y + 100 }));
+    await browser.keyboard.up('Space');
+
+    // The tool drew instead of panning, so the pan is over.
+    expect((await savedScene(ui)).elements.length).toBe(3);
+  });
 });
 
 describe('Text typed in place', () => {
@@ -288,6 +325,26 @@ describe('Text typed in place', () => {
     await browser.keyboard.press('Escape');
     expect((await savedFiles(ui))['scene.json']).toBe(files['scene.json']);
   });
+
+  test('a Text the Scene cannot hold is refused, and nothing is written', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    // U+0001 cannot go in the SVG, so the Scene's own parser refuses it.
+    await browser.keyboard.press('t');
+    await clickScene(ui, { x: 420, y: 300 });
+    const input = screen.getByRole('textbox', { name: 'Text' });
+    await input.fill('above\u0001below');
+    await input.press('Escape');
+
+    // The refusal is visible, and the Scene on disk was never touched.
+    await expect(screen.getByRole('status')).toContainText('XML');
+    expect((await savedFiles(ui))['scene.json']).toBe(SCENE_SOURCE);
+  });
 });
 
 describe('shortcuts that edit', () => {
@@ -341,28 +398,70 @@ describe('shortcuts that edit', () => {
     const ui = { app, browser, screen };
     await open(ui);
 
-    // Draw, move, delete: three actions.
+    // Draw, move, delete: three actions. The Element's id is the Scene's to
+    // choose, so it is read back from the Scene rather than assumed.
     await browser.keyboard.press('r');
     await drag(ui, at(PAPER), at({ x: PAPER.x + 100, y: PAPER.y + 100 }));
+    const drawnId = (await savedScene(ui)).elements[2]?.id ?? '';
+    expect(drawnId.length).toBeGreaterThan(0);
     await dragBy(ui, { x: PAPER.x + 50, y: PAPER.y + 50 }, 20, 0);
     await clickScene(ui, { x: 100, y: 80 });
     await browser.keyboard.press('x');
     const afterDelete = (await savedFiles(ui))['scene.json'];
 
     await browser.keyboard.press('Meta+z');
-    expect((await savedScene(ui)).elements.map((element) => element.id)).toEqual(['a', 'b', 'rectangle-1']);
+    expect((await savedScene(ui)).elements.map((element) => element.id)).toEqual([
+      'a',
+      'b',
+      drawnId,
+    ]);
     await browser.keyboard.press('Meta+z');
-    expect((await saved(ui)).get('rectangle-1')?.x).toBe(420);
+    expect((await saved(ui)).get(drawnId)?.x).toBe(420);
     await browser.keyboard.press('Meta+z');
     expect((await savedScene(ui)).elements.map((element) => element.id)).toEqual(['a', 'b']);
 
     // Redo walks the same three steps back to the Scene that was saved.
     await browser.keyboard.press('Shift+Meta+z');
-    expect((await saved(ui)).get('rectangle-1')?.x).toBe(420);
+    expect((await saved(ui)).get(drawnId)?.x).toBe(420);
     await browser.keyboard.press('Shift+Meta+z');
-    expect((await saved(ui)).get('rectangle-1')?.x).toBe(440);
+    expect((await saved(ui)).get(drawnId)?.x).toBe(440);
     await browser.keyboard.press('Shift+Meta+z');
     expect((await savedFiles(ui))['scene.json']).toBe(afterDelete);
+  });
+
+  test('a shortcut pressed mid-drag waits for the pointer: one Element, one undo step', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    // A rectangle dragged with C pressed halfway: nothing may commit off the
+    // half-drawn box, and the duplicate waits for the release.
+    const from = at(PAPER);
+    await browser.keyboard.press('r');
+    await browser.mouse.move(from.x, from.y);
+    await browser.mouse.down();
+    await browser.mouse.move(from.x + 40, from.y + 40);
+    await browser.keyboard.press('c');
+    await browser.mouse.move(from.x + 120, from.y + 100);
+    await browser.mouse.up();
+
+    const scene = await savedScene(ui);
+    expect(scene.elements.length).toBe(3);
+    const drawn = scene.elements[2];
+    expect({
+      type: drawn?.type,
+      x: drawn?.x,
+      y: drawn?.y,
+      width: drawn?.width,
+      height: drawn?.height,
+    }).toEqual({ type: 'rectangle', x: 420, y: 40, width: 120, height: 100 });
+
+    // One gesture is one step: a single undo takes the whole drag back.
+    await browser.keyboard.press('Meta+z');
+    expect((await savedScene(ui)).elements.map((element) => element.id)).toEqual(['a', 'b']);
   });
 
   test('a burst of nudges is one undo step', async ({ app, browser, screen }) => {
@@ -388,8 +487,8 @@ describe('shortcuts that edit', () => {
 
     const copied = await saved(ui);
     expect(copied.size).toBe(3);
-    const copy = copied.get('rectangle-1');
-    expect({ type: copy?.type, x: copy?.x, y: copy?.y }).toEqual({
+    const copyId = [...copied.keys()].find((id) => id !== 'a' && id !== 'b') ?? '';
+    expect({ type: copied.get(copyId)?.type, x: copied.get(copyId)?.x, y: copied.get(copyId)?.y }).toEqual({
       type: 'rectangle',
       x: 56,
       y: 56,
@@ -399,7 +498,8 @@ describe('shortcuts that edit', () => {
     await browser.keyboard.press('Meta+d');
     const again = await saved(ui);
     expect(again.size).toBe(4);
-    expect(again.get('rectangle-2')?.x).toBe(72);
+    const secondId = [...again.keys()].find((id) => !copied.has(id)) ?? '';
+    expect(again.get(secondId)?.x).toBe(72);
 
     // One undo takes both duplicates back: a duplicate is one step.
     await browser.keyboard.press('Meta+z');
@@ -475,13 +575,18 @@ describe('copy and paste', () => {
     const scene = await savedScene(ui);
     const added = scene.elements.slice(2);
     expect(added.map((element) => element.type)).toEqual(['rectangle', 'arrow']);
-    expect(added.map((element) => element.id)).toEqual(['rectangle-1', 'arrow-1']);
+    // The pasted Elements are named fresh: not by the fragment's ids, and not by
+    // any id this Scene already uses.
+    const pastedIds = added.map((element) => element.id);
+    expect(new Set(pastedIds).size).toBe(2);
+    expect(pastedIds.includes('target') || pastedIds.includes('pointer')).toBe(false);
+    expect(scene.elements.slice(0, 2).some((element) => pastedIds.includes(element.id))).toBe(false);
     // The copy is offset onto the page, and the arrow still points at the box
-    // it was drawn on, by its new id.
+    // it was drawn on, by the box copy's new id.
     expect({ x: added[0]?.x, y: added[0]?.y }).toEqual({ x: 416, y: 316 });
     expect(added[1]?.points).toEqual([
       { x: 396, y: 416 },
-      { x: 466, y: 346, snap: 'rectangle-1' },
+      { x: 466, y: 346, snap: pastedIds[0] },
     ]);
   });
 
@@ -532,6 +637,111 @@ describe('copy and paste', () => {
     await browser.keyboard.press('Meta+v');
 
     expect((await savedFiles(ui))['scene.json']).toBe(SCENE_SOURCE);
+  });
+
+  test('a fragment of another version, or a bare array, is not a fragment', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    const box = { id: 'stray', type: 'rectangle', x: 400, y: 300, width: 60, height: 40 };
+
+    // Scene rejects version 42, so the fragment does; a bare array is not a
+    // fragment at all. Neither paste may touch the Scene.
+    for (const text of [JSON.stringify({ version: 42, elements: [box] }), JSON.stringify([box])]) {
+      await browser.evaluate(async (payload: string) => {
+        await navigator.clipboard.writeText(payload);
+        return true;
+      }, text);
+      await browser.keyboard.press('Meta+v');
+    }
+
+    expect((await savedFiles(ui))['scene.json']).toBe(SCENE_SOURCE);
+  });
+
+  test('a versionless fragment pastes, with ids fresh against its own ids', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    // `rectangle-1` and `stray` are not in this Scene: the paste must avoid
+    // the ids it carries as well as the ones the Scene already uses.
+    const fragment = {
+      elements: [
+        { id: 'rectangle-1', type: 'rectangle', x: 400, y: 300, width: 60, height: 40 },
+        { id: 'stray', type: 'ellipse', x: 500, y: 300, width: 60, height: 40 },
+      ],
+    };
+    await browser.evaluate(async (text: string) => {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }, JSON.stringify(fragment));
+
+    await browser.keyboard.press('Meta+v');
+    const scene = await savedScene(ui);
+    const added = scene.elements.slice(2);
+    expect(added.length).toBe(2);
+    const ids = added.map((element) => element.id);
+    expect(new Set(ids).size).toBe(2);
+    expect(ids.includes('rectangle-1')).toBe(false);
+    expect(ids.includes('stray')).toBe(false);
+    expect(scene.elements.slice(0, 2).map((element) => element.id)).toEqual(['a', 'b']);
+  });
+
+  test('a fragment from off the page pastes where it can be seen', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, { A: { 'empty.json': EMPTY_SOURCE } }, 'empty.json');
+
+    // Copied thousands of Scene units away: the +16 nudge would land it off
+    // the page, so it is centred on the view instead. The empty page is fitted
+    // 1:1 and centred at Scene (0, 0), so the middle of the view is (160, 120).
+    const fragment = {
+      version: 1,
+      elements: [{ id: 'far', type: 'rectangle', x: 5000, y: 5000, width: 100, height: 60 }],
+    };
+    await browser.evaluate(async (text: string) => {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }, JSON.stringify(fragment));
+
+    await browser.keyboard.press('Meta+v');
+    const scene = await savedScene(ui, 'empty.json');
+    expect(scene.elements.length).toBe(1);
+    expect({ x: scene.elements[0]?.x, y: scene.elements[0]?.y }).toEqual({ x: 110, y: 90 });
+  });
+
+  test('copying only a Snapped arrow carries both ends free', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(
+      ui,
+      { A: { 'snapped.json': SNAPPED_SOURCE, 'other.json': EMPTY_SOURCE } },
+      'snapped.json',
+    );
+
+    // `link` Snaps to two boxes it is copied without, so the fragment it
+    // becomes has to parse on its own: a fragment with a Snap to a missing
+    // target is not a Scene.
+    await clickScene(ui, { x: 230, y: 80 }, [], SNAPPED);
+    await browser.keyboard.press('Meta+c');
+    await browseFolder(ui, 'A');
+    await screen.getByRole('button', 'other.json').click();
+    await browser.keyboard.press('Meta+v');
+
+    const scene = await savedScene(ui, 'other.json');
+    expect(scene.elements.length).toBe(1);
+    expect(scene.elements[0]?.points).toEqual([
+      { x: 176, y: 96 },
+      { x: 316, y: 96 },
+    ]);
   });
 
   test('undo does not reach back into a Scene that was open before', async ({ app, browser, screen }) => {
