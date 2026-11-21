@@ -24,6 +24,8 @@ import {
   EDGE_1366,
   EDGE_SCENE,
   LONG_1366,
+  LACED,
+  LACED_SCENE,
   LONG_SCENE,
   PINNED,
   PINNED_SCENE,
@@ -34,6 +36,8 @@ import {
   SCENE,
   SHAFT,
   SHAFT_SCENE,
+  UNEVEN,
+  UNEVEN_SCENE,
   SNAPPED,
   SNAPPED_SCENE,
   SPREAD,
@@ -75,6 +79,8 @@ const ARRANGE_SOURCE = JSON.stringify(ARRANGE_SCENE, null, 2);
 const WIDE_SOURCE = JSON.stringify(WIDE_SCENE, null, 2);
 const LONG_SOURCE = JSON.stringify(LONG_SCENE, null, 2);
 const PINNED_SOURCE = JSON.stringify(PINNED_SCENE, null, 2);
+const UNEVEN_SOURCE = JSON.stringify(UNEVEN_SCENE, null, 2);
+const LACED_SOURCE = JSON.stringify(LACED_SCENE, null, 2);
 const SHAFT_SOURCE = JSON.stringify(SHAFT_SCENE, null, 2);
 
 /** The middle of `b`, the one solid grey box in the fixture. */
@@ -1028,6 +1034,48 @@ test('Spread leaves a row alone when its pinned outer centres leave no room to w
   const saved = new Map(scene.elements.map((element) => [element.id, element]));
   expect(['lead', 'mid', 'tail'].map((id) => saved.get(id)?.x)).toEqual([0, 35, 70]);
   expect(scene.elements.map((element) => element.id)).toEqual(['lead', 'mid', 'tail']);
+});
+
+test('Spread spaces a negative gap by its centres even when the outer widths differ', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'uneven.json': UNEVEN_SOURCE } }, 'uneven.json');
+
+  await clickScene(ui, { x: 20, y: 70 }, [], UNEVEN);
+  await clickScene(ui, { x: 65, y: 50 }, ['Shift'], UNEVEN);
+  await clickScene(ui, { x: 100, y: 90 }, ['Shift'], UNEVEN);
+  await control(ui, 'Spread: horizontal').click();
+
+  // 40, 70 and 20 wide across a 110 span, so equal edge gaps would be -10. The
+  // outer two keep 0 and 90 and their middles 20 and 100 anchor the row: the
+  // middle box's middle lands on 60, which moves it from 30 to 25.
+  const scene = await savedScene(ui, 'uneven.json');
+  const saved = new Map(scene.elements.map((element) => [element.id, element]));
+  expect(['lead', 'broad', 'tail'].map((id) => saved.get(id)?.x)).toEqual([0, 25, 90]);
+  expect(['lead', 'broad', 'tail'].map((id) => saved.get(id)?.width)).toEqual([40, 70, 20]);
+});
+
+test('Spread evens boxes and leaves a Snapped line to its targets', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'laced.json': LACED_SOURCE } }, 'laced.json');
+
+  // Three boxes 60 wide at 40, 180 and 420, plus a line Snapped at its left end.
+  await clickScene(ui, { x: 70, y: 70 }, [], LACED);
+  await clickScene(ui, { x: 210, y: 70 }, ['Shift'], LACED);
+  await clickScene(ui, { x: 450, y: 70 }, ['Shift'], LACED);
+  await clickScene(ui, { x: 140, y: 70 }, ['Shift'], LACED);
+  await control(ui, 'Spread: horizontal').click();
+
+  // The line is not measured or moved, so the boxes are all Spread sees: the
+  // outer two keep 40 and 420 and the gaps even out at 130, so the middle box
+  // moves from 180 to 230. The line's own ends are not Spread's to rewrite.
+  const scene = await savedScene(ui, 'laced.json');
+  const saved = new Map(scene.elements.map((element) => [element.id, element]));
+  expect(['frame', 'post', 'beam'].map((id) => saved.get(id)?.x)).toEqual([40, 230, 420]);
+  expect(saved.get('tie')?.points).toEqual([
+    { x: 100, y: 70, snap: 'frame' },
+    { x: 180, y: 70 },
+  ]);
+  expect(scene.elements.map((element) => element.id)).toEqual(['frame', 'post', 'beam', 'tie']);
 });
 
 test('Arrange leaves a Snapped line to its targets', async ({ app, browser, screen }) => {

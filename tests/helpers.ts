@@ -206,6 +206,52 @@ export const PINNED_SCENE = {
 export const PINNED: View = { zoom: 1, panX: 540, panY: 330 };
 
 /**
+ * Three boxes whose even gaps would be negative, with the outer two of
+ * different widths: the old gap formula left this row as it was, and the centre
+ * rule moves the middle one 5 units towards the leading box.
+ */
+export const UNEVEN_SCENE = {
+  version: 1,
+  title: 'Uneven',
+  defaults: { roughness: 1 },
+  elements: [
+    { id: 'lead', type: 'rectangle', x: 0, y: 40, width: 40, height: 60 },
+    { id: 'broad', type: 'rectangle', x: 30, y: 40, width: 70, height: 20 },
+    { id: 'tail', type: 'rectangle', x: 90, y: 40, width: 20, height: 60 },
+  ],
+};
+
+/** The view `UNEVEN_SCENE` lands in at 1280×800, worked out the same way as `VIEW`. */
+export const UNEVEN: View = { zoom: 1, panX: 585, panY: 330 };
+
+/**
+ * Three boxes and a line Snapped at one end: Spread evens the boxes and leaves
+ * the line's stored ends alone, because its end follows an Element.
+ */
+export const LACED_SCENE = {
+  version: 1,
+  title: 'Laced',
+  defaults: { roughness: 1 },
+  elements: [
+    { id: 'frame', type: 'rectangle', x: 40, y: 40, width: 60, height: 60 },
+    { id: 'post', type: 'rectangle', x: 180, y: 40, width: 60, height: 60 },
+    { id: 'beam', type: 'rectangle', x: 420, y: 40, width: 60, height: 60 },
+    {
+      id: 'tie',
+      type: 'line',
+      points: [
+        { x: 100, y: 70, snap: 'frame' },
+        { x: 180, y: 70 },
+      ],
+      heads: { start: 'none', end: 'none' },
+    },
+  ],
+};
+
+/** The view `LACED_SCENE` lands in at 1280×800, worked out the same way as `VIEW`. */
+export const LACED: View = { zoom: 1, panX: 380, panY: 330 };
+
+/**
  * Three rectangles at uneven spacing, for Arrange: layer order, alignment and
  * each axis's distribution move a different one of them, so a test can tell
  * the actions apart from the saved geometry.
