@@ -408,7 +408,13 @@ export function canonicalScene(scene: Scene): Scene {
   };
 }
 
-/** One Element as it is drawn: whole pixels, so no two roundings draw it twice. */
+/**
+ * One Element as it is drawn: whole pixels, so no two roundings draw it twice.
+ * An arrow or line stays an arrow or line, so the shaft it draws can be asked
+ * for without a cast.
+ */
+export function canonicalElement(element: ArrowOrLineElement): ArrowOrLineElement;
+export function canonicalElement(element: Element): Element;
 export function canonicalElement(element: Element): Element {
   if (element.type === 'arrow' || element.type === 'line') {
     return {

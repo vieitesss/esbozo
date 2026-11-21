@@ -30,6 +30,8 @@ import {
   SHIFTED,
   SHIFTED_SCENE,
   SPACED_SCENE,
+  TILTED,
+  TILTED_SCENE,
   UNPLACED,
   UNPLACED_SCENE,
   WORDS,
@@ -63,6 +65,7 @@ const SHIFTED_SOURCE = JSON.stringify(SHIFTED_SCENE, null, 2);
 const BLANK_SOURCE = JSON.stringify(BLANK_SCENE, null, 2);
 const LABELLED_SOURCE = JSON.stringify(LABELLED_SCENE, null, 2);
 const OVERLAP_SOURCE = JSON.stringify(OVERLAP_SCENE, null, 2);
+const TILTED_SOURCE = JSON.stringify(TILTED_SCENE, null, 2);
 const UNPLACED_SOURCE = JSON.stringify(UNPLACED_SCENE, null, 2);
 const FOLLOW_SOURCE = JSON.stringify(FOLLOW_SCENE, null, 2);
 
@@ -2334,5 +2337,57 @@ describe('labels', () => {
       { x: 100, y: 300 },
       { x: 400, y: 300 },
     ]);
+  });
+
+  test('a Label dragged after the shaft moved and reshaped keeps to the side the page draws', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'tilted.json': TILTED_SOURCE } }, 'tilted.json');
+
+    // A move carries the fraction of a pixel the pointer gave it, and a reshape
+    // rounds only the end it takes: the ends are a fifth of a pixel apart, and
+    // the page rounds both, so it draws the shaft straight up with the words
+    // left of it.
+    await dragBy(ui, { x: 200, y: 320 }, 30.4, 0, TILTED);
+    await dragBy(ui, { x: 230, y: 120 }, 0, -20, TILTED);
+    expect((await savedScene(ui, 'tilted.json')).elements[0]?.points).toEqual([
+      { x: 230, y: 100 },
+      { x: 230, y: 420 },
+    ]);
+
+    // The words' paper, read off the Scene: it is where the ink has to be, and
+    // the selection's own outline is not part of either.
+    const placed = await savedPaper(ui, 'tilted.svg', TILTED);
+    expect(Math.abs(placed.x + placed.width / 2 - 650)).toBeLessThan(1.5);
+
+    // Taken by their middle, so the hold the press took is no part of the move.
+    await dragBy(ui, { x: 170, y: 260 }, -20, 0, TILTED);
+
+    // Twenty pixels further from the shaft, and not across it: the side is the
+    // one the ink showed, so the offset grows where the words went.
+    const scene = await savedScene(ui, 'tilted.json');
+    expect(scene.elements[0]?.labelAt).toEqual({ t: 0.5, offset: 80 });
+    // The place the Label was put is the only change: the drag writes no
+    // endpoints of its own.
+    expect(scene.elements[0]?.points).toEqual([
+      { x: 230, y: 100 },
+      { x: 230, y: 420 },
+    ]);
+
+    const carried = await savedPaper(ui, 'tilted.svg', TILTED);
+    expect(
+      Math.abs(carried.x + carried.width / 2 - (placed.x + placed.width / 2) + 20),
+    ).toBeLessThan(1.5);
+    // Nothing of the words went to the other side of the shaft.
+    expect(carried.x + carried.width).toBeLessThan(at({ x: 230, y: 260 }, TILTED).x);
+
+    // And the ink is in the paper the save wrote, where the page draws it: the
+    // words did not stay behind on the side they were taken from.
+    const drawn = (await shot(ui)).darkBounds(carried, DARK);
+    expect(drawn).not.toBeNull();
+    expect(Math.abs(drawn!.x + drawn!.width / 2 - (carried.x + carried.width / 2))).toBeLessThan(6);
   });
 });

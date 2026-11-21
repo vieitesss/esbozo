@@ -238,16 +238,22 @@ export function outlineBox(element: OutlinedElement): Box {
  * The two ends an arrow or line draws, each Snapped end resolved onto its
  * target's outline: the shaft the editor picks by, so a click follows the ink
  * rather than the empty box around it.
+ *
+ * The ends are the canonical ones the SVG is drawn from, rounded like a saved
+ * Scene. A Scene in hand keeps more precision than a file writes, and a shaft's
+ * Label is placed from the ends the page drew: a fraction of a pixel would tilt
+ * the shaft enough to put the words on the other side of it.
  */
 export function drawnShaft(
   element: ArrowOrLineElement,
   byId: ReadonlyMap<string, Element>,
 ): [Point, Point] {
-  const last = element.points.length - 1;
+  const canonical = canonicalElement(element);
+  const last = canonical.points.length - 1;
   return shaftEnds(
-    element.points,
-    snapTarget(element, element.points[0], byId),
-    snapTarget(element, element.points[last]!, byId),
+    canonical.points,
+    snapTarget(canonical, canonical.points[0], byId),
+    snapTarget(canonical, canonical.points[last]!, byId),
   );
 }
 

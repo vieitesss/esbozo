@@ -1122,7 +1122,7 @@ export function labelAtFor(
   const along = { x: shaft.end.x - shaft.start.x, y: shaft.end.y - shaft.start.y };
   const lengthSquared = along.x * along.x + along.y * along.y;
   const travelled = (anchor.x - shaft.start.x) * along.x + (anchor.y - shaft.start.y) * along.y;
-  const side = shaftSide(shaft);
+  const side = shaftSide(along);
   return {
     t: lengthSquared === 0 ? 0 : Math.min(1, Math.max(0, travelled / lengthSquared)),
     offset: (anchor.x - shaft.start.x) * side.x + (anchor.y - shaft.start.y) * side.y,

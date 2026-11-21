@@ -2896,15 +2896,19 @@ class EsbozoEditorElement extends HTMLElement {
       return;
     }
     if (drag.kind === 'label') {
-      // One step, rounded where the Scene rounds every number, so the place the
-      // ink showed is the place the file holds. A press that carried nothing
-      // leaves the Scene as it was, and records no step.
-      const placed = drag.shown;
+      // One step, and only the place: the words were the gesture's to move, and
+      // the ends the shaft was drawn by are not. The place is rounded where the
+      // Scene rounds every number, so the place the ink showed is the place the
+      // file holds. A press that carried nothing leaves the Scene as it was, and
+      // records no step.
+      const placed = canonicalElement(drag.shown);
       this.#drag = null;
       this.#applyScene({
         ...this.#scene,
         elements: this.#scene.elements.map((element) =>
-          element.id === drag.id ? canonicalElement(placed) : element,
+          element.id === drag.id && isShaft(element) && isShaft(placed) && placed.labelAt !== undefined
+            ? { ...element, labelAt: placed.labelAt }
+            : element,
         ),
       });
       return;

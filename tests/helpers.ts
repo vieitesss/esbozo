@@ -308,6 +308,34 @@ export const OVERLAP_SCENE = {
 export const OVERLAP: View = { zoom: 1, panX: 390, panY: 100 };
 
 /**
+ * An upright arrow whose Label sits left of its shaft. An ordinary move keeps
+ * the fraction of a pixel the pointer carried, and a reshape rounds only the end
+ * it takes, so a move and a reshape can leave the ends a fifth of a pixel apart:
+ * the page rounds both and draws the shaft straight up.
+ */
+export const TILTED_SCENE = {
+  version: 1,
+  title: 'Tilted',
+  defaults: { roughness: 1 },
+  elements: [
+    {
+      id: 'rule',
+      type: 'arrow',
+      points: [
+        { x: 200, y: 120 },
+        { x: 200, y: 420 },
+      ],
+      heads: { start: 'none', end: 'arrow' },
+      label: 'tilted',
+      labelAt: { t: 0.5, offset: 60 },
+    },
+  ],
+};
+
+/** The view `TILTED_SCENE` lands in, worked out the same way as `VIEW`. */
+export const TILTED: View = { zoom: 1, panX: 480, panY: 130 };
+
+/**
  * A thick horizontal line, and a diagonal arrow whose bounding box holds a
  * rectangle: the shapes whose boxes lie about where their ink is.
  */
