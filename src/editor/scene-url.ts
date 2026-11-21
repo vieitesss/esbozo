@@ -72,7 +72,7 @@ export function sceneFolder(endpoints: SceneEndpoints): SceneFolder {
         throw new Error('this page has no save URL: it may only read');
       }
       const body: SceneWrite = { scene, svg };
-      const response = await ask(save, {
+      const response = await writeOnce(save, {
         method: 'PUT',
         headers: { accept: 'application/json', 'content-type': 'application/json' },
         body: JSON.stringify(body),
@@ -84,6 +84,41 @@ export function sceneFolder(endpoints: SceneEndpoints): SceneFolder {
       }
     },
   };
+}
+
+/**
+ * The writes in flight to one destination, by URL: the whole page shares it, so
+ * two elements — or the same element after a `scene` or a `save` change — never
+ * have two writes to one URL in the air at once.
+ *
+ * This is what keeps an old snapshot from landing on top of a new one. A write
+ * that was queued before a rebuild is still a person's edit to the Scene it was
+ * made for, and it finishes first: the write the new instance sends waits for it
+ * to answer, so the bytes on disk are always the newest ones the page has, and
+ * `saved` is never a claim an older write can bury.
+ */
+const writes = new Map<string, Promise<unknown>>();
+
+/** One write, sent once every write to the same URL that came before it answered. */
+async function writeOnce(url: string, init: RequestInit): Promise<Response> {
+  const before = writes.get(url) ?? Promise.resolve();
+  // A refusal is the last write's answer, not this one's: the queue goes on.
+  const sending = before.then(
+    () => ask(url, init),
+    () => ask(url, init),
+  );
+  const settled = sending.then(
+    () => undefined,
+    () => undefined,
+  );
+  writes.set(url, settled);
+  // Nothing is left holding a destination nobody is writing to any more.
+  void settled.then(() => {
+    if (writes.get(url) === settled) {
+      writes.delete(url);
+    }
+  });
+  return sending;
 }
 
 /** One request, with a server that is not there reported as the problem it is. */
