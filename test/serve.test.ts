@@ -888,6 +888,11 @@ test('a folder it cannot read, a taken port and a bad argument are told apart', 
   }
 });
 
+test('the startup line names the build it serves, so a stale server is told apart', async () => {
+  const server = await served(await sceneFolder(SCENE));
+  assert.match(server.startup, /^serving .+ on http:\/\/\S+ \(build \S+\)$/);
+});
+
 async function assertMissing(path: string): Promise<void> {
   await assert.rejects(stat(path), `${path} was not written`);
 }

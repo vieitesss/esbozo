@@ -59,6 +59,7 @@
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { BUILD } from './build-id.js';
 import { sceneStem, svgFileName } from './paths.js';
 import { parseScene } from './scene.js';
 import { renderScene } from './renderer.js';
@@ -346,7 +347,7 @@ async function runServe(argv: readonly string[]): Promise<number> {
   }
 
   const mode = running.readOnly ? ' (read-only)' : '';
-  process.stdout.write(`serving ${running.folder} on ${running.url}/${mode}\n`);
+  process.stdout.write(`serving ${running.folder} on ${running.url}/${mode} (build ${BUILD})\n`);
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => void running.close());
   }
