@@ -2084,9 +2084,10 @@ class EsbozoEditorElement extends HTMLElement {
   }
 
   /**
-   * What the page shows while the words are typed: the Element with them in it,
-   * grown so a Label fits. It is a preview, not the Scene: a container grows
-   * with its words as they arrive, and only the commit makes that a change.
+   * What the page shows while the words are typed: the Element grown so a Label
+   * fits, its own words left to the field. It is a preview, not the Scene: a
+   * container grows with its words as they arrive, and only the commit makes
+   * that a change.
    */
   #showWords(element: SceneElement, words: string): void {
     const grown = withWords(element, words, this.#layout);
@@ -2322,7 +2323,9 @@ class EsbozoEditorElement extends HTMLElement {
 
   /** Double-click opens the words of what it lands on: an Element's Label, or its Text. */
   #onDoubleClick = (event: MouseEvent): void => {
-    if (this.#text !== null) {
+    // A field already open takes the keystrokes, and a hand on the canvas — the
+    // Space pan or a drawing tool — is drawing, not picking words.
+    if (this.#text !== null || this.#spaceDown || this.#tool !== 'select') {
       return;
     }
     const hit = elementAt(
