@@ -224,8 +224,88 @@ export const EDGE: View = { zoom: 1, panX: 210, panY: 320 };
 /** The view `EDGE_SCENE` lands in at 1366×768, for the window the note must fit. */
 export const EDGE_1366: View = { zoom: 1, panX: 253, panY: 304 };
 
+/**
+ * Three boxes where the middle one is wider than the gap it has to sit in, so
+ * even gaps between their edges would run backwards. Spread keeps the two
+ * outermost and spaces the centres of all three evenly instead: the leading
+ * box keeps 0, the tail keeps 60 and the middle's centre lands on 35.
+ */
+export const SPREAD_SCENE = {
+  version: 1,
+  title: 'Spread',
+  defaults: { roughness: 1 },
+  elements: [
+    { id: 'lead', type: 'rectangle', x: 0, y: 40, width: 10, height: 60 },
+    { id: 'wide', type: 'rectangle', x: 20, y: 40, width: 100, height: 20 },
+    { id: 'tail', type: 'rectangle', x: 60, y: 40, width: 10, height: 60 },
+  ],
+};
 
+/** The view `SPREAD_SCENE` lands in at 1280×800, worked out the same way as `VIEW`. */
+export const SPREAD: View = { zoom: 1, panX: 580, panY: 330 };
 
+/**
+ * Mixed types for Arrange: a Text, two rectangles and a free arrow. The arrow
+ * has no Snapped end, so it takes part; the Text is measured, so its width is
+ * the one number a test cannot derive from the saved coordinates alone.
+ */
+export const ARRANGE_SCENE = {
+  version: 1,
+  title: 'Arrange',
+  defaults: { roughness: 1 },
+  elements: [
+    { id: 'caption', type: 'text', x: 40, y: 40, content: 'hi', fontSize: 'M' },
+    { id: 'row-a', type: 'rectangle', x: 200, y: 40, width: 100, height: 60 },
+    { id: 'row-b', type: 'rectangle', x: 320, y: 40, width: 100, height: 60 },
+    {
+      id: 'tail',
+      type: 'arrow',
+      points: [
+        { x: 420, y: 70 },
+        { x: 560, y: 70 },
+      ],
+      heads: { start: 'none', end: 'none' },
+    },
+  ],
+};
+
+/** The view `ARRANGE_SCENE` lands in at 1280×800, worked out the same way as `VIEW`. */
+export const ARRANGE: View = { zoom: 1, panX: 340, panY: 330 };
+
+/**
+ * A line Snapped at one end and one Snapped at both: their ends follow their
+ * targets, so Arrange must leave them alone and offer nothing it cannot do.
+ */
+export const TETHER_SCENE = {
+  version: 1,
+  title: 'Tether',
+  defaults: { roughness: 1 },
+  elements: [
+    { id: 'frame', type: 'rectangle', x: 60, y: 40, width: 100, height: 60 },
+    { id: 'post', type: 'rectangle', x: 260, y: 40, width: 100, height: 60 },
+    {
+      id: 'tether',
+      type: 'line',
+      points: [
+        { x: 260, y: 70, snap: 'post' },
+        { x: 420, y: 70 },
+      ],
+      heads: { start: 'none', end: 'none' },
+    },
+    {
+      id: 'weft',
+      type: 'line',
+      points: [
+        { x: 160, y: 70, snap: 'frame' },
+        { x: 260, y: 70, snap: 'post' },
+      ],
+      heads: { start: 'none', end: 'none' },
+    },
+  ],
+};
+
+/** The view `TETHER_SCENE` lands in at 1280×800, worked out the same way as `VIEW`. */
+export const TETHER: View = { zoom: 1, panX: 400, panY: 330 };
 
 /**
  * One bar wider than the room left of the docked note at 1366×768: no pan can

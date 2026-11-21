@@ -15,6 +15,8 @@
 import { describe, test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import {
+  ARRANGE,
+  ARRANGE_SCENE,
   BROKEN_SCENE,
   CROSSED,
   CROSSED_SCENE,
@@ -28,6 +30,10 @@ import {
   SCENE,
   SNAPPED,
   SNAPPED_SCENE,
+  SPREAD,
+  SPREAD_SCENE,
+  TETHER,
+  TETHER_SCENE,
   THREE,
   THREE_SCENE,
   WIDE_1366,
@@ -57,6 +63,9 @@ const SNAPPED_SOURCE = JSON.stringify(SNAPPED_SCENE, null, 2);
 const BROKEN_SOURCE = JSON.stringify(BROKEN_SCENE, null, 2);
 const THREE_SOURCE = JSON.stringify(THREE_SCENE, null, 2);
 const EDGE_SOURCE = JSON.stringify(EDGE_SCENE, null, 2);
+const SPREAD_SOURCE = JSON.stringify(SPREAD_SCENE, null, 2);
+const TETHER_SOURCE = JSON.stringify(TETHER_SCENE, null, 2);
+const ARRANGE_SOURCE = JSON.stringify(ARRANGE_SCENE, null, 2);
 const WIDE_SOURCE = JSON.stringify(WIDE_SCENE, null, 2);
 
 /** The middle of `b`, the one solid grey box in the fixture. */
@@ -804,6 +813,27 @@ test('Arrange moves the selection through the layers and leaves its geometry alo
   ]);
 });
 
+test('Arrange steps two adjacent layers together, and not at all at the boundary', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'three.json': THREE_SOURCE } }, 'three.json');
+
+  const ids = async () => (await savedScene(ui, 'three.json')).elements.map((element) => element.id);
+
+  // The two front-most layers: `forward` has nowhere to move them past.
+  await clickScene(ui, { x: 200, y: 220 }, [], THREE);
+  await clickScene(ui, { x: 420, y: 120 }, ['Shift'], THREE);
+  await control(ui, 'Order: forward').click();
+  expect(await ids()).toEqual(['p', 'q', 'r']);
+
+  // `backward` takes both down one layer and keeps them in the order they had.
+  await control(ui, 'Order: backward').click();
+  expect(await ids()).toEqual(['q', 'r', 'p']);
+
+  // They are the two back-most now, so `backward` has nowhere to go either.
+  await control(ui, 'Order: backward').click();
+  expect(await ids()).toEqual(['q', 'r', 'p']);
+});
+
 test('Arrange lines the selection up on each edge and in each middle', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'three.json': THREE_SOURCE } }, 'three.json');
@@ -884,3 +914,109 @@ test('Arrange spreads the selection with equal gaps on each axis', async ({ app,
   ]);
 });
 
+test('Spread spaces boxes too wide for their gaps by their centres, never backwards', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'spread.json': SPREAD_SOURCE } }, 'spread.json');
+
+  await clickScene(ui, { x: 5, y: 70 }, [], SPREAD);
+  await clickScene(ui, { x: 40, y: 50 }, ['Shift'], SPREAD);
+  await clickScene(ui, { x: 65, y: 90 }, ['Shift'], SPREAD);
+  await control(ui, 'Spread: horizontal').click();
+
+  // The middle box is 100 wide in a 70-wide span, so equal edge gaps would be
+  // -25 and the starts would run backwards. The two outermost keep 0 and 60,
+  // and the centres even out instead: 5, 35, 65, so the wide box lands on -15.
+  const scene = await savedScene(ui, 'spread.json');
+  const saved = new Map(scene.elements.map((element) => [element.id, element]));
+  expect(['lead', 'wide', 'tail'].map((id) => saved.get(id)?.x)).toEqual([0, -15, 60]);
+  expect(['lead', 'wide', 'tail'].map((id) => saved.get(id)?.width)).toEqual([10, 100, 10]);
+});
+
+test('Arrange leaves a Snapped line to its targets', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'tether.json': TETHER_SOURCE } }, 'tether.json');
+
+  // All four: only the two rectangles can be lined up, so only `post` moves.
+  await clickScene(ui, { x: 110, y: 70 }, [], TETHER);
+  await clickScene(ui, { x: 310, y: 70 }, ['Shift'], TETHER);
+  await clickScene(ui, { x: 390, y: 70 }, ['Shift'], TETHER);
+  await clickScene(ui, { x: 210, y: 70 }, ['Shift'], TETHER);
+  await control(ui, 'Arrange: left').click();
+
+  const scene = await savedScene(ui, 'tether.json');
+  const saved = new Map(scene.elements.map((element) => [element.id, element]));
+  expect([saved.get('frame')?.x, saved.get('post')?.x]).toEqual([60, 60]);
+  // A Snapped end follows its target by itself, so neither line is rewritten.
+  expect(saved.get('tether')?.points).toEqual([
+    { x: 260, y: 70, snap: 'post' },
+    { x: 420, y: 70 },
+  ]);
+  expect(saved.get('weft')?.points).toEqual([
+    { x: 160, y: 70, snap: 'frame' },
+    { x: 260, y: 70, snap: 'post' },
+  ]);
+});
+
+test('Arrange offers a disabled action when nothing it can move is selected', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'tether.json': TETHER_SOURCE } }, 'tether.json');
+
+  // The line Snapped at one end and the one Snapped at both: nothing Arrange
+  // could move, so its buttons are offered but disabled. Order still applies,
+  // because a layer is a position in the list and not a place on the page.
+  await clickScene(ui, { x: 390, y: 70 }, [], TETHER);
+  await clickScene(ui, { x: 210, y: 70 }, ['Shift'], TETHER);
+  await expect(control(ui, 'Arrange: left')).toBeDisabled();
+  await expect(control(ui, 'Arrange: middle')).toBeDisabled();
+  await expect(control(ui, 'Order: front')).toBeEnabled();
+});
+
+test('Arrange lines mixed types up, and spreads them without reordering them', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  const open = () => openEditor(ui, { A: { 'arrange.json': ARRANGE_SOURCE } }, 'arrange.json');
+  /** All four: a Text, two rectangles and a free arrow. */
+  const selectAll = async () => {
+    await clickScene(ui, { x: 45, y: 50 }, [], ARRANGE);
+    await clickScene(ui, { x: 250, y: 70 }, ['Shift'], ARRANGE);
+    await clickScene(ui, { x: 370, y: 70 }, ['Shift'], ARRANGE);
+    await clickScene(ui, { x: 490, y: 70 }, ['Shift'], ARRANGE);
+  };
+
+  await open();
+  await selectAll();
+  await control(ui, 'Arrange: left').click();
+  let saved = new Map((await savedScene(ui, 'arrange.json')).elements.map((e) => [e.id, e]));
+  // The Text's own left edge is the selection's left, so it stays and the rest
+  // come to it: the arrow moves by the left end of its shaft.
+  expect(['caption', 'row-a', 'row-b'].map((id) => saved.get(id)?.x)).toEqual([40, 40, 40]);
+  expect(saved.get('tail')?.points).toEqual([
+    { x: 40, y: 70 },
+    { x: 180, y: 70 },
+  ]);
+
+  // Spread keeps the Text and the arrow where they are, and evens the gaps
+  // between what is left. The Text's width is Layout's to measure, so the gaps
+  // between the boxes are compared with each other, from the saved bytes.
+  await open();
+  await selectAll();
+  await control(ui, 'Spread: horizontal').click();
+  const scene = await savedScene(ui, 'arrange.json');
+  saved = new Map(scene.elements.map((e) => [e.id, e]));
+  expect(saved.get('caption')?.x).toBe(40);
+  expect(saved.get('tail')?.points).toEqual([
+    { x: 420, y: 70 },
+    { x: 560, y: 70 },
+  ]);
+  const rowA = saved.get('row-a')?.x ?? 0;
+  const rowB = saved.get('row-b')?.x ?? 0;
+  expect(rowA).toBeGreaterThan(40);
+  expect(rowB).toBeGreaterThan(rowA);
+  expect(Math.abs(rowB - (rowA + 100) - (420 - (rowB + 100)))).toBeLessThanOrEqual(1);
+  // Layer order is not Spread's to change.
+  expect(scene.elements.map((element) => element.id)).toEqual([
+    'caption',
+    'row-a',
+    'row-b',
+    'tail',
+  ]);
+});

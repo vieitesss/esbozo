@@ -195,12 +195,17 @@ export class EsbozoEditorElement extends HTMLElement {
   #roughButton!: HTMLButtonElement;
 
   /**
-   * Where an Element covers, in Scene units, for Arrange. It is the Renderer's
-   * own bounds, so an alignment lands where the drawing is rather than where a
-   * stored box says: a Snapped end and a Label are measured, not guessed.
+   * Where the given Elements cover, in Scene units, measured once for the whole
+   * operation: the Renderer's own bounds, so an alignment lands where the drawing
+   * is rather than where a stored box says. A Snapped end and a Label are
+   * measured, not guessed.
    */
-  #boundsOf = (element: SceneElement): Box =>
-    elementBounds(element, elementsById(this.#scene.elements), this.#layout);
+  #boundsOf(elements: readonly SceneElement[]): Map<string, Box> {
+    const byId = elementsById(elements);
+    return new Map(
+      elements.map((element) => [element.id, elementBounds(element, byId, this.#layout)]),
+    );
+  }
 
   constructor(layout: Layout) {
     super();
@@ -590,9 +595,12 @@ export class EsbozoEditorElement extends HTMLElement {
 
   /** Reorder, align or spread the selected Elements. */
   #arrangeSelection(act: ArrangeAct): void {
+    const boxes = this.#boundsOf(this.#scene.elements);
     this.#applyScene({
       ...this.#scene,
-      elements: arranged(this.#scene.elements, this.#selected, act, this.#boundsOf),
+      elements: arranged(this.#scene.elements, this.#selected, act, (element) =>
+        boxes.get(element.id),
+      ),
     });
   }
 
