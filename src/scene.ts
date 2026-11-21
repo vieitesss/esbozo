@@ -374,9 +374,9 @@ function wholePoint(point: Point): Point {
 /**
  * Deterministic default seed for an Element that carries none: the same id
  * always draws the same way, and it is never 0 (Rough.js reads 0 as "pick one
- * at random").
+ * at random"). Exported so the editor seeds what it draws the same way.
  */
-function seedForId(id: string): number {
+export function seedForId(id: string): number {
   const digest = sha256(new TextEncoder().encode(id));
   const first = ((digest[0]! << 24) | (digest[1]! << 16) | (digest[2]! << 8) | digest[3]!) >>> 0;
   return (first % (MAX_SEED - 1)) + 1;

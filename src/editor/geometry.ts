@@ -224,6 +224,11 @@ export function toScene(view: View, screenX: number, screenY: number): Point {
   };
 }
 
+/** A Scene point, as the page shows it: where a pointer aiming at it lands. */
+export function toPage(view: View, point: Point): Point {
+  return { x: point.x * view.zoom + view.panX, y: point.y * view.zoom + view.panY };
+}
+
 /** Zoom keeping the Scene point under the pointer where it is. */
 export function zoomedAt(view: View, factor: number, screenX: number, screenY: number): View {
   const zoom = clampZoom(view.zoom * factor);
