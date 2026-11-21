@@ -83,7 +83,7 @@ test.skipIf(shots === undefined || shots === '')(
 );
 
 // The status corners on a wide page and on a phone, with the Shortcuts sheet
-// open and shut: the ticket's own view of the two things #32 added.
+// open and shut.
 test.skipIf(shots === undefined || shots === '')('the shortcuts sheet, wide and narrow', async ({
   app,
   browser,

@@ -1802,8 +1802,8 @@ test('the ? button opens the Shortcuts sheet, and Escape shuts it', async ({ app
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
 
-  // The keys are no longer a permanent row under the page: nothing on the page
-  // says them until the sheet is asked for.
+  // The keys are the sheet's alone: nothing on the page says them until the
+  // sheet is asked for.
   await expect(ui.screen.getByText(/Q commands/)).toHaveCount(0);
 
   const help = ui.screen.getByRole('button', 'Shortcuts');
