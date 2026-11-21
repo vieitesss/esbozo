@@ -37,7 +37,7 @@
  * cannot disagree with the ink.
  */
 import { RoughGenerator } from 'roughjs/bin/generator.js';
-import type { Options, PathInfo } from 'roughjs/bin/core.js';
+import type { Drawable, OpSet, Options } from 'roughjs/bin/core.js';
 import { canonicalScene, hashScene, isOutlined } from './scene.js';
 import type {
   ArrowOrLineElement,
@@ -213,13 +213,6 @@ export function strokeWidthOf(element: Element): number {
   return STROKE_WIDTH_PX[element.stroke.width];
 }
 
-/** How far Rough.js may put a vertex off its geometry, in pixels, before roughness scales it. */
-const ROUGH_VERTEX_PX = 2;
-/** The most Rough.js bows a long straight side outward, as a share of its length. */
-const ROUGH_BOW_SHARE = 0.01;
-/** The most Rough.js curve fitting adds to an ellipse's radius, as a share of it. */
-const ROUGH_FIT_SHARE = 0.05;
-
 /**
  * How far a hand font's glyphs hang past the advance box Layout measures their
  * words by, as a share of the font size: Kalam's `j`, the widest hang in the
@@ -229,24 +222,10 @@ const ROUGH_FIT_SHARE = 0.05;
 const GLYPH_HANG_EM = 0.25;
 
 /**
- * How far past its outline box an Element's ink may reach, in Scene units: a
- * rough stroke wobbles every vertex by up to its randomness, bows a long straight
- * side outward, and on an ellipse grows the ring while fitting curves. The ink is
- * the Element, so `elementAt` grows the box by this much and a press on the
- * border lands.
- */
-function inkReach(element: OutlinedElement): number {
-  const longest = Math.max(element.width, element.height);
-  const shape =
-    element.type === 'ellipse' ? (longest * ROUGH_FIT_SHARE) / 2 : longest * ROUGH_BOW_SHARE;
-  return element.roughness * (ROUGH_VERTEX_PX + shape);
-}
-
-/**
  * The box an Element's ink is picked by. An outline draws its stroke centred on
- * the path Rough.js roughens, so the box grows by the stroke's half width and by
- * the stray that path makes; a Text has no outline, but its glyphs hang past the
- * advance box that holds their words.
+ * the paths Rough.js roughens, so the box covers what those paths draw; a Text
+ * has no outline, but its glyphs hang past the advance box that holds their
+ * words.
  */
 export function inkBounds(
   element: OutlinedElement | TextElement,
@@ -263,13 +242,151 @@ export function inkBounds(
       height: box.height,
     };
   }
-  const reach = strokeWidthOf(element) / 2 + inkReach(element);
-  return {
-    x: box.x - reach,
-    y: box.y - reach,
-    width: box.width + reach * 2,
-    height: box.height + reach * 2,
+  const ink = drawnInk(element);
+  if (ink === null) {
+    return box;
+  }
+  const half = strokeWidthOf(element) / 2;
+  const left = Math.min(box.x, ink.left - half);
+  const top = Math.min(box.y, ink.top - half);
+  const right = Math.max(box.x + box.width, ink.right + half);
+  const bottom = Math.max(box.y + box.height, ink.bottom + half);
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+/** How far each side of a drawn path reaches, in Scene units. */
+interface Extent {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/**
+ * Where the ink an outlined Element draws actually reaches, in Scene units: the
+ * paths Rough.js generates for it, fill and outline, measured at the extremes
+ * their curves reach. The drawn line is the answer, at every roughness, stroke
+ * width and corner radius, so no estimate of what Rough.js might do can shrink
+ * the ink a person sees or stretch the box a flat Element is picked by.
+ */
+function drawnInk(element: OutlinedElement): Extent | null {
+  const generator = new RoughGenerator();
+  const paths = [...fillDrawables(generator, element), ...outlineDrawables(generator, element)];
+  let ink: Extent | null = null;
+  for (const drawable of paths) {
+    for (const set of drawable.sets) {
+      ink = extendWithSet(ink, set);
+    }
+  }
+  return ink;
+}
+
+/** One set of drawing operations added to the extremes `ink` already reaches. */
+function extendWithSet(ink: Extent | null, set: OpSet): Extent | null {
+  let left = ink?.left ?? Number.POSITIVE_INFINITY;
+  let top = ink?.top ?? Number.POSITIVE_INFINITY;
+  let right = ink?.right ?? Number.NEGATIVE_INFINITY;
+  let bottom = ink?.bottom ?? Number.NEGATIVE_INFINITY;
+  const point = (x: number, y: number): void => {
+    left = Math.min(left, x);
+    right = Math.max(right, x);
+    top = Math.min(top, y);
+    bottom = Math.max(bottom, y);
   };
+  const across = (value: number): void => {
+    left = Math.min(left, value);
+    right = Math.max(right, value);
+  };
+  const down = (value: number): void => {
+    top = Math.min(top, value);
+    bottom = Math.max(bottom, value);
+  };
+  let from: Point = { x: 0, y: 0 };
+  for (const op of set.ops) {
+    switch (op.op) {
+      case 'move':
+      case 'lineTo': {
+        from = { x: op.data[0]!, y: op.data[1]! };
+        point(from.x, from.y);
+        break;
+      }
+      case 'bcurveTo': {
+        const to = { x: op.data[4]!, y: op.data[5]! };
+        extendWithCurve(
+          point,
+          across,
+          down,
+          from,
+          { x: op.data[0]!, y: op.data[1]! },
+          { x: op.data[2]!, y: op.data[3]! },
+          to,
+        );
+        from = to;
+        break;
+      }
+    }
+  }
+  return left === Number.POSITIVE_INFINITY ? null : { left, top, right, bottom };
+}
+
+/**
+ * One cubic Bézier added to the extremes: its ends, and wherever it turns back
+ * on either axis. A curve's control points sit outside it, so where the curve
+ * itself peaks is solved for rather than bounded by its hull.
+ */
+function extendWithCurve(
+  point: (x: number, y: number) => void,
+  across: (value: number) => void,
+  down: (value: number) => void,
+  from: Point,
+  control: Point,
+  other: Point,
+  to: Point,
+): void {
+  point(from.x, from.y);
+  point(to.x, to.y);
+  for (const axis of ['x', 'y'] as const) {
+    const a = from[axis];
+    const b = control[axis];
+    const c = other[axis];
+    const d = to[axis];
+    // The derivative of the Bézier along one axis, as a quadratic in t.
+    const square = -a + 3 * b - 3 * c + d;
+    const linear = 2 * (a - 2 * b + c);
+    const constant = b - a;
+    const roots =
+      square === 0
+        ? linear === 0
+          ? []
+          : [-constant / linear]
+        : quadraticRoots(linear / square, constant / square);
+    for (const t of roots) {
+      if (!(t > 0 && t < 1)) {
+        continue;
+      }
+      const rest = 1 - t;
+      const value =
+        rest * rest * rest * a +
+        3 * rest * rest * t * b +
+        3 * rest * t * t * c +
+        t * t * t * d;
+      if (axis === 'x') {
+        across(value);
+      } else {
+        down(value);
+      }
+    }
+  }
+}
+
+/** The roots of `t² + b·t + c`, the derivative of a cubic after its square term. */
+function quadraticRoots(b: number, c: number): number[] {
+  const discriminant = b * b - 4 * c;
+  if (discriminant < 0) {
+    return [];
+  }
+  const root = Math.sqrt(discriminant);
+  return [(-b + root) / 2, (-b - root) / 2];
 }
 
 /**
@@ -372,32 +489,11 @@ function outlinedSvg(element: OutlinedElement, words: Block | null): string {
   const generator = new RoughGenerator();
   const width = STROKE_WIDTH_PX[element.stroke.width];
   const strokeColour = element.tone === 'muted' ? MUTED : INK;
-  const commonOptions: Options = {
-    seed: element.seed,
-    roughness: element.roughness,
-    strokeWidth: width,
-  };
   const paths: string[] = [];
 
-  if (element.fill.kind !== 'none') {
-    // A hachure or cross-hatch fill is drawn as lines, so it takes one step
-    // more ink than a solid wash at the same grey. The gap follows the stroke
-    // width, wide enough that a cross-hatch at roughness 2 keeps both
-    // directions visible instead of filling in as a dense mesh.
-    const lineFilled = element.fill.kind !== 'solid';
-    const grey = lineFilled
-      ? Math.min(element.fill.grey + 1, GREY_LAST)
-      : element.fill.grey;
-    const colour = greyColour(grey);
-    const options: Options = {
-      ...commonOptions,
-      stroke: 'none',
-      fill: colour,
-      fillStyle: element.fill.kind,
-      fillWeight: Math.max(1, width / 2),
-      hachureGap: Math.max(8, width * 3),
-    };
-    for (const path of outlinedPaths(generator, element, options)) {
+  for (const drawable of fillDrawables(generator, element)) {
+    const colour = drawable.options.fill;
+    for (const path of generator.toPaths(drawable)) {
       if (path.fill !== 'none') {
         paths.push(`<path d="${pathData(path.d)}" fill="${colour}"/>`);
       } else {
@@ -409,13 +505,14 @@ function outlinedSvg(element: OutlinedElement, words: Block | null): string {
     }
   }
 
-  const outlineOptions: Options = { ...commonOptions, stroke: strokeColour };
   const dash = strokeDash(width, element.stroke.style);
-  for (const path of outlinedPaths(generator, element, outlineOptions)) {
-    paths.push(
-      `<path d="${pathData(path.d)}" fill="none" stroke="${path.stroke}"` +
-        ` stroke-width="${formatNumber(path.strokeWidth)}"${dash}/>`,
-    );
+  for (const drawable of outlineDrawables(generator, element)) {
+    for (const path of generator.toPaths(drawable)) {
+      paths.push(
+        `<path d="${pathData(path.d)}" fill="none" stroke="${path.stroke}"` +
+          ` stroke-width="${formatNumber(path.strokeWidth)}"${dash}/>`,
+      );
+    }
   }
 
   return (
@@ -424,21 +521,64 @@ function outlinedSvg(element: OutlinedElement, words: Block | null): string {
   );
 }
 
-/** The outline of an Element, drawn by Rough.js, with whatever options the pass needs. */
-function outlinedPaths(
+/** The options every pass of an outlined Element draws with. */
+function outlineOptions(element: OutlinedElement): Options {
+  return {
+    seed: element.seed,
+    roughness: element.roughness,
+    strokeWidth: STROKE_WIDTH_PX[element.stroke.width],
+  };
+}
+
+/**
+ * The fill of an outlined Element, as Rough.js draws it: one drawable per pass,
+ * and none at all when the Element is not filled.
+ */
+function fillDrawables(generator: RoughGenerator, element: OutlinedElement): Drawable[] {
+  if (element.fill.kind === 'none') {
+    return [];
+  }
+  // A hachure or cross-hatch fill is drawn as lines, so it takes one step
+  // more ink than a solid wash at the same grey. The gap follows the stroke
+  // width, wide enough that a cross-hatch at roughness 2 keeps both
+  // directions visible instead of filling in as a dense mesh.
+  const lineFilled = element.fill.kind !== 'solid';
+  const grey = lineFilled ? Math.min(element.fill.grey + 1, GREY_LAST) : element.fill.grey;
+  const width = STROKE_WIDTH_PX[element.stroke.width];
+  const options: Options = {
+    ...outlineOptions(element),
+    stroke: 'none',
+    fill: greyColour(grey),
+    fillStyle: element.fill.kind,
+    fillWeight: Math.max(1, width / 2),
+    hachureGap: Math.max(8, width * 3),
+  };
+  return outlinesOf(generator, element, options);
+}
+
+/** The outline of an outlined Element, as Rough.js draws it. */
+function outlineDrawables(generator: RoughGenerator, element: OutlinedElement): Drawable[] {
+  return outlinesOf(generator, element, {
+    ...outlineOptions(element),
+    stroke: element.tone === 'muted' ? MUTED : INK,
+  });
+}
+
+/** The paths of an outlined Element, drawn by Rough.js with whatever options the pass needs. */
+function outlinesOf(
   generator: RoughGenerator,
   element: OutlinedElement,
   options: Options,
-): PathInfo[] {
+): Drawable[] {
   switch (element.type) {
     case 'rectangle':
-      return element.corners === 'round'
-        ? generator.toPaths(generator.path(roundedPath(element), options))
-        : generator.toPaths(
-            generator.rectangle(element.x, element.y, element.width, element.height, options),
-          );
+      return [
+        element.corners === 'round'
+          ? generator.path(roundedPath(element), options)
+          : generator.rectangle(element.x, element.y, element.width, element.height, options),
+      ];
     case 'ellipse':
-      return generator.toPaths(
+      return [
         generator.ellipse(
           element.x + element.width / 2,
           element.y + element.height / 2,
@@ -446,13 +586,13 @@ function outlinedPaths(
           element.height,
           options,
         ),
-      );
+      ];
     case 'diamond': {
       const centre = { x: element.x + element.width / 2, y: element.y + element.height / 2 };
-      return element.corners === 'round'
-        ? generator.toPaths(generator.path(roundedPath(element), options))
-        : generator.toPaths(
-            generator.polygon(
+      return [
+        element.corners === 'round'
+          ? generator.path(roundedPath(element), options)
+          : generator.polygon(
               [
                 [centre.x, element.y],
                 [element.x + element.width, centre.y],
@@ -461,7 +601,7 @@ function outlinedPaths(
               ],
               options,
             ),
-          );
+      ];
     }
   }
 }

@@ -562,6 +562,118 @@ test('a press on the ink a glyph hangs outside its words selects the Text', asyn
   expect(scene.elements[0]?.x).toBe(50);
 });
 
+/**
+ * One very wide, very flat ellipse: its 800 units of width must not add to the
+ * reach its ink is picked by above and below it.
+ */
+const FLAT_SCENE = {
+  version: 1,
+  title: 'Flat',
+  defaults: { roughness: 2 },
+  elements: [
+    {
+      id: 'flat',
+      type: 'ellipse',
+      x: 40,
+      y: 40,
+      width: 800,
+      height: 20,
+      roughness: 2,
+      seed: 37,
+    },
+  ],
+};
+const FLAT_SOURCE = JSON.stringify(FLAT_SCENE, null, 2);
+
+/** The view `FLAT_SCENE` lands in: its 832×52 page fitted one to one. */
+const FLAT = { zoom: 1, panX: 200, panY: 350 };
+
+/** Page pixels around the drawn ellipse, clear of the rail and the status line. */
+const FLAT_REGION: Rect = { x: FLAT.panX + 40, y: FLAT.panY + 10, width: 760, height: 60 };
+
+/** How far above the ink the press lands: a press a person would not call near it. */
+const CLEAR_OF_INK = 28;
+
+test('a press clearly above a flat ellipse misses it, its width adding no reach', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'flat.json': FLAT_SOURCE } }, 'flat.json');
+
+  // The topmost ink, from the page's own pixels: the press is measured off what
+  // is drawn, not off the box the ellipse is stored as.
+  const ink = (await shot(ui)).darkBounds(FLAT_REGION, DRAWN);
+  expect(ink, 'the flat ellipse draws its ring').not.toBeNull();
+  const above = { x: ink!.x + ink!.width / 2, y: ink!.y - CLEAR_OF_INK };
+  expect(above.y, 'the press clears the ink').toBeLessThan(ink!.y);
+
+  await press(above);
+  await browser.keyboard.press('Shift+ArrowRight');
+  await settle(ui);
+
+  // Bare canvas: the press selected nothing, so the nudge moved no ink.
+  expect((await shot(ui)).darkBounds(FLAT_REGION, DRAWN)).toEqual(ink);
+});
+
+/**
+ * One tiny box with round corners, the roughest a Scene allows and the widest
+ * stroke: at 800% its drawn line reaches well past the box it is stored as.
+ */
+const ROUND_SCENE = {
+  version: 1,
+  title: 'Round',
+  defaults: { roughness: 2 },
+  elements: [
+    {
+      id: 'dot',
+      type: 'rectangle',
+      x: 40,
+      y: 40,
+      width: 10,
+      height: 10,
+      corners: 'round',
+      roughness: 2,
+      seed: 326,
+      stroke: { width: 'extra', style: 'solid' },
+    },
+  ],
+};
+const ROUND_SOURCE = JSON.stringify(ROUND_SCENE, null, 2);
+
+/** The view `ROUND_SCENE` lands in: its 42×42 page fitted one to one. */
+const ROUND = { zoom: 1, panX: 595, panY: 355 };
+
+/** The middle of the box's left edge, as the fitted view shows it. */
+const ROUND_EDGE = at({ x: 40, y: 45 }, ROUND);
+
+test('a press on the outer ink of a tiny round box selects it at 800%', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'round.json': ROUND_SOURCE } }, 'round.json');
+
+  // Zoom in on the box's own left edge: the Scene point under the pointer stays
+  // under it, so the edge is where the fitted view put it.
+  const mouse = livePage().mouse;
+  await mouse.move(ROUND_EDGE.x, ROUND_EDGE.y);
+  for (let notch = 0; notch < 4; notch += 1) {
+    await mouse.wheel(0, -400);
+  }
+  await settle(ui);
+
+  // The rough line of a round corner is drawn away from the box, so the ink a
+  // person sees here is outside it and is still the Element's.
+  const ink = await leftmostInk(ui, {
+    x: ROUND_EDGE.x - 80,
+    y: ROUND_EDGE.y - 60,
+    width: 80,
+    height: 120,
+  });
+  expect(ink.x, 'the drawn corner hangs outside the box').toBeLessThan(ROUND_EDGE.x - 8);
+
+  await press(ink);
+  await browser.keyboard.press('Shift+ArrowRight');
+
+  const scene = await savedScene(ui, 'round.json');
+  expect(scene.elements[0]?.x).toBe(50);
+});
+
 test('a press inside two overlapping boxes picks the topmost Element', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'overlap.json': OVERLAP_SOURCE } }, 'overlap.json');
