@@ -14,9 +14,9 @@ import type { ShaftPath } from '../geometry.js';
 import {
   elementBounds,
   elementsById,
-  inkBounds,
   labelInkBounds,
   pageBounds,
+  renderElement,
   shaftInk,
   shaftLabel,
   strokeWidthOf,
@@ -95,6 +95,10 @@ export function unionOf(boxes: readonly Box[]): Box | null {
  * paper paints, glyph overhang included; every other Element by its box, grown
  * by the ink a rough outline draws outside it, and then by `tolerance` too.
  *
+ * That ink box is the one the drawing already reached, so a caller holding the
+ * page's drawings hands the boxes back with `ink` and the pick measures nothing:
+ * pressing in a Scene of three hundred draws no Element at all.
+ *
  * Ink answers before the tolerance does. A press on the border an Element draws
  * is that Element's, even when a higher layer's empty halo reaches it; the halo
  * only answers a press no ink at all received, which is what makes bare canvas
@@ -105,8 +109,11 @@ export function pickAt(
   point: Point,
   tolerance: number,
   layout: Layout,
+  ink?: (element: Element) => Box | null,
 ): Pick | null {
   const byId = elementsById(elements);
+  const inkOf = (element: Element): Box =>
+    ink?.(element) ?? renderElement(element, byId, layout).ink;
   let halo: Pick | null = null;
   for (let index = elements.length - 1; index >= 0; index--) {
     const element = elements[index]!;
@@ -126,11 +133,11 @@ export function pickAt(
     }
     // An outlined Element's ink strays outside its box and a Text's glyphs hang
     // past its own: both are the Element, and the tolerance is added on top.
-    const ink = inkBounds(element, byId, layout);
-    if (holds(ink, point)) {
+    const box = inkOf(element);
+    if (holds(box, point)) {
       return { element, label: null };
     }
-    if (halo === null && holds(grownBy(ink, tolerance), point)) {
+    if (halo === null && holds(grownBy(box, tolerance), point)) {
       halo = { element, label: null };
     }
   }

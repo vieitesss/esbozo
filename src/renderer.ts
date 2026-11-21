@@ -130,6 +130,13 @@ export function renderScene(scene: Scene, layout: Layout): string {
  */
 export interface DrawnElement {
   readonly bounds: Box;
+  /**
+   * The box the ink reaches: the box the Element occupies, grown by what its
+   * drawn paths reach past it. A press answers to this box and not to `bounds`,
+   * because a rough outline wanders outside the geometry it was drawn from, and
+   * a Text's glyphs hang past the advance box that holds its words.
+   */
+  readonly ink: Box;
   readonly svg: string;
   /**
    * The words the drawing placed, as the Block a caret and a selection sit in;
@@ -313,33 +320,6 @@ export function labelInkBounds(words: Block): Box {
   return { x: words.x - hang, y: words.y, width: words.width + hang * 2, height: words.height };
 }
 
-/**
- * The box an Element's ink is picked by. An outline draws its stroke centred on
- * the paths Rough.js roughens, so the box covers what those paths draw; a Text
- * has no outline, but its glyphs hang past the advance box that holds their
- * words.
- */
-export function inkBounds(
-  element: OutlinedElement | TextElement,
-  byId: ReadonlyMap<string, Element>,
-  layout: Layout,
-): Box {
-  const box = elementBounds(element, byId, layout);
-  if (element.type === 'text') {
-    return labelInkBounds(layout.text(element));
-  }
-  const ink = drawnInk(element);
-  if (ink === null) {
-    return box;
-  }
-  const half = strokeWidthOf(element) / 2;
-  const left = Math.min(box.x, ink.left - half);
-  const top = Math.min(box.y, ink.top - half);
-  const right = Math.max(box.x + box.width, ink.right + half);
-  const bottom = Math.max(box.y + box.height, ink.bottom + half);
-  return { x: left, y: top, width: right - left, height: bottom - top };
-}
-
 /** How far each side of a drawn path reaches, in Scene units. */
 interface Extent {
   left: number;
@@ -349,22 +329,29 @@ interface Extent {
 }
 
 /**
- * Where the ink an outlined Element draws actually reaches, in Scene units: the
- * paths Rough.js generates for it, fill and outline, measured at the extremes
- * their curves reach. The drawn line is the answer, at every roughness, stroke
- * width and corner radius, so no estimate of what Rough.js might do can shrink
- * the ink a person sees or stretch the box a flat Element is picked by.
+ * The box an outlined Element's ink reaches, out of the very paths that draw
+ * it: the box the Element occupies, grown by the extremes those paths reach and
+ * by half the stroke centred on them. The drawn line is the answer, at every
+ * roughness, stroke width and corner radius, so no estimate of what Rough.js
+ * might do can shrink the ink a person sees or stretch the box a flat Element
+ * is picked by.
  */
-function drawnInk(element: OutlinedElement): Extent | null {
-  const generator = new RoughGenerator();
-  const paths = [...fillDrawables(generator, element), ...outlineDrawables(generator, element)];
+function inkOf(box: Box, element: OutlinedElement, drawables: readonly Drawable[]): Box {
   let ink: Extent | null = null;
-  for (const drawable of paths) {
+  for (const drawable of drawables) {
     for (const set of drawable.sets) {
       ink = extendWithSet(ink, set);
     }
   }
-  return ink;
+  if (ink === null) {
+    return box;
+  }
+  const half = strokeWidthOf(element) / 2;
+  const left = Math.min(box.x, ink.left - half);
+  const top = Math.min(box.y, ink.top - half);
+  const right = Math.max(box.x + box.width, ink.right + half);
+  const bottom = Math.max(box.y + box.height, ink.bottom + half);
+  return { x: left, y: top, width: right - left, height: bottom - top };
 }
 
 /** One set of drawing operations added to the extremes `ink` already reaches. */
@@ -587,17 +574,33 @@ function drawElement(
   layout: Layout,
 ): DrawnElement {
   const placed = placement(element, byId, layout);
-  return { bounds: joined(placed.box, placed.words), words: placed.words, svg: svgOf(placed) };
+  const bounds = joined(placed.box, placed.words);
+  if (placed.kind === 'outline') {
+    // One generation of what Rough.js draws: the paths the SVG writes and the
+    // box a press answers to are the same drawing, made once.
+    const generator = new RoughGenerator();
+    const fills = fillDrawables(generator, placed.element);
+    const outlines = outlineDrawables(generator, placed.element);
+    return {
+      bounds,
+      ink: inkOf(bounds, placed.element, [...fills, ...outlines]),
+      words: placed.words,
+      svg: outlinedSvg(placed.element, placed.words, generator, fills, outlines),
+    };
+  }
+  // A Text has no outline, but its glyphs hang past the advance box that holds
+  // its words; a shaft is picked by its distance to the path it draws, so its
+  // box is its ink.
+  const ink = placed.kind === 'text' ? labelInkBounds(placed.words) : bounds;
+  return { bounds, ink, words: placed.words, svg: svgOf(placed) };
 }
 
-function svgOf(placed: Placement): string {
+function svgOf(placed: Exclude<Placement, { kind: 'outline' }>): string {
   switch (placed.kind) {
     case 'shaft':
       return arrowOrLineSvg(placed.element, placed.path, placed.words);
     case 'text':
       return renderBlock(placed.words, placed.element.tone === 'muted' ? MUTED : INK);
-    case 'outline':
-      return outlinedSvg(placed.element, placed.words);
   }
 }
 
@@ -617,13 +620,18 @@ function joined(box: Box, words: Block | null): Box {
  * One outlined Element: its fill first, then its outline, so the ink of the
  * outline always sits on top of the fill it belongs to.
  */
-function outlinedSvg(element: OutlinedElement, words: Block | null): string {
-  const generator = new RoughGenerator();
+function outlinedSvg(
+  element: OutlinedElement,
+  words: Block | null,
+  generator: RoughGenerator,
+  fills: readonly Drawable[],
+  outlines: readonly Drawable[],
+): string {
   const width = STROKE_WIDTH_PX[element.stroke.width];
   const strokeColour = element.tone === 'muted' ? MUTED : INK;
   const paths: string[] = [];
 
-  for (const drawable of fillDrawables(generator, element)) {
+  for (const drawable of fills) {
     const colour = drawable.options.fill;
     for (const path of generator.toPaths(drawable)) {
       if (path.fill !== 'none') {
@@ -638,7 +646,7 @@ function outlinedSvg(element: OutlinedElement, words: Block | null): string {
   }
 
   const dash = strokeDash(width, element.stroke.style);
-  for (const drawable of outlineDrawables(generator, element)) {
+  for (const drawable of outlines) {
     for (const path of generator.toPaths(drawable)) {
       paths.push(
         `<path d="${pathData(path.d)}" fill="none" stroke="${path.stroke}"` +

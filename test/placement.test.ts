@@ -18,6 +18,7 @@ import type { Scene } from '../src/scene.ts';
 const {
   parseScene,
   renderScene,
+  renderElement,
   pageBounds,
   elementBounds,
   elementAt,
@@ -167,6 +168,41 @@ test('a press on the glyph overhang of a shaft Label finds it, as the ink paints
     pick(scene, { x: hook.x - 2, y: hook.y }),
     null,
     'a press on bare paper beside it finds nothing',
+  );
+});
+
+test('a press on the ink an Element paints finds it outside its own box', () => {
+  // A rough outline wanders outside the rectangle it was drawn from, so an
+  // Element paints a box of ink wider than its own. A press there —
+  // outside the box the Element occupies — is the Element's, because picking
+  // answers to the ink and not to the box.
+  const scene = parsed({
+    version: 1,
+    elements: [
+      {
+        id: 'a',
+        type: 'rectangle',
+        x: 100,
+        y: 100,
+        width: 200,
+        height: 100,
+        roughness: 2,
+        stroke: { width: 'extra' },
+      },
+    ],
+  });
+  const element = scene.elements[0]!;
+  const byId = new Map([['a', element]]);
+  const box = elementBounds(element, byId, LAYOUT);
+  const ink = renderElement(element, byId, LAYOUT).ink;
+  const press = { x: ink.x + 1, y: ink.y + ink.height / 2 };
+
+  assert.ok(press.x < box.x, `the ink reaches left of the box: ${ink.x}`);
+  assert.equal(pick(scene, press), 'a', 'a press on the ink outside the box finds the Element');
+  assert.equal(
+    pick(scene, { x: press.x - 20, y: press.y }),
+    null,
+    'and bare paper beside it finds nothing',
   );
 });
 
