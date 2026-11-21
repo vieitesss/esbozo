@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "ignorePatterns": ["dist/**", ".e2e/**"],
+  "ignorePatterns": ["dist/**", ".e2e/**", ".agents/**"],
   "overrides": [
     {
       "files": ["src/editor/editor.ts"],
