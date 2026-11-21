@@ -187,6 +187,11 @@ interface Press {
   readonly at: Point;
   /** When, on the event's own clock. */
   readonly time: number;
+  /**
+   * Whether Shift was held. A Shift press adds to a selection or takes away
+   * from one, and two of them in a row are two of those, never a double-click.
+   */
+  readonly shift: boolean;
 }
 
 const SHELL = `
@@ -2151,6 +2156,7 @@ class EsbozoEditorElement extends HTMLElement {
       id: words?.id ?? null,
       at: this.#screenPoint(event),
       time: event.timeStamp,
+      shift: event.shiftKey,
     };
     if (hit !== null) {
       if (event.shiftKey) {
@@ -2530,9 +2536,16 @@ class EsbozoEditorElement extends HTMLElement {
     if (text === null) {
       return;
     }
-    const press: Press = { id: null, at: this.#screenPoint(event), time: event.timeStamp };
+    const press: Press = {
+      id: null,
+      at: this.#screenPoint(event),
+      time: event.timeStamp,
+      shift: event.shiftKey,
+    };
     const previous = this.#wordsClick;
-    this.#wordsClick = press;
+    // Shift makes a press the extension of a selection, so it is never half of
+    // a double-click: no sequence is owed to it, and none survives it.
+    this.#wordsClick = press.shift ? null : press;
     const at = this.#typedOffset(offset);
     if (previous !== null && this.#isDoubleClick(previous, press)) {
       this.#wordsClick = null;
@@ -2697,7 +2710,15 @@ class EsbozoEditorElement extends HTMLElement {
       // selection stays where the press put it, and the pointer may leave them.
       const offset = this.#wordsNearest(point);
       if (offset !== null) {
-        this.#text?.select(drag.from, this.#typedOffset(offset));
+        const to = this.#typedOffset(offset);
+        // A gesture that selected something is a drag, however little the
+        // pointer moved: two pixels across a glyph boundary is a letter taken,
+        // and the click that follows it starts a new sequence instead of
+        // taking the word around it.
+        if (to !== drag.from) {
+          this.#wordsClick = null;
+        }
+        this.#text?.select(drag.from, to);
       }
       return;
     }
@@ -2975,7 +2996,12 @@ class EsbozoEditorElement extends HTMLElement {
     if (first === null || event.button !== 0) {
       return;
     }
-    const press: Press = { id: null, at: this.#screenPoint(event), time: event.timeStamp };
+    const press: Press = {
+      id: null,
+      at: this.#screenPoint(event),
+      time: event.timeStamp,
+      shift: event.shiftKey,
+    };
     if (!this.#isDoubleClick(first, press)) {
       return;
     }
@@ -3017,9 +3043,15 @@ class EsbozoEditorElement extends HTMLElement {
     event.stopPropagation();
   };
 
-  /** Whether a press is the second half of a double-click: near the first in time and place. */
+  /**
+   * Whether a press is the second half of a double-click: near the first in
+   * time and place, and no Shift on either, because a press that adds to a
+   * selection is about the selection and not about the word under it.
+   */
   #isDoubleClick(first: Press, second: Press): boolean {
     return (
+      !first.shift &&
+      !second.shift &&
       second.time - first.time <= DOUBLE_CLICK_MS &&
       Math.abs(second.at.x - first.at.x) <= DOUBLE_CLICK_SLOP &&
       Math.abs(second.at.y - first.at.y) <= DOUBLE_CLICK_SLOP

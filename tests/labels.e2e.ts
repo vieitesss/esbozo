@@ -1469,6 +1469,69 @@ describe('labels', () => {
     expect((await savedScene(ui)).elements[0]?.label).toBe('Xabc def ghi');
   });
 
+  test('a two-pixel drag across a glyph boundary is no double-click on the next press', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    // Three narrow letters: one is four pixels wide, so two pixels of drag cross
+    // the boundary in the middle of one and leave that letter selected.
+    await label.pressSequentially('i i i');
+    await settle(ui);
+
+    const ink = (await shot(ui)).darkBounds(INSIDE, DARK) as Rect;
+    const y = ink.y + ink.height / 2;
+    await browser.mouse.move(ink.x, y);
+    await browser.mouse.down();
+    await browser.mouse.move(ink.x + 2, y);
+    await browser.mouse.up();
+
+    // The press at the drag's own start is a press, not the second half of a
+    // double-click: the caret goes where it landed, before the first letter.
+    await browser.mouse.move(ink.x, y);
+    await browser.mouse.down();
+    await browser.mouse.up();
+    await label.pressSequentially('X');
+    await label.press('Escape');
+
+    expect((await savedScene(ui)).elements[0]?.label).toBe('Xi i i');
+  });
+
+  test('two Shift presses in a row add to the selection instead of taking a word', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.pressSequentially('abc def ghi');
+    await settle(ui);
+
+    // The words open with the caret after them, so a Shift press on the first
+    // letter selects the whole line backwards. A second one there is another
+    // Shift press, not a double-click that takes the first word.
+    const ink = (await shot(ui)).darkBounds(INSIDE, DARK) as Rect;
+    await browser.keyboard.down('Shift');
+    for (let press = 0; press < 2; press += 1) {
+      await browser.mouse.move(ink.x + 1, ink.y + ink.height / 2);
+      await browser.mouse.down();
+      await browser.mouse.up();
+    }
+    await browser.keyboard.up('Shift');
+    await label.pressSequentially('X');
+    await label.press('Escape');
+
+    expect((await savedScene(ui)).elements[0]?.label).toBe('X');
+  });
+
   test('a drag across the words being typed keeps them drawn', async ({ app, browser, screen }) => {
     const ui = { app, browser, screen };
     await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
