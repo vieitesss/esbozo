@@ -11,7 +11,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { homedir, hostname } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -20,6 +20,22 @@ import { after, before, test } from 'node:test';
 const run = promisify(execFile);
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const IMAGE = 'esbozo:test';
+/**
+ * The labels every container this suite starts carries: the test mark, and the
+ * pid and host of the process that owns it. `scripts/sweep-containers.mjs` reads
+ * the same three names, and removes only the containers no live owner answers
+ * for, so a killed run's leftovers do not outlive the next one.
+ */
+const LABELS = [
+  '--label',
+  'esbozo-test=1',
+  '--label',
+  `esbozo-test-pid=${process.pid}`,
+  '--label',
+  `esbozo-test-host=${hostname()}`,
+];
+/** The sweep this suite runs before it starts anything, for a killed run's leftovers. */
+const SWEEP = fileURLToPath(new URL('../scripts/sweep-containers.mjs', import.meta.url));
 /** The port the image serves on, so a published port maps this one. */
 const PORT = 4320;
 /**
@@ -50,8 +66,17 @@ before(async () => {
   if (skip !== undefined) {
     return;
   }
+  await sweep();
   await run('docker', ['build', '--tag', IMAGE, ROOT]);
 });
+
+/** Removes the test containers a killed run left behind, and repeats what it removed. */
+async function sweep(): Promise<void> {
+  const { stdout } = await run(process.execPath, [SWEEP]);
+  if (stdout !== '') {
+    process.stdout.write(stdout);
+  }
+}
 
 /** Why the image cannot be tested here, or `null` when it can. */
 async function unusableReason(): Promise<string | null> {
@@ -108,6 +133,7 @@ async function start(folder: string, options: StartOptions = {}): Promise<Contai
   const { stdout } = await run('docker', [
     'run',
     '--detach',
+    ...LABELS,
     ...(HOST_USER === null ? [] : ['--user', HOST_USER]),
     '--volume',
     `${folder}:/scenes`,
