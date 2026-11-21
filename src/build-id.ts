@@ -12,7 +12,7 @@ declare const STAMPED_BUILD: string;
 export const BUILD: string = typeof STAMPED_BUILD === 'string' ? STAMPED_BUILD : 'dev';
 
 /** A git command's answer: its standard output, or `null` when git could not answer. */
-export type GitAnswer = (args: readonly string[]) => string | null;
+type GitAnswer = (args: readonly string[]) => string | null;
 
 /**
  * The id a build stamps, read from git: the short commit it names, `-dirty`
