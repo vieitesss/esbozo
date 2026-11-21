@@ -11,6 +11,7 @@ import { expect } from 'e2e';
 import {
   BESIDE,
   BESIDE_SCENE,
+  BLANK_SCENE,
   MIXED,
   MIXED_SCENE,
   OVERFLOW,
@@ -48,6 +49,7 @@ const ROOM_SOURCE = JSON.stringify(ROOM_SCENE, null, 2);
 const SPACED_SOURCE = JSON.stringify(SPACED_SCENE, null, 2);
 const BESIDE_SOURCE = JSON.stringify(BESIDE_SCENE, null, 2);
 const SHIFTED_SOURCE = JSON.stringify(SHIFTED_SCENE, null, 2);
+const BLANK_SOURCE = JSON.stringify(BLANK_SCENE, null, 2);
 
 /** The page the suite runs in, in CSS pixels: the edges the field may never cross. */
 const PAGE = { width: 1280, height: 800 };
@@ -1087,5 +1089,84 @@ describe('labels', () => {
     await expect(screen.getByRole('status')).toHaveText('saved');
 
     expect((await savedScene(ui)).elements[0]?.label).toBe(`${lines}!`);
+  });
+
+  test('whitespace alone is not words: it clears a Label, and is not refused', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'spaced.json': SPACED_SOURCE } }, 'spaced.json');
+
+    await doubleClickScene(ui, { x: 100, y: 80 }, WORDS);
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    // XML can hold a space, a tab and a newline, so the Scene has nothing to
+    // refuse: they are simply not words, and a Label of them is no Label.
+    await label.fill(' \n\t ');
+    await label.press('Escape');
+
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    const element = (await savedScene(ui, 'spaced.json')).elements[0];
+    expect(Object.hasOwn(element ?? {}, 'label')).toBe(false);
+  });
+
+  test('a new Text with no words closes on Enter or a click away, and writes nothing', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+    const before = await savedFiles(ui);
+
+    // Enter on a field nobody typed in is the person leaving, not words the
+    // Scene has to refuse for being empty.
+    await browser.keyboard.press('t');
+    await clickScene(ui, { x: 420, y: 300 });
+    await screen.getByRole('textbox', { name: 'Text' }).press('Enter');
+    await expect(screen.getByRole('textbox', { name: 'Text' })).toHaveCount(0);
+    await expect(screen.getByRole('status')).not.toContainText('content must be');
+    expect(await savedFiles(ui)).toEqual(before);
+
+    // And so is a click away, which is how most people leave one.
+    await browser.keyboard.press('t');
+    await clickScene(ui, { x: 460, y: 320 });
+    await expect(screen.getByRole('textbox', { name: 'Text' })).toHaveValue('');
+    await clickScene(ui, { x: 700, y: 600 });
+    await expect(screen.getByRole('textbox', { name: 'Text' })).toHaveCount(0);
+    await expect(screen.getByRole('status')).not.toContainText('content must be');
+    expect(await savedFiles(ui)).toEqual(before);
+  });
+
+  test('the canvas shows the trimmed words a commit keeps, a blank outer line included', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'blank.json': BLANK_SOURCE } }, 'blank.json');
+
+    // The author's Label starts with a blank line, so the drawn words sit a line
+    // lower than the trimmed words a commit keeps. The box is `WORDS_SCENE`'s,
+    // at page (548, 348), and this is its inside, clear of the outline.
+    const inside: Rect = { x: 556, y: 356, width: 184, height: 104 };
+    await doubleClickScene(ui, { x: 100, y: 80 }, WORDS);
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await expect(label).toHaveValue('\nKeep');
+    await label.pressSequentially('!');
+
+    const typing = await shot(ui);
+    await label.press('Escape');
+    const saved = await shot(ui);
+
+    // What the page drew while the words were typed is what the Scene draws once
+    // they land: the same ink in the same place, no jump as the blank line goes.
+    // The same Renderer draws both, so the two centres are the same pixel, not
+    // merely close.
+    const live = typing.darkCentre(inside, DARK);
+    expect(live.count).toBeGreaterThan(100);
+    expect(Math.abs(live.y - saved.darkCentre(inside, DARK).y)).toBeLessThan(0.5);
+    expect((await savedScene(ui, 'blank.json')).elements[0]?.label).toBe('Keep!');
   });
 });

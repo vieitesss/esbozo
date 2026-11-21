@@ -125,6 +125,21 @@ export const WORDS_SCENE = {
 export const WORDS: View = { zoom: 1, panX: 508, panY: 308 };
 
 /**
+ * A Label whose first line is blank, as an author can write one: the words of
+ * the Scene sit a line lower than the trimmed words a commit keeps, so a live
+ * preview that did not trim the same way would jump when they land. It is one
+ * box of `WORDS_SCENE`'s size, so it lands in `WORDS`'s view.
+ */
+export const BLANK_SCENE = {
+  version: 1,
+  title: 'Blank',
+  defaults: { roughness: 1 },
+  elements: [
+    { id: 'box', type: 'rectangle', x: 40, y: 40, width: 200, height: 120, label: '\nKeep' },
+  ],
+};
+
+/**
  * One box with room to its right and nothing else on the page: enough bare
  * paper for a word too long for the box to grow into, where a field left at the
  * old width would have nothing.

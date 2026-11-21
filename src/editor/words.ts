@@ -16,6 +16,15 @@ export function wordsOf(element: Element): string {
 }
 
 /**
+ * The words a Scene keeps from what a person typed: blank lines and spaces at
+ * the ends are not words. The live preview and the commit both read the field
+ * through here, so the ink on the page while typing is the ink that saves.
+ */
+export function keptWords(typed: string): string {
+  return typed.trim();
+}
+
+/**
  * The Element with these words in it: a Label on everything but a Text, and the
  * room a container needs to hold it. The words a person cleared are gone, so a
  * Label that is not words stops being a Label; a Text's own words are the

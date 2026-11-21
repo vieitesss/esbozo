@@ -68,7 +68,7 @@ import { attachedTo, endPoint, freedEnd, isShaft, otherEnd, released, targetAt, 
 import type { End } from './snap.js';
 import { TextSession } from './text-session.js';
 import type { TextSessionPlace } from './text-session.js';
-import { withWords, wordsOf } from './words.js';
+import { keptWords, withWords, wordsOf } from './words.js';
 import { PaintCache, sceneFile } from './paint.js';
 import type { SceneFiles } from './paint.js';
 import type { Paint } from './paint.js';
@@ -2203,7 +2203,10 @@ class EsbozoEditorElement extends HTMLElement {
     // Words the Scene cannot hold are never drawn: the page keeps the last it
     // could, and the words that were typed are refused when they are committed.
     if (!hasXmlInvalidChars(words)) {
-      this.#editing = { id: element.id, element: withWords(element, words, this.#layout) };
+      // The Scene keeps the words without their outer blank lines, and the page
+      // shows that: what is drawn while typing is what the commit will save.
+      const kept = keptWords(words);
+      this.#editing = { id: element.id, element: withWords(element, kept, this.#layout) };
       // The grown Element is what the note must not cover, and the box follows it.
       this.#clearOfMenu();
     }
@@ -2218,7 +2221,7 @@ class EsbozoEditorElement extends HTMLElement {
       return;
     }
     if (!hasXmlInvalidChars(words)) {
-      this.#draft = { ...draft, content: words };
+      this.#draft = { ...draft, content: keptWords(words) };
     }
     this.#plotField();
     this.#paint();
@@ -2279,38 +2282,36 @@ class EsbozoEditorElement extends HTMLElement {
     if (raw === wordsOf(element)) {
       return true;
     }
-    // What the person typed is what the Scene checks, before anything is
-    // trimmed: a control character is refused for being one, and a lone one is
-    // never the empty words that would silently delete a Label.
-    const problem = this.#problem(this.#wordsScene(element, raw));
+    // A character XML cannot hold is refused as typed, before a trim can hide
+    // it; everything else the Scene checks is the words it would keep.
+    const words = hasXmlInvalidChars(raw) ? raw : keptWords(raw);
+    const problem = this.#problem(this.#wordsScene(element, words));
     if (problem !== null) {
       this.#setSaved('failed', problem);
       return false;
     }
-    const words = raw.trim();
     this.#land(this.#wordsScene(element, words), words === '' && element.type === 'text' ? [] : [element.id]);
     return true;
   }
 
   /**
-   * Commit a new Text's words: a Text with words in them, or nothing. The raw
-   * value is checked first, as typed, for the same reason a Label's is: a control
-   * character a person typed is refused rather than trimmed away, and a lone one
-   * never becomes the empty words that would throw the Text away.
+   * Commit a new Text's words: a Text with words in them, or nothing. A control
+   * character a person typed is refused rather than trimmed away, and words that
+   * are only whitespace are no words, so they make no Text and are no problem.
    */
   #commitText(raw: string): boolean {
     const draft = this.#draft;
     if (draft === null) {
       return true;
     }
-    const problem = this.#problem([...this.#scene.elements, { ...draft, content: raw }]);
+    const words = hasXmlInvalidChars(raw) ? raw : keptWords(raw);
+    if (words === '') {
+      return true;
+    }
+    const problem = this.#problem([...this.#scene.elements, { ...draft, content: words }]);
     if (problem !== null) {
       this.#setSaved('failed', problem);
       return false;
-    }
-    const words = raw.trim();
-    if (words === '') {
-      return true;
     }
     this.#land([...this.#scene.elements, { ...draft, content: words }], [draft.id]);
     return true;
