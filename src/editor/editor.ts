@@ -981,6 +981,8 @@ class EsbozoEditorElement extends HTMLElement {
     const drag = this.#drag;
     const editing = this.#editing;
     const draft = this.#draft;
+    // A pan moves the page the Scene is drawn on, not the Scene: what is being
+    // typed is still what the page shows, and it travels with everything else.
     if (drag === null) {
       const words =
         editing === null
@@ -2609,7 +2611,15 @@ class EsbozoEditorElement extends HTMLElement {
    */
   #onAnyPress = (event: PointerEvent): void => {
     const text = this.#text;
-    if (text !== null && event.button === 0 && !text.holds(event.target as Node | null)) {
+    // Any button, not the left one only: a middle or a right press takes the
+    // focus off the field just the same, and Chromium confirms a preedit into it
+    // as it goes. A press on the canvas is the board's own (a pan keeps the
+    // words), so only a press elsewhere ends the session.
+    if (
+      text !== null &&
+      !this.#canvas.contains(event.target as Node | null) &&
+      !text.holds(event.target as Node | null)
+    ) {
       text.finish();
     }
     if (!this.#canvas.contains(event.target as Node | null)) {

@@ -36,7 +36,7 @@ import {
   savedFiles,
   savedScene,
 } from './helpers.ts';
-import { imeCommit, imeCompose } from './cdp.ts';
+import { imeCommit, imeCompose, livePage } from './cdp.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
 
@@ -388,6 +388,45 @@ describe('labels', () => {
     await screen.getByRole('dialog', { name: 'Style' }).click({ position: { x: 4, y: 4 } });
     await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveCount(0);
     expect(await savedFiles(ui)).toEqual(before);
+  });
+
+  test('a middle or right press finishes the words before an input method can confirm them', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+
+    for (const [where, button] of [
+      ['Tools', 'middle'],
+      ['Tools', 'right'],
+      ['Style', 'middle'],
+      ['Style', 'right'],
+    ] as const) {
+      await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+      await doubleClickScene(ui, { x: 100, y: 80 });
+      const label = screen.getByRole('textbox', { name: 'Label' });
+      await label.pressSequentially('Keep');
+      await imeCompose('にほん');
+      await expect(label).toHaveValue('Keepにほん');
+
+      // Chromium confirms a preedit when the press takes the focus, so the
+      // session has to end first or the reading is kept as if it were words.
+      // Both presses are real input: the fixture's pointer has one button, so
+      // the page's own mouse sends the ones a person pans and opens a menu with.
+      await livePage().getByRole(where === 'Style' ? 'dialog' : 'navigation', { name: where }).click({
+        button,
+      });
+      await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveCount(0);
+
+      // Whatever the press left behind is in the Scene by the next write: moving
+      // another Element queues one, and the Scene it saves is the one in hand.
+      // The confirmed words land, as a press away has always made them, and the
+      // reading that was never chosen does not: no input method confirmed it.
+      await dragBy(ui, { x: 250, y: 110 }, 40, 40);
+      const scene = await savedScene(ui);
+      expect(scene.elements.find((element) => element.id === 'a')?.label).toBe('Keep');
+    }
   });
 
   test('what an input method confirms is what the Scene keeps', async ({ app, browser, screen }) => {
