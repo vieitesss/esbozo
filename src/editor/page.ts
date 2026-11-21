@@ -159,6 +159,15 @@ export class Page {
   }
 
   /**
+   * The ink the page painted for an Element: the box a press answers to, read
+   * from the drawing already made instead of made again, so a pick measures
+   * nothing.
+   */
+  ink(id: string): Box | null {
+    return this.#painted?.elements.get(id)?.ink ?? null;
+  }
+
+  /**
    * The caret, the selection or an input method's preedit moved, and nothing
    * else did: the words' own layer is drawn again, and the Scene is not asked
    * anything.

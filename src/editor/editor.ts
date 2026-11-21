@@ -311,6 +311,7 @@ class EsbozoEditorElement extends HTMLElement {
       refresh: () => this.#refresh(),
       paint: () => this.#page.paint(),
       paintWords: () => this.#page.paintWords(),
+      ink: (id) => this.#page.ink(id),
     });
 
     if (this.#ownsKeysWhenFocused) {

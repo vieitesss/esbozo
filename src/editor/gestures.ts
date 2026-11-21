@@ -169,6 +169,8 @@ export interface GestureHost {
 
   /** The words being typed, while a session is open. */
   text(): TextSession | null;
+  /** The ink the page painted for an Element, or null before it is painted. */
+  ink(id: string): Box | null;
   /** Where a press lands in the words being typed, as an offset, or null off them. */
   wordsOffset(point: Point): number | null;
   /** The nearest glyph boundary of the words, wherever the pointer went. */
@@ -450,8 +452,15 @@ export class Gestures {
     const point = this.#host.scenePoint(event);
     const reach = PICK_TOLERANCE / this.#host.view().zoom;
     // One picker, in layer order: a higher Element's ink answers first, and a
-    // shaft's Label answers before the shaft it is written about.
-    const pick = pickAt(this.#host.scene().elements, point, reach, this.#host.layout());
+    // shaft's Label answers before the shaft it is written about. The boxes are
+    // the ones the page painted, so no Element is drawn to find out.
+    const pick = pickAt(
+      this.#host.scene().elements,
+      point,
+      reach,
+      this.#host.layout(),
+      (element) => this.#host.ink(element.id),
+    );
     // A double-click opens the words under its *first* click: selecting what it
     // landed on can dock the note and pan the view, so what the second click
     // sees is not what the person aimed at. The press is recorded before any of
