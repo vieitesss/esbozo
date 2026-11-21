@@ -132,9 +132,9 @@ export interface DrawnElement {
   readonly bounds: Box;
   /**
    * The box the ink reaches: the box the Element occupies, grown by what its
-   * drawn paths reach past it. A press answers to this box and not to `bounds`,
-   * because a rough outline wanders outside the geometry it was drawn from, and
-   * a Text's glyphs hang past the advance box that holds its words.
+   * drawn paths reach past it. Outlined Elements and Text are picked by this
+   * box rather than `bounds`: rough strokes stray and glyphs overhang. A shaft
+   * keeps `bounds` here and is picked by distance to its drawn path.
    */
   readonly ink: Box;
   readonly svg: string;
@@ -284,7 +284,7 @@ export function shaftInk(element: ArrowOrLineElement, byId: ReadonlyMap<string, 
 /**
  * Where a shaft's Label is drawn, or null when the shaft has none: Layout's own
  * place, moved to the `labelAt` the Scene wrote. These are the words themselves;
- * what they paint, and what a press on them covers, is `labelInkBounds`.
+ * what they paint, and what a press on them covers, is `wordsInkBounds`.
  */
 export function shaftLabel(
   element: ArrowOrLineElement,
@@ -315,7 +315,7 @@ const GLYPH_HANG_EM = 0.25;
  * covers, the ink a Text is picked by and the box a shaft's Label is pressed
  * on, so a painted pixel is a pixel a person can press.
  */
-export function labelInkBounds(words: Block): Box {
+export function wordsInkBounds(words: Block): Box {
   const hang = words.size * GLYPH_HANG_EM;
   return { x: words.x - hang, y: words.y, width: words.width + hang * 2, height: words.height };
 }
@@ -588,20 +588,15 @@ function drawElement(
       svg: outlinedSvg(placed.element, placed.words, generator, fills, outlines),
     };
   }
-  // A Text has no outline, but its glyphs hang past the advance box that holds
-  // its words; a shaft is picked by its distance to the path it draws, so its
-  // box is its ink.
-  const ink = placed.kind === 'text' ? labelInkBounds(placed.words) : bounds;
-  return { bounds, ink, words: placed.words, svg: svgOf(placed) };
-}
-
-function svgOf(placed: Exclude<Placement, { kind: 'outline' }>): string {
-  switch (placed.kind) {
-    case 'shaft':
-      return arrowOrLineSvg(placed.element, placed.path, placed.words);
-    case 'text':
-      return renderBlock(placed.words, placed.element.tone === 'muted' ? MUTED : INK);
+  if (placed.kind === 'shaft') {
+    // A shaft is picked by distance to its drawn path, not by its box.
+    const svg = arrowOrLineSvg(placed.element, placed.path, placed.words);
+    return { bounds, ink: bounds, words: placed.words, svg };
   }
+  // Text glyphs hang past the advance box that holds the words.
+  const ink = wordsInkBounds(placed.words);
+  const svg = renderBlock(placed.words, placed.element.tone === 'muted' ? MUTED : INK);
+  return { bounds, ink, words: placed.words, svg };
 }
 
 /** The smallest box holding both, so a Label that sticks out still fits the page. */
@@ -820,7 +815,7 @@ function paperBehind(words: Block | null): string {
   if (words === null || !words.lines.some((line) => line.text.trim() !== '')) {
     return '';
   }
-  const paper = labelInkBounds(words);
+  const paper = wordsInkBounds(words);
   return (
     `<rect x="${formatNumber(paper.x)}" y="${formatNumber(paper.y)}"` +
     ` width="${formatNumber(paper.width)}" height="${formatNumber(paper.height)}"` +

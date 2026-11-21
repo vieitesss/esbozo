@@ -25,7 +25,7 @@
  * the editor's to say, through `PageHost`. Nothing here reads the Scene's own
  * state or decides what an edit is.
  */
-import { drawnShaft, elementsById, labelInkBounds, outlineBox, shaftLabel } from '../renderer.js';
+import { drawnShaft, elementsById, outlineBox, shaftLabel, wordsInkBounds } from '../renderer.js';
 import { isOutlined } from '../scene.js';
 import type { Element as SceneElement, Scene } from '../scene.js';
 import type { Block, Layout, LineGlyphs } from '../layout.js';
@@ -713,7 +713,7 @@ export class Page {
     if (words === null) {
       return;
     }
-    const box = this.viewport.pageBox(labelInkBounds(words));
+    const box = this.viewport.pageBox(wordsInkBounds(words));
     // The dashes stand a little outside the words and are the selection's: no
     // press lands on them. The box the words paint is what a press takes, so it
     // is the one that says what a press there does.
