@@ -8,12 +8,11 @@
  * panned canvas. Nothing here reads the DOM or the editor's state, beyond the
  * buttons a person clicks.
  *
- * These tests need the model on every run: only an `agent.act` step can replay
- * from `.e2e/cache/`, while `agent.assert` and `agent.waitFor` judge the live
- * screen each time, by design. So this file is not part of `pnpm e2e`, which
- * passes with no key set and makes no model calls; run it with
- * `pnpm e2e:agent`. The one `agent.act` step here is replayed from the
- * committed cache, so only its judgements cost calls.
+ * These tests need the model on every run: `agent.assert` and `agent.waitFor`
+ * judge the live screen each time, by design. So this file is not part of
+ * `pnpm e2e`, which passes with no key set and makes no model calls; run it
+ * with `pnpm e2e:agent`. The page is driven the way a person drives it, by
+ * role and by key, so `agent` is only ever asked to judge.
  *
  * A judgement about what the screen presents asks for `vision: 'only'`, the
  * screenshot without the tree, so the model cannot answer from markup it cannot
@@ -59,7 +58,7 @@ test('the dot Grid is there, a person turns it off, and the canvas goes plain', 
     vision: 'only',
   });
 
-  await ui.agent.act('turn the Grid off with the Grid button in the status bar');
+  await ui.screen.getByRole('button', 'Grid').click();
 
   await ui.agent.assert('the empty paper beside the drawings is plain, with no dots on it', { vision: 'only' });
 
