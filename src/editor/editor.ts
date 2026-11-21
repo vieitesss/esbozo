@@ -29,6 +29,7 @@ import type { ClipboardHost } from './clipboard.js';
 import { Connection } from './connection.js';
 import type { FolderSource, FontSource, SaveTarget } from './connection.js';
 import { Page } from './page.js';
+import type { Shown } from './page.js';
 import { CommandPalette } from './palette.js';
 import { menuSignature, styleNote } from './menu.js';
 import { nextRoughness, roughnessLabel, styled } from './style.js';
@@ -249,7 +250,7 @@ class EsbozoEditorElement extends HTMLElement {
       {
         layout: () => this.#connection.layout,
         scene: () => this.#scene,
-        shown: () => this.#shownElements(),
+        shown: () => this.#shown(),
         selected: () => this.#selected,
         drag: () => this.#gestures.drag,
         editingId: () => this.#editing?.id ?? null,
@@ -566,17 +567,18 @@ class EsbozoEditorElement extends HTMLElement {
 
   #selectedElements(): SceneElement[] {
     const selected = new Set(this.#selected);
-    return this.#shownElements().filter((element) => selected.has(element.id));
+    return this.#shown().elements.filter((element) => selected.has(element.id));
   }
 
   /**
-   * The Scene as the page shows it: committed Elements plus the gesture in
-   * flight and the words being typed. Never the Scene that is saved, so half a
-   * drag or half a Label can never be a step. The words of a Label or a Text
-   * being edited are drawn by the Renderer like any others: the canvas is the
-   * one place that shows what saving would render.
+   * The Scene as the page shows it, and whether it is still a preview of it:
+   * committed Elements plus the gesture in flight and the words being typed.
+   * Never the Scene that is saved, so half a drag or half a Label can never be a
+   * step. The words of a Label or a Text being edited are drawn by the Renderer
+   * like any others: the canvas is the one place that shows what saving would
+   * render.
    */
-  #shownElements(): SceneElement[] {
+  #shown(): Shown {
     const drag = this.#gestures.drag;
     const editing = this.#editing;
     const draft = this.#draft;
@@ -590,20 +592,27 @@ class EsbozoEditorElement extends HTMLElement {
           : this.#scene.elements.map((element) =>
               element.id === editing.id ? editing.element : element,
             );
-      return draft === null ? words : [...words, draft];
+      if (draft !== null) {
+        return { settled: false, elements: [...words, draft] };
+      }
+      // A page with a session open draws the words it holds half-written, so it
+      // is not settled even when the Scene's Elements are the ones it shows.
+      return { settled: editing === null, elements: words };
     }
     if (drag.kind === 'draw') {
-      return [...this.#scene.elements, drag.preview];
+      return { settled: false, elements: [...this.#scene.elements, drag.preview] };
     }
     if (
       drag.kind === 'move' ||
       drag.kind === 'resize' ||
       drag.kind === 'end' ||
-      drag.kind === 'label'
+      (drag.kind === 'label' && drag.moved)
     ) {
-      return shownElements(this.#scene.elements, drag);
+      return { settled: false, elements: shownElements(this.#scene.elements, drag) };
     }
-    return this.#scene.elements;
+    // A press that has placed nothing yet shows the Scene as it is: a Text press,
+    // a box sweep, and a Label the pointer has not carried.
+    return { settled: true, elements: this.#scene.elements };
   }
 
   /**

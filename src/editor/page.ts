@@ -65,13 +65,23 @@ interface Typing {
   readonly shift: WordsShift;
 }
 
+/**
+ * The Elements the page draws, and whether they are still a preview: a settled
+ * page draws the Scene it holds, so the drawings kept between frames stand.
+ */
+export interface Shown {
+  /** True when these are the Scene's own Elements: no gesture and no words change them. */
+  readonly settled: boolean;
+  readonly elements: readonly SceneElement[];
+}
+
 /** What the page may show, and the measurement it lays everything out with. */
 interface PageHost {
   layout(): Layout;
   /** The Scene's own Elements, in the Scene's order. */
   scene(): Scene;
   /** The Scene as the page shows it: committed Elements, the gesture and the words. */
-  shown(): readonly SceneElement[];
+  shown(): Shown;
   /** The selection the overlay marks. */
   selected(): readonly string[];
   /** The gesture in flight, as the drawing and the overlay read it. */
@@ -212,7 +222,7 @@ export class Page {
       return;
     }
     const canvas = this.viewport.box();
-    const shown = this.#host.shown();
+    const { elements: shown } = this.#host.shown();
     const selected = new Set(this.#host.selected());
     this.viewport.view = clearedView(this.viewport.view, {
       selection: boxOf(
@@ -390,9 +400,8 @@ export class Page {
       }
       return;
     }
-    const shown = this.#host.shown();
+    const { settled, elements: shown } = this.#host.shown();
     const scene = this.#host.scene();
-    const settled = shown === scene.elements;
     if (settled && this.#paintedScene === scene) {
       return;
     }
@@ -546,7 +555,7 @@ export class Page {
     const layout = this.#host.layout();
     // A Label that does not fit its Element is outlined in red, on the rule
     // `ez check` reports: one function, so the page and the CLI cannot disagree.
-    for (const element of this.#host.shown()) {
+    for (const element of this.#host.shown().elements) {
       if (layout.overflow(element) === null) {
         continue;
       }
