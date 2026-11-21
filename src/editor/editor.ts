@@ -36,7 +36,6 @@ import { nextRoughness, roughnessLabel, styled } from './style.js';
 import type { StyleKey } from './style.js';
 import { canPickFolder } from './files.js';
 import { servedFolder } from './server-folder.js';
-import type { SceneFolder } from './files.js';
 import { boxOf, fittedView, landingOffset, moved, zoomedAt } from './geometry.js';
 import type { Point, View } from './geometry.js';
 import { History } from './history.js';
@@ -273,13 +272,12 @@ class EsbozoEditorElement extends HTMLElement {
       show: (scene, target) => this.#load(scene, target),
       forget: () => this.#forget(),
       start: () => this.#start(),
-      mode: (folder) => this.#showMode(folder),
+      mode: (readOnly) => this.#showMode(readOnly),
       measure: () => this.#measure(),
       status: (state, detail) => this.#setSaved(state, detail),
       note: () => this.#showNote(),
-      served: (folder) => {
+      served: () => {
         this.querySelector('[data-act="open"]')!.textContent = 'Scenes';
-        this.#showMode(folder);
       },
       files: (scene) => this.#page.files(scene),
     });
@@ -494,8 +492,8 @@ class EsbozoEditorElement extends HTMLElement {
   };
 
   /** What this page may do with the Scene, and the pill that says what it is doing. */
-  #showMode(folder: SceneFolder): void {
-    this.#readOnly = folder.readOnly || this.#connection.refused;
+  #showMode(readOnly: boolean): void {
+    this.#readOnly = readOnly;
     this.#newScene.hidden = this.#readOnly;
     if (this.#readOnly) {
       // Write access just ended: nothing stays armed that could change a Scene
