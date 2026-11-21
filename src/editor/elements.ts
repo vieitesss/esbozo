@@ -11,7 +11,7 @@ import { MIN_SIZE, seedForId } from '../scene.js';
 import { unwrittenTextAlign } from '../scene.js';
 import type { Element, ElementStyle, Point, SceneStyle, TextElement } from '../scene.js';
 import { boxBetween } from './geometry.js';
-import type { DrawableType, ToolId } from './tools.js';
+import type { DrawableType, ToolId } from './actions.js';
 
 /** The box a plain click draws with a box tool, in Scene units. */
 const DEFAULT_BOX = { width: 160, height: 100 };

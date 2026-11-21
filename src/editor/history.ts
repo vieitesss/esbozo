@@ -36,6 +36,16 @@ export class History {
     this.#presentBytes = bytesOf(present);
   }
 
+  /** Whether there is a step behind this one to go back to. */
+  get canUndo(): boolean {
+    return this.#past.length > 0;
+  }
+
+  /** Whether a step was taken back and can be taken again. */
+  get canRedo(): boolean {
+    return this.#future.length > 0;
+  }
+
   /**
    * Records the Scene after a change as a new step. Returns false, and records
    * nothing, when the change left the Scene as it was.

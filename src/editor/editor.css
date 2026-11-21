@@ -449,3 +449,76 @@ esbozo-editor::before {
 }
 
 .style-note .acts button:hover { border-color: var(--line-strong); background: var(--line); }
+
+/* The command palette: every action by name, over the paper */
+.palette {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 12vh;
+  background: color-mix(in srgb, var(--paper) 55%, transparent);
+}
+
+.palette input {
+  width: 420px;
+  max-width: calc(100vw - 40px);
+  padding: 9px 13px;
+  background: color-mix(in srgb, var(--paper) 97%, var(--ink));
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  box-shadow: 0 14px 26px -16px var(--shadow);
+  color: var(--ink);
+  font-family: var(--font-hand);
+  font-size: 15px;
+  outline: none;
+}
+
+.palette input::placeholder { color: var(--muted); }
+
+.palette ul {
+  width: 420px;
+  max-width: calc(100vw - 40px);
+  max-height: 52vh;
+  overflow-y: auto;
+  margin: 6px 0 0;
+  padding: 5px;
+  list-style: none;
+  background: color-mix(in srgb, var(--paper) 97%, var(--ink));
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  box-shadow: 0 14px 26px -16px var(--shadow);
+}
+
+.palette li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  color: var(--ink);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.palette li[aria-selected="true"] { background: var(--ink); color: var(--paper); }
+.palette li[aria-selected="true"] .key,
+.palette li[aria-selected="true"] .why { color: var(--paper); opacity: 0.8; }
+.palette li[aria-disabled="true"] { color: var(--muted); cursor: default; }
+.palette li[aria-disabled="true"] .why { font-family: var(--font-hand); font-size: 11px; opacity: 0.85; }
+
+.palette li .say { flex: 1; }
+.palette li .key { font-family: var(--font-mono); font-size: 10px; color: var(--muted); }
+
+.palette .palette-nothing {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-family: var(--font-hand);
+  font-size: 12.5px;
+}
+
+/* the disabled Arrange buttons the registry's rule greys out */
+.style-note .acts button:disabled { opacity: 0.45; cursor: default; border-style: dashed; }
+.style-note .acts button:disabled:hover { background: transparent; border-color: var(--line); }

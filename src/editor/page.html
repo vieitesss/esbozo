@@ -21,15 +21,19 @@
     media.addEventListener('change', (event) => {
       if (chosen === null) show(event.matches ? 'dark' : 'light');
     });
+    // One switch, wherever it is asked for: the page's own button, or an action
+    // in the editor that says "toggle the theme" and lets the page own it.
+    const toggle = () => {
+      chosen = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+      show(chosen);
+    };
     document.addEventListener('DOMContentLoaded', () => {
       // The button exists only now, so the theme the page started with is what
       // labels it: a page that opened dark offers Light, not Dark.
       show(document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
-      document.querySelector('.theme').addEventListener('click', () => {
-        chosen = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
-        show(chosen);
-      });
+      document.querySelector('.theme').addEventListener('click', toggle);
     });
+    document.addEventListener('esbozo:toggle-theme', toggle);
   })();
 </script>
 </head>

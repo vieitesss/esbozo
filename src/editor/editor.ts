@@ -31,8 +31,11 @@ import {
   without,
 } from './elements.js';
 import type { DrawingTool } from './elements.js';
-import { arranged } from './arrange.js';
+import { arranged, movableCount } from './arrange.js';
 import type { ArrangeAct } from './arrange.js';
+import { actionById, actionFor } from './actions.js';
+import type { ActionHost, ActionState, ToolId } from './actions.js';
+import { CommandPalette } from './palette.js';
 import { menuSignature, roughnessNote, styleNote } from './menu.js';
 import { nextRoughness, styled } from './style.js';
 import type { StyleKey } from './style.js';
@@ -60,8 +63,6 @@ import type { Box, Handle, Point, View } from './geometry.js';
 import { History } from './history.js';
 import { railArt, railMarkup } from './rail.js';
 import { TextSession } from './text-session.js';
-import { toolAt, toolForLetter } from './tools.js';
-import type { ToolId } from './tools.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const DOT_SPACING = 22;
@@ -139,6 +140,17 @@ const SHELL = `
   <span class="saved" role="status" data-state="idle"></span>
   <span class="hint">Space pan · wheel zoom · ⌘ +/− · G Grid</span>
 </footer>
+<div class="palette" role="dialog" aria-label="Commands" hidden>
+  <input
+    type="text"
+    aria-label="Command"
+    placeholder="Type an action"
+    spellcheck="false"
+    autocomplete="off"
+  />
+  <ul role="listbox" aria-label="Actions"></ul>
+  <p class="palette-nothing" hidden>No action by that name.</p>
+</div>
 <div class="style-note" role="dialog" aria-label="Style" hidden></div>
 <div class="note" role="dialog" aria-label="Scene files" hidden>
   <div class="note-head"><b>Scenes</b><span class="folder"></span></div>
@@ -193,6 +205,26 @@ export class EsbozoEditorElement extends HTMLElement {
   #savedLabel!: HTMLElement;
   #menu!: HTMLElement;
   #roughButton!: HTMLButtonElement;
+  #palette!: CommandPalette;
+
+  /**
+   * What the action registry may ask of the editor, and the one place an action
+   * becomes a change: the palette and the keys both run through here.
+   */
+  readonly #host: ActionHost = {
+    pickTool: (tool) => this.#setTool(tool),
+    deleteSelection: () => this.#deleteSelected(),
+    duplicateSelection: () => this.#duplicate(),
+    copySelection: () => this.#copySelection(),
+    paste: () => this.#pasteClipboard(),
+    undo: () => this.#restore(this.#history.undo()),
+    redo: () => this.#restore(this.#history.redo()),
+    arrange: (act) => this.#arrangeSelection(act),
+    toggleGrid: () => this.#toggleGrid(),
+    toggleTheme: () => this.#toggleTheme(),
+    stepDefaultRoughness: () => this.#stepDefaultRoughness(),
+    openPalette: () => this.#palette.show(),
+  };
 
   constructor(layout: Layout) {
     super();
@@ -221,6 +253,11 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#savedLabel = this.querySelector('.saved')!;
     this.#menu = this.querySelector('.style-note')!;
     this.#roughButton = this.querySelector('[data-act="roughness"]')!;
+    this.#palette = new CommandPalette({
+      root: this.querySelector('.palette')!,
+      state: () => this.#actionState(),
+      run: (action) => void action.run(this.#host),
+    });
 
     this.#canvas.addEventListener('pointerdown', this.#onPointerDown);
     this.#canvas.addEventListener('pointermove', this.#onPointerMove);
@@ -510,6 +547,53 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#insertCopies(parseFragment(text, this.#scene.defaults) ?? []);
     event.preventDefault();
   };
+
+  /**
+   * Copy for a named action: the palette has no copy event to carry the data,
+   * so it writes the same Scene text the event would.
+   */
+  async #copySelection(): Promise<void> {
+    const selected = this.#selectedElements();
+    if (selected.length === 0) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(serialiseFragment(this.#scene, selected));
+    } catch (error) {
+      this.#setSaved('failed', `cannot copy: ${(error as Error).message}`);
+    }
+  }
+
+  /** Paste for a named action: the clipboard, read on the spot, with new ids. */
+  async #pasteClipboard(): Promise<void> {
+    let text: string;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch (error) {
+      this.#setSaved('failed', `cannot paste: ${(error as Error).message}`);
+      return;
+    }
+    this.#insertCopies(parseFragment(text, this.#scene.defaults) ?? []);
+  }
+
+  /**
+   * The page owns light and dark, so the action asks it to switch, the way its
+   * own button does: the editor never writes the theme's variables itself.
+   */
+  #toggleTheme(): void {
+    document.dispatchEvent(new CustomEvent('esbozo:toggle-theme'));
+  }
+
+  /** What the actions may look at: the selection, and whether the history has a step. */
+  #actionState(): ActionState {
+    const selected = this.#selectedElements();
+    return {
+      selected: selected.length,
+      movable: movableCount(selected),
+      canUndo: this.#history.canUndo,
+      canRedo: this.#history.canRedo,
+    };
+  }
 
   /** Whether a key or a clipboard event belongs to a field a person is typing in. */
   #typing(target: EventTarget | null): boolean {
@@ -1110,8 +1194,13 @@ export class EsbozoEditorElement extends HTMLElement {
       event.preventDefault();
       return;
     }
-    if (event.key === 'g' || event.key === 'G') {
-      this.#toggleGrid();
+    if (this.#palette.open) {
+      // The palette's own input takes the arrows, Enter and Escape. Any other
+      // key with the focus off it still belongs to the palette, not the Scene.
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        this.#palette.close();
+      }
       return;
     }
     if (this.#gestureHoldsScene()) {
@@ -1125,7 +1214,12 @@ export class EsbozoEditorElement extends HTMLElement {
       this.#refresh();
       return;
     }
-    if (this.#editShortcut(event)) {
+    // Every tool and every action answers to the registry's keys, so the rail,
+    // the palette and the keyboard offer one list rather than three.
+    const action = actionFor(event);
+    if (action !== null) {
+      event.preventDefault();
+      void action.run(this.#host);
       return;
     }
     if (event.key.startsWith('Arrow')) {
@@ -1139,17 +1233,7 @@ export class EsbozoEditorElement extends HTMLElement {
       return;
     }
     if (event.metaKey || event.ctrlKey) {
-      const letter = event.key.toLowerCase();
-      if (letter === 'z') {
-        event.preventDefault();
-        this.#restore(event.shiftKey ? this.#history.redo() : this.#history.undo());
-        return;
-      }
-      if (letter === 'd') {
-        event.preventDefault();
-        this.#duplicate();
-        return;
-      }
+      // Undo, redo and duplicate are the registry's keys, answered above.
       if (event.key === '+' || event.key === '=') {
         event.preventDefault();
         this.#zoomBy(ZOOM_STEP);
@@ -1209,42 +1293,6 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#nudgedAt = now;
   }
 
-  /**
-   * The keys that edit the Scene rather than the view: a tool by its letter or
-   * by its place on the rail (1–7), delete, duplicate and the history. Returns
-   * whether one answered the key, so a view key never also reads it.
-   */
-  #editShortcut(event: KeyboardEvent): boolean {
-    if (event.metaKey || event.ctrlKey) {
-      return false;
-    }
-    if (event.key === 'x' || event.key === 'Backspace' || event.key === 'Delete') {
-      event.preventDefault();
-      this.#deleteSelected();
-      return true;
-    }
-    if (event.key.toLowerCase() === 'c') {
-      event.preventDefault();
-      this.#duplicate();
-      return true;
-    }
-    if (/^[1-9]$/.test(event.key)) {
-      const tool = toolAt(event.key);
-      if (tool !== null) {
-        event.preventDefault();
-        this.#setTool(tool);
-        return true;
-      }
-    }
-    const tool = toolForLetter(event.key);
-    if (tool !== null) {
-      event.preventDefault();
-      this.#setTool(tool);
-      return true;
-    }
-    return false;
-  }
-
   #zoomBy(factor: number): void {
     const size = this.#viewportSize();
     this.#changedView(zoomedAt(this.#view, factor, size.width / 2, size.height / 2));
@@ -1295,11 +1343,15 @@ export class EsbozoEditorElement extends HTMLElement {
       return;
     }
     const style = button.dataset['style'] as StyleKey | undefined;
-    const act = button.dataset['act'] as ArrangeAct | undefined;
     if (style !== undefined) {
       this.#styleSelection(style, button.dataset['value'] ?? '');
-    } else if (act !== undefined) {
-      this.#arrangeSelection(act);
+      return;
+    }
+    // An arrange button is a registry action with the same name and the same
+    // rule, so the menu and the palette can never disagree about it.
+    const action = actionById(button.dataset['act'] ?? '');
+    if (action !== null) {
+      void action.run(this.#host);
     }
   };
 

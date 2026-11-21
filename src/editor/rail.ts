@@ -1,14 +1,14 @@
 /**
  * The tool rail: the hand-drawn strip on the left with the tools on it.
  *
- * One static list, in rail order, from `tools.ts`, so a button and the key that
- * picks it can never disagree. Each button names its shortcut in its tooltip
+ * One static list, in rail order, from `actions.ts`, so a button, the key that
+ * picks it and the palette's row for it can never disagree. Each button names its shortcut in its tooltip
  * and in its accessible name, because the left hand is what picks a tool. The
  * outline is drawn by Rough.js, twice, so the strip reads as two pencil passes.
  */
 import { RoughGenerator } from 'roughjs/bin/generator.js';
-import { TOOLS } from './tools.js';
-import type { ToolId } from './tools.js';
+import { TOOLS } from './actions.js';
+import type { ToolId } from './actions.js';
 
 /** One icon per tool. Typed by tool id, so a tool without an icon cannot be added. */
 const ICONS: Record<ToolId, string> = {
