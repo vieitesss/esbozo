@@ -8,6 +8,9 @@
  * helper.
  */
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { ez, sceneFolder } from './cli.ts';
 import { loadProjectModules } from './modules.ts';
@@ -147,4 +150,304 @@ test('a Scene of bent shafts reopens as the Scene it saved', () => {
   const parsed = parseScene(JSON.stringify(savedScene));
   assert.ok(parsed.ok, parsed.ok ? '' : JSON.stringify(parsed.problems));
   assert.equal(serialiseScene(parsed.scene), JSON.stringify(savedScene, null, 2) + '\n');
+});
+
+/** One rendered Scene: its exit code, its stderr and the SVG it wrote. */
+async function render(scene: unknown): Promise<{ code: number; stderr: string; svg: string }> {
+  const folder = await sceneFolder(scene);
+  const run = await ez(['render', 'scene.json'], folder);
+  const svg = existsSync(join(folder, 'scene.svg')) ? await readFile(join(folder, 'scene.svg'), 'utf8') : '';
+  return { code: run.code, stderr: run.stderr, svg };
+}
+
+/** The rendered SVG of a Scene that must render, at roughness 0 so it is exact. */
+async function ink(scene: unknown): Promise<string> {
+  const result = await render(scene);
+  assert.equal(result.code, 0, result.stderr);
+  return result.svg;
+}
+
+/** A Scene of one arrow at roughness 0, so every drawn number is the model's own. */
+function oneArrow(points: unknown[], extra: Record<string, unknown> = {}): unknown {
+  return {
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [{ id: 'a', type: 'arrow', points, ...extra }],
+  };
+}
+
+/** Every `<tag ...>` of one kind, in document order. */
+function tags(svg: string, name: string): string[] {
+  // check-rules: markup of a written SVG file, not the page
+  return [...svg.matchAll(new RegExp(`<${name}\\b[^>]*>`, 'g'))].map((match) => match[0]);
+}
+
+function attribute(tag: string, name: string): string | undefined {
+  return new RegExp(`\\b${name}="([^"]*)"`).exec(tag)?.[1];
+}
+
+/** The shaft's own path: the stroked path that starts where the shaft does. */
+function shaftFrom(svg: string, from: Point): string {
+  const path = tags(svg, 'path')
+    .filter((tag) => attribute(tag, 'stroke') === 'var(--ink)')
+    .find((tag) => {
+      const [start] = drawnPoints(attribute(tag, 'd') ?? '');
+      return start !== undefined && near(start.x, from.x) && near(start.y, from.y);
+    });
+  assert.ok(path !== undefined, `a shaft starts at ${from.x},${from.y}`);
+  return path;
+}
+
+/**
+ * The points a path passes through, in order: where each Move, Line and Curve
+ * lands. Control points are skipped, because the ink goes to the end point and
+ * the args of one command carry no command letter of their own.
+ */
+function drawnPoints(d: string): Point[] {
+  const points: Point[] = [];
+  for (const [, command = '', args = ''] of d.matchAll(/([A-Za-z])([^A-Za-z]*)/g)) {
+    if (command !== 'M' && command !== 'L' && command !== 'C') {
+      continue;
+    }
+    const numbers = (args.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
+    const last = numbers.length - 2;
+    points.push({ x: numbers[last]!, y: numbers[last + 1]! });
+  }
+  return points;
+}
+
+/** How close the ink of a path comes to a point, sampled along every curve it draws. */
+function inkDistance(path: string, point: Point): number {
+  return Math.min(
+    ...inkSamples(attribute(path, 'd') ?? '').map((drawn) =>
+      Math.hypot(drawn.x - point.x, drawn.y - point.y),
+    ),
+  );
+}
+
+/** Every point of a path's ink: where a line lands, and points along each curve. */
+function inkSamples(d: string): Point[] {
+  const points: Point[] = [];
+  let from: Point = { x: 0, y: 0 };
+  for (const [, command = '', args = ''] of d.matchAll(/([A-Za-z])([^A-Za-z]*)/g)) {
+    const numbers = (args.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
+    if (command === 'M' || command === 'L') {
+      from = { x: numbers[0]!, y: numbers[1]! };
+      points.push(from);
+      continue;
+    }
+    if (command !== 'C') {
+      continue;
+    }
+    const control1 = { x: numbers[0]!, y: numbers[1]! };
+    const control2 = { x: numbers[2]!, y: numbers[3]! };
+    const to = { x: numbers[4]!, y: numbers[5]! };
+    for (let step = 0; step <= 16; step += 1) {
+      points.push(curveAt(from, control1, control2, to, step / 16));
+    }
+    from = to;
+  }
+  return points;
+}
+
+/** One point of a cubic curve at `u`. */
+function curveAt(from: Point, control1: Point, control2: Point, to: Point, u: number): Point {
+  const rest = 1 - u;
+  const [a, b, c, d] = [rest * rest * rest, 3 * rest * rest * u, 3 * rest * u * u, u * u * u];
+  return {
+    x: from.x * a + control1.x * b + control2.x * c + to.x * d,
+    y: from.y * a + control1.y * b + control2.y * c + to.y * d,
+  };
+}
+
+/** Every drawn point of the whole SVG, whatever path it belongs to. */
+function allInk(svg: string): Point[] {
+  return tags(svg, 'path').flatMap((tag) => drawnPoints(attribute(tag, 'd') ?? ''));
+}
+
+/** The page a written SVG shows. */
+function viewBoxOf(svg: string): Box {
+  const [x = '0', y = '0', width = '0', height = '0'] =
+    /viewBox="([^"]*)"/.exec(svg)?.[1]!.split(/\s+/) ?? [];
+  return { x: Number(x), y: Number(y), width: Number(width), height: Number(height) };
+}
+
+interface Point {
+  x: number;
+  y: number;
+}
+
+interface Box {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+function near(actual: number, expected: number, tolerance = 0.5): boolean {
+  return Math.abs(actual - expected) <= tolerance;
+}
+
+test('a round bend point pulls the shaft into a curve through itself', async () => {
+  const svg = await ink(
+    oneArrow([
+      { x: 0, y: 0 },
+      { x: 100, y: 100, corner: 'round' },
+      { x: 200, y: 0 },
+    ]),
+  );
+
+  const shaft = shaftFrom(svg, { x: 0, y: 0 });
+  assert.ok(attribute(shaft, 'd')!.includes('C'), 'the shaft is drawn as a curve');
+  assert.ok(inkDistance(shaft, { x: 100, y: 100 }) <= 0.5, 'the curve passes through the bend');
+});
+
+test('a sharp bend point turns at a corner softened by a small fillet', async () => {
+  const bend = { x: 100, y: 100 };
+  const svg = await ink(
+    oneArrow([
+      { x: 0, y: 0 },
+      { x: 100, y: 100, corner: 'sharp' },
+      { x: 200, y: 0 },
+    ]),
+  );
+
+  const shaft = shaftFrom(svg, { x: 0, y: 0 });
+  const distance = inkDistance(shaft, bend);
+  assert.ok(distance > 1, 'the ink keeps out of the vertex instead of cutting it');
+  assert.ok(distance < 4, `the corner is softened, not cut away (got ${distance})`);
+  const points = drawnPoints(attribute(shaft, 'd') ?? '');
+  assert.ok(near(points[0]!.x, 0) && near(points[0]!.y, 0), 'the shaft starts at its start');
+  assert.ok(near(points[points.length - 1]!.x, 200) && near(points[points.length - 1]!.y, 0), 'and ends at its end');
+});
+
+test('a shaft mixes round and sharp bend points without one spoiling the other', async () => {
+  const svg = await ink(
+    oneArrow([
+      { x: 0, y: 0 },
+      { x: 100, y: 100, corner: 'round' },
+      { x: 200, y: 0, corner: 'sharp' },
+      { x: 300, y: 100 },
+    ]),
+  );
+
+  const shaft = shaftFrom(svg, { x: 0, y: 0 });
+  assert.ok(inkDistance(shaft, { x: 100, y: 100 }) <= 0.5, 'the round bend is drawn through');
+  const softened = inkDistance(shaft, { x: 200, y: 0 });
+  assert.ok(softened > 1 && softened < 4, `the sharp bend is softened (got ${softened})`);
+});
+
+test('a bend point unwritten takes the Element corners, and a written one wins', async () => {
+  const points = [
+    { x: 0, y: 0 },
+    { x: 100, y: 100 },
+    { x: 200, y: 0 },
+  ];
+  const round = shaftFrom(await ink(oneArrow(points, { corners: 'round' })), { x: 0, y: 0 });
+  assert.ok(inkDistance(round, { x: 100, y: 100 }) <= 0.5, 'the Element makes the bend round');
+
+  const written = shaftFrom(
+    await ink(oneArrow([points[0], { ...points[1], corner: 'sharp' }, points[2]], { corners: 'round' })),
+    { x: 0, y: 0 },
+  );
+  assert.ok(inkDistance(written, { x: 100, y: 100 }) > 1, 'the point makes its own bend sharp');
+});
+
+test('a self-loop arrow leaves its box and comes back to it', async () => {
+  const svg = await ink({
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [
+      { id: 'box', type: 'rectangle', x: 100, y: 100, width: 100, height: 100 },
+      {
+        id: 'loop',
+        type: 'arrow',
+        points: [
+          { x: 150, y: 100, snap: 'box' },
+          { x: 150, y: 30 },
+          { x: 200, y: 150, snap: 'box' },
+        ],
+      },
+    ],
+  });
+
+  const ink_ = allInk(svg);
+  assert.ok(ink_.some((point) => near(point.y, 35, 8) && near(point.x, 150, 8)), 'the loop reaches its bend point');
+  assert.ok(ink_.every((point) => point.y >= 25), 'both ends stop on the box outline');
+});
+
+test('a curved shaft bulges inside the page it is drawn on', async () => {
+  const svg = await ink(
+    oneArrow([
+      { x: 0, y: 0 },
+      { x: 100, y: 150, corner: 'round' },
+      { x: 200, y: 0 },
+    ]),
+  );
+
+  const page = viewBoxOf(svg);
+  const bulge = Math.max(...allInk(svg).map((point) => point.y));
+  assert.ok(bulge > 100, `the curve reaches past its ends (got ${bulge})`);
+  assert.ok(page.y <= 0 && page.y + page.height >= bulge, 'the page holds the whole bulge');
+});
+
+test('a tiny or doubled-back leg softens its corner instead of breaking the ink', async () => {
+  const result = await render(
+    oneArrow([
+      { x: 0, y: 0 },
+      { x: 2, y: 2 },
+      { x: 4, y: 0 },
+      { x: 4, y: 0 },
+      { x: 20, y: 40, corner: 'sharp' },
+      { x: 40, y: 0 },
+    ]),
+  );
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.doesNotMatch(result.svg, /NaN|Infinity/);
+  const points = allInk(result.svg);
+  assert.ok(points.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y)));
+});
+
+test('a curved shaft draws its dash pattern along the whole path', async () => {
+  for (const style of ['dashed', 'dotted'] as const) {
+    const svg = await ink(
+      oneArrow(
+        [
+          { x: 0, y: 0 },
+          { x: 100, y: 100, corner: 'round' },
+          { x: 200, y: 0 },
+        ],
+        { stroke: { width: 'bold', style } },
+      ),
+    );
+
+    const dashed = tags(svg, 'path').filter((tag) => attribute(tag, 'stroke-dasharray') !== undefined);
+    assert.equal(dashed.length, 1, `${style}: one pattern fits one path`);
+    const [start] = drawnPoints(attribute(dashed[0]!, 'd') ?? '');
+    assert.ok(near(start!.x, 0, 1) && near(start!.y, 0, 1), `${style}: the pattern starts at the shaft`);
+  }
+});
+
+test('an arrow head follows the curve it arrives on, not the line between the ends', async () => {
+  const svg = await ink(
+    oneArrow([
+      { x: 0, y: 0 },
+      { x: 100, y: 0, corner: 'round' },
+      { x: 100, y: 100 },
+    ]),
+  );
+
+  // The shaft arrives straight down, so the head's base sits above its apex. A
+  // head aimed along the chord from (0,0) to (100,100) would lean to the left.
+  const head = tags(svg, 'path')
+    .filter((tag) => attribute(tag, 'fill') === 'var(--ink)')
+    .map((tag) => drawnPoints(attribute(tag, 'd') ?? ''))
+    .find((points) => points.some((point) => near(point.x, 100) && near(point.y, 100, 0.5)));
+  assert.ok(head !== undefined, 'a head sits on the end');
+  const base = head.filter((point) => !near(point.y, 100, 0.5));
+  assert.equal(base.length, 2, 'the head is a triangle');
+  const middle = { x: (base[0]!.x + base[1]!.x) / 2, y: (base[0]!.y + base[1]!.y) / 2 };
+  assert.ok(near(middle.x, 100, 1), `the base centres under the apex, got ${middle.x}`);
+  assert.ok(near(middle.y, 87, 1.5), `the base sits one head length back, got ${middle.y}`);
 });

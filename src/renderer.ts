@@ -20,9 +20,13 @@
  *
  * A Snapped arrow or line end is resolved against its target's outline here
  * (`geometry.ts` does the maths), and its head sits on that end pointing along
- * the arrow, into the target.
- * A dashed or dotted shaft fits its dash pattern to the length it draws, so a
- * stroke that ends on an outline ends on a dash rather than on bare paper.
+ * the arrow, into the target. A shaft of more than two points draws through
+ * them: consecutive `round` bend points make one smooth curve, a `sharp` one
+ * breaks it into a softened corner, and the head at each end follows the curve
+ * it arrives on rather than the straight line between the two ends. Rough.js
+ * still draws that path, so a bend wobbles like every other line in the Scene.
+ * A dashed or dotted shaft fits its dash pattern to the arc length it draws, so
+ * a stroke that ends on an outline ends on a dash rather than on bare paper.
  *
  * Words are measured, never guessed: a Text and a Label are placed by Layout,
  * with the font the drawing is made for, so the page, the line breaks and the
@@ -57,15 +61,17 @@ import type {
   TextElement,
 } from './scene.js';
 import { STROKE_WIDTH_PX } from './layout.js';
-import type { Block, Box, Layout, Shaft } from './layout.js';
+import type { Block, Box, Layout } from './layout.js';
 import {
   arrowHeadTriangle,
   barThrough,
   fillets,
-  shaftEnds,
   shaftLabelAnchor,
-  unit,
+  shaftPath,
+  shaftPoints,
+  shaftTangentAt,
 } from './geometry.js';
+import type { ShaftPath } from './geometry.js';
 
 const INK = 'var(--ink)';
 const MUTED = 'var(--muted)';
@@ -222,7 +228,8 @@ export function drawnShaft(
   element: ArrowOrLineElement,
   byId: ReadonlyMap<string, Element>,
 ): [Point, Point] {
-  return arrowOrLinePoints(element, byId);
+  const path = shaftPathOf(element, byId);
+  return [path.start, path.end];
 }
 
 /**
@@ -436,7 +443,7 @@ type Placement =
   | {
       kind: 'shaft';
       element: ArrowOrLineElement;
-      shaft: Shaft;
+      path: ShaftPath;
       words: Block | null;
       box: Box;
     }
@@ -455,14 +462,13 @@ function placement(
   switch (canonical.type) {
     case 'arrow':
     case 'line': {
-      const [start, end] = arrowOrLinePoints(canonical, byId);
-      const shaft = { start, end };
+      const path = shaftPathOf(canonical, byId);
       return {
         kind: 'shaft',
         element: canonical,
-        shaft,
-        words: shaftWords(canonical, shaft, layout),
-        box: shaftBox(shaft),
+        path,
+        words: shaftWords(canonical, path, layout),
+        box: path.bounds,
       };
     }
     case 'text': {
@@ -479,16 +485,6 @@ function placement(
   }
 }
 
-/** The box a shaft covers, before its words are added. */
-function shaftBox(shaft: Shaft): Box {
-  return {
-    x: Math.min(shaft.start.x, shaft.end.x),
-    y: Math.min(shaft.start.y, shaft.end.y),
-    width: Math.abs(shaft.end.x - shaft.start.x),
-    height: Math.abs(shaft.end.y - shaft.start.y),
-  };
-}
-
 /**
  * A shaft's words: where Layout wrapped them, moved to the `labelAt` the Scene
  * wrote. A shaft that writes none keeps the place Layout gives it, so a Scene
@@ -497,14 +493,14 @@ function shaftBox(shaft: Shaft): Box {
  */
 function shaftWords(
   element: ArrowOrLineElement,
-  shaft: Shaft,
+  path: ShaftPath,
   layout: Layout,
 ): Block | null {
-  const words = layout.label(element, shaft);
+  const words = layout.label(element, { start: path.start, end: path.end });
   if (words === null || element.labelAt === undefined) {
     return words;
   }
-  const anchor = shaftLabelAnchor(shaft, element.labelAt);
+  const anchor = shaftLabelAnchor(path, element.labelAt);
   const dx = anchor.x - (words.x + words.width / 2);
   const dy = anchor.y - (words.y + words.height / 2);
   return {
@@ -534,7 +530,7 @@ function drawElement(
 function svgOf(placed: Placement): string {
   switch (placed.kind) {
     case 'shaft':
-      return arrowOrLineSvg(placed.element, placed.shaft, placed.words);
+      return arrowOrLineSvg(placed.element, placed.path, placed.words);
     case 'text':
       return renderBlock(placed.words, placed.element.tone === 'muted' ? MUTED : INK);
     case 'outline':
@@ -705,18 +701,17 @@ function formatPoint(point: Point): string {
 
 /**
  * One arrow or line: its shaft, then its heads on top. A Snapped end sits on
- * its target's outline, resolved from the other end's point.
+ * its target's outline, and each head points along the curve that arrives at it.
  */
-function arrowOrLineSvg(element: ArrowOrLineElement, shaft: Shaft, words: Block | null): string {
+function arrowOrLineSvg(
+  element: ArrowOrLineElement,
+  path: ShaftPath,
+  words: Block | null,
+): string {
   const generator = new RoughGenerator();
-  const { start, end } = shaft;
   const width = STROKE_WIDTH_PX[element.stroke.width];
   const colour = element.tone === 'muted' ? MUTED : INK;
-  const dash = fittedDash(
-    width,
-    element.stroke.style,
-    Math.hypot(end.x - start.x, end.y - start.y),
-  );
+  const dash = fittedDash(width, element.stroke.style, path.length);
   const paths: string[] = [];
 
   const lineOptions: Options = {
@@ -728,18 +723,23 @@ function arrowOrLineSvg(element: ArrowOrLineElement, shaft: Shaft, words: Block 
     // the drawn ends stay where the geometry put them.
     preserveVertices: true,
   };
-  for (const path of generator.toPaths(generator.line(start.x, start.y, end.x, end.y, lineOptions))) {
+  for (const drawn of generator.toPaths(generator.path(shaftData(path), lineOptions))) {
     paths.push(
-      `<path d="${pathData(path.d)}" fill="none" stroke="${path.stroke}"` +
-        ` stroke-width="${formatNumber(path.strokeWidth)}"${dash}/>`,
+      `<path d="${pathData(drawn.d)}" fill="none" stroke="${drawn.stroke}"` +
+        ` stroke-width="${formatNumber(drawn.strokeWidth)}"${dash}/>`,
     );
   }
 
   const headLength = HEAD_LENGTH_PX[element.stroke.width];
-  const direction = { start: unit(end, start), end: unit(start, end) };
+  const arriving = shaftTangentAt(path, 1);
+  const leaving = shaftTangentAt(path, 0);
+  const direction = {
+    start: { x: -leaving.x, y: -leaving.y },
+    end: arriving,
+  };
   for (const [kind, apex, along] of [
-    [element.heads.start, start, direction.start],
-    [element.heads.end, end, direction.end],
+    [element.heads.start, path.start, direction.start],
+    [element.heads.end, path.end, direction.end],
   ] as const) {
     paths.push(...headPaths(generator, element, kind, apex, along, headLength, colour));
   }
@@ -822,20 +822,44 @@ function headPaths(
 }
 
 /**
- * Both ends of an arrow or line, with each Snapped end moved onto its target's
- * outline by the shared geometry, which also settles two targets that overlap.
+ * The path an arrow or line draws: its ends moved onto the outlines they Snap
+ * to, every bend point where the Scene put it, and the corner each of them turns
+ * by. An unwritten corner is the Element's, so a whole shaft bends one way until
+ * a single bend point asks for the other.
  */
-function arrowOrLinePoints(
+function shaftPathOf(
   element: ArrowOrLineElement,
   byId: ReadonlyMap<string, Element>,
-): [Point, Point] {
-  const start = element.points[0];
-  const end = element.points[element.points.length - 1]!;
-  return shaftEnds(
-    [start, end],
-    snapTarget(element, start, byId),
-    snapTarget(element, end, byId),
+): ShaftPath {
+  const last = element.points.length - 1;
+  const points = shaftPoints(
+    element.points,
+    snapTarget(element, element.points[0], byId),
+    snapTarget(element, element.points[last]!, byId),
   );
+  return shaftPath(
+    points,
+    element.points.map((point) => point.corner ?? element.corners),
+  );
+}
+
+/**
+ * The shaft as SVG path data: a move to its first point, then a line or a curve
+ * per piece, in drawing order. Rough.js roughens this path like any other, so a
+ * bent shaft wobbles with the rest of the Scene instead of looking struck.
+ */
+function shaftData(path: ShaftPath): string {
+  const commands = [`M ${formatPoint(path.pieces[0]!.from)}`];
+  for (const piece of path.pieces) {
+    if (piece.control1 === undefined || piece.control2 === undefined) {
+      commands.push(`L ${formatPoint(piece.to)}`);
+      continue;
+    }
+    commands.push(
+      `C ${formatPoint(piece.control1)} ${formatPoint(piece.control2)} ${formatPoint(piece.to)}`,
+    );
+  }
+  return commands.join(' ');
 }
 
 /**
