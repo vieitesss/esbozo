@@ -217,6 +217,12 @@ export interface View {
 export const ZOOM_MIN = 0.1;
 export const ZOOM_MAX = 8;
 
+/**
+ * The smallest a selection may cover on the page, in screen pixels: a bare
+ * shaft has no width and no height of its own, yet its ink is there to be seen.
+ */
+const SELECTION_FOOTPRINT = 12;
+
 export function clampZoom(zoom: number): number {
   return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom));
 }
@@ -265,9 +271,18 @@ export function landingOffset(
   };
 }
 
-/** Zoom keeping the Scene point under the pointer where it is. */
+/**
+ * Zoom keeping the Scene point under the pointer where it is. The manual range
+ * stops a person losing the page, but the clearance may already have fitted a
+ * wide selection below it, so a zoom request never raises the zoom: from below
+ * the floor it can still zoom in, and it does not jump out when asked to zoom
+ * out.
+ */
 export function zoomedAt(view: View, factor: number, screenX: number, screenY: number): View {
-  const zoom = clampZoom(view.zoom * factor);
+  const zoom = Math.max(
+    Math.min(ZOOM_MAX, view.zoom * factor),
+    Math.min(ZOOM_MIN, view.zoom),
+  );
   if (zoom === view.zoom) {
     return view;
   }
@@ -326,49 +341,68 @@ export interface Clearance {
 /**
  * The view that keeps the selection out from under the docked Style menu.
  *
- * One rectangle policy, run when the selection or the window changes: when the
- * selection's box on screen and the note's box share any area, the view pans
- * left just far enough to clear the note by `gap`, and the selection's left edge
- * still clears the tools. When panning cannot do it, because the selection is
- * wider than the room the note leaves, the view zooms out just far enough for the
- * whole selection to sit in that room, keeping its middle where it was
- * vertically. Both are view changes: the Scene is never touched.
+ * One rectangle policy, run when the selection, what it holds, or the window
+ * changes: when the selection's box on screen and the note's box share any
+ * area, the view pans left just far enough to clear the note by `gap`, and the
+ * selection's left edge still clears the tools. When panning cannot do it,
+ * because the selection is wider than the room the note leaves, the view zooms
+ * out just far enough for the whole selection to sit in that room, keeping its
+ * middle where it was vertically. That zoom is the clearance's own, so it may go
+ * below the manual floor rather than leave the selection clipped. All of it is a
+ * view change: the Scene is never touched.
  */
 export function clearedView(view: View, room: Clearance): View {
   const { selection, note, gap } = room;
-  if (selection === null || selection.width <= 0) {
+  if (selection === null) {
     return view;
   }
-  const shown: Box = {
-    x: selection.x * view.zoom + view.panX,
-    y: selection.y * view.zoom + view.panY,
-    width: selection.width * view.zoom,
-    height: selection.height * view.zoom,
+  const shown = footprintOf(selection, view);
+  const box: Box = {
+    x: shown.x * view.zoom + view.panX,
+    y: shown.y * view.zoom + view.panY,
+    width: shown.width * view.zoom,
+    height: shown.height * view.zoom,
   };
-  if (!overlaps(shown, note)) {
+  if (!overlaps(box, note)) {
     return view;
   }
-  const shift = shown.x + shown.width + gap - note.x;
+  const shift = box.x + box.width + gap - note.x;
   if (shift <= 0) {
     return view;
   }
-  if (shown.x - shift >= room.left) {
+  if (box.x - shift >= room.left) {
     return { ...view, panX: view.panX - shift };
   }
   const free = note.x - gap - room.left;
   if (free <= 0) {
     return view;
   }
-  const zoom = clampZoom(Math.min(view.zoom, free / selection.width));
+  const zoom = Math.min(view.zoom, free / shown.width);
   if (zoom >= view.zoom) {
     return view;
   }
   // The selection keeps its middle where the eye left it, and its right edge
   // stops a gap short of the note, so the whole of it is on the page.
-  const middle = shown.y + shown.height / 2;
+  const middle = box.y + box.height / 2;
   return {
     zoom,
-    panX: note.x - gap - (selection.x + selection.width) * zoom,
-    panY: middle - (selection.y + selection.height / 2) * zoom,
+    panX: note.x - gap - (shown.x + shown.width) * zoom,
+    panY: middle - (shown.y + shown.height / 2) * zoom,
+  };
+}
+
+/**
+ * The box the page shows for a selection, in Scene units: a selection with no
+ * width or height of its own — a vertical or horizontal shaft — still has ink on
+ * the page, so it gets at least a footprint, grown around its middle.
+ */
+function footprintOf(selection: Box, view: View): Box {
+  const width = Math.max(selection.width, SELECTION_FOOTPRINT / view.zoom);
+  const height = Math.max(selection.height, SELECTION_FOOTPRINT / view.zoom);
+  return {
+    x: selection.x - (width - selection.width) / 2,
+    y: selection.y - (height - selection.height) / 2,
+    width,
+    height,
   };
 }

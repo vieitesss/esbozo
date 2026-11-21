@@ -323,6 +323,58 @@ export const WIDE_SCENE = {
 /** The view `WIDE_SCENE` lands in at 1366×768, worked out the same way as `VIEW`. */
 export const WIDE_1366: View = { zoom: 1, panX: 83, panY: 299 };
 
+/**
+ * One rectangle 15,000 units wide: too wide for the room the docked note leaves
+ * at any zoom a person may reach by hand, so fitting it beside the note has to
+ * go below the manual floor.
+ */
+export const LONG_SCENE = {
+  version: 1,
+  title: 'Long',
+  defaults: { roughness: 1 },
+  elements: [
+    {
+      id: 'long',
+      type: 'rectangle',
+      x: 40,
+      y: 40,
+      width: 15000,
+      height: 400,
+      fill: { kind: 'solid', grey: 6 },
+    },
+  ],
+};
+
+/** The view `LONG_SCENE` lands in at 1366×768: the page fitted at the manual floor. */
+export const LONG_1366: View = { zoom: 0.1, panX: -71, panY: 360 };
+
+/**
+ * An unlabelled vertical arrow that the note docks over. Its selection box has
+ * no width at all, so the clearance needs a footprint to see it. The `guide` box
+ * is there only to push the page right, so the shaft lands under the note.
+ */
+export const SHAFT_SCENE = {
+  version: 1,
+  title: 'Shaft',
+  defaults: { roughness: 1 },
+  elements: [
+    { id: 'guide', type: 'rectangle', x: 40, y: 40, width: 40, height: 260 },
+    {
+      id: 'shaft',
+      type: 'arrow',
+      points: [
+        { x: 1080, y: 60 },
+        { x: 1080, y: 300 },
+      ],
+      heads: { start: 'none', end: 'arrow' },
+      stroke: { width: 'extra' },
+    },
+  ],
+};
+
+/** The view `SHAFT_SCENE` lands in at 1280×800, worked out the same way as `VIEW`. */
+export const SHAFT: View = { zoom: 1, panX: 80, panY: 230 };
+
 /** A Scene the validator rejects: `box-a` has no width. */
 export const BROKEN_SCENE = {
   version: 1,

@@ -23,11 +23,15 @@ import {
   EDGE,
   EDGE_1366,
   EDGE_SCENE,
+  LONG_1366,
+  LONG_SCENE,
   MIXED,
   MIXED_SCENE,
   OVERFLOW,
   OVERFLOW_SCENE,
   SCENE,
+  SHAFT,
+  SHAFT_SCENE,
   SNAPPED,
   SNAPPED_SCENE,
   SPREAD,
@@ -67,6 +71,8 @@ const SPREAD_SOURCE = JSON.stringify(SPREAD_SCENE, null, 2);
 const TETHER_SOURCE = JSON.stringify(TETHER_SCENE, null, 2);
 const ARRANGE_SOURCE = JSON.stringify(ARRANGE_SCENE, null, 2);
 const WIDE_SOURCE = JSON.stringify(WIDE_SCENE, null, 2);
+const LONG_SOURCE = JSON.stringify(LONG_SCENE, null, 2);
+const SHAFT_SOURCE = JSON.stringify(SHAFT_SCENE, null, 2);
 
 /** The middle of `b`, the one solid grey box in the fixture. */
 const GREY_BOX: Rect = { x: 700, y: 390, width: 40, height: 40 };
@@ -764,6 +770,77 @@ test('a selection wider than the room beside the note zooms out to fit', async (
   const bar: Rect = { x: 200, y: 300, width: 600, height: 150 };
   expect((await shot(ui)).darkCount(bar, 0.6)).toBeGreaterThan(45000);
   expect((await savedFiles(ui))['wide.json']).toBe(WIDE_SOURCE);
+});
+
+test('a fit and a zoom of the view keep the selection clear of the note', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await ui.browser.setViewport({ width: 1366, height: 768 });
+  await openEditor(ui, { A: { 'wide.json': WIDE_SOURCE } }, 'wide.json');
+
+  const zoomLabel = ui.screen.getByText(/^\d+%$/);
+  const zoom = async () => Number((await zoomLabel.textContent())?.replace('%', ''));
+  /** Rows of the bar left of the note, where the view puts all of it when cleared. */
+  const BESIDE: Rect = { x: 200, y: 355, width: 500, height: 60 };
+
+  await clickScene(ui, { x: 200, y: 80 }, [], WIDE_1366);
+  await expect(ui.screen.getByRole('dialog', 'Style')).toBeVisible();
+  await expect.poll(zoom).toBeLessThan(100);
+  const cleared = await zoom();
+  expect((await shot(ui)).darkCount(BESIDE, 0.6)).toBeGreaterThan(20000);
+
+  // A fit puts the page at 100%, which hides the bar's right end under the note:
+  // the clearance runs before the fit is painted, so it never shows covered.
+  await ui.browser.keyboard.press('Meta+0');
+  await expect.poll(zoom).toBeLessThan(100);
+  expect(await zoom()).toBe(cleared);
+  expect((await shot(ui)).darkCount(BESIDE, 0.6)).toBeGreaterThan(20000);
+
+  // A wheel zoom-in would leave too little room for the bar, so the clearance
+  // zooms back out: the bar does not slip under the note after the wheel either.
+  await ui.browser.mouse.move(640, 400);
+  await ui.browser.mouse.wheel(0, -240);
+  await expect.poll(zoom).toBeLessThan(100);
+  expect(await zoom()).toBe(cleared);
+  expect((await shot(ui)).darkCount(BESIDE, 0.6)).toBeGreaterThan(20000);
+
+  // Every one of those is a view change, not an edit.
+  expect((await savedFiles(ui))['wide.json']).toBe(WIDE_SOURCE);
+});
+
+test('a bare vertical shaft is cleared of the note like a box', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'shaft.json': SHAFT_SOURCE } }, 'shaft.json');
+
+  // At 1280 the note covers the right 328 pixels, and the shaft is drawn at
+  // page x 1160: under the note, with a selection box that has no width at all.
+  await clickScene(ui, { x: 1080, y: 180 }, [], SHAFT);
+  await expect(ui.screen.getByRole('dialog', 'Style')).toBeVisible();
+
+  // The shaft is four pixels wide and 240 tall, so its column left of the note
+  // holds most of a thousand ink pixels; under the note it held none.
+  const COLUMN: Rect = { x: 900, y: 300, width: 60, height: 200 };
+  expect((await shot(ui)).darkCount(COLUMN, 0.6)).toBeGreaterThan(300);
+  expect((await savedFiles(ui))['shaft.json']).toBe(SHAFT_SOURCE);
+});
+
+test('a rectangle too wide for the note zooms out past the manual zoom floor', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await ui.browser.setViewport({ width: 1366, height: 768 });
+  await openEditor(ui, { A: { 'long.json': LONG_SOURCE } }, 'long.json');
+
+  const zoomLabel = ui.screen.getByText(/^\d+%$/);
+  const zoom = async () => Number((await zoomLabel.textContent())?.replace('%', ''));
+
+  // 15,000 units wide: the room left of the note fits it at about 6%, below the
+  // 10% a person may zoom to by hand.
+  await clickScene(ui, { x: 4000, y: 200 }, [], LONG_1366);
+  await expect(ui.screen.getByRole('dialog', 'Style')).toBeVisible();
+  await expect.poll(zoom).toBeLessThan(10);
+
+  // The whole bar is on the page beside the note, and a zoom is not an edit.
+  const BESIDE: Rect = { x: 150, y: 372, width: 700, height: 24 };
+  expect((await shot(ui)).darkCount(BESIDE, 0.6)).toBeGreaterThan(12000);
+  expect((await savedFiles(ui))['long.json']).toBe(LONG_SOURCE);
 });
 
 test('the docked note fits a 1366×768 window', async ({ app, browser, screen }) => {

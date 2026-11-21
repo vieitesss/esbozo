@@ -635,6 +635,17 @@ export class EsbozoEditorElement extends HTMLElement {
     });
   }
 
+  /**
+   * A view change the person asked for — a wheel, a key zoom or a fit. It still
+   * has to leave the selection clear of the note, and any zoom can put it back
+   * under, so the clearance runs before the paint: no frame shows it covered.
+   */
+  #changedView(view: View): void {
+    this.#view = view;
+    this.#clearOfMenu();
+    this.#paint();
+  }
+
   #applyView(): void {
     const { zoom, panX, panY } = this.#view;
     this.#viewport.setAttribute('transform', `translate(${panX} ${panY}) scale(${zoom})`);
@@ -1086,8 +1097,7 @@ export class EsbozoEditorElement extends HTMLElement {
     event.preventDefault();
     const point = this.#screenPoint(event);
     const factor = Math.exp(-event.deltaY * (event.ctrlKey ? 0.01 : 0.0015));
-    this.#view = zoomedAt(this.#view, factor, point.x, point.y);
-    this.#paint();
+    this.#changedView(zoomedAt(this.#view, factor, point.x, point.y));
   };
 
   // ----------------------------------------------------------------- keyboard
@@ -1153,8 +1163,7 @@ export class EsbozoEditorElement extends HTMLElement {
         this.#zoomBy(1 / ZOOM_STEP);
       } else if (event.key === '0') {
         event.preventDefault();
-        this.#view = fittedView(this.#scene, this.#viewportSize(), this.#layout);
-        this.#paint();
+        this.#changedView(fittedView(this.#scene, this.#viewportSize(), this.#layout));
       }
     }
   };
@@ -1243,8 +1252,7 @@ export class EsbozoEditorElement extends HTMLElement {
 
   #zoomBy(factor: number): void {
     const size = this.#viewportSize();
-    this.#view = zoomedAt(this.#view, factor, size.width / 2, size.height / 2);
-    this.#paint();
+    this.#changedView(zoomedAt(this.#view, factor, size.width / 2, size.height / 2));
   }
 
   // ----------------------------------------------------------------------- UI
