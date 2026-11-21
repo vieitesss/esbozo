@@ -49,6 +49,25 @@ const SPACED_SOURCE = JSON.stringify(SPACED_SCENE, null, 2);
 const BESIDE_SOURCE = JSON.stringify(BESIDE_SCENE, null, 2);
 const SHIFTED_SOURCE = JSON.stringify(SHIFTED_SCENE, null, 2);
 
+/** The page the suite runs in, in CSS pixels: the edges the field may never cross. */
+const PAGE = { width: 1280, height: 800 };
+
+/**
+ * A middle-button drag of the page's own mouse, which is what a pan is: the
+ * fixture's pointer has one button, and a synthesized event would skip the
+ * focus change a real press makes.
+ */
+async function panPage(from: { x: number; y: number }, dx: number, dy: number): Promise<void> {
+  const page = livePage();
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down({ button: 'middle' });
+  for (let step = 1; step <= 5; step += 1) {
+    const share = step / 5;
+    await page.mouse.move(from.x + dx * share, from.y + dy * share);
+  }
+  await page.mouse.up({ button: 'middle' });
+}
+
 /** A Label long enough that the box it is typed into has to grow downwards. */
 const LONG_LABEL = 'words that wrap and grow';
 
@@ -985,5 +1004,88 @@ describe('labels', () => {
 
     await expect(screen.getByRole('status')).toContainText('XML');
     expect(await savedFiles(ui)).toEqual(before);
+  });
+
+  test('the field sits under its Element, above it when there is no room, and never off the page', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    // A press is where its point lands: in the field it moves the caret, on the
+    // page it is the page's and the words end. So the points below say where the
+    // field has to be, and a field somewhere else loses its words to the canvas.
+    const press = async (where: string, x: number, y: number): Promise<void> => {
+      await browser.mouse.move(x, y);
+      await browser.mouse.down();
+      await browser.mouse.up();
+      await expect(label, where).toHaveCount(1);
+    };
+
+    // The box is at page y 340..420: the field goes under it, on the page.
+    await press('under the box', 555, 440);
+
+    // The box taken down to the page's bottom edge leaves no room under it: the
+    // field is on the page above the box rather than below it.
+    await panPage(at({ x: 100, y: 80 }), 0, 360);
+    await press('above the box', 555, 680);
+
+    // A pan that takes the box off the top of the page leaves the field behind:
+    // it stays where the page is, in the room the page has at its own top edge.
+    await panPage({ x: 900, y: 700 }, 0, -480);
+    await panPage({ x: 900, y: 700 }, 0, -480);
+    await press('the box panned off the top', 555, 25);
+
+    // A pan off the page's left edge is that edge for the field too.
+    await panPage({ x: 900, y: 400 }, -700, 0);
+    await press('the box panned off the left', 55, 25);
+
+    // And a zoom around the page's bottom edge takes the box far past the top.
+    await browser.mouse.move(640, 780);
+    await browser.mouse.wheel(0, -400);
+    await browser.mouse.wheel(0, -400);
+    await browser.mouse.wheel(0, -400);
+    await press('the box zoomed away', 55, 25);
+
+    // The words are still theirs, and nothing of the view was a Scene.
+    await expect(label).toHaveValue('');
+    await label.press('Escape');
+    expect((await savedScene(ui)).elements[0]?.x).toBe(40);
+  });
+
+  test('a ninety-line paste scrolls inside the field, which never grows past the page', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    // Ninety lines arrive at once, as a paste does: one value, one input.
+    const lines = Array.from({ length: 90 }, (_, index) => `line ${index + 1}`).join('\n');
+    await label.fill(lines);
+
+    // The end of the words is still reachable, so the field scrolls its value
+    // rather than cutting it: one more letter lands after the last line.
+    await label.pressSequentially('!');
+    await expect(label).toHaveValue(`${lines}!`);
+
+    // The field takes the page's room and no more: a press five pixels above the
+    // page's bottom edge is past a field that fits the page, so it is the
+    // canvas's press and the words land. A field that grew with the paste is
+    // still under that point.
+    await browser.mouse.move(555, PAGE.height - 5);
+    await browser.mouse.down();
+    await browser.mouse.up();
+    await expect(label).toHaveCount(0);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+
+    expect((await savedScene(ui)).elements[0]?.label).toBe(`${lines}!`);
   });
 });

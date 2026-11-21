@@ -10,8 +10,9 @@
  *
  * The caller asks for a place as the Element grows and the view moves, and the
  * box keeps itself on the page and off the Style note from what it measures of
- * itself. It does not wrap at the Element's width, size its words, or line them
- * up: nothing here can drift from the drawing, because nothing here draws.
+ * itself, and a value taller than the page scrolls inside it. It does not wrap
+ * at the Element's width, size its words, or line them up: nothing here can
+ * drift from the drawing, because nothing here draws.
  *
  * A newline the person types is a line break the Scene keeps. Enter on an empty
  * line, Escape and a click away end the session; the raw value is handed to the
@@ -29,6 +30,16 @@ import type { Box } from './geometry.js';
 /** Room between the box and what it edits, and between the box and the page's edges, in page pixels. */
 const FIELD_GAP = 6;
 const FIELD_MARGIN = 12;
+
+/** Whether a box of `size` placed at `offset` is on the page: both edges, not one. */
+function fits(offset: number, size: number, page: number): boolean {
+  return offset >= FIELD_MARGIN && offset + size <= page - FIELD_MARGIN;
+}
+
+/** A box of `size` pulled onto the page from `offset`, as far as the page allows. */
+function clamped(offset: number, size: number, page: number): number {
+  return Math.max(FIELD_MARGIN, Math.min(offset, page - FIELD_MARGIN - size));
+}
 
 /** Where the input sits and what room the page has for it. */
 export interface TextSessionPlace {
@@ -101,18 +112,22 @@ export class TextSession {
    */
   place(place: TextSessionPlace): void {
     const input = this.#input;
+    const { area, page, note } = place;
+    // The page's own room is the most the box may take: words longer than the
+    // page scrolls inside it instead of growing past the edge it has to stay on.
+    input.style.maxHeight = `${Math.max(0, page.height - FIELD_MARGIN * 2)}px`;
     const width = input.offsetWidth;
     const height = input.offsetHeight;
-    const { area, page, note } = place;
     const under = area.y + area.height + FIELD_GAP;
     const over = area.y - FIELD_GAP - height;
-    const y =
-      under + height <= page.height - FIELD_MARGIN
-        ? under
-        : over >= FIELD_MARGIN
-          ? over
-          : Math.max(FIELD_MARGIN, page.height - FIELD_MARGIN - height);
-    let x = Math.max(FIELD_MARGIN, Math.min(area.x, page.width - FIELD_MARGIN - width));
+    // Both of a candidate's edges are on the page, or the candidate is no place
+    // at all: what it edits may be off the top of the page, on any zoom or pan.
+    const y = fits(under, height, page.height)
+      ? under
+      : fits(over, height, page.height)
+        ? over
+        : clamped(under, height, page.height);
+    let x = clamped(area.x, width, page.width);
     if (note !== null && overlaps({ x, y, width, height }, note)) {
       const left = note.x - FIELD_GAP - width;
       if (left >= FIELD_MARGIN) {

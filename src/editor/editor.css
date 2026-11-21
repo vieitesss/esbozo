@@ -255,7 +255,9 @@ esbozo-editor .text-input {
   box-shadow: 0 1px 0 var(--line), 0 8px 16px -14px var(--shadow);
   outline: none;
   resize: none;
-  overflow: hidden;
+  /* a paste longer than the page scrolls here, inside the room the page has */
+  overflow-x: hidden;
+  overflow-y: auto;
   field-sizing: content;
   white-space: pre;
   color: var(--ink);
