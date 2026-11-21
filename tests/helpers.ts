@@ -320,7 +320,7 @@ export const ARRANGE_SCENE = {
   title: 'Arrange',
   defaults: { roughness: 1 },
   elements: [
-    { id: 'caption', type: 'text', x: 40, y: 40, content: 'hi', fontSize: 'M' },
+    { id: 'words', type: 'text', x: 40, y: 40, content: 'hi', fontSize: 'M' },
     { id: 'row-a', type: 'rectangle', x: 200, y: 40, width: 100, height: 60 },
     { id: 'row-b', type: 'rectangle', x: 320, y: 40, width: 100, height: 60 },
     {

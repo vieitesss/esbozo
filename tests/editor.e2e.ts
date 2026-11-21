@@ -1134,7 +1134,7 @@ test('Arrange lines mixed types up, and spreads them without reordering them', a
   let saved = new Map((await savedScene(ui, 'arrange.json')).elements.map((e) => [e.id, e]));
   // The Text's own left edge is the selection's left, so it stays and the rest
   // come to it: the arrow moves by the left end of its shaft.
-  expect(['caption', 'row-a', 'row-b'].map((id) => saved.get(id)?.x)).toEqual([40, 40, 40]);
+  expect(['words', 'row-a', 'row-b'].map((id) => saved.get(id)?.x)).toEqual([40, 40, 40]);
   expect(saved.get('tail')?.points).toEqual([
     { x: 40, y: 70 },
     { x: 180, y: 70 },
@@ -1148,7 +1148,7 @@ test('Arrange lines mixed types up, and spreads them without reordering them', a
   await control(ui, 'Spread: horizontal').click();
   const scene = await savedScene(ui, 'arrange.json');
   saved = new Map(scene.elements.map((e) => [e.id, e]));
-  expect(saved.get('caption')?.x).toBe(40);
+  expect(saved.get('words')?.x).toBe(40);
   expect(saved.get('tail')?.points).toEqual([
     { x: 420, y: 70 },
     { x: 560, y: 70 },
@@ -1160,7 +1160,7 @@ test('Arrange lines mixed types up, and spreads them without reordering them', a
   expect(Math.abs(rowB - (rowA + 100) - (420 - (rowB + 100)))).toBeLessThanOrEqual(1);
   // Layer order is not Spread's to change.
   expect(scene.elements.map((element) => element.id)).toEqual([
-    'caption',
+    'words',
     'row-a',
     'row-b',
     'tail',
