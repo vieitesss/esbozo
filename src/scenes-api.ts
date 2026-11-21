@@ -33,11 +33,14 @@ export function listingOf(body: string): SceneListing | null {
     return null;
   }
   const { folder, readOnly, scenes } = raw as { folder?: unknown; readOnly?: unknown; scenes?: unknown };
-  if (typeof folder !== 'string' || !Array.isArray(scenes)) {
+  // Every field has to be the type it claims: a `readOnly` that is text, or a
+  // name that is not one, is no listing, so the page says the server did not
+  // answer instead of showing a folder it cannot trust.
+  if (typeof folder !== 'string' || typeof readOnly !== 'boolean' || !Array.isArray(scenes)) {
     return null;
   }
   if (!scenes.every((name): name is string => typeof name === 'string')) {
     return null;
   }
-  return { folder, readOnly: readOnly === true, scenes };
+  return { folder, readOnly, scenes };
 }

@@ -114,6 +114,19 @@ test('the page shows a failing folder request in its status line', async ({ app,
     );
     await app.open('/editor.html');
     await expect(screen.getByRole('status')).toContainText('/api/scenes did not answer');
+
+    // Neither is a listing whose fields have the wrong types: a `readOnly` that
+    // is text would show a read-only folder as one to save into.
+    await browser.unrouteAll();
+    await browser.route('**/api/scenes', (route) =>
+      route.fulfill({
+        status: 200,
+        body: JSON.stringify({ folder: 'sketches', readOnly: 'true', scenes: ['scene.json'] }),
+      }),
+    );
+    await app.open('/editor.html');
+    await expect(screen.getByRole('status')).toContainText('/api/scenes did not answer');
+    await expect(screen.getByRole('button', /Open folder/)).toBeVisible();
   } finally {
     await browser.unrouteAll();
   }
