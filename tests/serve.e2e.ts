@@ -74,13 +74,19 @@ test('the served editor lists, opens and autosaves Scenes, saving Scene and SVG 
     await expect.poll(() => readFile(join(folder, 'two.svg'), 'utf8')).toBe(expectedSvg);
     await expect(screen.getByRole('status')).toHaveText('saved');
 
-    // A new Scene is created through the same API: both files appear.
+    // A new Scene is created through the same API: both files appear. The name
+    // is typed before the note lists the folder again, and it stays typed.
     await screen.getByRole('button', 'Scenes').click();
     await screen.getByLabel('New Scene name').fill('fresh.json');
+    await writeFile(join(folder, 'three.json'), SCENE_SOURCE, 'utf8');
+    await screen.getByRole('button', 'Scenes').click();
+    await expect(screen.getByRole('button', 'three.json')).toBeVisible();
+    await expect(screen.getByLabel('New Scene name')).toHaveValue('fresh.json');
+
     await screen.getByRole('button', 'New').click();
     await expect
       .poll(async () => (await readdir(folder)).sort())
-      .toEqual(['fresh.json', 'fresh.svg', 'one.json', 'two.json', 'two.svg']);
+      .toEqual(['fresh.json', 'fresh.svg', 'one.json', 'three.json', 'two.json', 'two.svg']);
     await expect(screen.getByRole('status')).toHaveText('saved');
     expect(await readFile(join(folder, 'fresh.svg'), 'utf8')).toMatch(/<title[^>]*>fresh<\/title>/);
 

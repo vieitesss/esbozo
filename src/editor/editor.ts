@@ -707,6 +707,11 @@ export class EsbozoEditorElement extends HTMLElement {
     }
   };
 
+  /**
+   * List the browsed folder's Scenes in the note. A name already typed in the
+   * New form is left alone: a refresh of what the folder holds must not throw
+   * away what the person is in the middle of naming.
+   */
   async #showNote(): Promise<void> {
     const folder = this.#browsed;
     if (folder === null) {
@@ -738,7 +743,6 @@ export class EsbozoEditorElement extends HTMLElement {
       this.#files.append(item);
     }
     this.#note.hidden = false;
-    this.#newScene.querySelector('input')!.value = '';
   }
 
   #setSaved(state: 'idle' | 'saving' | 'saved' | 'failed', detail = ''): void {
