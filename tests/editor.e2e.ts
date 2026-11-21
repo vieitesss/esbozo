@@ -178,6 +178,36 @@ test('a Scene that will not parse is reported and left alone on disk', async ({ 
   expect(files['broken.svg']).toBeUndefined();
 });
 
+test('a picked folder lists its Scenes, not the other JSON files beside them', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(
+    ui,
+    {
+      A: {
+        'scene.esbozo': SCENE_SOURCE,
+        'package.json': '{ "name": "not-a-scene" }',
+        'broken.json': '{ this is not JSON',
+      },
+    },
+    'scene.esbozo',
+  );
+
+  // The Scene opens and is painted, whatever its extension is.
+  const view = await shot(ui);
+  expect(view.meanLuminance(GREY_BOX)).toBeLessThan(view.meanLuminance(PAPER) - 0.2);
+
+  // The folder's other JSON files are not Scenes, so they are not offered.
+  await expect(screen.getByRole('button', 'package.json')).toHaveCount(0);
+  await expect(screen.getByRole('button', 'broken.json')).toHaveCount(0);
+
+  // An .esbozo Scene saves its SVG beside it, by the same rule as a .json one.
+  await dragBy(ui, { x: 100, y: 80 }, 37, 23);
+  await expect(screen.getByRole('status')).toHaveText('saved');
+  const files = await savedFiles(ui);
+  expect(files['scene.esbozo']).toBeTruthy();
+  expect(files['scene.svg']).toBeTruthy();
+});
+
 test('a Scene that is not there opens empty and is saved as Scene and SVG', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   // Asked for by name, so it is a Scene at once: empty, and on disk with its SVG.

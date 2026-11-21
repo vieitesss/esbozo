@@ -10,9 +10,13 @@
  * A served folder (`server-folder.ts`) implements the same three calls over
  * http, so the editor has one storage seam whichever way it was opened.
  *
+ * A Scene file is named `.esbozo` or `.json`. A `.json` name is any other JSON
+ * file's too, so the folder lists one only when its bytes are a Scene.
+ *
  * A Scene file that is not there reads as `null`, so a new Scene opens empty.
  */
-import { svgFileName } from '../paths.js';
+import { sceneExtension, svgFileName } from '../paths.js';
+import { parseScene } from '../scene.js';
 
 /** The slice of the File System Access API this module uses. */
 interface FileHandleLike {
@@ -82,7 +86,10 @@ function folderFromHandle(handle: DirectoryHandleLike): SceneFolder {
     async listScenes(): Promise<string[]> {
       const names: string[] = [];
       for await (const entry of handle.values()) {
-        if (entry.kind === 'file' && /\.json$/i.test(entry.name)) {
+        const extension = entry.kind === 'file' ? sceneExtension(entry.name) : null;
+        // An `.esbozo` name is this project's own, so it is a Scene whatever it
+        // reads; a `.json` name has to parse, or `package.json` would be one.
+        if (extension === '.esbozo' || (extension === '.json' && (await readsAsScene(handle, entry.name)))) {
           names.push(entry.name);
         }
       }
@@ -109,8 +116,22 @@ function folderFromHandle(handle: DirectoryHandleLike): SceneFolder {
   };
 }
 
-async function writeText(handle: DirectoryHandleLike, name: string, text: string): Promise<void> {
-  const file = await handle.getFileHandle(name, { create: true });
+/** Whether a folder's file parses as a Scene, so its other JSON can be left out of the list. */
+async function readsAsScene(handle: DirectoryHandleLike, name: string): Promise<boolean> {
+  let source: string;
+  try {
+    source = await (await (await handle.getFileHandle(name)).getFile()).text();
+  } catch (error) {
+    // Gone between the listing and the read: no Scene this list can offer.
+    if (isMissing(error)) {
+      return false;
+    }
+    throw error;
+  }
+  return parseScene(source).ok;
+}
+
+async function writeText(handle: DirectoryHandleLike, name: string, text: string): Promise<void> {  const file = await handle.getFileHandle(name, { create: true });
   const writable = await file.createWritable();
   try {
     await writable.write(text);

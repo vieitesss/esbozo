@@ -239,10 +239,38 @@ test('the page is all that is served: nothing else in the built folder is', asyn
   assert.equal((await request(server, '/whatever.txt')).status, 404);
 });
 
+test('the list leaves out a .json file that is not a Scene', async () => {
+  const folder = await sceneFolder(SCENE);
+  await writeFile(join(folder, 'package.json'), '{ "name": "esbozo", "version": "0.0.0" }', 'utf8');
+  await writeFile(join(folder, 'tsconfig.json'), '{ "compilerOptions": { "strict": true } }', 'utf8');
+  await writeFile(join(folder, 'broken.json'), '{ not json', 'utf8');
+  await writeFile(join(folder, 'flow.esbozo'), SCENE_SOURCE, 'utf8');
+  const server = await served(folder);
+
+  const listed = JSON.parse((await request(server, '/api/scenes')).body) as { scenes: string[] };
+
+  assert.deepEqual(listed.scenes, ['flow.esbozo', 'scene.json']);
+  // Still a name the API answers on: only the list is for Scenes.
+  assert.equal((await request(server, '/api/scenes/package.json')).body, '{ "name": "esbozo", "version": "0.0.0" }');
+});
+
+test('the list keeps an .esbozo that will not parse, so opening it says why', async () => {
+  const folder = await sceneFolder(SCENE);
+  await writeFile(join(folder, 'broken.esbozo'), '{ not json', 'utf8');
+  const server = await served(folder);
+
+  const listed = JSON.parse((await request(server, '/api/scenes')).body) as { scenes: string[] };
+
+  assert.deepEqual(listed.scenes, ['broken.esbozo', 'scene.json']);
+  const opened = await request(server, '/api/scenes/broken.esbozo');
+  assert.equal(opened.status, 200);
+  assert.equal(opened.body, '{ not json');
+});
+
 test('the list names the Scenes at the top level and says the folder is writable', async () => {
   const folder = await tempFolder();
-  await writeFile(join(folder, 'b.json'), '{}', 'utf8');
-  await writeFile(join(folder, 'a.json'), '{}', 'utf8');
+  await writeFile(join(folder, 'b.json'), SCENE_SOURCE, 'utf8');
+  await writeFile(join(folder, 'a.json'), SCENE_SOURCE, 'utf8');
   await writeFile(join(folder, 'notes.txt'), 'not a Scene', 'utf8');
   // A Scene in a subfolder is out of reach: the folder is listed, not walked.
   await mkdir(join(folder, 'nested'));
@@ -262,8 +290,8 @@ test('the list names the Scenes at the top level and says the folder is writable
 test('the list offers only names the API opens', async () => {
   const folder = await tempFolder();
   await writeFile(join(folder, '.hidden.json'), '{}', 'utf8');
-  await writeFile(join(folder, 'upper.JSON'), '{}', 'utf8');
-  await writeFile(join(folder, 'scene.json'), '{}', 'utf8');
+  await writeFile(join(folder, 'upper.JSON'), SCENE_SOURCE, 'utf8');
+  await writeFile(join(folder, 'scene.json'), SCENE_SOURCE, 'utf8');
   const server = await served(folder);
 
   const listed = JSON.parse((await request(server, '/api/scenes')).body) as { scenes: string[] };

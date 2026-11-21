@@ -202,13 +202,40 @@ function rawPathProblem(raw: string): string | null {
 /**
  * The Scene file names at the top level of the folder, sorted. No recursion, and
  * one rule with the API: every name here is a name the API opens.
+ *
+ * An `.esbozo` name is a Scene however it reads, because the extension is this
+ * project's own: an invalid one is listed and says what is wrong when opened. A
+ * `.json` name is any other JSON file's too — a `package.json`, a `tsconfig.json`
+ * — so it is listed only when its bytes parse as a Scene.
  */
 async function listScenes(root: string): Promise<string[]> {
   const entries = await readdir(root, { withFileTypes: true });
-  return entries
+  const candidates = entries
     .filter((entry) => entry.isFile() && nameProblem(entry.name) === null)
-    .map((entry) => entry.name)
-    .sort((left, right) => left.localeCompare(right));
+    .map((entry) => entry.name);
+  const listed: string[] = [];
+  for (const name of candidates) {
+    if (sceneExtension(name) === '.esbozo' || (await parsesAsScene(join(root, name)))) {
+      listed.push(name);
+    }
+  }
+  return listed.sort((left, right) => left.localeCompare(right));
+}
+
+/** Whether a file's bytes are a Scene, so a `.json` file beside the Scenes can be told apart. */
+async function parsesAsScene(path: string): Promise<boolean> {
+  let source: string;
+  try {
+    source = await readFile(path, 'utf8');
+  } catch (error) {
+    // A name that left the folder between the listing and the read is no Scene
+    // this list can offer; anything else is the folder's answer, not ours.
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return false;
+    }
+    throw error;
+  }
+  return parseScene(source).ok;
 }
 
 async function handleScene(
