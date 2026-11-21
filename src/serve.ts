@@ -29,7 +29,8 @@
  */
 import { randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { readdir, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { copyFile, readdir, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import type { Stats } from 'node:fs';
 import { createServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { basename, join, resolve, sep } from 'node:path';
@@ -364,9 +365,9 @@ class WriteRefused extends Error {
 const queued = new Map<string, Promise<void>>();
 
 /**
- * The queue a write belongs to: the pair it will replace, case-folded.
+ * The queue a write belongs to: the two files it will replace, case-folded.
  * `alias.json` and `alias.JSON` are one Scene on a case-insensitive filesystem,
- * so they take one queue; two names for one pair must never write at once.
+ * so they take one queue; otherwise two names for one pair could write at once.
  */
 function queueKey(root: string, name: string): string {
   return join(root, name).toLowerCase();
@@ -388,90 +389,118 @@ function serialised<T>(key: string, job: () => Promise<T>): Promise<T> {
   return next;
 }
 
-/** One file of a pair: where it goes, what it holds now, and where its bytes wait. */
-interface StagedFile {
-  readonly target: string;
-  readonly text: string;
-  readonly previous: string | null;
-  readonly temporary: string;
-}
-
 /**
  * Replace the Scene and its SVG of one name together. Calls for one pair are
  * queued, so the two files on disk always come from a single write: the pair a
  * reader finds is the one before a write or the one after it, never a Scene from
  * one request beside an SVG from another.
  *
- * Each file is replaced atomically, Scene first, and what a write replaces is
- * read before anything lands: a failure after the first rename puts back every
- * file already replaced, so a failed write leaves the previous pair. A reader
+ * Both targets are checked before anything lands, and checked as entries only:
+ * a target that is not a file cannot be replaced, and its contents are never
+ * read on the way in. The Scene is then copied aside byte for byte — one copy,
+ * kept no longer than the write — and the two texts are renamed into place,
+ * Scene first. A failure is undone: the SVG is renamed last, so a failure there
+ * leaves the SVG as it was and only the Scene has to be put back. A reader
  * between the two renames can see the new Scene beside the previous SVG; the SVG
  * never leads the Scene, and both are the same write once the request answers.
  */
 async function writePair(root: string, name: string, written: SceneWrite): Promise<void> {
-  const wanted = [
-    { target: join(root, name), text: written.scene },
-    { target: join(root, svgFileName(name)), text: written.svg },
-  ];
-  const staged: StagedFile[] = [];
-  for (const file of wanted) {
-    staged.push({
-      ...file,
-      previous: await previousOf(file.target),
-      temporary: `${file.target}.${randomUUID()}.tmp`,
-    });
-  }
+  const scene = join(root, name);
+  const svg = join(root, svgFileName(name));
+  await refuseNonFile(scene);
+  await refuseNonFile(svg);
 
-  const replaced: StagedFile[] = [];
+  const backup = `${scene}.${randomUUID()}.bak`;
+  const hadScene = await copyAside(scene, backup);
+  const sceneTemporary = `${scene}.${randomUUID()}.tmp`;
+  const svgTemporary = `${svg}.${randomUUID()}.tmp`;
+
+  let keepBackup = false;
   try {
-    for (const file of staged) {
-      await writeFile(file.temporary, file.text, 'utf8');
-    }
-    for (const file of staged) {
-      await rename(file.temporary, file.target);
-      replaced.push(file);
-    }
+    await writeFile(sceneTemporary, written.scene, 'utf8');
+    await writeFile(svgTemporary, written.svg, 'utf8');
+    await rename(sceneTemporary, scene);
+    await rename(svgTemporary, svg);
   } catch (error) {
-    await putBack(replaced);
-    throw error;
+    // The Scene goes back whenever the write did not finish, renamed or not: the
+    // copy is the same bytes either way, and this is the only way to know that
+    // the folder can still keep them.
+    const unput = await putBack(scene, backup, hadScene);
+    // A restore that failed is the answer: the folder was told to forget bytes it
+    // could not keep, so it names the copy that is still there.
+    keepBackup = unput !== null;
+    throw unput ?? error;
   } finally {
-    for (const file of staged) {
-      await unlink(file.temporary).catch(() => {});
+    await unlink(sceneTemporary).catch(() => {});
+    await unlink(svgTemporary).catch(() => {});
+    if (!keepBackup) {
+      await unlink(backup).catch(() => {});
     }
   }
 }
 
-/** What a target holds now, `null` when it is not there, or a refusal to replace it. */
-async function previousOf(target: string): Promise<string | null> {
+/** A target that is not a file cannot be replaced: refuse it before anything lands. */
+async function refuseNonFile(target: string): Promise<void> {
+  let found: Stats;
   try {
-    return await readFile(target, 'utf8');
+    found = await stat(target);
   } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT') {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return;
+    }
+    throw error;
+  }
+  if (found.isDirectory()) {
+    throw new WriteRefused(409, `${basename(target)} is a folder: save the Scene under another name`);
+  }
+  if (!found.isFile()) {
+    throw new WriteRefused(409, `${basename(target)} is not a file: save the Scene under another name`);
+  }
+}
+
+/** Copy a Scene aside byte for byte, so a failed write can put those bytes back. */
+async function copyAside(target: string, backup: string): Promise<boolean> {
+  try {
+    await copyFile(target, backup);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return false;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Put back what a failed write replaced, and say so when even that fails: the
+ * answer carries the copy's path, so the bytes are never lost silently and a
+ * write the folder could not finish is never reported as done.
+ */
+async function putBack(
+  scene: string,
+  backup: string,
+  hadScene: boolean,
+): Promise<WriteRefused | null> {
+  try {
+    if (hadScene) {
+      // A rename, so a reader never sees half of the Scene it had.
+      await rename(backup, scene);
       return null;
     }
-    if (code === 'EISDIR') {
-      throw new WriteRefused(409, `${basename(target)} is a folder: save the Scene under another name`);
-    }
-    throw error;
-  }
-}
-
-/** Undo the renames a failed write made, newest first, so the pair comes back. */
-async function putBack(replaced: readonly StagedFile[]): Promise<void> {
-  for (const file of [...replaced].reverse()) {
     try {
-      if (file.previous === null) {
-        await unlink(file.target);
-        continue;
+      await unlink(scene);
+    } catch (error) {
+      // No Scene landed, so there is nothing to undo.
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
       }
-      // Through a temporary, so a reader never sees half of the old file.
-      const temporary = `${file.target}.${randomUUID()}.tmp`;
-      await writeFile(temporary, file.previous, 'utf8');
-      await rename(temporary, file.target);
-    } catch {
-      // The write has already failed: this is the most the server can do.
     }
+    return null;
+  } catch (error) {
+    return new WriteRefused(
+      500,
+      `${basename(scene)} could not be put back after a failed write: the Scene from before it is at ${backup} (${(error as Error).message})`,
+    );
   }
 }
 

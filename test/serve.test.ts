@@ -7,12 +7,16 @@
  * attacker would try them, and the file outside has to stay untouched.
  */
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import { mkdir, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { request as httpRequest } from 'node:http';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
+import { promisify } from 'node:util';
 import { ez, sceneFolder, startServe, tempFolder } from './cli.ts';
 import type { Serve } from './cli.ts';
+
+const run = promisify(execFile);
 
 const SCENE = {
   version: 1,
@@ -59,50 +63,6 @@ async function request(
 
 function sent(scene: unknown = SCENE, svg = SVG): { scene: string; svg: string } {
   return { scene: JSON.stringify(scene, null, 2), svg };
-}
-
-/**
- * Writes that differ in both files, alternating between two names: the pair on
- * disk names the request it came from by its bytes alone.
- */
-function aliasedWrites(
-  count: number,
-  nameFor: (index: number) => string,
-): { readonly name: string; readonly write: ReturnType<typeof sent> }[] {
-  return Array.from({ length: count }, (_, index) => ({
-    name: nameFor(index),
-    write: {
-      scene: JSON.stringify({ ...SCENE, title: `write ${index}` }, null, 2),
-      svg: `<svg xmlns="http://www.w3.org/2000/svg"><title>write ${index}</title><desc>${'x'.repeat(index + 1)}</desc></svg>`,
-    },
-  }));
-}
-
-/** The pair on disk is the Scene and the SVG of one request, byte for byte. */
-async function assertPairFrom(
-  folder: string,
-  name: string,
-  writes: readonly { readonly write: ReturnType<typeof sent> }[],
-): Promise<void> {
-  const savedScene = await readFile(join(folder, name), 'utf8');
-  const winner = writes.find((candidate) => candidate.write.scene === savedScene);
-  assert.ok(winner !== undefined, 'the Scene on disk is one that was sent, byte for byte');
-  const svg = join(folder, name.replace(/\.json$/i, '.svg'));
-  assert.equal(await readFile(svg, 'utf8'), winner.write.svg, 'the SVG beside it is that same request');
-}
-
-/** Whether this folder is on a filesystem that treats two names as one file. */
-async function foldsCase(folder: string): Promise<boolean> {
-  const probe = join(folder, 'case-probe.json');
-  await writeFile(probe, '{}', 'utf8');
-  try {
-    await stat(join(folder, 'CASE-PROBE.JSON'));
-    return true;
-  } catch {
-    return false;
-  } finally {
-    await rm(probe);
-  }
 }
 
 /**
@@ -230,26 +190,65 @@ test('a write stores the Scene and its SVG side by side', async () => {
   assert.deepEqual((await readdir(folder)).sort(), ['saved.json', 'saved.svg', 'scene.json']);
 });
 
+/**
+ * Writes that differ in both files, alternating between two names: the pair on
+ * disk names the request it came from by its bytes alone.
+ */
+function aliasedWrites(
+  count: number,
+  nameFor: (index: number) => string,
+): { readonly name: string; readonly write: ReturnType<typeof sent> }[] {
+  return Array.from({ length: count }, (_, index) => ({
+    name: nameFor(index),
+    write: {
+      scene: JSON.stringify({ ...SCENE, title: `write ${index}` }, null, 2),
+      svg: `<svg xmlns="http://www.w3.org/2000/svg"><title>write ${index}</title><desc>${'x'.repeat(index + 1)}</desc></svg>`,
+    },
+  }));
+}
+
+/** The pair on disk is the Scene and the SVG of one request, byte for byte. */
+async function assertPairFrom(
+  folder: string,
+  name: string,
+  writes: readonly { readonly write: ReturnType<typeof sent> }[],
+): Promise<void> {
+  const savedScene = await readFile(join(folder, name), 'utf8');
+  const winner = writes.find((candidate) => candidate.write.scene === savedScene);
+  assert.ok(winner !== undefined, 'the Scene on disk is one that was sent, byte for byte');
+  const svg = join(folder, name.replace(/\.json$/i, '.svg'));
+  assert.equal(await readFile(svg, 'utf8'), winner.write.svg, 'the SVG beside it is that same request');
+}
+
+/** Whether this folder is on a filesystem that treats two names as one file. */
+async function foldsCase(folder: string): Promise<boolean> {
+  const probe = join(folder, 'case-probe.json');
+  await writeFile(probe, '{}', 'utf8');
+  try {
+    await stat(join(folder, 'CASE-PROBE.JSON'));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    await rm(probe);
+  }
+}
+
 test('writes of one Scene that overlap leave the pair from a single request', async () => {
   const folder = await sceneFolder(SCENE);
   const server = await served(folder);
 
-  const overlapping = Array.from({ length: 48 }, (_, index) =>
-    request(server, '/api/scenes/busy.json', 'PUT', {
-      scene: JSON.stringify({ ...SCENE, title: `write ${index}` }, null, 2),
-      svg: `<svg xmlns="http://www.w3.org/2000/svg"><title>write ${index}</title></svg>`,
-    }),
+  const writes = aliasedWrites(48, () => 'busy.json');
+  const answers = await Promise.all(
+    writes.map((one) => request(server, `/api/scenes/${one.name}`, 'PUT', one.write)),
   );
-  const answers = await Promise.all(overlapping);
   assert.deepEqual(
     answers.map((answer) => answer.status),
     answers.map(() => 200),
     'every write is answered',
   );
 
-  const saved = JSON.parse(await readFile(join(folder, 'busy.json'), 'utf8')) as { title: string };
-  const svg = await readFile(join(folder, 'busy.svg'), 'utf8');
-  assert.match(svg, new RegExp(`<title>${saved.title}</title>`), `the SVG beside “${saved.title}” is its own`);
+  await assertPairFrom(folder, 'busy.json', writes);
 });
 
 test('two names that are one file here share one write queue', async (t) => {
@@ -304,6 +303,93 @@ test('aliased writes that all fail keep the previous pair', async (t) => {
   assert.deepEqual((await readdir(folder)).sort(), ['alias.json', 'alias.svg', 'scene.json']);
   assert.ok((await stat(join(folder, 'alias.svg'))).isDirectory(), 'the folder that refused the writes is still a folder');
 });
+
+/**
+ * An SVG the folder will not replace, with a pair already beside it. The SVG's
+ * rename is the one step a write cannot check for beforehand, so this is where
+ * the rollback itself is measured: the Scene goes back byte for byte, the SVG it
+ * was written with is still the one on disk, and nothing is left over.
+ */
+test('a write whose SVG cannot be replaced puts the previous Scene back', async (t) => {
+  const folder = await sceneFolder(SCENE);
+  const server = await served(folder);
+  // A title a careless round trip through a string would not survive.
+  const first = sent({ ...SCENE, title: 'Kept ✓ 世界' });
+  assert.equal((await request(server, '/api/scenes/kept.json', 'PUT', first)).status, 200);
+
+  const svg = join(folder, 'kept.svg');
+  if (!(await makeUnreplaceable(svg))) {
+    t.skip('this platform cannot make a file that a rename will not replace');
+    return;
+  }
+  try {
+    const writes = Array.from({ length: 4 }, (_, index) => ({
+      scene: JSON.stringify({ ...SCENE, title: `write ${index} ✓` }, null, 2),
+      svg: `<svg xmlns="http://www.w3.org/2000/svg"><title>write ${index}</title></svg>`,
+    }));
+    const answers = await Promise.all(
+      writes.map((write) => request(server, '/api/scenes/kept.json', 'PUT', write)),
+    );
+    for (const answer of answers) {
+      assert.ok(answer.status >= 500, `${answer.status} is the answer to a write that did not finish`);
+    }
+
+    // The pair is the one that was there, and the failed writes left no files.
+    assert.equal(await readFile(join(folder, 'kept.json'), 'utf8'), first.scene);
+    assert.equal(await readFile(svg, 'utf8'), first.svg);
+    assert.deepEqual((await readdir(folder)).sort(), ['kept.json', 'kept.svg', 'scene.json']);
+  } finally {
+    await makeReplaceable(svg);
+  }
+});
+
+/**
+ * A folder that cannot put the Scene back either. The write has failed, and the
+ * one thing left to do is say so and say where the bytes still are: a Scene this
+ * server could not keep is never a success answer, and never lost quietly.
+ */
+test('a restore that fails is reported, with the copy that still holds the Scene', async (t) => {
+  const folder = await sceneFolder(SCENE);
+  const server = await served(folder);
+  const first = sent({ ...SCENE, title: 'Kept ✓ 世界' });
+  assert.equal((await request(server, '/api/scenes/kept.json', 'PUT', first)).status, 200);
+
+  const scene = join(folder, 'kept.json');
+  if (!(await makeUnreplaceable(scene))) {
+    t.skip('this platform cannot make a file that a rename will not replace');
+    return;
+  }
+  try {
+    const answer = await request(server, '/api/scenes/kept.json', 'PUT', sent({ ...SCENE, title: 'Replaced' }));
+
+    assert.equal(answer.status, 500, 'a write that could not be undone is not a success');
+    const { error } = JSON.parse(answer.body) as { error: string };
+    assert.match(error, /could not be put back/);
+    const copy = /at (\S+\.bak)/.exec(error)?.[1];
+    assert.ok(copy !== undefined, `the answer names the copy that holds the Scene: ${error}`);
+
+    // The Scene on disk is the one that was there, and so is its copy.
+    assert.equal(await readFile(scene, 'utf8'), first.scene);
+    assert.equal(await readFile(copy, 'utf8'), first.scene);
+    await rm(copy);
+  } finally {
+    await makeReplaceable(scene);
+  }
+});
+
+/** Make a file that a rename will not replace, where the platform can. */
+async function makeUnreplaceable(path: string): Promise<boolean> {  try {
+    await run('chflags', ['uchg', path]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Give it back, so nothing is left that a folder cannot be cleaned of. */
+async function makeReplaceable(path: string): Promise<void> {
+  await run('chflags', ['nouchg', path]).catch(() => {});
+}
 
 test('a folder where the SVG name is taken fails the write and keeps the old pair', async () => {
   const folder = await sceneFolder(SCENE);
