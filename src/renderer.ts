@@ -728,8 +728,11 @@ function arrowOrLineSvg(
   const headLength = HEAD_LENGTH_PX[element.stroke.width];
   const arriving = shaftTangentAt(path, 1);
   const leaving = shaftTangentAt(path, 0);
+  // A start head points back along the shaft. One with no length at all has no
+  // direction to point back along, so it keeps the way a zero-length shaft has
+  // always drawn: rightwards.
   const direction = {
-    start: { x: -leaving.x, y: -leaving.y },
+    start: path.length === 0 ? { x: 1, y: 0 } : { x: -leaving.x, y: -leaving.y },
     end: arriving,
   };
   for (const [kind, apex, along] of [
@@ -872,17 +875,19 @@ function shaftPathOf(
  * The shaft as SVG path data: a move to its first point, then a line or a curve
  * per piece, in drawing order. Rough.js roughens this path like any other, so a
  * bent shaft wobbles with the rest of the Scene instead of looking struck.
+ *
+ * The numbers are the ones the shaft was measured with, unrounded: the ink is
+ * roughened from them, and the SVG rounds what it writes once, at the end.
  */
 function shaftData(path: ShaftPath): string {
-  const commands = [`M ${formatPoint(path.pieces[0]!.from)}`];
+  const at = (point: Point): string => `${point.x} ${point.y}`;
+  const commands = [`M ${at(path.pieces[0]!.from)}`];
   for (const piece of path.pieces) {
     if (piece.kind === 'straight') {
-      commands.push(`L ${formatPoint(piece.to)}`);
+      commands.push(`L ${at(piece.to)}`);
       continue;
     }
-    commands.push(
-      `C ${formatPoint(piece.control1)} ${formatPoint(piece.control2)} ${formatPoint(piece.to)}`,
-    );
+    commands.push(`C ${at(piece.control1)} ${at(piece.control2)} ${at(piece.to)}`);
   }
   return commands.join(' ');
 }

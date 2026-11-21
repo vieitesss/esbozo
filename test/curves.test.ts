@@ -495,6 +495,61 @@ test('a tiny or doubled-back leg softens its corner instead of breaking the ink'
   assert.ok(points.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y)));
 });
 
+test('a two-point shaft keeps the bytes it always drew, its Snap fraction included', async () => {
+  // The Snap lands on a fraction of a pixel of the ellipse, and the ink is
+  // roughened from that fraction: rounding it on the way into Rough.js moves a
+  // control point in the last decimal and changes the SVG of a Scene that never
+  // bent at all.
+  const svg = await ink({
+    version: 1,
+    defaults: { roughness: 2 },
+    elements: [
+      { id: 'e', type: 'ellipse', x: 0, y: 0, width: 97, height: 61 },
+      {
+        id: 'a',
+        type: 'arrow',
+        points: [
+          { x: 48, y: 61, snap: 'e' },
+          { x: 300, y: 200 },
+        ],
+      },
+    ],
+  });
+
+  assert.equal(
+    attribute(shaftFrom(svg, { x: 81.59, y: 52.8 }), 'd'),
+    'M81.59 52.8 C161.38 106.61, 242.21 158.16, 300 200 M81.59 52.8 C157.09 106.34, 231.16 157.81, 300 200',
+  );
+});
+
+test('a zero-length shaft keeps the bytes it always drew', async () => {
+  // Two ends on one point have no direction of their own. Both heads keep the
+  // way they have always been drawn — pointing right, base behind them — so a
+  // Scene that never bent still writes the bytes it wrote before.
+  const svg = await ink({
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [
+      {
+        id: 'z',
+        type: 'line',
+        heads: { start: 'arrow', end: 'arrow' },
+        points: [
+          { x: 700, y: 300 },
+          { x: 700, y: 300 },
+        ],
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    tags(svg, 'path')
+      .filter((tag) => attribute(tag, 'fill') === 'var(--ink)')
+      .map((tag) => attribute(tag, 'd')),
+    ['M700 300 L687 305.85 L687 294.15', 'M700 300 L687 305.85 L687 294.15'],
+  );
+});
+
 test('a curved shaft draws its dash pattern along an unbroken stroke', async () => {
   for (const style of ['dashed', 'dotted'] as const) {
     const svg = await ink(
