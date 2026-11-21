@@ -74,7 +74,8 @@ import {
   savedFiles,
   savedScene,
 } from './helpers.ts';
-import type { Ui } from './helpers.ts';
+import type { Point, SavedScene, Ui } from './helpers.ts';
+import { livePage } from './cdp.ts';
 import { decodePng, difference, shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
 
@@ -319,6 +320,129 @@ test('a thick horizontal line is picked a pixel off its centre', async ({ app, b
     { x: 70, y: 200 },
     { x: 330, y: 200 },
   ]);
+});
+
+/** A rectangle, an ellipse and a diamond, unfilled, with bare paper between them. */
+const BORDERS_SCENE = {
+  version: 1,
+  title: 'Borders',
+  defaults: { roughness: 1 },
+  elements: [
+    { id: 'rect', type: 'rectangle', x: 40, y: 40, width: 120, height: 80 },
+    { id: 'oval', type: 'ellipse', x: 220, y: 40, width: 140, height: 110 },
+    { id: 'dia', type: 'diamond', x: 420, y: 40, width: 160, height: 120 },
+  ],
+};
+const BORDERS_SOURCE = JSON.stringify(BORDERS_SCENE, null, 2);
+
+/** The view `BORDERS_SCENE` lands in: its 572×152 page fitted one to one. */
+const BORDERS = { zoom: 1, panX: 330, panY: 300 };
+
+/** The three boxes, in Scene units, in the order they are pressed. */
+const BORDERS_BOXES = BORDERS_SCENE.elements.map(({ id, x, y, width, height }) => ({
+  id,
+  box: { x, y, width, height },
+}));
+
+/** How dark a pixel has to be to count as the ink a person sees. */
+const DRAWN = 0.6;
+
+/**
+ * The drawn border of the Element whose box's left edge is `edge`: the leftmost
+ * ink on the page's own line through it, within `span` page pixels. The box is
+ * not the answer — the roughness draws the border outside it, so the test reads
+ * where the ink actually landed.
+ */
+async function borderInk(ui: Ui, edge: Point, span: number): Promise<Point> {
+  const bounds = (await shot(ui)).darkBounds(
+    { x: edge.x - span, y: edge.y - 0.5, width: span, height: 1 },
+    DRAWN,
+  );
+  if (bounds === null) {
+    throw new Error(`no border ink on the line through ${edge.x}, ${edge.y}`);
+  }
+  return { x: bounds.x + 0.5, y: edge.y };
+}
+
+/** The middle of a box's left edge, as the page shows it. */
+function leftEdgeOf(box: { x: number; y: number; height: number }): Point {
+  return at({ x: box.x, y: box.y + box.height / 2 }, BORDERS);
+}
+
+/** A press and a release where the pointer lands, through the browser's own mouse. */
+async function press(point: Point): Promise<void> {
+  const mouse = livePage().mouse;
+  await mouse.move(point.x, point.y);
+  await mouse.down();
+  await mouse.up();
+}
+
+/** The x each Element saves with, so only the pressed Element can have moved. */
+function savedXs(scene: SavedScene): Array<[string, number | undefined]> {
+  return scene.elements.map((element) => [element.id, element.x]);
+}
+
+test('a press on the drawn border, outside the box, selects the Element', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'borders.json': BORDERS_SOURCE } }, 'borders.json');
+
+  for (const [index, { id, box }] of BORDERS_BOXES.entries()) {
+    const edge = leftEdgeOf(box);
+    // The border the Renderer drew, from the page's pixels: its roughness puts
+    // the ink outside the box, which is exactly where a press used to miss.
+    const ink = await borderInk(ui, edge, 15);
+    expect(ink.x, `${id}'s border is drawn outside its box`).toBeLessThan(edge.x);
+
+    await press(ink);
+    await browser.keyboard.press('Shift+ArrowRight');
+
+    // Only the Element whose ink was pressed moved, and it moved as a nudge does.
+    const scene = await savedScene(ui, 'borders.json');
+    expect(savedXs(scene)).toEqual(
+      BORDERS_BOXES.map((other, earlier) => [other.id, other.box.x + (earlier <= index ? 10 : 0)]),
+    );
+  }
+
+  // Bare paper clear of the ink is bare canvas: the page keeps its Scene.
+  const before = (await savedFiles(ui))['borders.json'];
+  const last = BORDERS_BOXES[BORDERS_BOXES.length - 1]!.box;
+  const edge = leftEdgeOf({ x: last.x + 10, y: last.y, height: last.height });
+  await press({ x: edge.x - 40, y: edge.y });
+  await browser.keyboard.press('Shift+ArrowRight');
+  expect((await savedFiles(ui))['borders.json']).toBe(before);
+});
+
+test('a press on the drawn border selects the Element in a zoomed-in view', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+
+  for (const { id, box } of BORDERS_BOXES) {
+    // Each Element starts from the fitted view: a zoom about one shape's border
+    // would carry the next one somewhere the test never asked for.
+    await openEditor(ui, { A: { 'borders.json': BORDERS_SOURCE } }, 'borders.json');
+    const edge = leftEdgeOf(box);
+
+    // Zoom in on the border's own Scene point: the view keeps that point under
+    // the pointer, so the box's left edge stays on the line the press follows.
+    const mouse = livePage().mouse;
+    await mouse.move(edge.x, edge.y);
+    for (let notch = 0; notch < 4; notch += 1) {
+      await mouse.wheel(0, -400);
+    }
+    await settle(ui);
+
+    // Zoomed in, the same wobble is more pixels out, and the box is not what
+    // the press aims at: the ink is.
+    const ink = await borderInk(ui, edge, 60);
+    expect(ink.x, `${id}'s border is drawn outside its box`).toBeLessThan(edge.x);
+
+    await press(ink);
+    await browser.keyboard.press('Shift+ArrowRight');
+
+    const scene = await savedScene(ui, 'borders.json');
+    expect(savedXs(scene)).toEqual(
+      BORDERS_BOXES.map((other) => [other.id, other.box.x + (other.id === id ? 10 : 0)]),
+    );
+  }
 });
 
 test("a click on a rectangle inside an arrow's box selects the rectangle", async ({ app, browser, screen }) => {

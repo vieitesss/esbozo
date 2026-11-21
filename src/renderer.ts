@@ -213,6 +213,27 @@ export function strokeWidthOf(element: Element): number {
   return STROKE_WIDTH_PX[element.stroke.width];
 }
 
+/** How far Rough.js may put a vertex off its geometry, in pixels, before roughness scales it. */
+const ROUGH_VERTEX_PX = 2;
+/** The most Rough.js bows a long straight side outward, as a share of its length. */
+const ROUGH_BOW_SHARE = 0.01;
+/** The most Rough.js curve fitting adds to an ellipse's radius, as a share of it. */
+const ROUGH_FIT_SHARE = 0.05;
+
+/**
+ * How far past its outline box an Element's ink may reach, in Scene units: a
+ * rough stroke wobbles every vertex by up to its randomness, bows a long straight
+ * side outward, and on an ellipse grows the ring while fitting curves. The ink is
+ * the Element, so `elementAt` grows the box by this much and a press on the
+ * border lands.
+ */
+export function inkReach(element: OutlinedElement): number {
+  const longest = Math.max(element.width, element.height);
+  const shape =
+    element.type === 'ellipse' ? (longest * ROUGH_FIT_SHARE) / 2 : longest * ROUGH_BOW_SHARE;
+  return element.roughness * (ROUGH_VERTEX_PX + shape);
+}
+
 /**
  * What Layout places for one Element, and the box it is drawn against: a shaft's
  * two ends, a Text's own block, or a container's outline. Both the bounds and

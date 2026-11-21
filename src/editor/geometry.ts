@@ -9,7 +9,7 @@
  * diagonal arrow's empty corner is bare canvas. Box-select still works on boxes,
  * because a box sweeps up only what it encloses.
  */
-import { drawnShaft, elementBounds, elementsById, pageBounds, strokeWidthOf } from '../renderer.js';
+import { drawnShaft, elementBounds, elementsById, inkReach, pageBounds, strokeWidthOf } from '../renderer.js';
 import type { Layout } from '../layout.js';
 import { MIN_SIZE, isOutlined } from '../scene.js';
 import type { Element, Scene } from '../scene.js';
@@ -60,9 +60,10 @@ export function unionOf(boxes: readonly Box[]): Box | null {
 /**
  * The topmost Element under a point: list order is layer order. An arrow or
  * line is picked by its drawn shaft, `tolerance` Scene units off it; every other
- * Element by its box. With `words`, a shaft's Label is picked too: its ink sits
- * beside the shaft, further out than a click picks a line by, and it is words a
- * person can see and double-click like any other.
+ * Element by its box, grown by the same reach so the ink a rough outline draws
+ * outside that box is still the Element. With `words`, a shaft's Label is picked
+ * too: its ink sits beside the shaft, further out than a click picks a line by,
+ * and it is words a person can see and double-click like any other.
  */
 export function elementAt(
   elements: readonly Element[],
@@ -88,11 +89,30 @@ export function elementAt(
       }
       continue;
     }
-    if (holds(elementBounds(element, byId, layout), point)) {
+    // An outlined Element's ink strays outside its box, so the box it is picked
+    // by grows by the reach a shaft gets plus that stray: a press on the border
+    // it draws lands on the Element, not on bare canvas.
+    const reach = isOutlined(element)
+      ? Math.max(tolerance, strokeWidthOf(element) / 2) + inkReach(element)
+      : 0;
+    if (holds(grownBy(elementBounds(element, byId, layout), reach), point)) {
       return element;
     }
   }
   return null;
+}
+
+/** A box grown by `reach` on every side, or the box itself when it has none. */
+function grownBy(box: Box, reach: number): Box {
+  if (reach === 0) {
+    return box;
+  }
+  return {
+    x: box.x - reach,
+    y: box.y - reach,
+    width: box.width + reach * 2,
+    height: box.height + reach * 2,
+  };
 }
 
 /** Whether a point is inside a box. */
