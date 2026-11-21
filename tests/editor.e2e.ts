@@ -929,6 +929,12 @@ const PAN_TO: Point = { x: 320, y: 680 };
 const PAN_BY: Point = { x: 20, y: 30 };
 
 /**
+ * Where a Rectangle preview would paint: the band the pointer sweeps, with the
+ * pan under it, and clear of the lone box's ink before and after.
+ */
+const PREVIEW_AREA: Rect = { x: 288, y: 638, width: 64, height: 70 };
+
+/**
  * A middle press on the bare canvas carried to `PAN_TO` and released, which is
  * how a person pans: the box moves exactly as far as the pointer did. `whileDown`
  * runs with the middle button still down and the page already carried.
@@ -1038,7 +1044,12 @@ test('a middle drag pans with the Rectangle tool armed and draws nothing', async
   // to pan the page, not sweep a second box into the Scene.
   await browser.keyboard.press('r');
   await settle(ui);
-  await panLoneBox(ui);
+  await panLoneBox(ui, async () => {
+    // The button is still down and the pointer has swept: a pencil would have
+    // its preview on this paper by now, so bare paper is the pan's answer.
+    await settle(ui);
+    expect((await shot(ui)).darkCount(PREVIEW_AREA, 0.6)).toBe(0);
+  });
 
   // Nothing was drawn: the box is the only Element the Scene holds.
   expect((await savedFiles(ui))['scene.json']).toBe(LONE_SOURCE);
