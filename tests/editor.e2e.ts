@@ -451,6 +451,18 @@ async function press(point: Point): Promise<void> {
   await mouse.up();
 }
 
+/** A middle press carried to another point and released, the way a person pans. */
+async function middleDrag(from: Point, to: Point): Promise<void> {
+  const mouse = livePage().mouse;
+  await mouse.move(from.x, from.y);
+  await mouse.down({ button: 'middle' });
+  for (let step = 1; step <= 5; step += 1) {
+    const share = step / 5;
+    await mouse.move(from.x + (to.x - from.x) * share, from.y + (to.y - from.y) * share);
+  }
+  await mouse.up({ button: 'middle' });
+}
+
 /** The x each Element saves with, so only the pressed Element can have moved. */
 function savedXs(scene: SavedScene): Array<[string, number | undefined]> {
   return scene.elements.map((element) => [element.id, element.x]);
@@ -892,6 +904,149 @@ test('Space pans and the wheel zooms without touching the Scene', async ({ app, 
 
   // Panning and zooming are view changes, not Scene changes.
   expect((await savedFiles(ui))['scene.json']).toBe(savedBefore);
+});
+
+/**
+ * One filled box, alone on the page: however far the page pans, the only ink a
+ * region can hold is this box's own, and a press that drew would be the second
+ * Element the Scene never had.
+ */
+const LONE_SCENE = {
+  version: 1,
+  title: 'Lone box',
+  defaults: { roughness: 1 },
+  elements: [
+    {
+      id: 'lone',
+      type: 'rectangle',
+      x: 40,
+      y: 40,
+      width: 200,
+      height: 160,
+      fill: { kind: 'solid', grey: 6 },
+    },
+  ],
+};
+const LONE_SOURCE = JSON.stringify(LONE_SCENE, null, 2);
+
+/** The view `LONE_SCENE` lands in: the page fitted with an 80px margin, 1:1. */
+const LONE = { zoom: 1, panX: 500, panY: 280 };
+
+/** Where `LONE_SCENE`'s box sits on the page, with room for a 20×30 pan. */
+const LONE_BOX: Rect = { x: 510, y: 300, width: 280, height: 230 };
+
+test('a middle drag pans under the Select tool and keeps the selection it found', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': LONE_SOURCE } }, 'scene.json');
+
+  // One Element selected: a middle press on the bare canvas has to pan the
+  // page, not sweep a box that would drop the selection.
+  await clickScene(ui, { x: 140, y: 120 }, [], LONE);
+  await settle(ui);
+  const start = (await shot(ui)).darkCentre(LONE_BOX, 0.6);
+  expect(start.count).toBeGreaterThan(0);
+
+  await middleDrag({ x: 300, y: 650 }, { x: 320, y: 680 });
+
+  // The page moved exactly as far as the pointer did.
+  const panned = (await shot(ui)).darkCentre(LONE_BOX, 0.6);
+  expect(panned.x).toBeCloseTo(start.x + 20, 0);
+  expect(panned.y).toBeCloseTo(start.y + 30, 0);
+
+  // Nothing was drawn: the Scene the editor holds is the one it opened.
+  expect((await savedFiles(ui))['scene.json']).toBe(LONE_SOURCE);
+
+  // And the press kept the selection it found: a nudge moves the box, which
+  // nothing had dropped.
+  await browser.keyboard.press('Shift+ArrowRight');
+  const scene = await savedScene(ui);
+  expect(scene.elements.map((element) => [element.id, element.x])).toEqual([['lone', 50]]);
+});
+
+test('a middle drag pans with the Rectangle tool armed and draws nothing', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': LONE_SOURCE } }, 'scene.json');
+
+  // The Rectangle tool is armed, so the canvas is a pencil: a middle press has
+  // to pan the page, not sweep a second box into the Scene.
+  await browser.keyboard.press('r');
+  await settle(ui);
+  const start = (await shot(ui)).darkCentre(LONE_BOX, 0.6);
+  expect(start.count).toBeGreaterThan(0);
+
+  await middleDrag({ x: 300, y: 650 }, { x: 320, y: 680 });
+
+  // The page moved exactly as far as the pointer did.
+  const panned = (await shot(ui)).darkCentre(LONE_BOX, 0.6);
+  expect(panned.x).toBeCloseTo(start.x + 20, 0);
+  expect(panned.y).toBeCloseTo(start.y + 30, 0);
+
+  // Nothing was drawn: the box is the only Element the Scene holds.
+  expect((await savedFiles(ui))['scene.json']).toBe(LONE_SOURCE);
+});
+
+/**
+ * What the page saw of one press, read from the window: the last listener to
+ * run, so `prevented` is the browser's answer for that press once every handler
+ * on the way up has had its say. Nothing of the page's structure is read.
+ */
+type PressSeen = { type: string; button: number; prevented: boolean };
+
+/** Watch every press from the window, for the assertions below. */
+async function watchPresses(ui: Ui): Promise<void> {
+  await ui.browser.evaluate(() => {
+    const seen: PressSeen[] = [];
+    (window as unknown as { __esbozoPresses: PressSeen[] }).__esbozoPresses = seen;
+    for (const type of ['pointerdown', 'mousedown']) {
+      window.addEventListener(type, (event) => {
+        const pressed = event as MouseEvent;
+        seen.push({ type, button: pressed.button, prevented: pressed.defaultPrevented });
+      });
+    }
+    return true;
+  });
+}
+
+/** The presses watched so far. */
+async function pressesSeen(ui: Ui): Promise<PressSeen[]> {
+  return ui.browser.evaluate(
+    () => (window as unknown as { __esbozoPresses?: PressSeen[] }).__esbozoPresses ?? [],
+  );
+}
+
+test('a middle press on the canvas never starts the browser autoscroll', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': LONE_SOURCE } }, 'scene.json');
+  const scrollBefore = await browser.evaluate(() => ({ x: window.scrollX, y: window.scrollY }));
+  await watchPresses(ui);
+
+  await middleDrag({ x: 300, y: 650 }, { x: 320, y: 680 });
+
+  // Autoscroll is the browser's own answer to a middle press, and it starts on
+  // the press: it outlives the drag and keeps the page moving after the pan let
+  // go. The canvas answers the press, so the browser's own press never comes:
+  // the press the page saw is prevented, and no `mousedown` follows it.
+  // (Headless Chromium draws no autoscroll indicator, so what a test can read is
+  // that nothing of the press was left for the browser to do.)
+  const seen = (await pressesSeen(ui)).filter((one) => one.button === 1);
+  expect(seen).toEqual([{ type: 'pointerdown', button: 1, prevented: true }]);
+
+  // And the page never scrolled under it.
+  expect(await browser.evaluate(() => ({ x: window.scrollX, y: window.scrollY }))).toEqual(
+    scrollBefore,
+  );
 });
 
 test('G shows and hides the dot Grid', async ({ app, browser, screen }) => {
