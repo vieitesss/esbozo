@@ -8,9 +8,11 @@
  */
 import assert from 'node:assert/strict';
 import { mkdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
-import { request as httpRequest } from 'node:http';
+import { request as httpRequest, createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
+import { servedFolder } from '../src/editor/server-folder.ts';
 import { ez, sceneFolder, startServe, tempFolder } from './cli.ts';
 import type { Serve } from './cli.ts';
 
@@ -322,6 +324,47 @@ test('a name that would leave the folder is refused, and the outside file is unt
     (JSON.parse((await request(server, '/api/scenes')).body) as { scenes: string[] }).scenes,
     ['scene.json'],
   );
+});
+
+test('a server that fails is reported, and only a 404 list means "no folder"', async () => {
+  let answer: Answer = { status: 404, body: '' };
+  const server = createServer((_request, response) => {
+    response.writeHead(answer.status, { 'content-type': 'application/json' });
+    response.end(answer.body);
+  });
+  await new Promise<void>((resolve_) => server.listen(0, '127.0.0.1', resolve_));
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+  // The page asks with a relative path, so the test gives it a base to join.
+  const online = globalThis.fetch;
+  globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) =>
+    online(new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url, base), init)) as typeof fetch;
+  try {
+    // A page served as files: nothing answers the save API, so the picker stays.
+    assert.equal(await servedFolder(), null);
+
+    answer = { status: 200, body: JSON.stringify({ folder: 'sketches', readOnly: false, scenes: ['a.json'] }) };
+    const folder = await servedFolder();
+    assert.equal(folder?.name, 'sketches');
+    assert.deepEqual(await folder?.listScenes(), ['a.json']);
+
+    // A server that is there and failing is the status line's business.
+    answer = { status: 500, body: JSON.stringify({ error: 'the folder is unreadable' }) };
+    await assert.rejects(servedFolder(), /the folder is unreadable/);
+
+    // An answer that is not a listing is a failure, not a folder either.
+    answer = { status: 200, body: '<html>not the save API</html>' };
+    await assert.rejects(servedFolder(), /\/api\/scenes/);
+
+    // A server that went away is reported too, not taken for a static page.
+    await new Promise<void>((resolve_) => server.close(() => resolve_()));
+    await assert.rejects(servedFolder(), /cannot reach/);
+  } finally {
+    globalThis.fetch = online;
+    if (server.listening) {
+      await new Promise<void>((resolve_) => server.close(() => resolve_()));
+    }
+  }
 });
 
 test('the server binds to 127.0.0.1 unless --host says otherwise', async () => {

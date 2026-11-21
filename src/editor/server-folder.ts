@@ -16,7 +16,11 @@ interface Listing {
   readonly scenes: string[];
 }
 
-/** The folder this page is served from, or `null` when nothing is serving one. */
+/**
+ * The folder this page is served from, or `null` when nothing is serving one.
+ * `null` is exactly the page-served-as-files case, which answers 404; every
+ * other failure is thrown, so the status line can say what the server said.
+ */
 export async function servedFolder(): Promise<SceneFolder | null> {
   const listing = await askListing();
   if (listing === null) {
@@ -25,7 +29,7 @@ export async function servedFolder(): Promise<SceneFolder | null> {
 
   return {
     name: listing.folder,
-    readOnly: listing.readOnly === true,
+    readOnly: listing.readOnly,
 
     // Asked every time, so a Scene made in this page is in the next list.
     async listScenes(): Promise<string[]> {
@@ -33,11 +37,11 @@ export async function servedFolder(): Promise<SceneFolder | null> {
       if (listed === null) {
         throw new Error('the server stopped listing this folder');
       }
-      return listed.scenes;
+      return [...listed.scenes];
     },
 
     async read(name: string): Promise<string | null> {
-      const response = await request('GET', scenePath(name));
+      const response = await ask(scenePath(name));
       if (response.status === 404) {
         return null;
       }
@@ -45,43 +49,71 @@ export async function servedFolder(): Promise<SceneFolder | null> {
     },
 
     async write(name: string, scene: string, svg: string): Promise<void> {
-      await textOf(await request('PUT', scenePath(name), { scene, svg }), name);
+      await textOf(await ask(scenePath(name), { scene, svg }), name);
     },
   };
 }
 
-/** The folder's name, its Scenes and whether it refuses writes; `null` if unserved. */
+/**
+ * The folder's name, its Scenes and whether it refuses writes; `null` only when
+ * the API is not there at all, which is what a page without a server answers.
+ */
 async function askListing(): Promise<Listing | null> {
-  let response: Response;
-  try {
-    response = await fetch(API, { headers: { accept: 'application/json' } });
-  } catch {
+  const response = await ask(API);
+  if (response.status === 404) {
     return null;
   }
+  const text = await response.text();
   if (!response.ok) {
-    return null;
+    throw new Error(problemIn(text, response.status, 'the served folder'));
   }
+  const listed = listingIn(text);
+  if (listed === null) {
+    throw new Error(`${API} did not answer with a folder`);
+  }
+  return listed;
+}
+
+/** A listing as the server sends it, or `null` when the body is not one. */
+function listingIn(text: string): Listing | null {
+  let raw: unknown;
   try {
-    const listed = (await response.json()) as Listing;
-    if (typeof listed.folder !== 'string' || !Array.isArray(listed.scenes)) {
-      return null;
-    }
-    return { folder: listed.folder, readOnly: listed.readOnly === true, scenes: listed.scenes };
+    raw = JSON.parse(text);
   } catch {
     return null;
   }
+  if (typeof raw !== 'object' || raw === null) {
+    return null;
+  }
+  const { folder, readOnly, scenes } = raw as { folder?: unknown; readOnly?: unknown; scenes?: unknown };
+  if (typeof folder !== 'string' || !Array.isArray(scenes)) {
+    return null;
+  }
+  if (!scenes.every((name): name is string => typeof name === 'string')) {
+    return null;
+  }
+  return { folder, readOnly: readOnly === true, scenes };
 }
 
 function scenePath(name: string): string {
   return `${API}/${encodeURIComponent(name)}`;
 }
 
-async function request(method: string, path: string, body?: unknown): Promise<Response> {
+/** One request to the save API. A server that is not there is an error, not a folder. */
+async function ask(path: string, body?: unknown): Promise<Response> {
   const init: RequestInit =
     body === undefined
-      ? { method, headers: { accept: 'application/json' } }
-      : { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) };
-  return fetch(path, init);
+      ? { method: 'GET', headers: { accept: 'application/json' } }
+      : {
+          method: 'PUT',
+          headers: { accept: 'application/json', 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        };
+  try {
+    return await fetch(path, init);
+  } catch (error) {
+    throw new Error(`cannot reach the server that serves this page: ${(error as Error).message}`);
+  }
 }
 
 /** The response body as text, or the server's own words when it refused. */
