@@ -1037,14 +1037,24 @@ export async function dragBy(
 }
 
 /**
+ * A temp folder holding the Scene file a real `ez` command reads, written as
+ * the editor saves it: every CLI call in this file starts from one of these, so
+ * the folder, its name and its bytes are made in one place.
+ */
+async function sceneFolder(source: string, prefix = 'esbozo-e2e-'): Promise<string> {
+  const folder = await mkdtemp(join(tmpdir(), prefix));
+  await writeFile(join(folder, 'scene.json'), source, 'utf8');
+  return folder;
+}
+
+/**
  * `ez render` on the Scene the editor saved, in a temp folder: the editor's SVG
  * has to be the CLI's SVG, byte for byte, or the browser is not drawing with the
  * same Renderer. `font` measures the words with that file, so an editor that
  * measured with a different one is caught here rather than in a screenshot.
  */
 export async function cliRender(scene: unknown, font?: string): Promise<string> {
-  const folder = await mkdtemp(join(tmpdir(), 'esbozo-e2e-'));
-  await writeFile(join(folder, 'scene.json'), JSON.stringify(scene, null, 2), 'utf8');
+  const folder = await sceneFolder(JSON.stringify(scene, null, 2));
   const args = [CLI, 'render', 'scene.json', ...(font === undefined ? [] : ['--font', font])];
   await run(process.execPath, args, { cwd: folder });
   return readFile(join(folder, 'scene.svg'), 'utf8');
@@ -1061,8 +1071,7 @@ export async function cliCheck(
 export async function cliCheckBytes(
   source: string,
 ): Promise<{ code: number; reported: string }> {
-  const folder = await mkdtemp(join(tmpdir(), 'esbozo-check-'));
-  await writeFile(join(folder, 'scene.json'), source, 'utf8');
+  const folder = await sceneFolder(source, 'esbozo-check-');
   try {
     const { stdout, stderr } = await run(process.execPath, [CLI, 'check', 'scene.json'], {
       cwd: folder,
@@ -1095,8 +1104,7 @@ const PAGE_FONT = fileURLToPath(new URL('../dist/fonts/Kalam-Regular.ttf', impor
  * PNG, so the two are compared pixel for pixel.
  */
 export async function cliPng(scene: unknown, theme: 'light' | 'dark'): Promise<Buffer> {
-  const folder = await mkdtemp(join(tmpdir(), 'esbozo-e2e-'));
-  await writeFile(join(folder, 'scene.json'), JSON.stringify(scene, null, 2), 'utf8');
+  const folder = await sceneFolder(JSON.stringify(scene, null, 2));
   await run(process.execPath, [
     CLI,
     'png',

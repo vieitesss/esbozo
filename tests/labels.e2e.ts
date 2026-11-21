@@ -189,11 +189,7 @@ describe('labels', () => {
     expect(await cliCheck(scene)).toEqual({ code: 0, reported: '' });
   });
 
-  test('an emptied Label leaves no label behind, and an emptied Text is gone', async ({
-    app,
-    browser,
-    screen,
-  }) => {
+  test('an emptied Label leaves no label behind', async ({ app, browser, screen }) => {
     const ui = { app, browser, screen };
     await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
 

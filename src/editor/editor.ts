@@ -501,8 +501,6 @@ class EsbozoEditorElement extends HTMLElement {
     document.addEventListener('keyup', this.#onKeyUp);
     // A Space held while the page loses the focus never sends its release: the
     // pan has to end here, or the pointer stays a hand on the way back.
-    // A Space held while the page loses the focus never sends its release: the
-    // pan has to end here, or the pointer stays a hand on the way back.
     document.addEventListener('pointerdown', this.#onAnyPress);
     document.addEventListener('visibilitychange', this.#endGesture);
     window.addEventListener('blur', this.#endGesture);
@@ -2241,8 +2239,8 @@ class EsbozoEditorElement extends HTMLElement {
 
   /**
    * The page box of the words the field edits: the Element grown for them, or
-   * where a new Text's words will land. It is the Renderer's own bounds, so the
-   * box is placed against what is drawn.
+   * where a new Text's words will land. It is the Renderer's own bounds in the
+   * pixels the overlay draws in, so the box is placed against what is drawn.
    */
   #fieldArea(): Box | null {
     const element = this.#editing?.element ?? this.#draft;
@@ -2250,13 +2248,7 @@ class EsbozoEditorElement extends HTMLElement {
       return null;
     }
     const bounds = elementBounds(element, elementsById(this.#shownElements()), this.#layout);
-    const { zoom, panX, panY } = this.#view;
-    return {
-      x: bounds.x * zoom + panX,
-      y: bounds.y * zoom + panY,
-      width: bounds.width * zoom,
-      height: bounds.height * zoom,
-    };
+    return this.#pageBox(bounds);
   }
 
   /** Move the open box to where the words it holds now belong. */
