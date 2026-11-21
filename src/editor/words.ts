@@ -39,12 +39,13 @@ export function keptWords(typed: string): string {
 
 /**
  * The step between the words a field holds and the words the page draws: the
- * drawn ones are the typed ones without the blank a trim drops, so where they
- * begin is the whole of the step, read both ways.
+ * drawn ones are the typed ones with the blanks a trim drops and the characters
+ * the Scene refuses taken out, so an offset is worth as many drawn glyphs as the
+ * field has before it that the page kept.
  *
- * It is made once, when the page accepts what was typed, so a caret is mapped
- * through the very words a Block was drawn from. Words the page refused keep the
- * step they had: no offset is made up for glyphs nobody drew.
+ * It is made whenever the field's words change, refused ones included, so a
+ * caret is mapped through the very words a Block was drawn from — and a
+ * character nobody drew carries the caret no further.
  */
 export interface WordsShift {
   /** Where a caret offset in the field's words lands among the drawn glyphs. */
@@ -55,11 +56,27 @@ export interface WordsShift {
 
 /** The one step between what a field holds and the words the page drew from it. */
 export function wordsShift(typed: string, drawn: string): WordsShift {
-  const at = typed.indexOf(drawn);
-  const lead = at < 0 ? 0 : at;
+  // Walk both strings together: a character the field holds and the page drew
+  // moves the step by one glyph, and one it drew nothing for — a blank a trim
+  // dropped, a character the Scene refuses — moves the field's offset on alone.
+  const below: number[] = [0];
+  let at = 0;
+  for (const character of typed) {
+    if (drawn[at] === character) {
+      at += 1;
+    }
+    below.push(at);
+  }
+  // Read the other way, an offset among the drawn glyphs names the field's own
+  // offset just past whatever the page drew nothing for: a press there types
+  // after the words it lands beyond.
+  const above: number[] = Array.from({ length: drawn.length + 1 }, () => 0);
+  for (let offset = 0; offset <= typed.length; offset += 1) {
+    above[clamp(below[offset]!, 0, drawn.length)] = offset;
+  }
   return {
-    drawn: (offset) => clamp(offset - lead, 0, drawn.length),
-    typed: (offset) => clamp(offset + lead, 0, typed.length),
+    drawn: (offset) => below[clamp(offset, 0, typed.length)]!,
+    typed: (offset) => above[clamp(offset, 0, drawn.length)]!,
   };
 }
 

@@ -2381,6 +2381,11 @@ class EsbozoEditorElement extends HTMLElement {
       this.#shift = wordsShift(words, kept);
       // The grown Element is what the note must not cover.
       this.#clearOfMenu();
+    } else if (this.#editing !== null) {
+      // The page refuses these words and goes on drawing the ones it has: the
+      // step is measured through them all the same, so a character the Scene
+      // cannot hold is one more offset in the field and no glyph under the caret.
+      this.#shift = wordsShift(words, wordsOf(this.#editing.element));
     }
     this.#paint();
   }
@@ -2395,6 +2400,10 @@ class EsbozoEditorElement extends HTMLElement {
       const kept = keptWords(words);
       this.#draft = { ...draft, content: kept };
       this.#shift = wordsShift(words, kept);
+    } else {
+      // Refused words are no edit: the step through them is still the step to
+      // the words on the page, so the caret stays on the glyph it was typed at.
+      this.#shift = wordsShift(words, draft.content);
     }
     this.#paint();
   }

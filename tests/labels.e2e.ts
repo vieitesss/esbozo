@@ -38,7 +38,7 @@ import {
   savedScene,
   settle,
 } from './helpers.ts';
-import { imeCommit, imeCompose, livePage, stillCaret } from './cdp.ts';
+import { imeCommit, imeCompose, insertText, livePage, stillCaret } from './cdp.ts';
 import { shot } from './pixels.ts';
 import type { Rect, Shot } from './pixels.ts';
 
@@ -1001,6 +1001,53 @@ describe('labels', () => {
     // Nothing is drawn beside the words any more: the plain field that used to
     // mirror them lived under the box, and bare paper is there now.
     expect(drawn.darkCount({ x: 500, y: 430, width: 150, height: 40 }, DARK)).toBe(0);
+  });
+
+  test('a character the Scene refuses is typed without moving the caret it was typed at', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+    await stillCaret();
+
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.pressSequentially('abc');
+    // Back to the gap after the first letter, where the refused character goes.
+    await label.press('ArrowLeft');
+    await label.press('ArrowLeft');
+    await settle(ui);
+
+    /** Where the caret stands, read from the column of it above the letters' ink. */
+    const caretX = async (): Promise<number> => {
+      const drawn = await shot(ui);
+      const ink = drawn.darkBounds(INSIDE, GLYPH);
+      expect(ink).not.toBeNull();
+      // `abc` has no ascender, so the line above the ink holds the caret and
+      // nothing else: the words drawn there are none.
+      const caret = drawn.darkBounds(
+        { x: INSIDE.x, y: (ink as Rect).y - 7, width: INSIDE.width, height: 5 },
+        CARET,
+      );
+      expect(caret).not.toBeNull();
+      return (caret as Rect).x + (caret as Rect).width / 2;
+    };
+
+    const before = await caretX();
+    // U+0001 is a character the Scene cannot hold: the page goes on drawing
+    // `abc`, and the caret must go on standing where it was typed.
+    await insertText('\u0001');
+    await settle(ui);
+    const after = await caretX();
+    expect(Math.abs(after - before)).toBeLessThan(1);
+
+    // The character is in the field all the same — a backspace takes it and the
+    // words are the ones that were there — and the words save as they were.
+    await label.press('Backspace');
+    await label.press('Escape');
+    expect((await savedScene(ui)).elements[0]?.label).toBe('abc');
   });
 
   test('a press inside the drawn words puts the caret on the glyph under it', async ({

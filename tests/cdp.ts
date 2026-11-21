@@ -186,6 +186,16 @@ export async function imeCommit(chosen?: string): Promise<void> {
 }
 
 /**
+ * Types `text` into the field as the browser's own input: one commit, no keys,
+ * the way a paste or an input method hands words over. Text a person has no key
+ * for — the control characters the Scene refuses — arrives no other way.
+ */
+export async function insertText(text: string): Promise<void> {
+  const cdp = await session();
+  await cdp.send('Input.insertText', { text });
+}
+
+/**
  * Runs this page's Chromium at `rate` times slower than the machine's CPU, for
  * the rest of the attempt; `1` puts it back. A perf budget is measured here, so
  * the number the test asserts on is the slow phone's, not this laptop's.

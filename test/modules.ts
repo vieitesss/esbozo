@@ -20,6 +20,7 @@ export interface ProjectModules {
   serialiseFragment: typeof import('../src/scene.ts').serialiseFragment;
   parseFragment: typeof import('../src/scene.ts').parseFragment;
   History: typeof import('../src/editor/history.ts').History;
+  wordsShift: typeof import('../src/editor/words.ts').wordsShift;
   emptyScene: typeof import('../src/scene.ts').emptyScene;
   renderScene: typeof import('../src/renderer.ts').renderScene;
   pageBounds: typeof import('../src/renderer.ts').pageBounds;
@@ -44,6 +45,7 @@ export async function loadProjectModules(): Promise<ProjectModules> {
     [
       `export { parseScene, serialiseScene, hashScene, emptyScene, serialiseFragment, parseFragment } from ${source('scene.ts')};`,
       `export { History } from ${source('editor/history.ts')};`,
+      `export { wordsShift } from ${source('editor/words.ts')};`,
       `export { renderScene, pageBounds, elementBounds } from ${source('renderer.ts')};`,
       `export { elementAt } from ${source('editor/geometry.ts')};`,
       `export { PaintCache, sceneFile } from ${source('editor/paint.ts')};`,
