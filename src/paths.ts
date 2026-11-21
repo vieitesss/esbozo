@@ -44,6 +44,19 @@ export function svgFileName(sceneFileName: string): string {
 export const DEFAULT_SCENE_FILE_NAME = `scene${PRIMARY_SCENE_EXTENSION}`;
 
 /**
+ * The Scene name a person typed into a new-Scene field: a typed extension is
+ * kept as typed, `.json` included, a bare name takes the primary one, and an
+ * empty field is the default name.
+ */
+export function sceneFileNameFor(raw: string): string {
+  const trimmed = raw.trim();
+  if (trimmed === '') {
+    return DEFAULT_SCENE_FILE_NAME;
+  }
+  return sceneExtension(trimmed) === null ? `${trimmed}${PRIMARY_SCENE_EXTENSION}` : trimmed;
+}
+
+/**
  * The biggest `.json` a folder list reads to tell a Scene from another JSON
  * file. A bigger one is left out unread: a Scene is text, and reading it whole
  * would cost the whole listing more than one name is worth.

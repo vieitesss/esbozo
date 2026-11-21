@@ -13,16 +13,10 @@ import {
   hasXmlInvalidChars,
   parseFragment,
   parseScene,
-  serialiseFragment,
   serialiseScene,
 } from '../scene.js';
 import type { Element as SceneElement, Scene, TextElement } from '../scene.js';
-import {
-  DEFAULT_SCENE_FILE_NAME,
-  PRIMARY_SCENE_EXTENSION,
-  sceneExtension,
-  sceneStem,
-} from '../paths.js';
+import { PRIMARY_SCENE_EXTENSION, sceneFileNameFor, sceneStem } from '../paths.js';
 import { copies, freshId, idsOf, newText, without } from './elements.js';
 import { arranged, movableCount } from './arrange.js';
 import type { ArrangeAct } from './arrange.js';
@@ -30,6 +24,8 @@ import { actionById, actionFor } from './actions.js';
 import type { ActionHost, ActionState, ToolId } from './actions.js';
 import { exportPng } from './export.js';
 import { Gestures } from './gestures.js';
+import { clipboardApi, copySelection, copyTo, cutSelection, pasteClipboard } from './clipboard.js';
+import type { ClipboardHost } from './clipboard.js';
 import { Connection } from './connection.js';
 import type { FolderSource, FontSource, SaveTarget } from './connection.js';
 import { Page } from './page.js';
@@ -43,7 +39,8 @@ import type { SceneFolder } from './files.js';
 import { boxOf, fittedView, landingOffset, moved, zoomedAt } from './geometry.js';
 import type { Point, View } from './geometry.js';
 import { History } from './history.js';
-import { railArt, railMarkup } from './rail.js';
+import { railArt } from './rail.js';
+import { SHELL } from './shell.js';
 import { freedEnd, isShaft, released } from './snap.js';
 import type { End } from './snap.js';
 import { TextSession } from './text-session.js';
@@ -51,9 +48,6 @@ import { keptWords, withWords, wordsOf, wordsShift } from './words.js';
 import type { WordsShift } from './words.js';
 import { sceneFile } from './paint.js';
 
-const SVG_NS = 'http://www.w3.org/2000/svg';
-const DOT_SPACING = 22;
-const DOT_RADIUS = 1.1;
 const NUDGE = 1;
 const NUDGE_WITH_SHIFT = 10;
 const ZOOM_STEP = 1.2;
@@ -72,57 +66,6 @@ let active: EsbozoEditorElement | null = null;
 /** How many editors this page has made: each one's Grid is a pattern of its own. */
 let instances = 0;
 
-const SHELL = `
-<div class="board">
-<div class="surface">
-  <svg class="canvas" xmlns="${SVG_NS}" aria-label="Scene canvas" tabindex="0">
-    <defs>
-      <pattern width="${DOT_SPACING}" height="${DOT_SPACING}" patternUnits="userSpaceOnUse">
-        <circle class="dot" cx="1" cy="1" r="${DOT_RADIUS}"></circle>
-      </pattern>
-    </defs>
-    <g class="grid" aria-hidden="true">
-      <rect class="grid-rect" x="-100000" y="-100000" width="200000" height="200000"></rect>
-    </g>
-    <g class="viewport">
-      <g class="painted"></g>
-    </g>
-    <g class="overlay"></g>
-  </svg>
-</div>
-</div>
-<nav class="rail" aria-label="Tools"><svg class="rail-art" aria-hidden="true"></svg>${railMarkup()}</nav>
-<footer class="status">
-  <button type="button" data-act="open">Open folder…</button>
-  <button type="button" data-act="grid" aria-pressed="true">Grid</button>
-  <button type="button" data-act="roughness" title="Scene default roughness for new Elements"></button>
-  <span class="zoom">100%</span>
-  <span class="where"></span>
-  <span class="mode"></span>
-  <span class="saved" role="status" data-state="idle"></span>
-  <span class="hint">Space pan · wheel zoom · ⌘ +/− · G Grid · Q commands</span>
-</footer>
-<div class="palette" role="dialog" aria-label="Commands" hidden>
-  <input
-    type="text"
-    aria-label="Command"
-    placeholder="Type an action"
-    spellcheck="false"
-    autocomplete="off"
-  />
-  <ul role="listbox" aria-label="Actions"></ul>
-  <p class="palette-nothing" hidden>No action by that name.</p>
-</div>
-<div class="style-note" role="dialog" aria-label="Style" hidden></div>
-<div class="note" role="dialog" aria-label="Scene files" hidden>
-  <div class="note-head"><b>Scenes</b><span class="folder"></span></div>
-  <ul class="files"></ul>
-  <form class="new">
-    <input name="name" placeholder="new-scene${PRIMARY_SCENE_EXTENSION}" aria-label="New Scene name" spellcheck="false" autocomplete="off" />
-    <button type="submit">New</button>
-  </form>
-</div>
-`;
 
 class EsbozoEditorElement extends HTMLElement {
   /** The page's font, the Scenes folder and the writes: every answer that comes late. */
@@ -188,6 +131,19 @@ class EsbozoEditorElement extends HTMLElement {
   #palette!: CommandPalette;
 
   /**
+   * What the clipboard commands may ask of the editor: the Scene, its selection,
+   * the connection their answer speaks for, and the one way it becomes an edit.
+   */
+  readonly #clipboard: ClipboardHost = {
+    scene: () => this.#scene,
+    selected: () => this.#selectedElements(),
+    token: () => this.#connection.token,
+    insert: (elements) => this.#insertCopies(elements),
+    remove: (ids) => this.#remove(ids),
+    status: (detail) => this.#setSaved('failed', detail),
+  };
+
+  /**
    * What the action registry may ask of the editor, and the one place an action
    * becomes a change: the palette and the keys both run through here.
    */
@@ -195,9 +151,9 @@ class EsbozoEditorElement extends HTMLElement {
     pickTool: (tool) => this.#setTool(tool),
     deleteSelection: () => this.#deleteSelected(),
     duplicateSelection: () => this.#duplicate(),
-    copySelection: () => this.#copySelection(),
-    cutSelection: () => this.#cutSelection(),
-    paste: () => this.#pasteClipboard(),
+    copySelection: () => copySelection(this.#clipboard),
+    cutSelection: () => cutSelection(this.#clipboard),
+    paste: () => pasteClipboard(this.#clipboard),
     undo: () => this.#restore(() => this.#history.undo()),
     redo: () => this.#restore(() => this.#history.redo()),
     arrange: (act) => this.#arrangeSelection(act),
@@ -724,20 +680,10 @@ class EsbozoEditorElement extends HTMLElement {
     if (active !== this || !this.#takesKeys(event.target) || this.#gestures.holdsScene()) {
       return;
     }
-    if (this.#copyTo(event.clipboardData)) {
+    if (copyTo(event.clipboardData, this.#scene, this.#selectedElements())) {
       event.preventDefault();
     }
   };
-
-  /** The selected Elements as the text a clipboard event carries, or false when there is none. */
-  #copyTo(data: DataTransfer | null): boolean {
-    const selected = this.#selectedElements();
-    if (selected.length === 0 || data === null) {
-      return false;
-    }
-    data.setData('text/plain', serialiseFragment(this.#scene, selected));
-    return true;
-  }
 
   /** Paste Scene JSON text from the clipboard, with new ids, offset off what is here. */
   #onPaste = (event: ClipboardEvent): void => {
@@ -766,103 +712,11 @@ class EsbozoEditorElement extends HTMLElement {
     if (active !== this || !this.#takesKeys(event.target) || this.#gestures.holdsScene()) {
       return;
     }
-    if (this.#copyTo(event.clipboardData)) {
+    if (copyTo(event.clipboardData, this.#scene, this.#selectedElements())) {
       event.preventDefault();
       this.#deleteSelected();
     }
   };
-
-  /**
-   * Copy for a named action: the palette has no copy event to carry the data,
-   * so it writes the same Scene text the event would. A page without the async
-   * Clipboard API — a non-secure origin — says so instead of doing nothing. The
-   * clipboard answers later, so what it says speaks only for the connection that
-   * asked: a page that moved on while it wrote is told nothing.
-   */
-  async #copySelection(): Promise<void> {
-    const clipboard = clipboardApi();
-    if (clipboard === null) {
-      this.#setSaved('failed', 'this page cannot use the clipboard: press ⌘C');
-      return;
-    }
-    const connection = this.#connection.token;
-    try {
-      await clipboard.writeText(serialiseFragment(this.#scene, this.#selectedElements()));
-    } catch (error) {
-      if (connection === this.#connection.token) {
-        this.#setSaved('failed', `cannot copy: ${(error as Error).message}`);
-      }
-    }
-  }
-
-  /**
-   * Cut for a named action: the same text Copy writes, then the one delete
-   * step. The write is awaited, and the page keeps taking edits while it runs,
-   * so what may be deleted is decided after it lands: exactly the ids that were
-   * copied, and none of them when the Scene is no longer the one they came from.
-   */
-  async #cutSelection(): Promise<void> {
-    const clipboard = clipboardApi();
-    if (clipboard === null) {
-      this.#setSaved('failed', 'this page cannot use the clipboard: press ⌘X');
-      return;
-    }
-    const selected = this.#selectedElements();
-    if (selected.length === 0) {
-      return;
-    }
-    const connection = this.#connection.token;
-    const copied = new Set(selected.map((element) => element.id));
-    const before = serialiseScene(this.#scene);
-    try {
-      await clipboard.writeText(serialiseFragment(this.#scene, selected));
-    } catch (error) {
-      if (connection === this.#connection.token) {
-        this.#setSaved('failed', `cannot cut: ${(error as Error).message}`);
-      }
-      return;
-    }
-    if (connection !== this.#connection.token) {
-      // Another instance of the element owns the page now: the ids are its
-      // Scene's, not this one's, so nothing is deleted.
-      return;
-    }
-    if (serialiseScene(this.#scene) !== before) {
-      this.#setSaved('failed', 'the Scene changed during the cut, so nothing was deleted');
-      return;
-    }
-    this.#remove(copied);
-  }
-
-  /**
-   * Paste for a named action: the clipboard, read on the spot, with new ids.
-   *
-   * The clipboard is a promise, and a page can name another Scene while it is
-   * still answering. So the edit belongs to the connection that asked for it: an
-   * answer that arrives after the page moved on lands nowhere — no Element in
-   * the Scene in hand and no word about the one it was for.
-   */
-  async #pasteClipboard(): Promise<void> {
-    const clipboard = clipboardApi();
-    if (clipboard === null) {
-      this.#setSaved('failed', 'this page cannot use the clipboard: press ⌘V');
-      return;
-    }
-    const connection = this.#connection.token;
-    let text: string;
-    try {
-      text = await clipboard.readText();
-    } catch (error) {
-      if (connection === this.#connection.token) {
-        this.#setSaved('failed', `cannot paste: ${(error as Error).message}`);
-      }
-      return;
-    }
-    if (connection !== this.#connection.token) {
-      return;
-    }
-    this.#insertCopies(parseFragment(text, this.#scene.defaults) ?? []);
-  }
 
   /**
    * The page owns light and dark, so the action asks it to switch, the way its
@@ -1535,7 +1389,7 @@ class EsbozoEditorElement extends HTMLElement {
   #onNewScene = (event: Event): void => {
     event.preventDefault();
     const input = this.#newScene.querySelector('input')!;
-    const name = normaliseSceneName(input.value);
+    const name = sceneFileNameFor(input.value);
     // Asked for by name, so it is a Scene now: Scene and SVG are written at
     // once, as the served and picked-folder editors always have.
     void this.#connection.open(name, { create: true });
@@ -1600,25 +1454,6 @@ class EsbozoEditorElement extends HTMLElement {
               ? 'new Scene'
               : '';
   }
-}
-
-/**
- * The async Clipboard API, when the page has one: a non-secure origin has none,
- * and the palette says to use the keys instead of offering a command that
- * cannot run. The cast keeps the check honest: the type says it is always there.
- */
-function clipboardApi(): Clipboard | null {
-  return (navigator as Navigator & { clipboard?: Clipboard }).clipboard ?? null;
-}
-
-function normaliseSceneName(raw: string): string {
-  const trimmed = raw.trim();
-  if (trimmed === '') {
-    return DEFAULT_SCENE_FILE_NAME;
-  }
-  // A typed extension is kept as typed, `.json` included; a bare name takes the
-  // primary one.
-  return sceneExtension(trimmed) === null ? `${trimmed}${PRIMARY_SCENE_EXTENSION}` : trimmed;
 }
 
 /**
