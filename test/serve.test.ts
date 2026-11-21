@@ -13,7 +13,7 @@ import { request as httpRequest } from 'node:http';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { brotliDecompressSync, gunzipSync } from 'node:zlib';
-import { buildId } from '../src/build-id.ts';
+import { BUILD, BUILT_AT, buildId, buildTime } from '../src/build-id.ts';
 import { PAGE_ASSETS } from '../src/page-assets.ts';
 import { MAX_LISTED_SCENE_BYTES } from '../src/paths.ts';
 import { promisify } from 'node:util';
@@ -889,16 +889,20 @@ test('a folder it cannot read, a taken port and a bad argument are told apart', 
   }
 });
 
-test('the startup line names the build it serves, so a stale server is told apart', async () => {
+test('the startup line names and dates the build it serves, so a stale server is told apart', async () => {
   const server = await served(await sceneFolder(SCENE));
-  assert.match(server.startup, /^serving .+ on http:\/\/\S+ \(build \S+\)$/);
+  assert.match(
+    server.startup,
+    /^serving .+ on http:\/\/\S+ \(build \S+, \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\)$/,
+  );
 });
 
 test('the health route answers the build the server was started with', async () => {
   const server = await served(await sceneFolder(SCENE));
   const answer = await request(server, '/api/health');
   assert.equal(answer.status, 200);
-  assert.equal(answer.body, JSON.stringify({ build: buildOn(server.startup) }));
+  const { id, at } = buildOn(server.startup);
+  assert.equal(answer.body, JSON.stringify({ build: id, builtAt: at }));
 
   // A method other than GET is refused like every other route that only reads.
   assert.deepEqual(await request(server, '/api/health', 'PUT'), {
@@ -907,11 +911,11 @@ test('the health route answers the build the server was started with', async () 
   });
 });
 
-/** The build id the startup line carries, from its trailing `(build <id>)`. */
-function buildOn(startup: string): string {
-  const found = /\(build (\S+)\)/.exec(startup);
+/** The build the startup line ends with: its id, and the time it was made. */
+function buildOn(startup: string): { id: string; at: string } {
+  const found = /\(build (\S+), (\S+)\)$/.exec(startup);
   assert.ok(found !== null, `the startup line names no build: ${startup}`);
-  return found[1]!;
+  return { id: found[1]!, at: found[2]! };
 }
 
 test('a build outside a git checkout is unknown, not a failed build', () => {
@@ -922,6 +926,16 @@ test('a build outside a git checkout is unknown, not a failed build', () => {
   assert.equal(buildId(answers('abc1234\n', '')), 'abc1234');
   assert.equal(buildId(answers('abc1234\n', ' M src/serve.ts\n')), 'abc1234-dirty');
   assert.equal(buildId(answers('abc1234\n', null)), 'unknown');
+});
+
+test('a build writes the time it was made, ISO-8601 UTC to the second', () => {
+  assert.equal(buildTime(new Date('2024-06-01T12:34:56.789Z')), '2024-06-01T12:34:56Z');
+  assert.equal(buildTime(new Date('2024-12-31T23:59:59.000Z')), '2024-12-31T23:59:59Z');
+});
+
+test('a CLI run from source is dev and carries no build time', () => {
+  assert.equal(BUILD, 'dev');
+  assert.equal(BUILT_AT, null);
 });
 
 async function assertMissing(path: string): Promise<void> {

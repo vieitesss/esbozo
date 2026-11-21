@@ -5,7 +5,7 @@
 The bundled editor ([embed.md](embed.md)) speaks the write half of this API wherever its `save` attribute points, so a page can take a save with its own handler as long as it reads and answers it the way the routes below say. A page with no server at all leaves `save` out and the editor stays read-only.
 
 ```sh
-ez serve ./diagrams --port 4320     # prints: serving /abs/path/diagrams on http://127.0.0.1:4320/ (build 1a2b3c4)
+ez serve ./diagrams --port 4320     # prints: serving /abs/path/diagrams on http://127.0.0.1:4320/ (build 1a2b3c4, 2024-06-01T12:34:56Z)
 ```
 
 Flags:
@@ -40,10 +40,10 @@ Every response carries `cache-control: no-store`. Every API response, and every 
 
 ```sh
 curl http://127.0.0.1:4320/api/health
-# {"build":"1a2b3c4"}
+# {"build":"1a2b3c4","builtAt":"2024-06-01T12:34:56Z"}
 ```
 
-The build this server is: the commit the CLI was built from, with `-dirty` when the folder it was built in had changes, `dev` when the CLI runs from source, and `unknown` when the build found no git checkout. It is the same id the startup line ends with, so a server someone finds running can say whether it is the one they started. Any other method answers `405`.
+`build` is the build this server is: the commit the CLI was built from, with `-dirty` when the folder it was built in had changes, `dev` when the CLI runs from source, and `unknown` when the build found no git checkout. `builtAt` is when that build ran, in ISO-8601 UTC to the second, so two builds of one commit are told apart. It is the same pair the startup line ends with, so a server someone finds running can say whether it is the one they started. A CLI run from source is no build, so it answers `build` alone, with no `builtAt`. Any other method answers `405`.
 
 ### `GET /api/scenes`
 

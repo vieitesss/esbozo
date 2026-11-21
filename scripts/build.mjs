@@ -11,7 +11,7 @@ import { execFileSync } from 'node:child_process';
 import { chmod, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { brotliCompressSync, gzipSync } from 'node:zlib';
 import { build } from 'esbuild';
-import { buildId } from '../src/build-id.ts';
+import { buildId, buildTime } from '../src/build-id.ts';
 import { PAGE_ASSETS } from '../src/page-assets.ts';
 
 const cliOutfile = 'dist/cli.js';
@@ -29,7 +29,10 @@ await build({
   // it at `/api/health`, so a server someone finds running can say whether it
   // is the one they started. The page and the bundle are not stamped, so what
   // they render is the same bytes either way.
-  define: { STAMPED_BUILD: JSON.stringify(buildId(gitAnswer)) },
+  define: {
+    STAMPED_BUILD: JSON.stringify(buildId(gitAnswer)),
+    STAMPED_BUILT_AT: JSON.stringify(buildTime(new Date())),
+  },
   logLevel: 'info',
 });
 
