@@ -169,6 +169,77 @@ export const SNAPPED_SCENE = {
 export const SNAPPED: View = { zoom: 1, panX: 410, panY: 320 };
 
 /**
+ * `SNAPPED_SCENE` with the first box named `-`, the one character the note used
+ * to write for a free end: what a row shows and how the note is rebuilt have to
+ * tell an id from no id at all.
+ */
+export const HYPHEN_SCENE = {
+  version: 1,
+  title: 'Hyphen',
+  defaults: { roughness: 1 },
+  elements: [
+    { id: '-', type: 'rectangle', x: 40, y: 40, width: 120, height: 80 },
+    { id: 'to', type: 'rectangle', x: 300, y: 40, width: 120, height: 80 },
+    {
+      id: 'link',
+      type: 'line',
+      points: [
+        { x: 160, y: 80, snap: '-' },
+        { x: 300, y: 80, snap: 'to' },
+      ],
+      heads: { start: 'none', end: 'none' },
+    },
+  ],
+};
+
+/**
+ * A box and a free line beside it, for Snap: the line's end handle lands on a
+ * known page point, and the box's outline is a known rectangle to attach to.
+ */
+export const SNAP_SCENE = {
+  version: 1,
+  title: 'Snap',
+  defaults: { roughness: 1 },
+  elements: [
+    { id: 'post', type: 'rectangle', x: 300, y: 40, width: 120, height: 80 },
+    {
+      id: 'tie',
+      type: 'line',
+      points: [
+        { x: 60, y: 80 },
+        { x: 300, y: 80 },
+      ],
+      heads: { start: 'none', end: 'none' },
+    },
+  ],
+};
+
+/** The view `SNAP_SCENE` lands in, worked out the same way as `VIEW`. */
+export const SNAP: View = { zoom: 1, panX: 400, panY: 320 };
+
+/**
+ * Two bars crossing at (50,50): a horizontal one and a vertical one, each 100
+ * long and 20 thick. The worst pair for Snap, because the outline point that
+ * aims at the other bar's centre is inside that bar, and every other attempt
+ * along the line between the two centres fails the same way.
+ *
+ * Roughness 0 so the SVG the editor saves draws the exact line and a test can
+ * read its numbers.
+ */
+export const CROSSING_SCENE = {
+  version: 1,
+  title: 'Crossing',
+  defaults: { roughness: 0 },
+  elements: [
+    { id: 'bar', type: 'rectangle', x: 0, y: 40, width: 100, height: 20 },
+    { id: 'post', type: 'rectangle', x: 40, y: 0, width: 20, height: 100 },
+  ],
+};
+
+/** The view `CROSSING_SCENE` lands in: its 100×100 page, centred at 1:1. */
+export const CROSSING: View = { zoom: 1, panX: 590, panY: 350 };
+
+/**
  * A box whose Label does not fit it, so the words reach above and below the
  * outline: the ink bounds and the outline are two different rectangles, and
  * only the outline may move a resize handle.

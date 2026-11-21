@@ -74,7 +74,7 @@ describe('drawing', () => {
     await open(ui);
 
     await browser.keyboard.press('r');
-    await drag(ui, at(PAPER), at({ x: PAPER.x + 120, y: PAPER.y + 100 }));
+    await drag(ui, at({ x: 60, y: 200 }), at({ x: 180, y: 300 }));
 
     const scene = await savedScene(ui);
     expect(scene.elements.length).toBe(3);
@@ -85,14 +85,14 @@ describe('drawing', () => {
       y: drawn?.y,
       width: drawn?.width,
       height: drawn?.height,
-    }).toEqual({ type: 'rectangle', x: 420, y: 40, width: 120, height: 100 });
+    }).toEqual({ type: 'rectangle', x: 60, y: 200, width: 120, height: 100 });
 
     // The tool went back to Select: dragging the new box moves it, and no
     // second Element is drawn.
-    await dragBy(ui, { x: PAPER.x + 60, y: PAPER.y + 50 }, 10, 10);
+    await dragBy(ui, { x: 120, y: 250 }, 10, 10);
     const after = await savedScene(ui);
     expect(after.elements.length).toBe(3);
-    expect(after.elements[2]?.x).toBe(430);
+    expect(after.elements[2]?.x).toBe(70);
   });
 
   test('the rail draws every Element type, and a drawn Element takes the Scene defaults', async ({
@@ -103,12 +103,14 @@ describe('drawing', () => {
     const ui = { app, browser, screen };
     await open(ui);
 
+    // Drawn clear of the room the docked note leaves, so a note that opens
+    // with each new selection never moves the page under the next drag.
     const drawings: Array<[string, Point, Point]> = [
-      ['Rectangle', { x: 420, y: 40 }, { x: 520, y: 120 }],
-      ['Ellipse', { x: 540, y: 40 }, { x: 640, y: 120 }],
-      ['Diamond', { x: 660, y: 40 }, { x: 760, y: 120 }],
-      ['Arrow', { x: 420, y: 200 }, { x: 560, y: 260 }],
-      ['Line', { x: 600, y: 200 }, { x: 740, y: 260 }],
+      ['Rectangle', { x: 40, y: 200 }, { x: 140, y: 280 }],
+      ['Ellipse', { x: 160, y: 200 }, { x: 260, y: 280 }],
+      ['Diamond', { x: 280, y: 200 }, { x: 380, y: 280 }],
+      ['Arrow', { x: 40, y: 320 }, { x: 180, y: 380 }],
+      ['Line', { x: 220, y: 320 }, { x: 360, y: 380 }],
     ];
     for (const [tool, from, to] of drawings) {
       await screen.getByRole('button', { name: tool }).click();
@@ -129,12 +131,12 @@ describe('drawing', () => {
 
     // An arrow and a line are exactly two free ends: Snap is #8's.
     expect(elements[5]?.points).toEqual([
-      { x: 420, y: 200 },
-      { x: 560, y: 260 },
+      { x: 40, y: 320 },
+      { x: 180, y: 380 },
     ]);
     expect(elements[6]?.points).toEqual([
-      { x: 600, y: 200 },
-      { x: 740, y: 260 },
+      { x: 220, y: 320 },
+      { x: 360, y: 380 },
     ]);
   });
 

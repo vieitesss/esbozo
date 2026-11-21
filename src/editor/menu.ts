@@ -17,10 +17,12 @@
  * saving nothing.
  */
 import { greyColour } from '../renderer.js';
-import type { Element } from '../scene.js';
+import type { ArrowOrLineElement, Element } from '../scene.js';
 import { ACTIONS } from './actions.js';
 import type { ActionGroup, ActionState } from './actions.js';
 import { movableCount } from './arrange.js';
+import { ENDS, endPoint } from './snap.js';
+import type { End } from './snap.js';
 import { controlsFor, roughnessLabel, sharedValue } from './style.js';
 import type { StyleControl } from './style.js';
 
@@ -43,7 +45,7 @@ export function styleNote(elements: readonly Element[]): string {
     elements.length === 1
       ? `<div class="head"><b>${TYPE_NAMES[first.type]}</b><span>${escapeHtml(first.id)}</span></div>`
       : `<div class="head"><b>${elements.length} Elements</b><span>multiple</span></div>`;
-  return `${head}${styleRows(elements)}${arrangeRows(elements)}`;
+  return `${head}${styleRows(elements)}${snapRows(elements)}${arrangeRows(elements)}`;
 }
 
 /**
@@ -60,7 +62,24 @@ export function menuSignature(elements: readonly Element[]): string {
   const styles = controlsFor(elements).map(
     (control) => `${control.key}=${sharedValue(elements, control.key) ?? 'mixed'}`,
   );
-  return `${head}|${movableCount(elements)}|${styles.join(',')}`;
+  return `${head}|${movableCount(elements)}|${snapSignature(elements)}|${styles.join(',')}`;
+}
+
+/**
+ * What each end of the selected arrow or line is attached to. Attaching or
+ * freeing an end has to rebuild the note, because a Snap is not a style: the
+ * rows it shows are not among the controls.
+ *
+ * The pair is written as JSON so a target id can never be mistaken for the
+ * absence of one: an Element may be called `-`, `null` or anything else, and a
+ * row for it is not the row a free end shows.
+ */
+function snapSignature(elements: readonly Element[]): string {
+  const first = elements.length === 1 ? elements[0] : undefined;
+  if (first === undefined || (first.type !== 'arrow' && first.type !== 'line')) {
+    return '';
+  }
+  return JSON.stringify(ENDS.map((end) => endPoint(first, end).snap ?? null));
 }
 
 /** The status bar's Scene-wide default, in the hand: `rough · artist`. */
@@ -70,9 +89,40 @@ export function roughnessNote(roughness: number): string {
 
 function styleRows(elements: readonly Element[]): string {
   const rows = controlsFor(elements).map((control) => controlRow(control, elements));
-  // #8 adds the Snap end status and detach here, beside the head rows: one row
-  // per end, saying "attached to <id>" or "free", plus a detach button.
   return rows.length === 0 ? '' : `<div class="group">${rows.join('')}</div>`;
+}
+
+/**
+ * The Snap rows: for one arrow or line, each end says what it is attached to, or
+ * that it is free, and an attached end offers the button that frees it. A mixed
+ * selection has no Snap rows: there is one end per Element, and the note would
+ * have to say which Element each row belonged to.
+ */
+function snapRows(elements: readonly Element[]): string {
+  const first = elements.length === 1 ? elements[0] : undefined;
+  if (first === undefined || (first.type !== 'arrow' && first.type !== 'line')) {
+    return '';
+  }
+  const rows = ENDS.map((end) => endRow(first, end));
+  return `<div class="group">${rows.join('')}</div>`;
+}
+
+/** One end of an arrow or line: `attached to post`, or `free`, and Detach. */
+function endRow(element: ArrowOrLineElement, end: End): string {
+  const attached = endPoint(element, end).snap;
+  const label = end === 'start' ? 'Start' : 'End';
+  const state =
+    attached === undefined
+      ? '<span class="end">free</span>'
+      : `<span class="end on">attached to <b>${escapeHtml(attached)}</b></span>`;
+  const detach =
+    attached === undefined
+      ? ''
+      : `<button type="button" data-act="detach-${end}" aria-label="Detach: ${end}">detach</button>`;
+  return (
+    `<div class="row"><span class="row-label">${label}</span>` +
+    `<div class="acts" role="group" aria-label="${label}">${state}${detach}</div></div>`
+  );
 }
 
 function controlRow(control: StyleControl, elements: readonly Element[]): string {

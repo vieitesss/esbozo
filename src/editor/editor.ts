@@ -9,7 +9,13 @@
  */
 import { createLayout, fontSizePx } from '../layout.js';
 import type { Layout, Metrics } from '../layout.js';
-import { elementBounds, elementsById, outlineBox, renderScene } from '../renderer.js';
+import {
+  drawnShaft,
+  elementBounds,
+  elementsById,
+  outlineBox,
+  renderScene,
+} from '../renderer.js';
 import {
   emptyScene,
   isOutlined,
@@ -63,6 +69,8 @@ import {
 import type { Box, Handle, Point, View } from './geometry.js';
 import { History } from './history.js';
 import { railArt, railMarkup } from './rail.js';
+import { attachedTo, endPoint, freedEnd, isShaft, otherEnd, released, targetAt, withEnd } from './snap.js';
+import type { End } from './snap.js';
 import { TextSession } from './text-session.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -70,6 +78,8 @@ const DOT_SPACING = 22;
 const DOT_RADIUS = 1.1;
 const SELECTION_PADDING = 5;
 const HANDLE_SIZE = 8;
+/** How far a Snap target's highlight stands off the target's outline, in screen pixels. */
+const SNAP_GROW = 4;
 const NUDGE = 1;
 const NUDGE_WITH_SHIFT = 10;
 const ZOOM_STEP = 1.2;
@@ -118,9 +128,23 @@ type Drag =
       tool: Exclude<DrawingTool, 'text'>;
       id: string;
       from: Point;
-      to: Point;
       /** What the drag has drawn so far: a preview, not an Element of the Scene yet. */
       preview: SceneElement;
+      /** The Element the dragged end would attach to, or null over paper. */
+      target: string | null;
+    }
+  | {
+      kind: 'end';
+      id: string;
+      which: End;
+      from: Point;
+      /** Where the end draws now: a Snapped end is picked up on its outline. */
+      origin: Point;
+      /** The Element this end would attach to, or null over paper. */
+      target: string | null;
+      /** Whether the handle has moved at all during the gesture. */
+      moved: boolean;
+      shown: SceneElement;
     }
   | { kind: 'text'; at: Point }
   | { kind: 'box'; from: Point; to: Point; additive: boolean };
@@ -771,8 +795,9 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#whereLabel.textContent = `${target.folder.name} / ${target.name}`;
     this.#note.hidden = true;
     // Another Scene: the tool in hand and the words half-typed into the last
-    // one belong to that one, not this.
+    // one belong to that one, not this, and the note shows its defaults.
     this.#endEdits();
+    this.#showDefaultRoughness();
     this.#refresh();
   }
 
@@ -799,6 +824,9 @@ export class EsbozoEditorElement extends HTMLElement {
     if (drag.kind === 'resize') {
       return this.#scene.elements.map((element) => (element.id === drag.id ? drag.shown : element));
     }
+    if (drag.kind === 'end') {
+      return this.#scene.elements.map((element) => (element.id === drag.id ? drag.shown : element));
+    }
     return this.#scene.elements;
   }
 
@@ -811,7 +839,10 @@ export class EsbozoEditorElement extends HTMLElement {
   /** Whether a gesture that changes the Scene is in flight, so an edit waits for the pointer. */
   #gestureHoldsScene(): boolean {
     const drag = this.#drag;
-    return drag !== null && (drag.kind === 'draw' || drag.kind === 'move' || drag.kind === 'resize');
+    return (
+      drag !== null &&
+      (drag.kind === 'draw' || drag.kind === 'move' || drag.kind === 'resize' || drag.kind === 'end')
+    );
   }
 
   /**
@@ -853,7 +884,11 @@ export class EsbozoEditorElement extends HTMLElement {
     );
     this.#paintedFor = null;
     this.#nudgedAt = 0;
-    this.#paint();
+    // An undone edit may have changed a default or a Snap, so the status bar and
+    // the note follow the restored Scene: a Snap the undo put back offers its
+    // Detach button again.
+    this.#showDefaultRoughness();
+    this.#refresh();
     void this.#save();
   }
 
@@ -1097,16 +1132,17 @@ export class EsbozoEditorElement extends HTMLElement {
    * The one way a Scene change lands: the changed Scene replaces the current
    * one, the page repaints and the edit autosaves as a single write and a
    * single history step. A change that leaves the Scene as it was writes
-   * nothing.
+   * nothing, but the page still follows, so a gesture that ends where it began
+   * leaves no preview or highlight behind.
    *
    * Read-only refuses here, before the Scene is touched, so no tool has to
    * remember the rule: every edit in this file — a draw, a drag, a nudge, a
-   * paste, a style pick, an Arrange move — arrives through this call, and none
-   * of them can change a page that may only read.
+   * paste, a style pick, an Arrange move, a Snap end — arrives through this
+   * call, and none of them can change a page that may only read.
    */
   #applyScene(
     next: Scene,
-    options: { amend?: boolean; select?: readonly string[]; room?: boolean } = {},
+    options: { amend?: boolean; select?: readonly string[] } = {},
   ): void {
     if (!this.#writable()) {
       return;
@@ -1119,14 +1155,11 @@ export class EsbozoEditorElement extends HTMLElement {
     if (select !== undefined) {
       this.#selected = [...select];
     }
-    // A gesture that put the selection where a person meant it may leave the
-    // viewing room in the note's way, so the view makes room; a drawn or pasted
-    // Element leaves the view where the person put the pointer.
-    if (options.room === true) {
-      this.#refresh();
-    } else {
-      this.#paint();
-    }
+    // The note follows the Scene, room and all: a Snap row that ended where it
+    // began is not left behind, and a change that moved the selection wakes the
+    // view that keeps the note off it. A drag in flight is left alone by
+    // `#clearOfMenu`, so nothing moves under the pointer.
+    this.#refresh();
     if (changed) {
       this.#record(options.amend === true);
     }
@@ -1140,7 +1173,7 @@ export class EsbozoEditorElement extends HTMLElement {
       elements: this.#scene.elements.map((element) =>
         picked.has(element.id) ? styled(element, key, value) : element,
       ),
-    }, { room: true });
+    });
   }
 
   /**
@@ -1159,7 +1192,7 @@ export class EsbozoEditorElement extends HTMLElement {
         byId ??= elementsById(elements);
         return elementBounds(element, byId, this.#layout);
       }),
-    }, { room: true });
+    });
   }
 
   // ------------------------------------------------------------------ painting
@@ -1263,29 +1296,59 @@ export class EsbozoEditorElement extends HTMLElement {
         height: box.height + padding * 2,
         class: 'selection',
       });
-      if (selected.length === 1 && first !== undefined && isOutlined(first)) {
-        // The handles ride the outline, not the ink: a Label that overflows its
-        // Element draws outside the box a resize is allowed to move.
-        const outline = outlineBox(first);
-        for (const handle of HANDLES) {
-          const point = handlePoint(outline, handle);
-          const size = HANDLE_SIZE / this.#view.zoom;
-          const node = this.#appendRect(overlay, {
-            x: point.x - size / 2,
-            y: point.y - size / 2,
-            width: size,
-            height: size,
-            class: `handle handle-${handle}`,
-          });
-          node.setAttribute('data-handle', handle);
-          node.setAttribute('data-element', first.id);
-        }
+      if (selected.length === 1 && first !== undefined) {
+        this.#drawHandles(overlay, first);
       }
     }
     const drag = this.#drag;
     if (drag !== null && drag.kind === 'box') {
       const swept = boxBetween(drag.from, drag.to);
       this.#appendRect(overlay, { ...swept, class: 'sweep' });
+    }
+    if (drag !== null && (drag.kind === 'draw' || drag.kind === 'end') && drag.target !== null) {
+      const target = this.#scene.elements.find((element) => element.id === drag.target);
+      if (target !== undefined && isOutlined(target)) {
+        // The Element the dragged end would attach to, so a drop is no surprise.
+        const outline = outlineBox(target);
+        const grow = SNAP_GROW / this.#view.zoom;
+        this.#appendRect(overlay, {
+          x: outline.x - grow,
+          y: outline.y - grow,
+          width: outline.width + grow * 2,
+          height: outline.height + grow * 2,
+          class: 'snap',
+        });
+      }
+    }
+  }
+
+  /**
+   * The drag targets of a lone selection: eight around a box's outline, or the
+   * two ends of an arrow or line, where they draw — a Snapped end rides its
+   * target's outline, so its handle is there too.
+   */
+  #drawHandles(overlay: SVGGElement, element: SceneElement): void {
+    const handles: Array<{ at: Point; name: string }> = [];
+    if (isOutlined(element)) {
+      const outline = outlineBox(element);
+      for (const handle of HANDLES) {
+        handles.push({ at: handlePoint(outline, handle), name: handle });
+      }
+    } else if (isShaft(element)) {
+      const [start, end] = drawnShaft(element, elementsById(this.#shownElements()));
+      handles.push({ at: start, name: 'start' }, { at: end, name: 'end' });
+    }
+    const size = HANDLE_SIZE / this.#view.zoom;
+    for (const handle of handles) {
+      const node = this.#appendRect(overlay, {
+        x: handle.at.x - size / 2,
+        y: handle.at.y - size / 2,
+        width: size,
+        height: size,
+        class: `handle handle-${handle.name}`,
+      });
+      node.setAttribute('data-handle', handle.name);
+      node.setAttribute('data-element', element.id);
     }
   }
 
@@ -1409,7 +1472,23 @@ export class EsbozoEditorElement extends HTMLElement {
     const handle = editing ? (target?.closest('[data-handle]') ?? null) : null;
     if (handle !== null) {
       const id = handle.getAttribute('data-element') ?? '';
+      const which = handle.getAttribute('data-handle');
       const element = this.#scene.elements.find((candidate) => candidate.id === id);
+      if (element !== undefined && isShaft(element) && (which === 'start' || which === 'end')) {
+        const [start, end] = drawnShaft(element, elementsById(this.#scene.elements));
+        const origin = which === 'start' ? start : end;
+        this.#drag = {
+          kind: 'end',
+          id,
+          which,
+          from: this.#scenePoint(event),
+          origin,
+          target: null,
+          moved: false,
+          shown: element,
+        };
+        return;
+      }
       if (element !== undefined && isOutlined(element)) {
         this.#drag = {
           kind: 'resize',
@@ -1439,7 +1518,12 @@ export class EsbozoEditorElement extends HTMLElement {
         this.#selected = [hit.id];
       }
       if (editing) {
-        const origins = new Map(this.#selectedElements().map((element) => [element.id, element]));
+        // A move frees the ends the selection had, where they draw now, so an
+        // arrow that followed its Elements is carried rather than pinned.
+        const byId = elementsById(this.#scene.elements);
+        const origins = new Map(
+          this.#selectedElements().map((element) => [element.id, released(element, byId)]),
+        );
         this.#drag = { kind: 'move', from: point, origins, shown: new Map() };
       }
       this.#refresh();
@@ -1471,10 +1555,24 @@ export class EsbozoEditorElement extends HTMLElement {
       tool,
       id,
       from: point,
-      to: point,
       preview: drawn(tool, point, point, id, this.#scene.defaults),
+      target: null,
     };
     this.#paint();
+  }
+
+  /**
+   * The Element the end being dragged would attach to, or null when there is
+   * none. Alt held skips attaching, and the Element the other end is attached to
+   * is never a target: both ends of one arrow cannot attach to the same one.
+   */
+  #attachTarget(id: string, end: End, point: Point, skipAttaching: boolean): string | null {
+    if (skipAttaching) {
+      return null;
+    }
+    const element = this.#scene.elements.find((candidate) => candidate.id === id);
+    const other = element !== undefined && isShaft(element) ? attachedTo(element, otherEnd(end)) : null;
+    return targetAt(this.#scene.elements, point, other);
   }
 
   /**
@@ -1482,21 +1580,73 @@ export class EsbozoEditorElement extends HTMLElement {
    * plain click draws the default box, and a click with a stroke tool draws
    * nothing, because a stroke with no length cannot be seen. The tool then goes
    * back to Select, so one tool draws one Element.
+   *
+   * What the new end attaches to is read from the release — where the pointer is
+   * and whether Alt is held then — not from the last move.
    */
-  #finishDrawing(drag: Extract<Drag, { kind: 'draw' }>): void {
-    const placed = isClick(drag.from, drag.to)
+  #finishDrawing(drag: Extract<Drag, { kind: 'draw' }>, at: Point, skipSnap: boolean): void {
+    const placed = isClick(drag.from, at)
       ? drawnAtClick(drag.tool, drag.from, drag.id, this.#scene.defaults)
-      : drag.preview;
+      : drawn(drag.tool, drag.from, at, drag.id, this.#scene.defaults);
     this.#setTool('select');
     if (placed === null) {
       this.#selected = [];
-      this.#paint();
+      this.#refresh();
       return;
     }
+    const settled = isShaft(placed)
+      ? withEnd(placed, 'end', endPoint(placed, 'end'), this.#attachTarget(drag.id, 'end', at, skipSnap))
+      : placed;
     this.#applyScene(
-      { ...this.#scene, elements: [...this.#scene.elements, placed] },
+      { ...this.#scene, elements: [...this.#scene.elements, settled] },
       { select: [drag.id] },
     );
+  }
+
+  /**
+   * Where an end being dragged goes, from one pointer sample: the pointer itself
+   * picks the Element the end attaches to, so a drop inside a box attaches even
+   * when the hand grabbed the handle off its centre, and the grab offset carries
+   * only the endpoint. The preview and the release both come through here, so
+   * the line that is shown is the line that is saved.
+   */
+  #resolveEnd(
+    drag: Extract<Drag, { kind: 'end' }>,
+    pointer: Point,
+    skipSnap: boolean,
+  ): { to: Point; target: string | null } {
+    return {
+      to: {
+        x: drag.origin.x + pointer.x - drag.from.x,
+        y: drag.origin.y + pointer.y - drag.from.y,
+      },
+      target: this.#attachTarget(drag.id, drag.which, pointer, skipSnap),
+    };
+  }
+
+  /**
+   * A released end handle settles where the release put it: attached to the
+   * Element under that pointer, or free when Alt is held at the release. What
+   * settles it is whether the handle moved during the gesture, not whether the
+   * release landed elsewhere: a drag that comes back to its start is still a
+   * drag, while a press and release in one place is a click on the handle and
+   * changes nothing.
+   */
+  #settleEnd(drag: Extract<Drag, { kind: 'end' }>, at: Point, skipSnap: boolean): void {
+    const element = this.#scene.elements.find((candidate) => candidate.id === drag.id);
+    if (!drag.moved || element === undefined || !isShaft(element)) {
+      // The gesture painted a preview and maybe a highlight; a Scene it did not
+      // change must not leave either of them on the page.
+      this.#refresh();
+      return;
+    }
+    const { to, target } = this.#resolveEnd(drag, at, skipSnap);
+    this.#applyScene({
+      ...this.#scene,
+      elements: this.#scene.elements.map((candidate) =>
+        candidate.id === drag.id ? withEnd(element, drag.which, to, target) : candidate,
+      ),
+    });
   }
 
   /** A Text is placed: the words are typed where the Text will sit. */
@@ -1560,8 +1710,12 @@ export class EsbozoEditorElement extends HTMLElement {
       return;
     }
     if (drag.kind === 'draw') {
-      drag.to = point;
-      drag.preview = drawn(drag.tool, drag.from, point, drag.id, this.#scene.defaults);
+      const target = isShaft(drag.preview)
+        ? this.#attachTarget(drag.id, 'end', point, event.altKey)
+        : null;
+      drag.target = target;
+      const preview = drawn(drag.tool, drag.from, point, drag.id, this.#scene.defaults);
+      drag.preview = isShaft(preview) ? withEnd(preview, 'end', point, target) : preview;
       this.#paint();
       return;
     }
@@ -1570,7 +1724,26 @@ export class EsbozoEditorElement extends HTMLElement {
     }
     const dx = point.x - drag.from.x;
     const dy = point.y - drag.from.y;
+    if (drag.kind === 'end') {
+      const element = this.#scene.elements.find((candidate) => candidate.id === drag.id);
+      if (element === undefined || !isShaft(element)) {
+        return;
+      }
+      // A Snapped end is picked up where it draws, so dragging it a pixel moves
+      // it a pixel rather than jumping back to the point it was attached from.
+      const { to, target } = this.#resolveEnd(drag, point, event.altKey);
+      drag.moved = drag.moved || dx !== 0 || dy !== 0;
+      drag.target = target;
+      drag.shown = withEnd(element, drag.which, to, target);
+      this.#paint();
+      return;
+    }
     if (drag.kind === 'move') {
+      if (dx === 0 && dy === 0 && drag.shown.size === 0) {
+        // A press that has not moved yet settles nothing: a mere click on an
+        // arrow must not free the ends it is attached by.
+        return;
+      }
       const shown = new Map<string, SceneElement>();
       for (const element of this.#scene.elements) {
         const origin = drag.origins.get(element.id);
@@ -1606,7 +1779,12 @@ export class EsbozoEditorElement extends HTMLElement {
     }
     if (drag.kind === 'draw') {
       this.#drag = null;
-      this.#finishDrawing(drag);
+      this.#finishDrawing(drag, this.#scenePoint(event), event.altKey);
+      return;
+    }
+    if (drag.kind === 'end') {
+      this.#drag = null;
+      this.#settleEnd(drag, this.#scenePoint(event), event.altKey);
       return;
     }
     if (drag.kind === 'box') {
@@ -1621,11 +1799,11 @@ export class EsbozoEditorElement extends HTMLElement {
     }
     if (drag.kind === 'move' || drag.kind === 'resize') {
       // The gesture is over: what the page showed becomes the Scene, as one step.
-      const shown = this.#shownScene();
+      const settled = this.#shownScene();
       this.#drag = null;
-      // With the gesture settled the note may make room for where the selection
-      // ended up, and the whole gesture is one history step.
-      this.#applyScene(shown, { room: true });
+      // The whole gesture is one history step, and the note may make room for
+      // where the selection ended up.
+      this.#applyScene(settled);
       return;
     }
     this.#drag = null;
@@ -1756,15 +1934,16 @@ export class EsbozoEditorElement extends HTMLElement {
     }
     // A nudge that cannot move what is selected records and saves nothing, and
     // a burst of them is one step: the same undo takes the whole nudge back.
+    const byId = elementsById(this.#scene.elements);
     const amend = Date.now() - this.#nudgedAt < NUDGE_BURST_MS;
     this.#applyScene(
       {
         ...this.#scene,
         elements: this.#scene.elements.map((element) =>
-          selected.has(element.id) ? moved(element, dx, dy) : element,
+          selected.has(element.id) ? moved(released(element, byId), dx, dy) : element,
         ),
       },
-      { amend, room: true },
+      { amend },
     );
     this.#nudgedAt = Date.now();
   }
@@ -1834,13 +2013,42 @@ export class EsbozoEditorElement extends HTMLElement {
       this.#styleSelection(style, button.dataset['value'] ?? '');
       return;
     }
+    const act = button.dataset['act'] ?? '';
+    if (act === 'detach-start' || act === 'detach-end') {
+      // A Snap row names the end it frees, so it is the note's own button
+      // rather than one of the registry's actions.
+      this.#detachEnd(act === 'detach-start' ? 'start' : 'end');
+      return;
+    }
     // An arrange button is a registry action with the same name and the same
     // rule, so the menu and the palette can never disagree about it.
-    const action = actionById(button.dataset['act'] ?? '');
+    const action = actionById(act);
     if (action !== null) {
       void action.run(this.#host);
     }
   };
+
+  /**
+   * Free one end of the selected arrow or line, where it draws now: the end
+   * stops following its Element but does not move. One undo step, like every
+   * other Scene change.
+   */
+  #detachEnd(end: End): void {
+    const element = this.#selectedElements()[0];
+    if (element === undefined || !isShaft(element)) {
+      return;
+    }
+    const freed = freedEnd(element, end, elementsById(this.#scene.elements));
+    if (freed === element) {
+      return;
+    }
+    this.#applyScene({
+      ...this.#scene,
+      elements: this.#scene.elements.map((candidate) =>
+        candidate.id === element.id ? freed : candidate,
+      ),
+    });
+  }
 
   #onNewScene = (event: Event): void => {
     event.preventDefault();

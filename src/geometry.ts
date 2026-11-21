@@ -150,6 +150,138 @@ export function pointOnOutline(outline: Outline, from: Point): Point {
 }
 
 /**
+ * How many points one walk around an outline samples. Fine enough that two bars
+ * crossing at their middles find a pairing, and short enough to stay a cheap
+ * loop in a Renderer.
+ */
+const OUTLINE_WALK = 72;
+
+/**
+ * The two ends an arrow or line draws, each Snapped end moved onto its target's
+ * outline. An end aims at the other end's target centre when that end is
+ * Snapped too, or at the other end itself when it is free.
+ *
+ * Two targets may overlap, so the two outline points can land the wrong way
+ * round along the line between their centres, or on the same point. The start
+ * end then leaves its own outline on the far side from the end target; if even
+ * that point cannot reach the end target, another pair of true outline points
+ * is walked out, so the shaft still runs into the end target and its head still
+ * points into it. Only a target drawn wholly inside the other has no such pair:
+ * then the two ends keep the points on the line between the centres, which is
+ * all the two outlines offer.
+ */
+export function shaftEnds(
+  points: readonly [Point, Point],
+  startTarget: Outline | undefined,
+  endTarget: Outline | undefined,
+): [Point, Point] {
+  const [start, end] = points;
+  const from = outlineEnd(start, startTarget, end, endTarget);
+  const to = outlineEnd(end, endTarget, start, startTarget);
+  if (startTarget === undefined || endTarget === undefined) {
+    return [from, to];
+  }
+  const startCentre = centreOf(startTarget);
+  const endCentre = centreOf(endTarget);
+  const fits = (head: Point, tip: Point): boolean =>
+    !runsAgainst(head, tip, startCentre, endCentre) && entersTarget(head, tip, endTarget);
+  if (fits(from, to)) {
+    return [from, to];
+  }
+  const behind = { x: 2 * startCentre.x - endCentre.x, y: 2 * startCentre.y - endCentre.y };
+  const flipped = pointOnOutline(startTarget, behind);
+  if (fits(flipped, to)) {
+    return [flipped, to];
+  }
+  return anotherShaft(startTarget, endTarget) ?? [from, to];
+}
+
+/**
+ * Another pair of true outline points for two targets the centre line cannot
+ * join: the start target's outline is walked from its right-hand point and on
+ * clockwise, with the end aiming at each point in turn, and the first point the
+ * end can be reached from outside wins. Two crossed bars land on a shaft from
+ * one bar's outer edge into the other's, rather than a stub.
+ */
+function anotherShaft(startTarget: Outline, endTarget: Outline): [Point, Point] | null {
+  const centre = centreOf(startTarget);
+  const reach = Math.hypot(startTarget.width, startTarget.height) + 1;
+  for (let step = 0; step < OUTLINE_WALK; step += 1) {
+    const turn = (2 * Math.PI * step) / OUTLINE_WALK;
+    const head = pointOnOutline(startTarget, {
+      x: centre.x + Math.cos(turn) * reach,
+      y: centre.y + Math.sin(turn) * reach,
+    });
+    const tip = pointOnOutline(endTarget, head);
+    if (entersTarget(head, tip, endTarget)) {
+      return [head, tip];
+    }
+  }
+  return null;
+}
+
+/**
+ * Whether a shaft from one outline point to another arrives inside the end
+ * target, so the head the Renderer builds on it points into the target: the
+ * start is outside the target, and a step past the end point is inside it while
+ * a step back from it is not. A shaft that lands and stops — the two outlines
+ * meeting, or a stub inside the target — fails, because its step back is inside
+ * too.
+ */
+function entersTarget(head: Point, tip: Point, target: Outline): boolean {
+  const length = Math.hypot(tip.x - head.x, tip.y - head.y);
+  if (length === 0 || insideOutline(target, head)) {
+    return false;
+  }
+  const direction = { x: (tip.x - head.x) / length, y: (tip.y - head.y) / length };
+  const probe = Math.min(0.5, Math.min(target.width, target.height) / 2);
+  const ahead = { x: tip.x + direction.x * probe, y: tip.y + direction.y * probe };
+  const behind = { x: tip.x - direction.x * probe, y: tip.y - direction.y * probe };
+  return insideOutline(target, ahead) && !insideOutline(target, behind);
+}
+
+/** One end, moved onto its target's outline, aiming at the other end. */
+function outlineEnd(
+  point: Point,
+  target: Outline | undefined,
+  otherPoint: Point,
+  otherTarget: Outline | undefined,
+): Point {
+  if (target === undefined) {
+    return { x: point.x, y: point.y };
+  }
+  return pointOnOutline(target, otherTarget === undefined ? otherPoint : centreOf(otherTarget));
+}
+
+/** Whether the drawn shaft runs against the line from the first centre to the second. */
+function runsAgainst(from: Point, to: Point, fromCentre: Point, toCentre: Point): boolean {
+  const along = { x: to.x - from.x, y: to.y - from.y };
+  const between = { x: toCentre.x - fromCentre.x, y: toCentre.y - fromCentre.y };
+  return along.x * between.x + along.y * between.y < 0;
+}
+
+/**
+ * Whether a point is inside an outline: the Element's shape, not the box around
+ * it, so an ellipse's empty bounding-box corner is not under the pointer.
+ */
+export function insideOutline(outline: Outline, point: Point): boolean {
+  const centre = centreOf(outline);
+  const dx = point.x - centre.x;
+  const dy = point.y - centre.y;
+  if (outline.type === 'ellipse') {
+    const a = outline.width / 2;
+    const b = outline.height / 2;
+    return (dx * dx) / (a * a) + (dy * dy) / (b * b) <= 1 + 1e-9;
+  }
+  const length = Math.hypot(dx, dy);
+  if (length === 0) {
+    return true;
+  }
+  const reach = boundaryReach(centre, { x: dx / length, y: dy / length }, fillets(outline));
+  return length <= reach + 1e-9;
+}
+
+/**
  * How far from `centre` along the unit `direction` a ray crosses the boundary
  * of a rounded outline: the nearest crossing of any straight run between two
  * fillets and any fillet arc.

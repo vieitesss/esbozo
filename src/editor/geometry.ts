@@ -124,16 +124,13 @@ export function elementsInBox(
 
 /**
  * An Element moved by a delta: box-like ones by their origin, arrows and lines
- * by both ends. An arrow or line Snapped at both ends ignores the move: its ends
- * follow their targets, so nothing it drew would change and its stored ends must
- * not be rewritten for it. Detaching one end is a later ticket's.
+ * by both ends. An end attached to an Element follows that Element, so a move
+ * frees it first (`released`, `snap.ts`) and the end carries on from where it
+ * drew; what is left for this function is translation.
  */
 export function moved(element: Element, dx: number, dy: number): Element {
   if (element.type === 'arrow' || element.type === 'line') {
     const [start, end] = element.points;
-    if (start.snap !== undefined && end.snap !== undefined) {
-      return element;
-    }
     return {
       ...element,
       points: [
