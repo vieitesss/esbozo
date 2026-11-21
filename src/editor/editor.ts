@@ -12,6 +12,19 @@ import { elementsById, outlineBox, renderScene } from '../renderer.js';
 import { emptyScene, isOutlined, parseScene, serialiseScene } from '../scene.js';
 import type { Element as SceneElement, Scene } from '../scene.js';
 import { sceneStem } from '../paths.js';
+import { copyText, parseFragment } from './clipboard.js';
+import {
+  TEXT_SIZE_PX,
+  copies,
+  drawn,
+  drawnAtClick,
+  freshId,
+  idsOf,
+  isClick,
+  newText,
+  without,
+} from './elements.js';
+import type { DrawingTool } from './elements.js';
 import { pickFolder } from './files.js';
 import { servedFolder } from './server-folder.js';
 import type { SceneFolder } from './files.js';
@@ -26,11 +39,15 @@ import {
   moved,
   resized,
   resizedBox,
+  toPage,
   toScene,
   zoomedAt,
 } from './geometry.js';
 import type { Box, Handle, Point, View } from './geometry.js';
+import { History } from './history.js';
 import { railArt, railMarkup } from './rail.js';
+import { toolAt, toolForLetter } from './tools.js';
+import type { ToolId } from './tools.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const DOT_SPACING = 22;
@@ -42,6 +59,10 @@ const NUDGE_WITH_SHIFT = 10;
 const ZOOM_STEP = 1.2;
 /** How far off the ink a click still picks an arrow or line, in screen pixels. */
 const PICK_TOLERANCE = 6;
+/** How far a copy, a pasted Element or a duplicate lands from what it copies, in Scene units. */
+const COPY_OFFSET = { x: 16, y: 16 };
+/** Nudges closer together than this are one undo step: a held arrow key is one gesture. */
+const NUDGE_BURST_MS = 800;
 
 /** Where the open Scene saves: the folder and the name it was opened from. */
 interface SaveTarget {
@@ -51,8 +72,10 @@ interface SaveTarget {
 
 type Drag =
   | { kind: 'pan'; fromScreen: Point; start: View }
-  | { kind: 'move'; from: Point; origins: Map<string, SceneElement>; before: string }
-  | { kind: 'resize'; id: string; handle: Handle; origin: Box; from: Point; before: string }
+  | { kind: 'move'; from: Point; origins: Map<string, SceneElement> }
+  | { kind: 'resize'; id: string; handle: Handle; origin: Box; from: Point }
+  | { kind: 'draw'; tool: Exclude<DrawingTool, 'text'>; id: string; from: Point; to: Point }
+  | { kind: 'text'; at: Point }
   | { kind: 'box'; from: Point; to: Point; additive: boolean };
 
 const SHELL = `
@@ -95,6 +118,10 @@ export class EsbozoEditorElement extends HTMLElement {
   readonly #layout: Layout;
   #scene: Scene = emptyScene();
   #selected: string[] = [];
+  #tool: ToolId = 'select';
+  #history = new History(serialiseScene(this.#scene));
+  /** When the last nudge landed, so a burst of them folds into one undo step. */
+  #nudgedAt = 0;
   #view: View = { zoom: 1, panX: 0, panY: 0 };
   #grid = true;
   /** The folder the Scenes note lists. Browsing it never moves the save target. */
@@ -116,6 +143,9 @@ export class EsbozoEditorElement extends HTMLElement {
   #dots!: SVGPatternElement;
   #rail!: HTMLElement;
   #railArt!: SVGSVGElement;
+  /** The in-place input a new Text is typed into, while it is open. */
+  #textInput: HTMLTextAreaElement | null = null;
+  #textAt: Point | null = null;
   #note!: HTMLElement;
   #files!: HTMLUListElement;
   #newScene!: HTMLFormElement;
@@ -156,7 +186,10 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#canvas.addEventListener('pointercancel', this.#onPointerUp);
     this.#canvas.addEventListener('wheel', this.#onWheel, { passive: false });
     this.#canvas.addEventListener('contextmenu', (event) => event.preventDefault());
+    this.#rail.addEventListener('click', this.#onRailClick);
     this.querySelector('.status')!.addEventListener('click', this.#onStatusClick);
+    document.addEventListener('copy', this.#onCopy);
+    document.addEventListener('paste', this.#onPaste);
     this.#newScene.addEventListener('submit', this.#onNewScene);
     this.#files.addEventListener('click', this.#onFileClick);
     document.addEventListener('keydown', this.#onKeyDown);
@@ -170,6 +203,8 @@ export class EsbozoEditorElement extends HTMLElement {
   }
 
   disconnectedCallback(): void {
+    document.removeEventListener('copy', this.#onCopy);
+    document.removeEventListener('paste', this.#onPaste);
     document.removeEventListener('keydown', this.#onKeyDown);
     document.removeEventListener('keyup', this.#onKeyUp);
     window.removeEventListener('resize', this.#onResize);
@@ -300,14 +335,138 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#target = target;
     this.#selected = [];
     this.#paintedFor = null;
+    this.#history.reset(serialiseScene(scene));
     this.#view = fittedView(scene, this.#viewportSize(), this.#layout);
     this.#whereLabel.textContent = `${target.folder.name} / ${target.name}`;
     this.#note.hidden = true;
+    this.#setTool('select');
     this.#paint();
   }
 
   #selectedElements(): SceneElement[] {
     return this.#scene.elements.filter((element) => this.#selected.includes(element.id));
+  }
+
+  /**
+   * One history step, with the autosave every change gets. A change that left
+   * the Scene as it was records nothing and writes nothing, so a plain click on
+   * an Element never touches the disk.
+   */
+  #record(amend = false): void {
+    const after = serialiseScene(this.#scene);
+    const changed = amend ? this.#history.amend(after) : this.#history.record(after);
+    if (!amend) {
+      this.#nudgedAt = 0;
+    }
+    if (changed) {
+      void this.#save();
+    }
+  }
+
+  #undo(): void {
+    this.#restore(this.#history.undo());
+  }
+
+  #redo(): void {
+    this.#restore(this.#history.redo());
+  }
+
+  /** A Scene taken back from the history is the Scene to save, so undo autosaves too. */
+  #restore(source: string | null): void {
+    if (source === null) {
+      return;
+    }
+    const parsed = parseScene(source);
+    if (!parsed.ok) {
+      return;
+    }
+    this.#scene = parsed.scene;
+    this.#selected = this.#selected.filter((id) =>
+      this.#scene.elements.some((element) => element.id === id),
+    );
+    this.#paintedFor = null;
+    this.#nudgedAt = 0;
+    this.#paint();
+    void this.#save();
+  }
+
+  /** Delete the selected Elements, as one step. A Snap to a deleted target is dropped. */
+  #deleteSelected(): void {
+    const removed = new Set(this.#selected);
+    if (removed.size === 0) {
+      return;
+    }
+    this.#scene.elements = without(this.#scene.elements, removed);
+    this.#selected = [];
+    this.#paint();
+    this.#record();
+  }
+
+  /** A duplicate is a copy pasted in place, offset so the copy reads as a copy: one step. */
+  #duplicate(): void {
+    this.#insertCopies(this.#selectedElements());
+  }
+
+  /**
+   * Copy the selected Elements as Scene JSON text. The clipboard event carries
+   * the data, so a copy is one synchronous step of a key press rather than a
+   * promise racing the paste that follows it.
+   */
+  #onCopy = (event: ClipboardEvent): void => {
+    if (this.#typing(event.target)) {
+      return;
+    }
+    const selected = this.#selectedElements();
+    if (selected.length === 0) {
+      return;
+    }
+    event.clipboardData?.setData('text/plain', copyText(this.#scene, selected));
+    event.preventDefault();
+  };
+
+  /** Paste Scene JSON text from the clipboard, with new ids, offset off what is here. */
+  #onPaste = (event: ClipboardEvent): void => {
+    if (this.#typing(event.target)) {
+      return;
+    }
+    const text = event.clipboardData?.getData('text/plain') ?? '';
+    this.#insertCopies(parseFragment(text, this.#scene.defaults) ?? []);
+    event.preventDefault();
+  };
+
+  /** Whether a key or a clipboard event belongs to a field a person is typing in. */
+  #typing(target: EventTarget | null): boolean {
+    const element = target as HTMLElement | null;
+    return (
+      element !== null &&
+      (element.isContentEditable || element.tagName === 'INPUT' || element.tagName === 'TEXTAREA')
+    );
+  }
+
+  /** Adds copies of the given Elements as one step, selected, so a paste can be moved at once. */
+  #insertCopies(elements: readonly SceneElement[]): void {
+    if (elements.length === 0) {
+      return;
+    }
+    const added = copies(elements, idsOf(this.#scene.elements), COPY_OFFSET);
+    this.#scene.elements = [...this.#scene.elements, ...added];
+    this.#selected = added.map((element) => element.id);
+    this.#paint();
+    this.#record();
+  }
+
+  /** Put a tool in hand: the rail marks it, and only a drawing tool shows the pencil. */
+  #setTool(tool: ToolId): void {
+    this.#tool = tool;
+    this.#canvas.classList.toggle('pen', tool !== 'select' && !this.#spaceDown);
+    for (const button of this.#rail.querySelectorAll('[data-tool]')) {
+      button.setAttribute('aria-pressed', String(button.getAttribute('data-tool') === tool));
+    }
+    if (tool !== 'select') {
+      // Handles and a dashed selection box under the pencil only get in the way.
+      this.#selected = [];
+    }
+    this.#paint();
   }
 
   // ------------------------------------------------------------------ painting
@@ -462,11 +621,22 @@ export class EsbozoEditorElement extends HTMLElement {
     if (event.button !== 0 && event.button !== 1) {
       return;
     }
+    if (this.#textInput !== null) {
+      // The click that takes the focus off the words commits them, and goes no
+      // further: it is not also a click on the canvas.
+      this.#commitText();
+      return;
+    }
     this.#canvas.setPointerCapture(event.pointerId);
     const target = event.target as Element | null;
     if (this.#spaceDown || event.button === 1) {
       this.#drag = { kind: 'pan', fromScreen: this.#screenPoint(event), start: { ...this.#view } };
       this.#canvas.classList.add('panning');
+      return;
+    }
+    const tool = this.#tool;
+    if (tool !== 'select') {
+      this.#startDrawing(tool, this.#scenePoint(event));
       return;
     }
     const handle = target?.closest('[data-handle]') ?? null;
@@ -480,7 +650,6 @@ export class EsbozoEditorElement extends HTMLElement {
           handle: handle.getAttribute('data-handle') as Handle,
           origin: outlineBox(element),
           from: this.#scenePoint(event),
-          before: serialiseScene(this.#scene),
         };
         return;
       }
@@ -502,7 +671,7 @@ export class EsbozoEditorElement extends HTMLElement {
         this.#selected = [hit.id];
       }
       const origins = new Map(this.#selectedElements().map((element) => [element.id, element]));
-      this.#drag = { kind: 'move', from: point, origins, before: serialiseScene(this.#scene) };
+      this.#drag = { kind: 'move', from: point, origins };
       this.#paint();
       return;
     }
@@ -513,6 +682,120 @@ export class EsbozoEditorElement extends HTMLElement {
     this.#drag = { kind: 'box', from: point, to: point, additive: event.shiftKey };
     this.#paint();
   };
+
+  /**
+   * A drawing tool is in hand: the press puts the Element on the Scene, and
+   * every move reshapes it until the release commits it.
+   */
+  #startDrawing(tool: DrawingTool, point: Point): void {
+    if (tool === 'text') {
+      // Opened on the release, not the press: the press's own default action
+      // would take the focus straight back off the input.
+      this.#drag = { kind: 'text', at: point };
+      return;
+    }
+    const id = freshId(tool, idsOf(this.#scene.elements));
+    this.#scene.elements = [
+      ...this.#scene.elements,
+      drawn(tool, point, point, id, this.#scene.defaults),
+    ];
+    this.#selected = [id];
+    this.#drag = { kind: 'draw', tool, id, from: point, to: point };
+    this.#paint();
+  }
+
+  /**
+   * The release settles a draw: a gesture keeps the box or stroke it swept, a
+   * plain click draws the default box, and a click with a stroke tool draws
+   * nothing, because a stroke with no length cannot be seen. The tool then goes
+   * back to Select, so one tool draws one Element.
+   */
+  #finishDrawing(drag: Extract<Drag, { kind: 'draw' }>): void {
+    const placed = isClick(drag.from, drag.to)
+      ? drawnAtClick(drag.tool, drag.from, drag.id, this.#scene.defaults)
+      : drawn(drag.tool, drag.from, drag.to, drag.id, this.#scene.defaults);
+    this.#setTool('select');
+    if (placed === null) {
+      this.#scene.elements = this.#scene.elements.filter((element) => element.id !== drag.id);
+      this.#selected = [];
+    } else {
+      this.#scene.elements = this.#scene.elements.map((element) =>
+        element.id === drag.id ? placed : element,
+      );
+      this.#selected = [drag.id];
+    }
+    this.#paint();
+    this.#record();
+  }
+
+  /**
+   * A minimal in-place input for a new Text: the words are typed where they will
+   * sit, in the hand font and at the size the Text draws. Enter on an empty
+   * line, Escape and a click elsewhere commit; an empty input leaves nothing
+   * behind. While it is open the keys are the input's, not the editor's.
+   */
+  #openTextInput(at: Point): void {
+    this.#setTool('select');
+    const page = toPage(this.#view, at);
+    const input = document.createElement('textarea');
+    input.className = 'text-input';
+    input.setAttribute('aria-label', 'Text');
+    input.rows = 1;
+    input.spellcheck = false;
+    input.style.left = `${page.x}px`;
+    input.style.top = `${page.y}px`;
+    input.style.fontSize = `${TEXT_SIZE_PX[this.#scene.defaults.fontSize] * this.#view.zoom}px`;
+    input.addEventListener('keydown', this.#onTextKeyDown);
+    input.addEventListener('blur', this.#onTextBlur);
+    this.append(input);
+    this.#textInput = input;
+    this.#textAt = at;
+    input.focus();
+  }
+
+  #onTextKeyDown = (event: KeyboardEvent): void => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      this.#commitText();
+      return;
+    }
+    if (event.key !== 'Enter' || event.shiftKey) {
+      return;
+    }
+    // Enter on an empty line is the end of the Text; anywhere else it is a
+    // line break, which the textarea inserts itself.
+    const input = event.currentTarget as HTMLTextAreaElement;
+    const before = input.value.slice(0, input.selectionStart);
+    if (before.slice(before.lastIndexOf('\n') + 1).trim() === '') {
+      event.preventDefault();
+      this.#commitText();
+    }
+  };
+
+  #onTextBlur = (): void => {
+    this.#commitText();
+  };
+
+  /** Commit the open in-place input: a Text with words in it, or nothing. */
+  #commitText(): void {
+    const input = this.#textInput;
+    const at = this.#textAt;
+    if (input === null || at === null) {
+      return;
+    }
+    this.#textInput = null;
+    this.#textAt = null;
+    const content = input.value.trim();
+    input.remove();
+    if (content === '') {
+      return;
+    }
+    const element = newText(at, content, freshId('text', idsOf(this.#scene.elements)), this.#scene.defaults);
+    this.#scene.elements = [...this.#scene.elements, element];
+    this.#selected = [element.id];
+    this.#paint();
+    this.#record();
+  }
 
   #onPointerMove = (event: PointerEvent): void => {
     const drag = this.#drag;
@@ -534,6 +817,18 @@ export class EsbozoEditorElement extends HTMLElement {
     if (drag.kind === 'box') {
       drag.to = point;
       this.#paint();
+      return;
+    }
+    if (drag.kind === 'draw') {
+      drag.to = point;
+      const shaped = drawn(drag.tool, drag.from, point, drag.id, this.#scene.defaults);
+      this.#scene.elements = this.#scene.elements.map((element) =>
+        element.id === drag.id ? shaped : element,
+      );
+      this.#paint();
+      return;
+    }
+    if (drag.kind === 'text') {
       return;
     }
     const dx = point.x - drag.from.x;
@@ -568,6 +863,14 @@ export class EsbozoEditorElement extends HTMLElement {
       this.#canvas.releasePointerCapture(event.pointerId);
     }
 
+    if (drag.kind === 'text') {
+      this.#openTextInput(drag.at);
+      return;
+    }
+    if (drag.kind === 'draw') {
+      this.#finishDrawing(drag);
+      return;
+    }
     if (drag.kind === 'box') {
       const swept = boxBetween(drag.from, drag.to);
       const picked = elementsInBox(this.#scene.elements, swept, this.#layout).map(
@@ -579,9 +882,7 @@ export class EsbozoEditorElement extends HTMLElement {
     }
     if (drag.kind === 'move' || drag.kind === 'resize') {
       this.#paint();
-      if (serialiseScene(this.#scene) !== drag.before) {
-        void this.#save();
-      }
+      this.#record();
       return;
     }
     this.#paint();
@@ -598,14 +899,14 @@ export class EsbozoEditorElement extends HTMLElement {
   // ----------------------------------------------------------------- keyboard
 
   #onKeyDown = (event: KeyboardEvent): void => {
-    const target = event.target as HTMLElement | null;
-    if (target !== null && (target.isContentEditable || target.tagName === 'INPUT')) {
+    if (this.#typing(event.target)) {
       return;
     }
     if (event.key === ' ' || event.code === 'Space') {
       if (!this.#spaceDown) {
         this.#spaceDown = true;
         this.#canvas.classList.add('hand');
+        this.#canvas.classList.remove('pen');
       }
       event.preventDefault();
       return;
@@ -617,7 +918,10 @@ export class EsbozoEditorElement extends HTMLElement {
     if (event.key === 'Escape') {
       this.#note.hidden = true;
       this.#selected = [];
-      this.#paint();
+      this.#setTool('select');
+      return;
+    }
+    if (this.#editShortcut(event)) {
       return;
     }
     if (event.key.startsWith('Arrow')) {
@@ -631,6 +935,21 @@ export class EsbozoEditorElement extends HTMLElement {
       return;
     }
     if (event.metaKey || event.ctrlKey) {
+      const letter = event.key.toLowerCase();
+      if (letter === 'z') {
+        event.preventDefault();
+        if (event.shiftKey) {
+          this.#redo();
+        } else {
+          this.#undo();
+        }
+        return;
+      }
+      if (letter === 'd') {
+        event.preventDefault();
+        this.#duplicate();
+        return;
+      }
       if (event.key === '+' || event.key === '=') {
         event.preventDefault();
         this.#zoomBy(ZOOM_STEP);
@@ -649,6 +968,7 @@ export class EsbozoEditorElement extends HTMLElement {
     if (event.key === ' ' || event.code === 'Space') {
       this.#spaceDown = false;
       this.#canvas.classList.remove('hand');
+      this.#canvas.classList.toggle('pen', this.#tool !== 'select');
     }
   };
 
@@ -662,15 +982,51 @@ export class EsbozoEditorElement extends HTMLElement {
     if (selected.size === 0) {
       return;
     }
-    const before = serialiseScene(this.#scene);
     this.#scene.elements = this.#scene.elements.map((element) =>
       selected.has(element.id) ? moved(element, dx, dy) : element,
     );
     this.#paint();
-    // A nudge that cannot move what is selected saves nothing.
-    if (serialiseScene(this.#scene) !== before) {
-      void this.#save();
+    // A nudge that cannot move what is selected records and saves nothing, and
+    // a burst of them is one step: the same undo takes the whole nudge back.
+    const now = Date.now();
+    this.#record(now - this.#nudgedAt < NUDGE_BURST_MS);
+    this.#nudgedAt = now;
+  }
+
+  /**
+   * The keys that edit the Scene rather than the view: a tool by its letter or
+   * by its place on the rail (1–7), delete, duplicate and the history. Returns
+   * whether one answered the key, so a view key never also reads it.
+   */
+  #editShortcut(event: KeyboardEvent): boolean {
+    if (event.metaKey || event.ctrlKey) {
+      return false;
     }
+    if (event.key === 'x' || event.key === 'Backspace' || event.key === 'Delete') {
+      event.preventDefault();
+      this.#deleteSelected();
+      return true;
+    }
+    if (event.key.toLowerCase() === 'c') {
+      event.preventDefault();
+      this.#duplicate();
+      return true;
+    }
+    if (event.key >= '1' && event.key <= '7') {
+      const tool = toolAt(Number(event.key));
+      if (tool !== null) {
+        event.preventDefault();
+        this.#setTool(tool);
+        return true;
+      }
+    }
+    const tool = toolForLetter(event.key);
+    if (tool !== null) {
+      event.preventDefault();
+      this.#setTool(tool);
+      return true;
+    }
+    return false;
   }
 
   #zoomBy(factor: number): void {
@@ -680,6 +1036,14 @@ export class EsbozoEditorElement extends HTMLElement {
   }
 
   // ----------------------------------------------------------------------- UI
+
+  #onRailClick = (event: Event): void => {
+    const button = (event.target as Element | null)?.closest('[data-tool]') as HTMLElement | null;
+    const tool = button?.dataset['tool'];
+    if (tool !== undefined) {
+      this.#setTool(tool as ToolId);
+    }
+  };
 
   #onStatusClick = (event: Event): void => {
     const action = ((event.target as Element | null)?.closest('[data-act]') as HTMLElement | null)

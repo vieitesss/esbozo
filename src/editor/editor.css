@@ -88,6 +88,8 @@ esbozo-editor::before {
 
 .canvas.hand, .canvas.panning { cursor: grab; }
 .canvas.panning { cursor: grabbing; }
+/* drawing: the pencil is the pointer, so the tool in hand reads on the canvas */
+.canvas.pen { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='26' viewBox='0 0 26 26'%3E%3Cg transform='rotate(42 13 13)'%3E%3Cpath d='M11 5h4v13h-4z' fill='%23e8b23c' stroke='%231b1a17' stroke-width='1.2'/%3E%3Cpath d='M11 18h4l-2 4.5z' fill='%23f6f0e2' stroke='%231b1a17' stroke-width='1.2'/%3E%3C/g%3E%3C/svg%3E") 4 22, crosshair; }
 .grid-rect { fill: url(#esbozo-dots); pointer-events: none; }
 .dot { fill: var(--ink); opacity: 0.22; }
 
@@ -160,9 +162,21 @@ esbozo-editor::before {
   transition: background 0.12s, color 0.12s, transform 0.12s;
 }
 
-.rail button:hover:not([disabled]) { color: var(--ink); background: var(--line); transform: rotate(-2deg); }
+.rail button:hover { color: var(--ink); background: var(--line); transform: rotate(-2deg); }
 .rail button[aria-pressed="true"] { color: var(--paper); background: var(--ink); transform: rotate(-1.5deg); }
-.rail button[disabled] { cursor: default; opacity: 0.5; }
+
+/* the shortcut, in the corner of the button, faint until the rail is looked at */
+.rail button .key {
+  position: absolute;
+  right: 1px;
+  bottom: -2px;
+  font-family: var(--font-ui);
+  font-size: 7px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.rail button:hover .key, .rail button[aria-pressed="true"] .key { opacity: 0.5; }
 
 .rail button svg {
   width: 21px;
@@ -177,6 +191,27 @@ esbozo-editor::before {
 
 .rail button svg .ghost { opacity: 0.3; transform: translate(0.8px, 0.7px); }
 .rail button[aria-pressed="true"] svg .ghost { opacity: 0.45; }
+
+/* a new Text is typed where it will sit: the words, in the hand, at the size
+   the Text draws, with nothing around them that would not be in the Scene */
+.text-input {
+  position: absolute;
+  z-index: 30;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  min-width: 3ch;
+  background: transparent;
+  color: var(--ink);
+  caret-color: var(--sel);
+  font-family: var(--font-hand);
+  line-height: 1.25;
+  white-space: pre;
+  field-sizing: content;
+}
 
 /* the page's own light/dark switch, in the hand, across from the status */
 .theme {
