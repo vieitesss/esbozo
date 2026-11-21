@@ -236,8 +236,8 @@ const CONTROLS: readonly StyleControl[] = [
     key: 'textAlign',
     label: 'Align',
     choices: choicesOf(TEXT_ALIGNS, ALIGN_NAMES),
-    // Every Element's words take an alignment: a box Label and a Text inside
-    // their box, and a shaft's Label inside the block the shaft gives it.
+    // Every Element's words take an alignment: a Label lines up inside the box
+    // or the block that holds it, and a Text at the `x` it was placed by.
     usable: () => true,
     read: (element) => element.textAlign,
     write: (element, value) => ({
