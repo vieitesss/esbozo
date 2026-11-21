@@ -70,11 +70,30 @@ interface SaveTarget {
   readonly name: string;
 }
 
+/**
+ * A gesture in flight. A gesture that changes the Scene keeps its result here,
+ * not in the Scene: the press, the moves and the release are one action, and
+ * only the release settles it into the Scene the history and autosave see.
+ */
 type Drag =
   | { kind: 'pan'; fromScreen: Point; start: View }
-  | { kind: 'move'; from: Point; origins: Map<string, SceneElement> }
-  | { kind: 'resize'; id: string; handle: Handle; origin: Box; from: Point }
-  | { kind: 'draw'; tool: Exclude<DrawingTool, 'text'>; id: string; from: Point; to: Point }
+  | {
+      kind: 'move';
+      from: Point;
+      origins: Map<string, SceneElement>;
+      /** The Elements as the pointer has moved them, by id. */
+      shown: Map<string, SceneElement>;
+    }
+  | { kind: 'resize'; id: string; handle: Handle; origin: Box; from: Point; shown: SceneElement }
+  | {
+      kind: 'draw';
+      tool: Exclude<DrawingTool, 'text'>;
+      id: string;
+      from: Point;
+      to: Point;
+      /** What the drag has drawn so far: a preview, not an Element of the Scene yet. */
+      preview: SceneElement;
+    }
   | { kind: 'text'; at: Point }
   | { kind: 'box'; from: Point; to: Point; additive: boolean };
 
@@ -344,7 +363,41 @@ export class EsbozoEditorElement extends HTMLElement {
   }
 
   #selectedElements(): SceneElement[] {
-    return this.#scene.elements.filter((element) => this.#selected.includes(element.id));
+    const selected = new Set(this.#selected);
+    return this.#shownElements().filter((element) => selected.has(element.id));
+  }
+
+  /**
+   * The Scene as the page shows it: committed Elements plus the gesture in
+   * flight. Never the Scene that is saved, so half a drag can never be a step.
+   */
+  #shownElements(): SceneElement[] {
+    const drag = this.#drag;
+    if (drag === null) {
+      return this.#scene.elements;
+    }
+    if (drag.kind === 'draw') {
+      return [...this.#scene.elements, drag.preview];
+    }
+    if (drag.kind === 'move') {
+      return this.#scene.elements.map((element) => drag.shown.get(element.id) ?? element);
+    }
+    if (drag.kind === 'resize') {
+      return this.#scene.elements.map((element) => (element.id === drag.id ? drag.shown : element));
+    }
+    return this.#scene.elements;
+  }
+
+  /** The Scene as the page shows it, gesture included. */
+  #shownScene(): Scene {
+    const elements = this.#shownElements();
+    return elements === this.#scene.elements ? this.#scene : { ...this.#scene, elements };
+  }
+
+  /** Whether a gesture that changes the Scene is in flight, so an edit waits for the pointer. */
+  #gestureHoldsScene(): boolean {
+    const drag = this.#drag;
+    return drag !== null && (drag.kind === 'draw' || drag.kind === 'move' || drag.kind === 'resize');
   }
 
   /**
@@ -413,7 +466,7 @@ export class EsbozoEditorElement extends HTMLElement {
    * promise racing the paste that follows it.
    */
   #onCopy = (event: ClipboardEvent): void => {
-    if (this.#typing(event.target)) {
+    if (this.#typing(event.target) || this.#gestureHoldsScene()) {
       return;
     }
     const selected = this.#selectedElements();
@@ -426,7 +479,7 @@ export class EsbozoEditorElement extends HTMLElement {
 
   /** Paste Scene JSON text from the clipboard, with new ids, offset off what is here. */
   #onPaste = (event: ClipboardEvent): void => {
-    if (this.#typing(event.target)) {
+    if (this.#typing(event.target) || this.#gestureHoldsScene()) {
       return;
     }
     const text = event.clipboardData?.getData('text/plain') ?? '';
@@ -510,13 +563,14 @@ export class EsbozoEditorElement extends HTMLElement {
    * Scene coordinates while the viewport pans and zooms.
    */
   #drawScene(): void {
-    const key = serialiseScene(this.#scene);
+    const shown = this.#shownScene();
+    const key = serialiseScene(shown);
     if (key === this.#paintedFor) {
       return;
     }
     this.#paintedFor = key;
     const document_ = new DOMParser().parseFromString(
-      renderScene(this.#scene, this.#layout),
+      renderScene(shown, this.#layout),
       'image/svg+xml',
     );
     const root = document_.documentElement;
@@ -537,7 +591,7 @@ export class EsbozoEditorElement extends HTMLElement {
     overlay.replaceChildren();
     const selected = this.#selectedElements();
     const first = selected[0];
-    const box = boxOf(selected, elementsById(this.#scene.elements), this.#layout);
+    const box = boxOf(selected, elementsById(this.#shownElements()), this.#layout);
     if (box !== null) {
       const padding = SELECTION_PADDING / this.#view.zoom;
       this.#appendRect(overlay, {
@@ -650,6 +704,7 @@ export class EsbozoEditorElement extends HTMLElement {
           handle: handle.getAttribute('data-handle') as Handle,
           origin: outlineBox(element),
           from: this.#scenePoint(event),
+          shown: element,
         };
         return;
       }
@@ -671,7 +726,7 @@ export class EsbozoEditorElement extends HTMLElement {
         this.#selected = [hit.id];
       }
       const origins = new Map(this.#selectedElements().map((element) => [element.id, element]));
-      this.#drag = { kind: 'move', from: point, origins };
+      this.#drag = { kind: 'move', from: point, origins, shown: new Map() };
       this.#paint();
       return;
     }
@@ -684,8 +739,8 @@ export class EsbozoEditorElement extends HTMLElement {
   };
 
   /**
-   * A drawing tool is in hand: the press puts the Element on the Scene, and
-   * every move reshapes it until the release commits it.
+   * A drawing tool is in hand: the press starts a preview Element, and every
+   * move reshapes it until the release settles it into the Scene.
    */
   #startDrawing(tool: DrawingTool, point: Point): void {
     if (tool === 'text') {
@@ -695,12 +750,15 @@ export class EsbozoEditorElement extends HTMLElement {
       return;
     }
     const id = freshId(tool, idsOf(this.#scene.elements));
-    this.#scene.elements = [
-      ...this.#scene.elements,
-      drawn(tool, point, point, id, this.#scene.defaults),
-    ];
     this.#selected = [id];
-    this.#drag = { kind: 'draw', tool, id, from: point, to: point };
+    this.#drag = {
+      kind: 'draw',
+      tool,
+      id,
+      from: point,
+      to: point,
+      preview: drawn(tool, point, point, id, this.#scene.defaults),
+    };
     this.#paint();
   }
 
@@ -713,17 +771,15 @@ export class EsbozoEditorElement extends HTMLElement {
   #finishDrawing(drag: Extract<Drag, { kind: 'draw' }>): void {
     const placed = isClick(drag.from, drag.to)
       ? drawnAtClick(drag.tool, drag.from, drag.id, this.#scene.defaults)
-      : drawn(drag.tool, drag.from, drag.to, drag.id, this.#scene.defaults);
+      : drag.preview;
     this.#setTool('select');
     if (placed === null) {
-      this.#scene.elements = this.#scene.elements.filter((element) => element.id !== drag.id);
       this.#selected = [];
-    } else {
-      this.#scene.elements = this.#scene.elements.map((element) =>
-        element.id === drag.id ? placed : element,
-      );
-      this.#selected = [drag.id];
+      this.#paint();
+      return;
     }
+    this.#scene.elements = [...this.#scene.elements, placed];
+    this.#selected = [drag.id];
     this.#paint();
     this.#record();
   }
@@ -821,10 +877,7 @@ export class EsbozoEditorElement extends HTMLElement {
     }
     if (drag.kind === 'draw') {
       drag.to = point;
-      const shaped = drawn(drag.tool, drag.from, point, drag.id, this.#scene.defaults);
-      this.#scene.elements = this.#scene.elements.map((element) =>
-        element.id === drag.id ? shaped : element,
-      );
+      drag.preview = drawn(drag.tool, drag.from, point, drag.id, this.#scene.defaults);
       this.#paint();
       return;
     }
@@ -834,27 +887,26 @@ export class EsbozoEditorElement extends HTMLElement {
     const dx = point.x - drag.from.x;
     const dy = point.y - drag.from.y;
     if (drag.kind === 'move') {
-      const origins = drag.origins;
-      this.#scene.elements = this.#scene.elements.map((element) => {
-        const origin = origins.get(element.id);
-        return origin === undefined ? element : moved(origin, dx, dy);
-      });
+      const shown = new Map<string, SceneElement>();
+      for (const element of this.#scene.elements) {
+        const origin = drag.origins.get(element.id);
+        if (origin !== undefined) {
+          shown.set(element.id, moved(origin, dx, dy));
+        }
+      }
+      drag.shown = shown;
     } else {
       const element = this.#scene.elements.find((candidate) => candidate.id === drag.id);
       if (element === undefined) {
         return;
       }
-      const box = resizedBox(drag.origin, drag.handle, dx, dy);
-      this.#scene.elements = this.#scene.elements.map((candidate) =>
-        candidate.id === drag.id ? resized(element, box) : candidate,
-      );
+      drag.shown = resized(element, resizedBox(drag.origin, drag.handle, dx, dy));
     }
     this.#paint();
   };
 
   #onPointerUp = (event: PointerEvent): void => {
     const drag = this.#drag;
-    this.#drag = null;
     this.#canvas.classList.remove('panning');
     if (drag === null) {
       return;
@@ -864,14 +916,17 @@ export class EsbozoEditorElement extends HTMLElement {
     }
 
     if (drag.kind === 'text') {
+      this.#drag = null;
       this.#openTextInput(drag.at);
       return;
     }
     if (drag.kind === 'draw') {
+      this.#drag = null;
       this.#finishDrawing(drag);
       return;
     }
     if (drag.kind === 'box') {
+      this.#drag = null;
       const swept = boxBetween(drag.from, drag.to);
       const picked = elementsInBox(this.#scene.elements, swept, this.#layout).map(
         (element) => element.id,
@@ -881,10 +936,14 @@ export class EsbozoEditorElement extends HTMLElement {
       return;
     }
     if (drag.kind === 'move' || drag.kind === 'resize') {
+      // The gesture is over: what the page showed becomes the Scene, as one step.
+      this.#scene = this.#shownScene();
+      this.#drag = null;
       this.#paint();
       this.#record();
       return;
     }
+    this.#drag = null;
     this.#paint();
   };
 
@@ -913,6 +972,10 @@ export class EsbozoEditorElement extends HTMLElement {
     }
     if (event.key === 'g' || event.key === 'G') {
       this.#toggleGrid();
+      return;
+    }
+    if (this.#gestureHoldsScene()) {
+      // Half a drag is not a Scene: an edit waits for the pointer to come up.
       return;
     }
     if (event.key === 'Escape') {
