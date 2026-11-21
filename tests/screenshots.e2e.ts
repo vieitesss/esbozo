@@ -9,7 +9,14 @@
 import { copyFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from '@e2e-dev/web';
-import { POSTER, POSTER_SCENE, clickScene, openEditor, settle } from './helpers.ts';
+import {
+  POSTER,
+  POSTER_SCENE,
+  clickScene,
+  doubleClickScene,
+  openEditor,
+  settle,
+} from './helpers.ts';
 
 const shots = process.env['ESBOZO_SHOTS'];
 
@@ -38,5 +45,18 @@ test.skipIf(shots === undefined || shots === '')(
     await ui.screen.getByRole('button', 'Dark').click();
     await settle(ui);
     await copyFile(await ui.app.screenshot('editor-dark'), join(folder, 'editor-dark.png'));
+
+    // And a Label being typed in place: the field over the words, and the box
+    // grown for them as they arrive.
+    await ui.screen.getByRole('button', 'Light').click();
+    await doubleClickScene(ui, { x: 340, y: 390 }, POSTER);
+    await ui.screen
+      .getByRole('textbox', { name: 'Label' })
+      .pressSequentially('a Label typed in place grows its box');
+    await settle(ui);
+    await copyFile(
+      await ui.app.screenshot('editor-label-editing'),
+      join(folder, 'editor-label-editing.png'),
+    );
   },
 );
