@@ -70,7 +70,7 @@ Only top-level `*.json` files in `<dir>` are Scenes. Flags, routes and what a sa
 - Scene: `version` must be `1`. `title` is the SVG's accessible name: give one. `elements` is ordered, and the order is the layer order: later Elements draw on top.
 - Every Element has a unique, non-empty `id` that you keep stable, and a `type`: `rectangle`, `ellipse`, `diamond`, `arrow`, `line` or `text`. Unknown keys are errors.
 - `rectangle`, `ellipse`, `diamond`: `x`, `y`, `width`, `height` (whole pixels, size at least 1) and an optional `label`.
-- `arrow`, `line`: `points`, exactly two ends `{ "x", "y", "snap"? }`, an optional `label`, and `heads` from `none | arrow | dot | bar`. An arrow draws an arrow head at its end; a line has none.
+- `arrow`, `line`: `points`, exactly two ends `{ "x", "y", "snap"? }`, an optional `label` and an optional `labelAt` that places it, and `heads` from `none | arrow | dot | bar`. An arrow draws an arrow head at its end; a line has none.
 - `text`: `x`, `y` and `content` (`\n` breaks lines). It has no `label`: its words are the Element.
 - Style keys (`roughness`, `stroke`, `fill`, `tone`, `corners`, `fontSize`, `textAlign`) sit on an Element or in a Scene-wide `defaults`; an Element's own value wins. Leave them out and an Element is drawn artist-rough (`roughness` `1`), in a bold solid ink stroke, unfilled, with sharp corners and `M` words (18px). Add one only for a reason, and take its values from `docs/schema.md`.
 - Colours are never written: only `tone` (`ink` or `muted`) and the grey steps of `fill` exist. No opacity, rotation, images, groups or frames.
@@ -84,7 +84,8 @@ Plan the coordinates before you write them. Use one step of 22px, the spacing of
 - Use rectangles for words. An ellipse needs about 1.4 times the room, and a diamond twice.
 - A word wider than the text box overflows: widen the Element.
 - Use `\n` for a line break you want.
-- An arrow's or line's Label is always centred on the shaft, above it (left of a vertical one); `textAlign` does not apply to it. It does not wrap and `ez check` does not test it, so look at the PNG. It runs as wide as its words: make the arrow longer than the Label plus 40px.
+- An arrow's or line's Label sits above the shaft (left of a vertical one) unless you place it: `"labelAt": { "t": 0.5, "offset": 0 }` centres the words on the point halfway along the shaft Snap draws, `t` running from `0` (the start) to `1` (the end) and `offset` in pixels to the side, positive on the upper side and negative on the lower one. `textAlign` does not apply to it. It does not wrap and `ez check` does not test it, so look at the PNG. It runs as wide as its words: make the arrow longer than the Label plus 40px.
+- Every arrow or line Label sits on its own paper: the Renderer draws `var(--paper)` behind the words, so a Label placed on its shaft cuts the shaft out and stays readable instead of reading through it. The same paper hides anything else under the words, so do not park a shaft Label over an Element you want seen.
 
 **Snapped arrows.** Put `"snap": "<id>"` on an end to attach it to the outline of a rectangle, ellipse or diamond; the end then follows that Element. `x` and `y` stay required but the Renderer moves the end: it aims at the middle of the other end's target, or at the other end's own point when that end is free. So set a Snapped end's `x`, `y` to its target's centre. A target must exist and cannot be a text, arrow or line. Two ends of one arrow cannot Snap to the same Element.
 - Leave at least 66px (three steps) between two Elements an arrow joins, so the head and Label show.

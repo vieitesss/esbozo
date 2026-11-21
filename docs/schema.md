@@ -51,7 +51,19 @@ Every Element has these keys.
 | --- | --- | --- | --- |
 | `points` | array of two points | none, required | Exactly two: the start, then the end. |
 | `heads` | object | arrow: `{ "start": "none", "end": "arrow" }`; line: both `none` | Keys `start` and `end` only, each `none`, `arrow`, `dot` or `bar`. A missing key takes the default. |
-| `label` | string | none | As above. It does not wrap: it breaks only at `\n`. It is always centred on the middle of the shaft, on the side that points up (left of a vertical shaft); `textAlign` does not apply to it. `ez check` does not measure it. |
+| `label` | string | none | As above. It does not wrap: it breaks only at `\n`. Without `labelAt` it is centred on the middle of the shaft, on the side that points up (left of a vertical shaft); `textAlign` does not apply to it. Every arrow's or line's Label has paper behind it. `ez check` does not measure it. |
+| `labelAt` | object | none: Layout's own place | Keys `t` and `offset` only. `t` is the fraction along the drawn shaft: `0` at the start, `1` at the end, between `0` and `1`. `offset` is a signed distance in pixels to one side, rounded to whole pixels: `0` sits on the shaft, and a positive value is the side the default Label takes, which is the side that points up (the left of a vertical shaft). Only an arrow or line carries one. |
+
+A Label with `labelAt` is centred on the point that fraction of the way along the
+shaft the Renderer draws, then moved `offset` pixels to that side. It follows the
+ends a Snap moves, so it stays where the author put it on the arrow as its
+targets move. A Scene that writes no `labelAt` places the Label where Layout
+always has: centred above the middle of the shaft.
+
+Every shaft Label sits on paper: the Renderer draws `var(--paper)` behind its
+words, so a Label placed over its own shaft — or over anything else — is read
+against paper rather than through what runs under it. That holds in the SVG,
+both PNG themes and the editor.
 
 A point has these keys.
 
@@ -93,15 +105,17 @@ Every Element accepts every style key, and each type draws the ones that mean so
 
 - Rectangle and diamond: all of them. `corners` rounds their corners.
 - Ellipse: all except `corners`, which it has none of.
-- Arrow and line: `roughness`, `stroke`, `tone`, and `fontSize` for the Label. They have no fill, no corners, and no `textAlign` effect: their Label is always centred on the shaft.
+- Arrow and line: `roughness`, `stroke`, `tone`, and `fontSize` for the Label. They have no fill, no corners, and no `textAlign` effect: their Label sits on the shaft, placed by `labelAt` when one is written.
 - Text: `tone`, `fontSize` and `textAlign`.
 
 Colours are never written in a Scene. The look comes from the host's CSS variables `--ink`, `--paper`, `--muted` and `--font-hand`; the grey ladder is a fixed mix of ink into paper. There is no opacity, rotation, image, group or frame.
 
 ## Canonical form
 
-`serialiseScene` writes a Scene with two-space indentation, a fixed key order, whole-pixel geometry, every style key spelt out on each Element (an unwritten `textAlign` is written as what it resolved to) and a final newline. In `defaults`, `textAlign` appears only when the Scene wrote one. The Scene hash in an SVG's `data-scene-hash` is the SHA-256 of that text, so a Scene that parses to the same values hashes the same, whatever its file looked like. Saving from the editor writes this form.
+`serialiseScene` writes a Scene with two-space indentation, a fixed key order, whole-pixel geometry, every style key spelt out on each Element (an unwritten `textAlign` is written as what it resolved to) and a final newline. In `defaults`, `textAlign` appears only when the Scene wrote one. A shaft's `labelAt` is written after the `label` it places, and only when the Scene has one: its `t` keeps four decimals and its `offset` whole pixels, like the geometry around it. The Scene hash in an SVG's `data-scene-hash` is the SHA-256 of that text, so a Scene that parses to the same values hashes the same, whatever its file looked like. Saving from the editor writes this form.
 
 ## Labels
 
 A Label wraps at spaces inside the largest centred box its Element holds, less padding. The box is the whole Element for a rectangle, `1/√2` of each side for an ellipse and half of each side for a diamond, minus `8` pixels plus the stroke width on every side. A word wider than the box is not split. What does not fit overflows: the SVG still draws it, and `ez check` reports it and exits `6`. The Scene keeps the size you gave the Element; widen or heighten it, or shorten the words.
+
+A Label that belongs to an arrow or line has no box to wrap in and no overflow to report: it sits on the shaft, where `labelAt` puts it or above the middle when the Scene writes none, and the Renderer draws paper behind it so it never reads through the shaft.
