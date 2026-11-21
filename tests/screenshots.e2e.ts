@@ -81,3 +81,37 @@ test.skipIf(shots === undefined || shots === '')(
     );
   },
 );
+
+// The status corners on a wide page and on a phone, with the Shortcuts sheet
+// open and shut: the ticket's own view of the two things #32 added.
+test.skipIf(shots === undefined || shots === '')('the shortcuts sheet, wide and narrow', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  const folder = shots ?? 'shots';
+  await mkdir(folder, { recursive: true });
+  const folders = { A: { 'scene.json': JSON.stringify(POSTER_SCENE, null, 2) } };
+
+  for (const [name, width, height] of [
+    ['1366x768', 1366, 768],
+    ['390x780', 390, 780],
+  ] as const) {
+    await browser.setViewport({ width, height });
+    await openEditor(ui, folders, 'scene.json');
+    await browser.evaluate(() => document.fonts.ready.then(() => true));
+    await settle(ui);
+    await copyFile(
+      await ui.app.screenshot(`shortcuts-${name}-closed`),
+      join(folder, `shortcuts-${name}-closed.png`),
+    );
+
+    await screen.getByRole('button', 'Shortcuts').click();
+    await settle(ui);
+    await copyFile(
+      await ui.app.screenshot(`shortcuts-${name}-open`),
+      join(folder, `shortcuts-${name}-open.png`),
+    );
+  }
+});
