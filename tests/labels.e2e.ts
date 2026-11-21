@@ -22,6 +22,8 @@ import {
   OVERLAP_SCENE,
   OVERFLOW,
   OVERFLOW_SCENE,
+  POINT,
+  POINT_SCENE,
   PRESS,
   PRESS_SCENE,
   ROOM,
@@ -58,6 +60,7 @@ import type { Rect, Shot } from './pixels.ts';
 const SCENE_SOURCE = JSON.stringify(SCENE, null, 2);
 const MIXED_SOURCE = JSON.stringify(MIXED_SCENE, null, 2);
 const OVERFLOW_SOURCE = JSON.stringify(OVERFLOW_SCENE, null, 2);
+const POINT_SOURCE = JSON.stringify(POINT_SCENE, null, 2);
 const PRESS_SOURCE = JSON.stringify(PRESS_SCENE, null, 2);
 const WORDS_SOURCE = JSON.stringify(WORDS_SCENE, null, 2);
 const ROOM_SOURCE = JSON.stringify(ROOM_SCENE, null, 2);
@@ -2508,5 +2511,20 @@ describe('labels', () => {
     expect(after.darkCount({ x: 620, y: 362, width: 55, height: 28 }, DARK)).toBeGreaterThan(20);
     // Nothing of the drag reached the file, and neither did the edit it refused.
     expect((await savedFiles(ui))['labelled.json']).toBe(LABELLED_SOURCE);
+  });
+  test('a Label dragged on a shaft with no length keeps the fraction along it', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'point.json': POINT_SOURCE } }, 'point.json');
+
+    // Up and away from the point, so the distance to its side grows: there is no
+    // direction to move along, and the fraction the Scene wrote stays as it was
+    // rather than being erased by a shaft that has nothing to travel.
+    await dragBy(ui, { x: 300, y: 140 }, 0, -20, POINT);
+    const scene = await savedScene(ui, 'point.json');
+    expect(scene.elements[0]?.labelAt).toEqual({ t: 0.5, offset: 80 });
   });
 });

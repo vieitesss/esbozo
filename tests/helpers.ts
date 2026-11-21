@@ -336,6 +336,33 @@ export const TILTED_SCENE = {
 export const TILTED: View = { zoom: 1, panX: 480, panY: 130 };
 
 /**
+ * A line whose two ends are the same point, and a Label placed 60 pixels above
+ * it: there is no direction to read a fraction along, so the fraction the Scene
+ * holds is the one a drag has to leave alone.
+ */
+export const POINT_SCENE = {
+  version: 1,
+  title: 'Point',
+  defaults: { roughness: 1 },
+  elements: [
+    {
+      id: 'dot',
+      type: 'line',
+      points: [
+        { x: 300, y: 200 },
+        { x: 300, y: 200 },
+      ],
+      heads: { start: 'none', end: 'none' },
+      label: 'still',
+      labelAt: { t: 0.5, offset: 60 },
+    },
+  ],
+};
+
+/** The view `POINT_SCENE` lands in, worked out the same way as `VIEW`. */
+export const POINT: View = { zoom: 1, panX: 340, panY: 237.5 };
+
+/**
  * A thick horizontal line, and a diagonal arrow whose bounding box holds a
  * rectangle: the shapes whose boxes lie about where their ink is.
  */

@@ -9,7 +9,17 @@
  * diagonal arrow's empty corner is bare canvas. Box-select still works on boxes,
  * because a box sweeps up only what it encloses.
  */
-import { drawnShaft, elementBounds, elementsById, inkBounds, labelInkBounds, pageBounds, shaftLabel, strokeWidthOf } from '../renderer.js';
+import { alongSegment } from '../geometry.js';
+import {
+  drawnShaft,
+  elementBounds,
+  elementsById,
+  inkBounds,
+  labelInkBounds,
+  pageBounds,
+  shaftLabel,
+  strokeWidthOf,
+} from '../renderer.js';
 import type { Layout } from '../layout.js';
 import { MIN_SIZE, isOutlined } from '../scene.js';
 import type { Element, Scene } from '../scene.js';
@@ -153,13 +163,8 @@ function holds(box: Box, point: Point): boolean {
 
 /** How far a point is from the segment `from`-`to`. */
 function distanceToSegment(point: Point, from: Point, to: Point): number {
-  const across = to.x - from.x;
-  const down = to.y - from.y;
-  const lengthSquared = across * across + down * down;
-  const travelled = (point.x - from.x) * across + (point.y - from.y) * down;
-  const along =
-    lengthSquared === 0 ? 0 : Math.min(1, Math.max(0, travelled / lengthSquared));
-  const nearest = { x: from.x + across * along, y: from.y + down * along };
+  const along = alongSegment(from, to, point);
+  const nearest = { x: from.x + (to.x - from.x) * along, y: from.y + (to.y - from.y) * along };
   return Math.hypot(point.x - nearest.x, point.y - nearest.y);
 }
 

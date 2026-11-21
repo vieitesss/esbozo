@@ -2853,7 +2853,10 @@ class EsbozoEditorElement extends HTMLElement {
       // is what the release saves.
       const anchor = { x: point.x - drag.grab.x, y: point.y - drag.grab.y };
       if (isShaft(drag.shown)) {
-        drag.shown = { ...drag.shown, labelAt: labelAtFor(drag.shaft, anchor) };
+        drag.shown = {
+          ...drag.shown,
+          labelAt: labelAtFor(drag.shaft, anchor, drag.shown.labelAt?.t ?? 0),
+        };
         drag.moved = true;
       }
       this.#paint();

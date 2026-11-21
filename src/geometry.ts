@@ -1109,22 +1109,40 @@ export function shaftLabelAnchor(
 }
 
 /**
+ * How far along a segment a point falls, held inside it: 0 at `start`, 1 at
+ * `end`. A segment with no length has no direction, so it answers `whenFlat`:
+ * the caller's own idea of where along nothing is.
+ */
+export function alongSegment(start: Point, end: Point, point: Point, whenFlat = 0): number {
+  const across = end.x - start.x;
+  const down = end.y - start.y;
+  const lengthSquared = across * across + down * down;
+  if (lengthSquared === 0) {
+    return whenFlat;
+  }
+  const travelled = (point.x - start.x) * across + (point.y - start.y) * down;
+  return Math.min(1, Math.max(0, travelled / lengthSquared));
+}
+
+/**
  * The `labelAt` that puts a shaft's Label centre on a point: how far along the
  * drawn shaft the point falls, held inside the shaft, and how far to its side —
  * signed along the side `shaftLabelAnchor` measures from, so 0 is on the shaft.
  * The inverse of `shaftLabelAnchor`, so a drag reads back the place the ink
  * would show.
+ *
+ * A shaft with no length has no direction to travel, so its fraction stays the
+ * one it had (`whenFlat`), rather than being erased where it cannot be read and
+ * lost when the shaft reopens.
  */
 export function labelAtFor(
   shaft: { start: Point; end: Point },
   anchor: Point,
+  whenFlat = 0,
 ): { t: number; offset: number } {
-  const along = { x: shaft.end.x - shaft.start.x, y: shaft.end.y - shaft.start.y };
-  const lengthSquared = along.x * along.x + along.y * along.y;
-  const travelled = (anchor.x - shaft.start.x) * along.x + (anchor.y - shaft.start.y) * along.y;
-  const side = shaftSide(along);
+  const side = shaftSide({ x: shaft.end.x - shaft.start.x, y: shaft.end.y - shaft.start.y });
   return {
-    t: lengthSquared === 0 ? 0 : Math.min(1, Math.max(0, travelled / lengthSquared)),
+    t: alongSegment(shaft.start, shaft.end, anchor, whenFlat),
     offset: (anchor.x - shaft.start.x) * side.x + (anchor.y - shaft.start.y) * side.y,
   };
 }
