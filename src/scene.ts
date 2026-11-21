@@ -117,7 +117,7 @@ export const TONES = ['ink', 'muted'] as const;
 type Tone = (typeof TONES)[number];
 
 export const CORNERS = ['sharp', 'round'] as const;
-type Corners = (typeof CORNERS)[number];
+export type Corner = (typeof CORNERS)[number];
 
 export const FONT_SIZES = ['S', 'M', 'L', 'XL'] as const;
 export type FontSize = (typeof FONT_SIZES)[number];
@@ -180,7 +180,7 @@ export interface Point {
    * How the shaft turns at this point: a smooth `round` bend or a `sharp` one.
    * Only a middle point carries one; the ends have nothing to turn.
    */
-  corner?: Corners;
+  corner?: Corner;
 }
 
 /**
@@ -208,7 +208,7 @@ export interface ElementStyle {
    * or line's bend point turns by unless the point writes its own; an ellipse
    * has none to round.
    */
-  corners: Corners;
+  corners: Corner;
   /** Font size of a Text or a Label. */
   fontSize: FontSize;
   /** Alignment of a Text's or a Label's lines. */
@@ -1096,7 +1096,7 @@ function parsePoint(
     }
   }
   // A corner is the bend a middle point turns by: an end has no bend to style.
-  let corner: Corners | undefined;
+  let corner: Corner | undefined;
   if (raw.corner !== undefined && end) {
     report(`points[${index}].corner applies only to a middle point`);
   } else if (raw.corner !== undefined) {

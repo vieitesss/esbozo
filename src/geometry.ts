@@ -21,10 +21,7 @@
  * heads and the page bounds all read. One owner for that path is what keeps the
  * ink, the heads pointing along it and the words on it from drifting apart.
  */
-export interface Point {
-  x: number;
-  y: number;
-}
+import type { Corner, Point } from './scene.js';
 
 /** The outline of an Element, as a Snap target. */
 export interface Outline {
@@ -179,7 +176,7 @@ const OUTLINE_WALK = 72;
  * then the two ends keep the points on the line between the centres, which is
  * all the two outlines offer.
  */
-function shaftEnds(
+function settledEnds(
   points: readonly [Point, Point],
   startTarget: Outline | undefined,
   endTarget: Outline | undefined,
@@ -421,21 +418,28 @@ const FILLET_RADIUS = 7;
 /** How many chords one curve is measured by, for its length and its extremes. */
 const CURVE_STEPS = 32;
 
-/** The corner a bend point turns by: a smooth `round` bend, or a `sharp` one. */
-export type Corner = 'sharp' | 'round';
-
-/**
- * One piece of a resolved shaft: a straight run between two points, or a cubic
- * curve when `control1` and `control2` are there. `length` is the arc length
- * from `from` to `to`, so a caller never has to guess how long a curve is.
- */
-interface ShaftPiece {
+/** What every piece of a resolved shaft measures: an arc length from `from` to `to`. */
+interface ShaftPieceBase {
   readonly from: Point;
   readonly to: Point;
-  readonly control1?: Point;
-  readonly control2?: Point;
+  /** Arc length from `from` to `to`, so a caller never has to guess how long a piece is. */
   readonly length: number;
 }
+
+/** A straight run between two points. */
+interface StraightPiece extends ShaftPieceBase {
+  readonly kind: 'straight';
+}
+
+/** A cubic curve between two points, drawn by its two control points. */
+interface CurvedPiece extends ShaftPieceBase {
+  readonly kind: 'curved';
+  readonly control1: Point;
+  readonly control2: Point;
+}
+
+/** One piece of a resolved shaft: a straight run, or the cubic curve it bends by. */
+type ShaftPiece = StraightPiece | CurvedPiece;
 
 /** The box a resolved shaft covers, its bulge extremes included. */
 interface ShaftBounds {
@@ -470,14 +474,14 @@ export interface ShaftPath {
  * the shaft actually leaves in; a two-point shaft has no bend point to aim at,
  * so it keeps the two-target arithmetic that settles overlapping outlines.
  */
-export function shaftPoints(
+function drawnPoints(
   points: readonly [Point, Point, ...Point[]],
   startTarget: Outline | undefined,
   endTarget: Outline | undefined,
 ): Point[] {
   const last = points.length - 1;
   if (last === 1) {
-    return shaftEnds([points[0], points[1]], startTarget, endTarget);
+    return settledEnds([points[0], points[1]], startTarget, endTarget);
   }
   const drawn = points.map((point) => ({ x: point.x, y: point.y }));
   if (startTarget !== undefined) {
@@ -490,47 +494,72 @@ export function shaftPoints(
 }
 
 /**
- * The path a shaft draws through resolved points. Each middle point turns by
- * its own `corner`: consecutive `round` points form one continuous smooth curve,
- * and a `sharp` point breaks that curve into a corner softened by a short
- * fillet, half the shorter neighbouring segment at most, so a tight or doubled
- * back route never inverts an arc or divides by zero.
+ * The two ends a shaft draws between, each Snapped end moved onto its target's
+ * outline: the ends the editor picks by, settled without measuring a single
+ * curve between them.
  */
-export function shaftPath(points: readonly Point[], corners: readonly Corner[]): ShaftPath {
-  const nodes = gathered(points, corners);
-  const pieces = piecesOf(nodes);
-  const start = { x: points[0]!.x, y: points[0]!.y };
-  const end = { x: points[points.length - 1]!.x, y: points[points.length - 1]!.y };
+export function shaftEnds(
+  points: readonly [Point, Point, ...Point[]],
+  startTarget: Outline | undefined,
+  endTarget: Outline | undefined,
+): [Point, Point] {
+  const drawn = drawnPoints(points, startTarget, endTarget);
+  return [drawn[0]!, drawn[drawn.length - 1]!];
+}
+
+/**
+ * The path a shaft draws through. Each middle point turns by its own `corner`:
+ * consecutive `round` points form one continuous smooth curve, and a `sharp`
+ * point breaks that curve into a corner softened by a short fillet. A point
+ * that writes no corner takes the Element's, resolved here once so the ink, the
+ * heads and the words cannot each fall back on their own answer.
+ */
+export function shaftPath(
+  points: readonly [Point, Point, ...Point[]],
+  corners: Corner,
+  startTarget: Outline | undefined,
+  endTarget: Outline | undefined,
+): ShaftPath {
+  const drawn = drawnPoints(points, startTarget, endTarget);
+  const pieces = piecesOf(gathered(drawn, points, corners));
+  const start = drawn[0]!;
+  const end = drawn[drawn.length - 1]!;
   // A shaft whose points all sit on one another still draws its one point, so
   // the ends it reports and the ink it makes stay the same thing.
-  const drawn = pieces.length === 0 ? [straight(start, end)] : pieces;
+  const inked = pieces.length === 0 ? [straight(start, end)] : pieces;
   return {
-    start,
-    end,
-    pieces: drawn,
-    length: drawn.reduce((total, piece) => total + piece.length, 0),
-    bounds: boundsOf(drawn),
+    start: { x: start.x, y: start.y },
+    end: { x: end.x, y: end.y },
+    pieces: inked,
+    length: inked.reduce((total, piece) => total + piece.length, 0),
+    bounds: boundsOf(inked),
   };
+}
+
+/** One point a shaft draws through, and the corner it turns by; an end has no bend to style. */
+interface ShaftPoint {
+  readonly at: Point;
+  readonly corner: Corner;
 }
 
 /**
  * The points to draw through, each with the corner it turns by, in drawing
- * order: a repeated point adds no ink and no direction, so it is dropped.
+ * order: a repeated point adds no ink and no direction, so it is dropped, and a
+ * point that writes no corner takes the Element's.
  */
-function gathered(points: readonly Point[], corners: readonly Corner[]): CorneredPoint[] {
-  const nodes: CorneredPoint[] = [];
-  for (const [index, point] of points.entries()) {
-    if (samePoint(nodes[nodes.length - 1]?.point, point)) {
+function gathered(
+  drawn: readonly Point[],
+  scene: readonly Point[],
+  corners: Corner,
+): ShaftPoint[] {
+  const points: ShaftPoint[] = [];
+  for (const [index, point] of drawn.entries()) {
+    if (samePoint(points[points.length - 1]?.at, point)) {
       continue;
     }
-    nodes.push({ point: { x: point.x, y: point.y }, corner: corners[index] ?? 'sharp' });
+    points.push({ at: { x: point.x, y: point.y }, corner: scene[index]?.corner ?? corners });
   }
-  return nodes;
-}
-
-interface CorneredPoint {
-  point: Point;
-  corner: Corner;
+  return points;
 }
 
 /**
@@ -539,33 +568,33 @@ interface CorneredPoint {
  * smooth curves when they have a `round` point to bend by and straight lines
  * when they do not.
  */
-function piecesOf(nodes: readonly CorneredPoint[]): ShaftPiece[] {
-  if (nodes.length < 2) {
+function piecesOf(points: readonly ShaftPoint[]): ShaftPiece[] {
+  if (points.length < 2) {
     return [];
   }
   const pieces: ShaftPiece[] = [];
-  let run: Point[] = [nodes[0]!.point];
-  for (let index = 1; index < nodes.length - 1; index += 1) {
-    const node = nodes[index]!;
-    if (node.corner === 'round') {
-      run.push(node.point);
+  let run: Point[] = [points[0]!.at];
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const bend = points[index]!;
+    if (bend.corner === 'round') {
+      run.push(bend.at);
       continue;
     }
-    const before = softened(nodes[index - 1]!.point, node.point);
-    const after = softened(nodes[index + 1]!.point, node.point);
+    const before = softened(points[index - 1]!.at, bend.at);
+    const after = softened(points[index + 1]!.at, bend.at);
     run.push(before);
     appendRun(pieces, run);
     pieces.push(
       curve(
         before,
-        lerp(before, node.point, 2 / 3),
-        lerp(after, node.point, 2 / 3),
+        lerp(before, bend.at, 2 / 3),
+        lerp(after, bend.at, 2 / 3),
         after,
       ),
     );
     run = [after];
   }
-  run.push(nodes[nodes.length - 1]!.point);
+  run.push(points[points.length - 1]!.at);
   appendRun(pieces, run);
   return pieces;
 }
@@ -598,13 +627,13 @@ function tangentThrough(before: Point, after: Point): Point {
 
 /** A straight piece, measured by the distance it spans. */
 function straight(from: Point, to: Point): ShaftPiece {
-  return { from, to, length: Math.hypot(to.x - from.x, to.y - from.y) };
+  return { kind: 'straight', from, to, length: Math.hypot(to.x - from.x, to.y - from.y) };
 }
 
 /** A curve piece, measured along its own arc. */
 function curve(from: Point, control1: Point, control2: Point, to: Point): ShaftPiece {
-  const piece: ShaftPiece = { from, to, control1, control2, length: 0 };
-  return { ...piece, length: curveLength(piece) };
+  const measured: CurvedPiece = { kind: 'curved', from, control1, control2, to, length: 0 };
+  return { ...measured, length: curveLength(measured) };
 }
 
 /**
@@ -645,11 +674,10 @@ function shaftPointAt(path: ShaftPath, t: number): Point {
 /** The unit direction the shaft points in at a fraction of the way along it. */
 export function shaftTangentAt(path: ShaftPath, t: number): Point {
   const found = placeOn(path, t);
-  const piece = found.piece;
-  if (piece.control1 === undefined || piece.control2 === undefined) {
-    return unit(piece.from, piece.to);
+  if (found.piece.kind === 'straight') {
+    return unit(found.piece.from, found.piece.to);
   }
-  return unit({ x: 0, y: 0 }, tangentOf(piece, found.u));
+  return unit({ x: 0, y: 0 }, tangentOf(found.piece, found.u));
 }
 
 /** A piece and how far along it a fraction of the shaft lands. */
@@ -666,7 +694,7 @@ function placeOn(path: ShaftPath, t: number): { piece: ShaftPiece; u: number } {
 
 /** How far along a piece, as its own parameter, a distance from its start lands. */
 function uAt(piece: ShaftPiece, distance: number): number {
-  if (piece.control1 === undefined || piece.control2 === undefined) {
+  if (piece.kind === 'straight') {
     return piece.length === 0 ? 0 : Math.min(1, Math.max(0, distance / piece.length));
   }
   let travelled = 0;
@@ -687,7 +715,7 @@ function uAt(piece: ShaftPiece, distance: number): number {
 
 /** The point a piece reaches at its own parameter `u`. */
 function pointOf(piece: ShaftPiece, u: number): Point {
-  if (piece.control1 === undefined || piece.control2 === undefined) {
+  if (piece.kind === 'straight') {
     return lerp(piece.from, piece.to, u);
   }
   const rest = 1 - u;
@@ -710,27 +738,25 @@ function pointOf(piece: ShaftPiece, u: number): Point {
 }
 
 /** The derivative of a curve piece at its own parameter `u`, before it is normalised. */
-function tangentOf(piece: ShaftPiece, u: number): Point {
-  const control1 = piece.control1!;
-  const control2 = piece.control2!;
+function tangentOf(piece: CurvedPiece, u: number): Point {
   const rest = 1 - u;
   const before = 3 * rest * rest;
   const first = 6 * rest * u;
   const second = 3 * u * u;
   return {
     x:
-      (control1.x - piece.from.x) * before +
-      (control2.x - control1.x) * first +
-      (piece.to.x - control2.x) * second,
+      (piece.control1.x - piece.from.x) * before +
+      (piece.control2.x - piece.control1.x) * first +
+      (piece.to.x - piece.control2.x) * second,
     y:
-      (control1.y - piece.from.y) * before +
-      (control2.y - control1.y) * first +
-      (piece.to.y - control2.y) * second,
+      (piece.control1.y - piece.from.y) * before +
+      (piece.control2.y - piece.control1.y) * first +
+      (piece.to.y - piece.control2.y) * second,
   };
 }
 
 /** The arc length of a curve piece, as the chords it is walked by add up to. */
-function curveLength(piece: ShaftPiece): number {
+function curveLength(piece: CurvedPiece): number {
   let length = 0;
   let previous = piece.from;
   for (let step = 1; step <= CURVE_STEPS; step += 1) {
@@ -756,7 +782,7 @@ function boundsOf(pieces: readonly ShaftPiece[]): ShaftBounds {
   for (const piece of pieces) {
     reach(piece.from.x, piece.from.y);
     reach(piece.to.x, piece.to.y);
-    if (piece.control1 === undefined || piece.control2 === undefined) {
+    if (piece.kind === 'straight') {
       continue;
     }
     for (const axis of ['x', 'y'] as const) {
@@ -773,10 +799,10 @@ function boundsOf(pieces: readonly ShaftPiece[]): ShaftBounds {
  * Where a curve piece turns back on one axis: the roots of its derivative that
  * fall inside the piece, so a bulge past its ends is measured and never clipped.
  */
-function curveTurns(piece: ShaftPiece, axis: 'x' | 'y'): number[] {
+function curveTurns(piece: CurvedPiece, axis: 'x' | 'y'): number[] {
   const start = piece.from[axis];
-  const control1 = piece.control1![axis];
-  const control2 = piece.control2![axis];
+  const control1 = piece.control1[axis];
+  const control2 = piece.control2[axis];
   const end = piece.to[axis];
   const square = -start + 3 * control1 - 3 * control2 + end;
   const linear = 2 * (start - 2 * control1 + control2);

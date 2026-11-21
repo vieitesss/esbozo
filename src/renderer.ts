@@ -66,9 +66,9 @@ import {
   arrowHeadTriangle,
   barThrough,
   fillets,
+  shaftEnds,
   shaftLabelAnchor,
   shaftPath,
-  shaftPoints,
   shaftTangentAt,
 } from './geometry.js';
 import type { ShaftPath } from './geometry.js';
@@ -228,8 +228,12 @@ export function drawnShaft(
   element: ArrowOrLineElement,
   byId: ReadonlyMap<string, Element>,
 ): [Point, Point] {
-  const path = shaftPathOf(element, byId);
-  return [path.start, path.end];
+  const last = element.points.length - 1;
+  return shaftEnds(
+    element.points,
+    snapTarget(element, element.points[0], byId),
+    snapTarget(element, element.points[last]!, byId),
+  );
 }
 
 /**
@@ -832,14 +836,11 @@ function shaftPathOf(
   byId: ReadonlyMap<string, Element>,
 ): ShaftPath {
   const last = element.points.length - 1;
-  const points = shaftPoints(
+  return shaftPath(
     element.points,
+    element.corners,
     snapTarget(element, element.points[0], byId),
     snapTarget(element, element.points[last]!, byId),
-  );
-  return shaftPath(
-    points,
-    element.points.map((point) => point.corner ?? element.corners),
   );
 }
 
@@ -851,7 +852,7 @@ function shaftPathOf(
 function shaftData(path: ShaftPath): string {
   const commands = [`M ${formatPoint(path.pieces[0]!.from)}`];
   for (const piece of path.pieces) {
-    if (piece.control1 === undefined || piece.control2 === undefined) {
+    if (piece.kind === 'straight') {
       commands.push(`L ${formatPoint(piece.to)}`);
       continue;
     }
