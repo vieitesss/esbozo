@@ -34,7 +34,7 @@ import type { StyleKey } from './style.js';
 import { canPickFolder } from './files.js';
 import { servedFolder } from './server-folder.js';
 import { boxOf, clampedDock, fittedView, landingOffset, moved, railFrame, zoomedAt } from './geometry.js';
-import type { Point, View } from './geometry.js';
+import type { Point, RailSide, View } from './geometry.js';
 import { History } from './history.js';
 import { railArt } from './rail.js';
 import { SHELL } from './shell.js';
@@ -76,6 +76,8 @@ class EsbozoEditorElement extends HTMLElement {
    * before any clamp: a resize carries it and growing back restores it (D3, I7).
    */
   #railDockOffset: Point | null = null;
+  /** The side of the frame the rail is docked on: the top until a palette move takes it elsewhere. */
+  #railSide: RailSide = 'top';
   /** True once the editor's listeners are on the page. */
   #wired = false;
   /**
@@ -1041,18 +1043,27 @@ class EsbozoEditorElement extends HTMLElement {
 
   /**
    * Hang the rail on the frame around the diagram, measured when the Scene
-   * opens: the top dock's outline a gap above the frame, or the strip just
-   * inside the editor's top edge when the frame leaves no room for that. It
-   * measures the view and never moves it: the rail floats over the paper.
+   * opens or the rail is docked by name: the side's outline a gap outside the
+   * frame, or the strip just inside the editor's edge when the frame leaves no
+   * room for that. It measures the view and never moves it: the rail floats
+   * over the paper.
    */
   #placeRail(): void {
     const outline = {
+      width: this.#rail.offsetWidth + RAIL_OUTLINE * 2,
       height: this.#rail.offsetHeight + RAIL_OUTLINE * 2,
       overhang: RAIL_OUTLINE,
     };
     const viewport = this.#page.viewport;
     const size = viewport.size();
-    const { dock } = railFrame(this.#scene, viewport.view, size, outline, this.#connection.layout);
+    const { dock } = railFrame(
+      this.#scene,
+      viewport.view,
+      size,
+      this.#railSide,
+      outline,
+      this.#connection.layout,
+    );
     this.#railDockOffset = { x: dock.x - size.width / 2, y: dock.y - size.height / 2 };
     this.#hangRail();
   }
@@ -1073,6 +1084,7 @@ class EsbozoEditorElement extends HTMLElement {
       { x: size.width / 2 + kept.x, y: size.height / 2 + kept.y },
       { width: this.#rail.offsetWidth, height: this.#rail.offsetHeight, overhang: RAIL_OUTLINE },
       size,
+      this.#railSide,
     );
     this.#rail.style.setProperty('--rail-left', `${dock.x}px`);
     this.#rail.style.setProperty('--rail-top', `${dock.y}px`);

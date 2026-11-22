@@ -233,7 +233,7 @@ test('the caret’s line fits the slot it is drawn in, at every zoom a page offe
 test('the rail frames the diagram, at least 960×600, and hangs the top dock above it', () => {
   // The rail's strip as the sheet draws it: 49 px of box and its two pencil
   // passes 7 px outside it on every side, so the outline is 63 px tall.
-  const OUTLINE = { height: 63, overhang: 7 };
+  const OUTLINE = { width: 246, height: 63, overhang: 7 };
   const WINDOW = { width: 1280, height: 800 };
   const still = { zoom: 1, panX: 0, panY: 0 };
 
@@ -247,41 +247,41 @@ test('the rail frames the diagram, at least 960×600, and hangs the top dock abo
 
   // An empty Scene frames the editor's middle at the minimum size, so the
   // outline's top is the frame's 100 px down, less the gap and the strip.
-  const empty = railFrame(parsed({ version: 1, elements: [] }), still, WINDOW, OUTLINE, LAYOUT);
+  const empty = railFrame(parsed({ version: 1, elements: [] }), still, WINDOW, 'top', OUTLINE, LAYOUT);
   assert.deepEqual(empty.frame, { x: 160, y: 100, width: 960, height: 600 });
   assert.deepEqual(empty.dock, { x: 640, y: 100 - 16 - 63 + 7 });
 
   // A tiny diagram gets the minimum about its own centre, not the editor's: a
   // 40×40 box at (700, 480) is framed by 960×600 around (720, 500).
-  const tiny = railFrame(oneBox(100, 100, 40, 40), { zoom: 1, panX: 600, panY: 380 }, WINDOW, OUTLINE, LAYOUT);
+  const tiny = railFrame(oneBox(100, 100, 40, 40), { zoom: 1, panX: 600, panY: 380 }, WINDOW, 'top', OUTLINE, LAYOUT);
   assert.deepEqual(tiny.frame, { x: 240, y: 200, width: 960, height: 600 });
   assert.deepEqual(tiny.dock, { x: 720, y: 200 - 16 - 63 + 7 });
 
   // A diagram already larger than the minimum is its own frame, and the dock is
   // one gap above its top side, centred on it. The window is tall enough to
   // hold the whole of it, so the frame is not cut.
-  const large = railFrame(oneBox(140, 370, 1000, 700), still, { width: 1280, height: 1440 }, OUTLINE, LAYOUT);
+  const large = railFrame(oneBox(140, 370, 1000, 700), still, { width: 1280, height: 1440 }, 'top', OUTLINE, LAYOUT);
   assert.deepEqual(large.frame, { x: 140, y: 370, width: 1000, height: 700 });
   assert.deepEqual(large.dock, { x: 140 + 500, y: 370 - 16 - 63 + 7 });
 
   // A frame cut by the editor's box: the dock follows the cut's top side.
-  const cut = railFrame(oneBox(-400, 140, 1000, 620), still, WINDOW, OUTLINE, LAYOUT);
+  const cut = railFrame(oneBox(-400, 140, 1000, 620), still, WINDOW, 'top', OUTLINE, LAYOUT);
   assert.deepEqual(cut.frame, { x: 0, y: 140, width: 600, height: 620 });
   assert.deepEqual(cut.dock, { x: 300, y: 140 - 16 - 63 + 7 });
 
   // No room above the frame's top side: the rail stops 15 px inside the
   // editor's top edge, over the paper.
-  const squeezed = railFrame(oneBox(140, 40, 1000, 700), still, WINDOW, OUTLINE, LAYOUT);
+  const squeezed = railFrame(oneBox(140, 40, 1000, 700), still, WINDOW, 'top', OUTLINE, LAYOUT);
   assert.deepEqual(squeezed.frame, { x: 140, y: 40, width: 1000, height: 700 });
   assert.equal(squeezed.dock.y, 15);
 
   // Nothing of a diagram on screen: the frame is the empty Scene's.
-  const offscreen = railFrame(oneBox(4000, 4000, 40, 40), still, WINDOW, OUTLINE, LAYOUT);
+  const offscreen = railFrame(oneBox(4000, 4000, 40, 40), still, WINDOW, 'top', OUTLINE, LAYOUT);
   assert.deepEqual(offscreen.frame, empty.frame);
 
   // A window shorter than the minimum frame: the frame is the editor's own box,
   // which leaves no room above it.
-  const short = railFrame(parsed({ version: 1, elements: [] }), still, { width: 1280, height: 300 }, OUTLINE, LAYOUT);
+  const short = railFrame(parsed({ version: 1, elements: [] }), still, { width: 1280, height: 300 }, 'top', OUTLINE, LAYOUT);
   assert.deepEqual(short.frame, { x: 160, y: 0, width: 960, height: 300 });
   assert.equal(short.dock.y, 15);
 });
@@ -295,17 +295,17 @@ test('a dock is left where its outline fits the editor, and pulled inside where 
 
   // A dock the editor holds is left exactly where it was measured, even where the
   // 15 px inset would move it: nothing of its outline crosses an edge.
-  assert.deepEqual(clampedDock({ x: 640, y: 348 }, strip, window), { x: 640, y: 348 });
+  assert.deepEqual(clampedDock({ x: 640, y: 348 }, strip, window, 'top'), { x: 640, y: 348 });
 
   // 1280×760 measures the frame's dock at 8, its outline at 1: the gap the frame
   // left is kept, not cut to 9 px by a dock pulled down to the inset.
-  assert.deepEqual(clampedDock({ x: 640, y: 8 }, strip, { width: 1280, height: 760 }), {
+  assert.deepEqual(clampedDock({ x: 640, y: 8 }, strip, { width: 1280, height: 760 }, 'top'), {
     x: 640,
     y: 8,
   });
 
   // A 248 px wide editor holds the 246 px outline centred on its middle, at 124.
-  assert.deepEqual(clampedDock({ x: 124, y: 100 }, strip, { width: 248, height: 800 }), {
+  assert.deepEqual(clampedDock({ x: 124, y: 100 }, strip, { width: 248, height: 800 }, 'top'), {
     x: 124,
     y: 100,
   });
@@ -313,27 +313,94 @@ test('a dock is left where its outline fits the editor, and pulled inside where 
   // A dock carried outside the box is pulled to the inset, measured to the strip's
   // own box and not its middle or its top: 15 px in from the edge it crossed, as
   // the top-edge fallback does.
-  assert.deepEqual(clampedDock({ x: 640, y: -122 }, strip, { width: 1280, height: 500 }), {
+  assert.deepEqual(clampedDock({ x: 640, y: -122 }, strip, { width: 1280, height: 500 }, 'top'), {
     x: 640,
     y: 15,
   });
-  assert.deepEqual(clampedDock({ x: 1200, y: 100 }, strip, window), { x: 1280 - 15 - 116, y: 100 });
-  assert.deepEqual(clampedDock({ x: 100, y: 100 }, strip, window), { x: 15 + 116, y: 100 });
-  assert.deepEqual(clampedDock({ x: 640, y: 900 }, strip, window), { x: 640, y: 800 - 15 - 49 });
+  assert.deepEqual(clampedDock({ x: 1200, y: 100 }, strip, window, 'top'), { x: 1280 - 15 - 116, y: 100 });
+  assert.deepEqual(clampedDock({ x: 100, y: 100 }, strip, window, 'top'), { x: 15 + 116, y: 100 });
+  assert.deepEqual(clampedDock({ x: 640, y: 900 }, strip, window, 'top'), { x: 640, y: 800 - 15 - 49 });
 
   // Where the inset would push the outline past the far edge but the outline
   // itself fits, the outline is what fits: a 250 px wide editor holds it centred
   // at 2..248, which 15 px in from either edge does not.
-  assert.deepEqual(clampedDock({ x: 130, y: 100 }, strip, { width: 250, height: 800 }), {
+  assert.deepEqual(clampedDock({ x: 130, y: 100 }, strip, { width: 250, height: 800 }, 'top'), {
     x: 9 + 116,
     y: 100,
   });
 
   // An editor smaller than the outline has no place that holds it inside: the low
   // inset wins and the outline is clipped by the far edge, never shrunk to fit.
-  assert.deepEqual(clampedDock({ x: 130, y: 100 }, strip, { width: 200, height: 60 }), {
+  assert.deepEqual(clampedDock({ x: 130, y: 100 }, strip, { width: 200, height: 60 }, 'top'), {
     x: 15 + 116,
     y: 15,
+  });
+});
+
+test('the bottom, left and right docks stand outside the frame by the gap, as the top does', () => {
+  // The rail's strip as the sheet draws it: 232×49 of box, and its two pencil
+  // passes 7 px outside it on every side, so the outline is 246×63. Standing up
+  // a side, the same strip is 46 wide and 241 tall, its outline 60×255.
+  const OUTLINE = { width: 246, height: 63, overhang: 7 };
+  const still = { zoom: 1, panX: 0, panY: 0 };
+  const WINDOW = { width: 1280, height: 800 };
+
+  /** One rectangle, seen at 1:1 where `view` puts it. */
+  const oneBox = (x: number, y: number, width: number, height: number): Scene =>
+    parsed({
+      version: 1,
+      defaults: { roughness: 0 },
+      elements: [{ id: 'a', type: 'rectangle', x, y, width, height }],
+    });
+  const empty = parsed({ version: 1, elements: [] });
+
+  // A 1000×700 diagram at (1220, 370) in a 3440×1440 window is its own frame,
+  // shown 1:1 and cut by nothing: every side has room for the gap.
+  const WIDE = { width: 3440, height: 1440 };
+  const big = oneBox(1220, 370, 1000, 700);
+  assert.deepEqual(railFrame(big, still, WIDE, 'bottom', OUTLINE, LAYOUT).dock, {
+    x: 1720,
+    y: 1070 + 16 + 7,
+  });
+  assert.deepEqual(railFrame(big, still, WIDE, 'left', OUTLINE, LAYOUT).dock, {
+    x: 1220 - 16 - 246 + 7,
+    y: 720,
+  });
+  assert.deepEqual(railFrame(big, still, WIDE, 'right', OUTLINE, LAYOUT).dock, {
+    x: 2220 + 16 + 7,
+    y: 720,
+  });
+
+  // An empty Scene's frame is the minimum about the editor's middle: 160..1120
+  // across and 100..700 down in a 1280×800 window. Below it there is room, so the
+  // bottom dock is one gap under the frame; either side of it there is not, so the
+  // strip stops 15 px inside the editor's own edge instead (D2).
+  assert.deepEqual(railFrame(empty, still, WINDOW, 'bottom', OUTLINE, LAYOUT).dock, {
+    x: 640,
+    y: 700 + 16 + 7,
+  });
+  assert.deepEqual(railFrame(empty, still, WINDOW, 'left', OUTLINE, LAYOUT).dock, { x: 15, y: 400 });
+  assert.deepEqual(railFrame(empty, still, WINDOW, 'right', OUTLINE, LAYOUT).dock, {
+    x: 1280 - 15 - 232,
+    y: 400,
+  });
+
+  // A window too short for the gap under the frame: the strip stops 15 px inside
+  // the bottom edge, its box 49 px tall, which is 676 in a 740 px window.
+  assert.deepEqual(railFrame(empty, still, { width: 1280, height: 740 }, 'bottom', OUTLINE, LAYOUT).dock, {
+    x: 640,
+    y: 740 - 15 - 49,
+  });
+
+  // The clamp measures a standing strip by its own box too: a dock the editor
+  // holds is left alone, and one carried past an edge is pulled inside the same
+  // 15 px, the point it is written as being the strip's left and its middle.
+  const standing = { width: 46, height: 241, overhang: 7 };
+  assert.deepEqual(clampedDock({ x: 131, y: 400 }, standing, WINDOW, 'left'), { x: 131, y: 400 });
+  assert.deepEqual(clampedDock({ x: -50, y: 400 }, standing, WINDOW, 'left'), { x: 15, y: 400 });
+  assert.deepEqual(clampedDock({ x: 131, y: 1000 }, standing, WINDOW, 'right'), {
+    x: 131,
+    y: 800 - 15 - 241 + 241 / 2,
   });
 });
 

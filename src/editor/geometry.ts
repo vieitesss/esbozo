@@ -552,26 +552,32 @@ export function fittedView(
 
 /**
  * The frame the tool rail docks on: the diagram as shown on screen, at least
- * the minimum size, cut to the editor's box, and the top dock's rail on it.
+ * the minimum size, cut to the editor's box, and a rail docked on it.
  */
 export interface RailFrame {
   /** The diagram's frame on screen: what a dock sits outside of. */
   readonly frame: Box;
   /**
-   * The top dock: the rail's own box turns about `x` and its top edge is `y`,
-   * so the pencil outline that hangs outside it clears the frame by the gap.
+   * The dock, as the sheet hangs the strip there: the middle of the side the
+   * strip turns about, and its own near edge. The pencil outline that hangs
+   * outside the strip clears the frame by the gap.
    */
   readonly dock: Point;
 }
+
+/** The side of the frame the rail docks on: top and bottom lie along it, left and right stand up it (D1). */
+export type RailSide = 'top' | 'bottom' | 'left' | 'right';
 
 /**
  * The pencil outline the rail wears, as the rail box cannot measure it: the
  * strip is wider and taller than the box it turns about.
  */
 export interface RailOutline {
+  /** How wide the outline is, in screen pixels. */
+  readonly width: number;
   /** How tall the outline is, in screen pixels. */
   readonly height: number;
-  /** How far the outline hangs outside the rail's box, above and below it. */
+  /** How far the outline hangs outside the rail's box on every side. */
   readonly overhang: number;
 }
 
@@ -579,18 +585,17 @@ export interface RailOutline {
 const FRAME_MIN_WIDTH = 960;
 const FRAME_MIN_HEIGHT = 600;
 
-/** The gap between the frame's top side and the rail's pencil outline: the note's own (I2). */
+/** The gap between a frame's side and the rail's pencil outline: the note's own (I2). */
 const RAIL_GAP = 16;
 
 /**
- * How far inside the editor's edges the rail stops: under the top edge when the
- * frame leaves no room above it (D2), and away from every edge when a resize has
- * carried it out of the editor's box (D3).
+ * How far inside the editor's edges the rail stops: inside the edge the frame
+ * leaves no room at (D2), and inside an edge a resize has carried it past (D3).
  */
 const RAIL_INSET = 15;
 
 /**
- * The frame around a Scene's diagram, and where the top dock's rail sits on it.
+ * The frame around a Scene's diagram, and where that side's dock sits on it.
  *
  * The frame is the diagram as the page shows it — the union of its Elements'
  * bounds, without the page's own padding — grown to at least the minimum size
@@ -598,14 +603,16 @@ const RAIL_INSET = 15;
  * with nothing of that frame left on screen, is framed at the minimum size
  * around the editor's middle (D2, I1).
  *
- * The dock is centred on the frame's top side with the outline one gap above
- * it. Where the frame's top leaves no room for that, the rail stops just inside
- * the editor's top edge instead, over the paper (D2).
+ * The dock is centred on the frame's side with the outline one gap outside it,
+ * standing up the side when it is left or right and lying along it when it is
+ * top or bottom (D1). Where the frame's side leaves no room for that, the rail
+ * stops just inside the editor's edge instead, over the paper (D2).
  */
 export function railFrame(
   scene: Scene,
   view: View,
   viewport: { width: number; height: number },
+  side: RailSide,
   outline: RailOutline,
   layout: Layout,
 ): RailFrame {
@@ -613,14 +620,61 @@ export function railFrame(
   const diagram = boxOf(scene.elements, elementsById(scene.elements), layout);
   const shown = diagram === null ? null : grown(onScreen(diagram, view));
   const frame = (shown === null ? null : cutTo(shown, editor)) ?? emptyFrame(editor);
-  const above = frame.y - RAIL_GAP - outline.height;
-  return {
-    frame,
-    dock: {
-      x: frame.x + frame.width / 2,
-      y: above < 0 ? RAIL_INSET : above + outline.overhang,
-    },
-  };
+  return { frame, dock: dockOn(side, frame, editor, outline) };
+}
+
+/**
+ * The dock on one side of the frame: the strip's outline one gap outside it,
+ * centred on that side, or the strip just inside the editor's edge where the
+ * frame leaves no room for the gap (D1, D2).
+ */
+function dockOn(
+  side: RailSide,
+  frame: Box,
+  editor: { width: number; height: number },
+  outline: RailOutline,
+): Point {
+  // What the strip measures once the outline's overhang is taken back off it.
+  const strip = { width: outline.width - outline.overhang * 2, height: outline.height - outline.overhang * 2 };
+  const middleX = frame.x + frame.width / 2;
+  const middleY = frame.y + frame.height / 2;
+  switch (side) {
+    case 'top': {
+      // The outline's own top, one gap above the frame's.
+      const outlineTop = frame.y - RAIL_GAP - outline.height;
+      return {
+        x: middleX,
+        y: outlineTop < 0 ? RAIL_INSET : outlineTop + outline.overhang,
+      };
+    }
+    case 'bottom': {
+      const outlineTop = frame.y + frame.height + RAIL_GAP;
+      return {
+        x: middleX,
+        y:
+          outlineTop + outline.height > editor.height
+            ? editor.height - RAIL_INSET - strip.height
+            : outlineTop + outline.overhang,
+      };
+    }
+    case 'left': {
+      const outlineLeft = frame.x - RAIL_GAP - outline.width;
+      return {
+        x: outlineLeft < 0 ? RAIL_INSET : outlineLeft + outline.overhang,
+        y: middleY,
+      };
+    }
+    case 'right': {
+      const outlineLeft = frame.x + frame.width + RAIL_GAP;
+      return {
+        x:
+          outlineLeft + outline.width > editor.width
+            ? editor.width - RAIL_INSET - strip.width
+            : outlineLeft + outline.overhang,
+        y: middleY,
+      };
+    }
+  }
 }
 
 /**
@@ -639,13 +693,28 @@ export function clampedDock(
   dock: Point,
   strip: { width: number; height: number; overhang: number },
   viewport: { width: number; height: number },
+  side: RailSide,
 ): Point {
-  return {
-    x:
-      placed(dock.x - strip.width / 2, viewport.width, strip.width, strip.overhang) +
-      strip.width / 2,
-    y: placed(dock.y, viewport.height, strip.height, strip.overhang),
+  const box = stripBox(dock, strip, side);
+  const held: Point = {
+    x: placed(box.x, viewport.width, strip.width, strip.overhang),
+    y: placed(box.y, viewport.height, strip.height, strip.overhang),
   };
+  return dockOf(held, strip, side);
+}
+
+/** A dock as the strip's own box: its left and top, whatever side it is on. */
+function stripBox(dock: Point, strip: { width: number; height: number }, side: RailSide): Point {
+  return side === 'top' || side === 'bottom'
+    ? { x: dock.x - strip.width / 2, y: dock.y }
+    : { x: dock.x, y: dock.y - strip.height / 2 };
+}
+
+/** A strip box back as the dock the sheet hangs: the side's own edge and the middle of the other. */
+function dockOf(box: Point, strip: { width: number; height: number }, side: RailSide): Point {
+  return side === 'top' || side === 'bottom'
+    ? { x: box.x + strip.width / 2, y: box.y }
+    : { x: box.x, y: box.y + strip.height / 2 };
 }
 
 /**
