@@ -33,9 +33,9 @@ For fast inner-loop runs without creating scratch files or running an entire sui
 
 When a failure shows only in CI and not here, run the same file on the Linux
 that CI runs it on: `pnpm e2e:linux [e2e args]`. It builds `docker/e2e.Dockerfile` once
-(Ubuntu with the Node and pnpm `package.json` gives the workflow, and Chromium
-with its system libraries), then reuses that image while the Dockerfile and those
-versions hold still. The worktree is copied into the container at run time
+(Ubuntu with the Node `.node-version` pins and the pnpm `package.json` pins, and
+Chromium with its system libraries), then reuses that image while every file it
+is built from holds still. The worktree is copied into the container at run time
 without the host's `node_modules`, so a source change costs no rebuild, and the
 arguments are `e2e run`'s own — `pnpm e2e:linux tests/cdp.e2e.ts:42`,
 `pnpm e2e:linux --grep '<title>'` — with none it runs what `pnpm e2e` runs.

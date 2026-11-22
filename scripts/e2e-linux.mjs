@@ -164,18 +164,55 @@ async function nodeVersionCI() {
 }
 
 /**
- * The image name for this Dockerfile and its two versions: the same three
- * produce the same tag, so its presence is the whole answer to "reuse or build".
- * A different one leaves the old image for `docker image prune` to judge.
+ * The image name for this Dockerfile and everything it is built from: the same
+ * inputs produce the same tag, so its presence is the whole answer to "reuse or
+ * build". A different one leaves the old image for `docker image rm` to judge.
  */
 async function imageFor(node, pnpm) {
   const dockerfile = await readFile(DOCKERFILE);
-  const fingerprint = createHash('sha256')
-    .update(dockerfile)
-    .update(`\nnode ${node}\npnpm ${pnpm}\n`)
-    .digest('hex')
-    .slice(0, 12);
-  return `esbozo:e2e-linux-${fingerprint}`;
+  const fingerprint = createHash('sha256').update(dockerfile);
+  // Every file the Dockerfile copies into the image: the lockfile decides the
+  // dependencies, and a manifest or workspace change is just as real a rebuild
+  // as a line of the Dockerfile. Hashing the Dockerfile alone would keep the old
+  // tag and test an image built from dependencies that no longer exist.
+  for (const source of await copiedSources()) {
+    fingerprint.update(`\ncopy ${source}\n`);
+    try {
+      fingerprint.update(await readFile(join(ROOT, source)));
+    } catch (error) {
+      fail(`docker/e2e.Dockerfile copies ${source}, which cannot be read: ${error.message}`);
+    }
+  }
+  fingerprint.update(`\nnode ${node}\npnpm ${pnpm}\n`);
+  return `esbozo:e2e-linux-${fingerprint.digest('hex').slice(0, 12)}`;
+}
+
+/**
+ * Every file a `COPY` instruction of the Dockerfile takes from the build
+ * context, in a stable order. `COPY --from` copies out of another build stage,
+ * which is that stage's own fingerprint, so it is not a file of this context;
+ * a glob or a folder cannot be fingerprinted here, and stops rather than
+ * silently leaving the input out.
+ */
+async function copiedSources() {
+  const text = await readFile(DOCKERFILE, 'utf8');
+  const sources = new Set();
+  // A continuation line is the same instruction, so join before splitting.
+  for (const line of text.replace(/\\\r?\n/g, ' ').split(/\r?\n/)) {
+    const copy = /^\s*COPY\s+(.*)$/i.exec(line);
+    if (copy === null || copy[1].includes('--from=')) continue;
+    const words = copy[1].trim().split(/\s+/).filter((word) => !word.startsWith('--'));
+    for (const source of words.slice(0, -1)) {
+      if (/[?*]/.test(source) || source.includes('[')) {
+        fail(`docker/e2e.Dockerfile copies "${source}", which is not one file: the image fingerprint cannot cover it`);
+      }
+      sources.add(source);
+    }
+  }
+  if (sources.size === 0) {
+    fail('docker/e2e.Dockerfile copies no files in: the image fingerprint has no input to cover');
+  }
+  return [...sources].sort();
 }
 
 /** Stop with a message a person can act on. */
