@@ -1424,7 +1424,9 @@ function turnedCase(index: number, options: TurnedOptions): TurnedCase {
     // A bold stroke at its whole width, so the round cap is wide enough to show.
     stroke: { width: 'bold', style: 'solid' },
     roughness: options.roughness,
-    ...(options.label ? { label: 'words', labelAt: { t: 0.17, offset: 0 } } : {}),
+    // The words sit midway along the shaft, so the Label cuts between the two
+    // ends of every shape and never inside a head's own reach.
+    ...(options.label ? { label: 'words', labelAt: { t: 0.5, offset: 0 } } : {}),
   };
   return {
     id,
