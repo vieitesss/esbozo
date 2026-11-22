@@ -692,6 +692,91 @@ test('a default Label leaves its shaft’s bytes alone at every angle, roughness
   assert.deepEqual(labelled, plain, 'and every path is byte for byte what it is with no Label');
 });
 
+test('an arrow head’s triangle is the last ink of its own arrow', async () => {
+  const arrows = headMatrix();
+  const svg = await renderOne({
+    version: 1,
+    title: 'Heads',
+    defaults: { roughness: 1 },
+    elements: arrows.map((one) => one.element),
+  });
+
+  const groups = inkGroups(svg);
+  assert.equal(groups.length, arrows.length, 'one group of ink per arrow');
+  for (const [index, one] of arrows.entries()) {
+    assertHeadIsLastInk(one, groups[index]!);
+  }
+  // A shaft shorter than its head is covered whole: its head is all the ink there is.
+  const covered = groups.filter((group) =>
+    pathsOf(group).every((tag) => attributeIn(tag, 'fill') !== 'none'),
+  );
+  assert.equal(covered.length, 3, 'three shafts are shorter than their heads');
+});
+
+test('a head’s cut takes ink from its own end, and no more than the head reaches', async () => {
+  const arrows = turnedMatrix();
+  const headed = await renderOne(turnedScene(arrows.map((one) => one.element)));
+  const bare = await renderOne(turnedScene(arrows.map((one) => one.bare)));
+
+  const groups = inkGroups(headed);
+  const bareGroups = inkGroups(bare);
+  assert.equal(groups.length, arrows.length, 'one group of ink per arrow');
+  assert.equal(bareGroups.length, arrows.length, 'and one per arrow drawn with no head');
+  for (const [index, one] of arrows.entries()) {
+    assertCutIsLocal(one, groups[index]!, bareGroups[index]!);
+  }
+});
+
+test('a short leg at a head still runs into its triangle', async () => {
+  const arrows = shortLegMatrix();
+  const svg = await renderOne(turnedScene(arrows.map((one) => one.element)));
+
+  const groups = inkGroups(svg);
+  assert.equal(groups.length, arrows.length, 'one group of ink per arrow');
+  for (const [index, one] of arrows.entries()) {
+    assertShaftTouches(one, groups[index]!);
+  }
+});
+
+test('a leg a head can cover shows no ink beside its apex', async () => {
+  const arrows = coveredLegMatrix();
+  const svg = await renderOne(turnedScene(arrows.map((one) => one.element)));
+
+  const groups = inkGroups(svg);
+  assert.equal(groups.length, arrows.length, 'one group of ink per arrow');
+  for (const [index, one] of arrows.entries()) {
+    assertTipIsClear(one, groups[index]!);
+  }
+});
+
+test('a start head leaves the dash phase it cut at the far end of every run', async () => {
+  const shafts = phaseMatrix();
+  const headed = await renderOne(turnedScene(shafts.map((one) => one.element)));
+  const bare = await renderOne(turnedScene(shafts.map((one) => one.bare)));
+
+  const groups = inkGroups(headed);
+  const bareGroups = inkGroups(bare);
+  assert.equal(groups.length, shafts.length, 'one group of ink per arrow');
+  assert.equal(bareGroups.length, shafts.length, 'and one per arrow drawn with no head');
+  for (const [index, one] of shafts.entries()) {
+    const runs = dashPhases(groups[index]!);
+    const plain = dashPhases(bareGroups[index]!);
+    assert.equal(runs.length, plain.length, `${one.id}: the same runs of shaft ink`);
+    for (const [runIndex, run] of runs.entries()) {
+      const own = plain[runIndex]!;
+      assert.ok(
+        far(own.end, run.end) <= INK_STEP_SLACK,
+        `${one.id}: run ${runIndex} ends at (${run.end.x}, ${run.end.y}), not at (${own.end.x}, ${own.end.y})`,
+      );
+      const moved = Math.abs(own.phase - run.phase);
+      assert.ok(
+        moved <= INK_STEP_SLACK,
+        `${one.id}: run ${runIndex} reaches dash phase ${run.phase.toFixed(2)}, its headless own ${own.phase.toFixed(2)}, ${moved.toFixed(2)} away`,
+      );
+    }
+  }
+});
+
 test('the same Scene renders the same bytes twice', async () => {
   const scene = lineScene([0, 100], [400, 100], { t: 0.5, offset: 0 });
 
@@ -959,4 +1044,797 @@ function withSeed(scene: Scene, seed: number): Scene {
 
 function hashOf(svg: string): string {
   return /data-scene-hash="(sha256:[0-9a-f]{64})"/.exec(svg)?.[1] ?? '';
+}
+
+/** A place in a drawing, in Scene units. */
+type At = { readonly x: number; readonly y: number };
+
+/** One arrow of the head matrix: the case it names, and the Element that draws it. */
+interface HeadCase {
+  readonly id: string;
+  readonly element: HeadArrow;
+}
+
+/** An arrow Element of the head matrix, as a Scene writes it. */
+interface HeadArrow {
+  readonly id: string;
+  readonly type: 'arrow';
+  readonly points: readonly At[];
+  readonly heads: { readonly start: 'none' | 'arrow'; readonly end: 'none' | 'arrow' };
+  readonly corners: 'round' | 'sharp';
+  readonly stroke: { readonly width: string; readonly style: string };
+  readonly roughness: number;
+  readonly label?: string;
+  readonly labelAt?: { readonly t: number; readonly offset: number };
+}
+
+/** What varies from one arrow of the head matrix to the next. */
+interface HeadOptions {
+  readonly width: string;
+  readonly roughness: number;
+  readonly shape: 'straight' | 'bent';
+  readonly corners: 'round' | 'sharp';
+  readonly style: string;
+  readonly label: boolean;
+  readonly short?: boolean;
+  readonly both?: boolean;
+}
+
+/** Room one arrow of the head matrix has to itself: a bent shaft, a head and a Label. */
+const HEAD_CELL = 220;
+
+/** How many arrows one row of the head matrix holds. */
+const HEAD_COLUMNS = 15;
+
+/** Steps one curve of a drawing is sampled in, when its ink is read back. */
+const INK_STEPS = 24;
+
+/** Points the ink around one sample is read at: the round cap's reach, in every direction. */
+const INK_DIRECTIONS = 12;
+
+/** How far two numbers of a written drawing may drift: it rounds its own to a hundredth. */
+const INK_SLACK = 0.02;
+
+/**
+ * How far two readings of the same ink may drift: each is sampled a step at a
+ * time, and a run cut into two curves is sampled at other places along it.
+ */
+const INK_STEP_SLACK = 0.5;
+
+/**
+ * The head matrix: an arrow for every stroke width, roughness, shape, corner,
+ * dash and Label a head has to hold for, then a shaft shorter than its own head
+ * and one with a head at each end.
+ */
+function headMatrix(): HeadCase[] {
+  const cases: HeadCase[] = [];
+  for (const width of ['thin', 'bold', 'extra']) {
+    for (const roughness of [0, 1, 2]) {
+      for (const shape of ['straight', 'bent'] as const) {
+        for (const corners of ['round', 'sharp'] as const) {
+          for (const style of ['solid', 'dashed', 'dotted']) {
+            for (const label of [false, true]) {
+              cases.push(headCase(cases.length, { width, roughness, shape, corners, style, label }));
+            }
+          }
+        }
+      }
+    }
+  }
+  for (const width of ['thin', 'bold', 'extra']) {
+    for (const shorter of [true, false]) {
+      cases.push(
+        headCase(cases.length, {
+          width,
+          roughness: 2,
+          shape: shorter ? 'straight' : 'bent',
+          corners: 'round',
+          style: 'dashed',
+          label: !shorter,
+          short: shorter,
+          both: !shorter,
+        }),
+      );
+    }
+  }
+  return cases;
+}
+
+/** One arrow of the head matrix, laid out so no two arrows overlap. */
+function headCase(index: number, options: HeadOptions): HeadCase {
+  const id = `head-${index}`;
+  const x = (index % HEAD_COLUMNS) * HEAD_CELL + 40;
+  const y = Math.floor(index / HEAD_COLUMNS) * HEAD_CELL + 40;
+  // A short shaft is shorter than the longest head, so its head covers it whole.
+  const points =
+    options.short === true
+      ? [
+          { x, y },
+          { x: x + 6, y },
+        ]
+      : options.shape === 'straight'
+        ? [
+            { x, y },
+            { x: x + 140, y },
+          ]
+        : [
+            { x, y },
+            { x: x + 70, y },
+            { x: x + 70, y: y + 130 },
+          ];
+  return {
+    id,
+    element: {
+      id,
+      type: 'arrow',
+      points,
+      heads: { start: options.both === true ? 'arrow' : 'none', end: 'arrow' },
+      corners: options.corners,
+      stroke: { width: options.width, style: options.style },
+      roughness: options.roughness,
+      ...(options.label ? { label: 'words', labelAt: { t: 0.45, offset: 0 } } : {}),
+    },
+  };
+}
+
+/** Every arrow's ink, in Scene order: the page wraps each Element in a group of its own. */
+function inkGroups(svg: string): string[] {
+  // check-rules: markup of a written SVG file, not the page
+  const groups = /<g stroke-linecap="round" stroke-linejoin="round">([\s\S]*?)<\/g>/g;
+  return [...svg.matchAll(groups)].map((found) => found[1]!);
+}
+
+/**
+ * One arrow of the head matrix checked against what a person sees: each head's
+ * tip sits on the end of its arrow, and no ink of the shaft reaches past a
+ * head's base except where the head's own triangle covers it.
+ */
+function assertHeadIsLastInk(one: HeadCase, group: string): void {
+  const shaft = pathsOf(group).filter((tag) => attributeIn(tag, 'fill') === 'none');
+  const heads = pathsOf(group).filter((tag) => attributeIn(tag, 'fill') !== 'none');
+  const { points, heads: kinds } = one.element;
+  const allEnds: { at: 'start' | 'end'; tip: At }[] = [
+    { at: 'start', tip: points[0]! },
+    { at: 'end', tip: points[points.length - 1]! },
+  ];
+  const ends = allEnds.filter((end) => kinds[end.at] === 'arrow');
+  assert.equal(heads.length, ends.length, `${one.id}: one filled triangle per arrow head`);
+  if (one.element.label !== undefined) {
+    // The Label reached the case it names: each stroke pass is cut in two by it.
+    assert.equal(shaft.length, 4, `${one.id}: the Label cuts both passes of the shaft`);
+  }
+
+  const spare = [...heads];
+  for (const end of ends) {
+    const triangle = trianglesIn(spare, end.tip, one.id);
+    spare.splice(spare.indexOf(triangle.tag), 1);
+    const { at: apex, off } = nearestOf(triangle.corners, end.tip);
+    assert.ok(off <= INK_SLACK, `${one.id}: the ${end.at} head’s tip is ${off.toFixed(2)} off its end`);
+    assertShaftStops(one, end, triangle.corners, apex, shaft);
+  }
+}
+
+/**
+ * The head path that belongs to one end of a shaft: of the heads still unread,
+ * the one with a corner nearest that end. The page draws each head over its own
+ * end, so the tip of that head is the one that end owns.
+ */
+function trianglesIn(
+  tags: readonly string[],
+  tip: At,
+  id: string,
+): { tag: string; corners: At[] } {
+  let best: { tag: string; corners: At[]; off: number } | null = null;
+  for (const tag of tags) {
+    const corners = flatPoints(tag);
+    assert.equal(corners.length, 3, `${id}: the head fills a triangle`);
+    const { off } = nearestOf(corners, tip);
+    if (best === null || off < best.off) {
+      best = { tag, corners, off };
+    }
+  }
+  assert.ok(best !== null, `${id}: the drawing has a head for every arrow head`);
+  return best;
+}
+
+/** The corners of one written path, a move and a line at a time. */
+function flatPoints(tag: string): At[] {
+  const tokens = attributeIn(tag, 'd').match(/[MLC]|-?\d+(?:\.\d+)?/g) ?? [];
+  const corners: At[] = [];
+  let index = 0;
+  while (index < tokens.length) {
+    const command = tokens[index++];
+    if (command === 'M' || command === 'L') {
+      corners.push({ x: Number(tokens[index++]), y: Number(tokens[index++]) });
+      continue;
+    }
+    index += 6;
+  }
+  return corners;
+}
+
+/** The shaft's ink, checked against one head: nothing of it may lie past the base but under the triangle. */
+function assertShaftStops(
+  one: HeadCase,
+  end: { at: 'start' | 'end'; tip: At },
+  triangle: readonly At[],
+  apex: At,
+  shaft: readonly string[],
+): void {
+  const base = middleOf(triangle.filter((corner) => corner !== apex));
+  const away = towards(apex, base);
+  for (const tag of shaft) {
+    const radius = attributeOf(tag, 'stroke-width') / 2;
+    for (const run of inkRuns(tag)) {
+      for (const sample of run) {
+        for (const ink of inkAround(sample, radius)) {
+          // Behind the base is the shaft's own side of the head, and no concern of it.
+          if ((ink.x - base.x) * away.x + (ink.y - base.y) * away.y >= 0) {
+            continue;
+          }
+          assert.ok(
+            covers(triangle, ink),
+            `${one.id}: the shaft inks (${ink.x.toFixed(2)}, ${ink.y.toFixed(2)}) past the ${end.at} head’s base, outside its triangle`,
+          );
+        }
+      }
+    }
+  }
+}
+
+/** Every run of one written path, sampled a step at a time: the stroke it draws. */
+function inkRuns(tag: string): At[][] {
+  const tokens = attributeIn(tag, 'd').match(/[MLC]|-?\d+(?:\.\d+)?/g) ?? [];
+  const runs: At[][] = [];
+  let at = { x: 0, y: 0 };
+  let index = 0;
+  const read = (): number => Number(tokens[index++]);
+  while (index < tokens.length) {
+    const command = tokens[index++];
+    if (command === 'M') {
+      at = { x: read(), y: read() };
+      runs.push([at]);
+      continue;
+    }
+    const run = runs[runs.length - 1]!;
+    if (command === 'L') {
+      at = { x: read(), y: read() };
+      run.push(at);
+      continue;
+    }
+    if (command !== 'C') {
+      continue;
+    }
+    const control1 = { x: read(), y: read() };
+    const control2 = { x: read(), y: read() };
+    const to = { x: read(), y: read() };
+    for (let step = 1; step <= INK_STEPS; step += 1) {
+      run.push(curveAt(at, control1, control2, to, step / INK_STEPS));
+    }
+    at = to;
+  }
+  return runs;
+}
+
+/** The ink one sample of a stroke covers: a round cap's reach around it, in every direction. */
+function inkAround(sample: At, radius: number): At[] {
+  const ink = [sample];
+  for (let step = 0; step < INK_DIRECTIONS; step += 1) {
+    const angle = (step / INK_DIRECTIONS) * 2 * Math.PI;
+    ink.push({
+      x: sample.x + radius * Math.cos(angle),
+      y: sample.y + radius * Math.sin(angle),
+    });
+  }
+  return ink;
+}
+
+/** Whether a triangle covers a point, its own edges included. */
+function covers(triangle: readonly At[], point: At): boolean {
+  const [a, b, c] = triangle as [At, At, At];
+  const sides = [
+    turn(a, b, point),
+    turn(b, c, point),
+    turn(c, a, point),
+  ];
+  const outside = sides.some((side) => side < -INK_SLACK);
+  const inside = sides.some((side) => side > INK_SLACK);
+  return !(outside && inside);
+}
+
+/** Which side of the line from `from` to `to` a point falls on. */
+function turn(from: At, to: At, point: At): number {
+  return (to.x - from.x) * (point.y - from.y) - (to.y - from.y) * (point.x - from.x);
+}
+
+/** The point of `points` nearest `target`, and how far off it is. */
+function nearestOf(points: readonly At[], target: At): { at: At; off: number } {
+  let at = points[0]!;
+  let off = far(at, target);
+  for (const point of points) {
+    const distance = far(point, target);
+    if (distance < off) {
+      at = point;
+      off = distance;
+    }
+  }
+  return { at, off };
+}
+
+/** How far apart two places are. */
+function far(from: At, to: At): number {
+  return Math.hypot(to.x - from.x, to.y - from.y);
+}
+
+/** The place between two places. */
+function middleOf(points: readonly At[]): At {
+  return {
+    x: points.reduce((sum, point) => sum + point.x, 0) / points.length,
+    y: points.reduce((sum, point) => sum + point.y, 0) / points.length,
+  };
+}
+
+/** The step from one place towards another, one unit long. */
+function towards(from: At, to: At): At {
+  const length = far(from, to) || 1;
+  return { x: (to.x - from.x) / length, y: (to.y - from.y) / length };
+}
+
+/**
+ * The legs of the shapes whose cut was wrong: a short leg at one end that turns
+ * under the head, a staircase whose last leg is short, and a hairpin a Label
+ * splits in two. Each is laid out from its own top-left corner, in Scene units.
+ */
+const TURNED_LEGS = {
+  shortLastLeg: [
+    [0, 0],
+    [0, 200],
+    [5, 200],
+  ],
+  shortFirstLeg: [
+    [0, 0],
+    [5, 0],
+    [5, 200],
+  ],
+  stairs: [
+    [0, 0],
+    [100, 0],
+    [100, 100],
+    [105, 100],
+  ],
+  hairpin: [
+    [0, 0],
+    [400, 0],
+    [400, 100],
+    [200, 100],
+  ],
+} as const;
+
+/** Room one arrow of the turned matrix has to itself: the widest shape, a head and a Label. */
+const TURN_CELL = 460;
+
+/** How many arrows one row of the turned matrix holds. */
+const TURN_COLUMNS = 4;
+
+/** What varies from one arrow of the turned matrix to the next. */
+interface TurnedOptions {
+  readonly shape: keyof typeof TURNED_LEGS;
+  readonly at: 'start' | 'end';
+  readonly corners: 'round' | 'sharp';
+  readonly roughness: number;
+  readonly label: boolean;
+}
+
+/** One arrow of the turned matrix: the head it puts on which end, and the same arrow with no head. */
+interface TurnedCase {
+  readonly id: string;
+  readonly at: 'start' | 'end';
+  readonly element: HeadArrow;
+  readonly bare: HeadArrow;
+}
+
+/** One Scene of the turned matrix, so the arrows never share a cell. */
+function turnedScene(elements: readonly HeadArrow[]): unknown {
+  return { version: 1, title: 'Turned', defaults: { roughness: 0 }, elements };
+}
+
+/**
+ * The turned matrix: every leg shape with the head at either end, sharp and
+ * round, at roughness 0 and 2, with and without a Label — beside the same arrow
+ * drawn with no head at all, which is what its cut is measured against.
+ */
+function turnedMatrix(): TurnedCase[] {
+  const cases: TurnedCase[] = [];
+  const shapes = Object.keys(TURNED_LEGS) as (keyof typeof TURNED_LEGS)[];
+  for (const shape of shapes) {
+    for (const at of ['start', 'end'] as const) {
+      for (const corners of ['round', 'sharp'] as const) {
+        for (const roughness of [0, 2]) {
+          for (const label of [false, true]) {
+            cases.push(turnedCase(cases.length, { shape, at, corners, roughness, label }));
+          }
+        }
+      }
+    }
+  }
+  return cases;
+}
+
+/** One arrow of the turned matrix, laid out so no two arrows overlap. */
+function turnedCase(index: number, options: TurnedOptions): TurnedCase {
+  const id = `turned-${index}`;
+  const x = (index % TURN_COLUMNS) * TURN_CELL + 40;
+  const y = Math.floor(index / TURN_COLUMNS) * TURN_CELL + 40;
+  const points = TURNED_LEGS[options.shape].map(([dx, dy]) => ({ x: x + dx, y: y + dy }));
+  const shared = {
+    id,
+    type: 'arrow' as const,
+    points,
+    corners: options.corners,
+    // A bold stroke at its whole width, so the round cap is wide enough to show.
+    stroke: { width: 'bold', style: 'solid' },
+    roughness: options.roughness,
+    // The words sit midway along the shaft, so the Label cuts between the two
+    // ends of every shape and never inside a head's own reach.
+    ...(options.label ? { label: 'words', labelAt: { t: 0.5, offset: 0 } } : {}),
+  };
+  return {
+    id,
+    at: options.at,
+    element: {
+      ...shared,
+      heads:
+        options.at === 'start'
+          ? { start: 'arrow', end: 'none' }
+          : { start: 'none', end: 'arrow' },
+    },
+    bare: { ...shared, heads: { start: 'none', end: 'none' } },
+  };
+}
+
+/**
+ * One arrow of the turned matrix checked against the same arrow drawn with no
+ * head: every run of shaft ink farther in from the head's own end than that head
+ * reaches is the ink the headless arrow draws, the cut takes no more off any
+ * run than the head reaches, and the shaft still reaches under the head, so the
+ * two meet rather than leaving a gap.
+ */
+function assertCutIsLocal(one: TurnedCase, group: string, bare: string): void {
+  const head = pathsOf(group).find((tag) => attributeIn(tag, 'fill') !== 'none');
+  assert.ok(head !== undefined, `${one.id}: the arrow draws its head`);
+  const corners = flatPoints(head);
+  assert.equal(corners.length, 3, `${one.id}: the head fills a triangle`);
+  const tip = one.element.points[one.at === 'start' ? 0 : one.element.points.length - 1]!;
+  const apex = nearestOf(corners, tip).at;
+  const reach = far(apex, middleOf(corners.filter((corner) => corner !== apex)));
+
+  const headed = shaftRuns(group);
+  const headless = shaftRuns(bare);
+  assert.equal(headed.length, headless.length, `${one.id}: the same runs of shaft ink`);
+  let lost = 0;
+  for (const [index, run] of headed.entries()) {
+    const whole = headless[index]!;
+    const cut = runLength(whole) - runLength(run);
+    lost += cut;
+    assert.ok(cut >= -INK_SLACK, `${one.id}: run ${index} draws no more ink than the headless arrow`);
+    const kept = runBeyond(run, Math.max(0, reach - cut), one.at);
+    const wanted = runBeyond(whole, reach, one.at);
+    assert.ok(
+      Math.abs(kept - wanted) <= INK_STEP_SLACK,
+      `${one.id}: run ${index} keeps ${kept.toFixed(2)} of the ${wanted.toFixed(2)} units of ink ${reach.toFixed(2)} in from the ${one.at}, the headless arrow’s own`,
+    );
+  }
+  assert.ok(
+    lost <= headed.length * reach + INK_SLACK * 2,
+    `${one.id}: the cut took ${lost.toFixed(2)} units, more than ${headed.length} runs of ${reach.toFixed(2)} the head reaches`,
+  );
+
+  const nearest = nearestOf(headed.flat(), apex);
+  assert.ok(
+    covers(corners, nearest.at),
+    `${one.id}: the shaft’s ink at (${nearest.at.x}, ${nearest.at.y}) is outside the head, a gap beside the ${one.at}`,
+  );
+}
+
+/** Every run of shaft ink a drawing wrote, in the order it wrote them. */
+function shaftRuns(svg: string): At[][] {
+  return pathsOf(svg)
+    .filter((tag) => attributeIn(tag, 'fill') === 'none')
+    .flatMap((tag) => inkRuns(tag));
+}
+
+/** How long the ink one run draws, a step at a time. */
+function runLength(run: readonly At[]): number {
+  let length = 0;
+  for (let index = 1; index < run.length; index += 1) {
+    length += far(run[index - 1]!, run[index]!);
+  }
+  return length;
+}
+
+/** How much of one run's ink lies farther in than `arc`, from the end the head sits at. */
+function runBeyond(run: readonly At[], arc: number, at: 'start' | 'end'): number {
+  const forward = at === 'start' ? [...run] : [...run].reverse();
+  let walked = 0;
+  let beyond = 0;
+  for (let index = 1; index < forward.length; index += 1) {
+    const step = far(forward[index - 1]!, forward[index]!);
+    if (walked + step <= arc) {
+      walked += step;
+      continue;
+    }
+    beyond += walked + step - Math.max(arc, walked);
+    walked += step;
+  }
+  return beyond;
+}
+
+/**
+ * Legs shorter than the head that covers them: the leg turns away before a
+ * stroke's whole width is ever under the triangle, so the cut has to stop where
+ * the ink still runs into the triangle rather than take the head's whole reach.
+ */
+const SHORT_LEGS = [1, 3, 5, 8] as const;
+
+/** Room one arrow of the short-leg matrix has to itself: a turned 120-unit leg and a head. */
+const SHORT_CELL = 200;
+
+/** How many arrows one row of the short-leg matrix holds. */
+const SHORT_COLUMNS = 8;
+
+/** What varies from one arrow of the short-leg matrix to the next. */
+interface ShortOptions {
+  readonly leg: number;
+  readonly width: string;
+  readonly at: 'start' | 'end';
+  readonly corners: 'round' | 'sharp';
+  readonly roughness: number;
+}
+
+/** One arrow of the short-leg matrix: a leg that turns under a head. */
+interface ShortCase {
+  readonly id: string;
+  readonly at: 'start' | 'end';
+  readonly element: HeadArrow;
+}
+
+/** Every short leg, at every width, on either end, sharp and round, flat and rough. */
+function shortLegMatrix(): ShortCase[] {
+  const cases: ShortCase[] = [];
+  for (const leg of SHORT_LEGS) {
+    for (const width of ['thin', 'bold', 'extra']) {
+      for (const at of ['start', 'end'] as const) {
+        for (const corners of ['round', 'sharp'] as const) {
+          for (const roughness of [0, 2]) {
+            cases.push(shortLegCase(cases.length, { leg, width, at, corners, roughness }));
+          }
+        }
+      }
+    }
+  }
+  return cases;
+}
+
+/** One arrow of the short-leg matrix: a leg that turns under a head. */
+function shortLegCase(index: number, options: ShortOptions): ShortCase {
+  const id = `short-${index}`;
+  const x = (index % SHORT_COLUMNS) * SHORT_CELL + 60;
+  const y = Math.floor(index / SHORT_COLUMNS) * SHORT_CELL + 60;
+  const bend = { x: x - options.leg, y };
+  const tail = { x: bend.x, y: bend.y + 120 };
+  const points = options.at === 'end' ? [tail, bend, { x, y }] : [{ x, y }, bend, tail];
+  return {
+    id,
+    at: options.at,
+    element: {
+      id,
+      type: 'arrow',
+      points,
+      corners: options.corners,
+      stroke: { width: options.width, style: 'solid' },
+      roughness: options.roughness,
+      heads:
+        options.at === 'start'
+          ? { start: 'arrow', end: 'none' }
+          : { start: 'none', end: 'arrow' },
+    },
+  };
+}
+
+/**
+ * One arrow of the short-leg matrix, checked against what a person sees: the ink
+ * of its shaft runs into its head, so the two meet rather than leaving a gap.
+ * The stroke's own width counts, since that ink is what touches the head.
+ */
+function assertShaftTouches(one: ShortCase, group: string): void {
+  const head = pathsOf(group).find((tag) => attributeIn(tag, 'fill') !== 'none');
+  assert.ok(head !== undefined, `${one.id}: the arrow draws its head`);
+  const corners = flatPoints(head);
+  assert.equal(corners.length, 3, `${one.id}: the head fills a triangle`);
+  const touching = pathsOf(group)
+    .filter((tag) => attributeIn(tag, 'fill') === 'none')
+    .some((tag) => {
+      const radius = attributeOf(tag, 'stroke-width') / 2;
+      return inkRuns(tag).some((run) =>
+        run.some((sample) => inkAround(sample, radius).some((ink) => covers(corners, ink))),
+      );
+    });
+  assert.ok(touching, `${one.id}: the shaft’s ink touches the ${one.at} head`);
+}
+
+/**
+ * Legs long enough for a head to cover the whole width of the stroke under its
+ * triangle: the cover rule decides where the shaft ends, not the attachment one.
+ */
+const COVERED_LEGS = [11, 14, 20] as const;
+
+/** The turn a covered leg takes under its head, in degrees: the shape a blob showed on. */
+const COVERED_TURN = 60;
+
+/** How far from a head's apex the tip is read for ink beside it, in Scene units. */
+const TIP_SPAN = 4;
+
+/** Room one arrow of the covered-leg matrix has to itself: its turned tail and a head. */
+const COVERED_CELL = 240;
+
+/** How many arrows one row of the covered-leg matrix holds. */
+const COVERED_COLUMNS = 6;
+
+/** What varies from one arrow of the covered-leg matrix to the next. */
+interface CoveredOptions {
+  readonly leg: number;
+  readonly width: string;
+  readonly at: 'start' | 'end';
+  readonly corners: 'round' | 'sharp';
+}
+
+/** Every covered leg, at every width, on either end, sharp and round, roughened. */
+function coveredLegMatrix(): ShortCase[] {
+  const cases: ShortCase[] = [];
+  for (const leg of COVERED_LEGS) {
+    for (const width of ['thin', 'bold', 'extra']) {
+      for (const at of ['start', 'end'] as const) {
+        for (const corners of ['round', 'sharp'] as const) {
+          cases.push(coveredLegCase(cases.length, { leg, width, at, corners }));
+        }
+      }
+    }
+  }
+  return cases;
+}
+
+/** One arrow of the covered-leg matrix: a long leg that turns, with a head on its end. */
+function coveredLegCase(index: number, options: CoveredOptions): ShortCase {
+  const id = `covered-${index}`;
+  const x = (index % COVERED_COLUMNS) * COVERED_CELL + 80;
+  const y = Math.floor(index / COVERED_COLUMNS) * COVERED_CELL + 140;
+  const turn = (COVERED_TURN * Math.PI) / 180;
+  const bend = { x: x - options.leg, y };
+  const tail = { x: bend.x - 120 * Math.cos(turn), y: bend.y - 120 * Math.sin(turn) };
+  const points =
+    options.at === 'end'
+      ? [tail, bend, { x, y }]
+      : [{ x, y }, bend, tail];
+  return {
+    id,
+    at: options.at,
+    element: {
+      id,
+      type: 'arrow',
+      points,
+      corners: options.corners,
+      stroke: { width: options.width, style: 'solid' },
+      roughness: 2,
+      heads:
+        options.at === 'start'
+          ? { start: 'arrow', end: 'none' }
+          : { start: 'none', end: 'arrow' },
+    },
+  };
+}
+
+/**
+ * One arrow of the covered-leg matrix, checked against what a person sees: a
+ * head's own reach from its apex is the head's alone, so no ink of the shaft
+ * shows there beside the triangle. Ink under the triangle is the head's cover.
+ */
+function assertTipIsClear(one: ShortCase, group: string): void {
+  const head = pathsOf(group).find((tag) => attributeIn(tag, 'fill') !== 'none');
+  assert.ok(head !== undefined, `${one.id}: the arrow draws its head`);
+  const corners = flatPoints(head);
+  assert.equal(corners.length, 3, `${one.id}: the head fills a triangle`);
+  const tip = one.element.points[one.at === 'start' ? 0 : one.element.points.length - 1]!;
+  const apex = nearestOf(corners, tip).at;
+  for (const tag of pathsOf(group).filter((tag) => attributeIn(tag, 'fill') === 'none')) {
+    const radius = attributeOf(tag, 'stroke-width') / 2;
+    for (const run of inkRuns(tag)) {
+      for (const sample of run) {
+        if (far(sample, apex) > TIP_SPAN) {
+          continue;
+        }
+        for (const ink of inkAround(sample, radius)) {
+          assert.ok(
+            covers(corners, ink),
+            `${one.id}: the shaft inks (${ink.x.toFixed(2)}, ${ink.y.toFixed(2)}) beside the ${one.at} head’s apex`,
+          );
+        }
+      }
+    }
+  }
+}
+
+/** Room one dashed shaft of the phase matrix has to itself: its 280 units and a Label. */
+const PHASE_CELL = 420;
+
+/** How many dashed shafts one row of the phase matrix holds. */
+const PHASE_COLUMNS = 4;
+
+/** What varies from one dashed shaft with a start head to the next. */
+interface PhaseOptions {
+  readonly width: string;
+  readonly rise: number;
+  readonly roughness: number;
+  readonly label: boolean;
+}
+
+/**
+ * The phase matrix: a dashed shaft with a head on its start — curved by its round
+ * corners and roughened — beside the same shaft with no head at all, which is
+ * the dash pattern its head must leave alone.
+ */
+function phaseMatrix(): TurnedCase[] {
+  const cases: TurnedCase[] = [];
+  for (const width of ['thin', 'bold', 'extra']) {
+    for (const rise of [40, 160]) {
+      for (const roughness of [0, 2]) {
+        for (const label of [false, true]) {
+          cases.push(phaseCase(cases.length, { width, rise, roughness, label }));
+        }
+      }
+    }
+  }
+  return cases;
+}
+
+/** One dashed shaft of the phase matrix, laid out so no two shafts overlap. */
+function phaseCase(index: number, options: PhaseOptions): TurnedCase {
+  const id = `phase-${index}`;
+  const x = (index % PHASE_COLUMNS) * PHASE_CELL + 60;
+  const y = Math.floor(index / PHASE_COLUMNS) * PHASE_CELL + 80;
+  const shared = {
+    id,
+    type: 'arrow' as const,
+    corners: 'round' as const,
+    roughness: options.roughness,
+    stroke: { width: options.width, style: 'dashed' },
+    points: [
+      { x, y },
+      { x: x + 40, y: y + options.rise },
+      { x: x + 280, y },
+    ],
+    ...(options.label ? { label: 'words', labelAt: { t: 0.5, offset: 0 } } : {}),
+  };
+  return {
+    id,
+    at: 'start',
+    element: { ...shared, heads: { start: 'arrow', end: 'none' } },
+    bare: { ...shared, heads: { start: 'none', end: 'none' } },
+  };
+}
+
+/**
+ * Every run of a dashed drawing, and the dash phase it reaches at its far end:
+ * the offset the run starts at plus the arc of ink it draws. A headless shaft
+ * writes both of its passes as one path, so the runs are the path's subpaths.
+ */
+function dashPhases(group: string): { end: At; phase: number }[] {
+  return pathsOf(group)
+    .filter((tag) => attributeIn(tag, 'fill') === 'none')
+    .flatMap((tag) => {
+      const offset = attributeOf(tag, 'stroke-dashoffset');
+      return inkRuns(tag).map((run) => ({
+        end: run[run.length - 1]!,
+        phase: offset + runLength(run),
+      }));
+    });
 }

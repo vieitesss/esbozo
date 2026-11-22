@@ -391,11 +391,16 @@ test('a round bend point pulls the shaft into a curve through itself', async () 
 test('a sharp bend point turns at a corner softened by a small fillet', async () => {
   const bend = { x: 100, y: 100 };
   const svg = await ink(
-    oneArrow([
-      { x: 0, y: 0 },
-      { x: 100, y: 100, corner: 'sharp' },
-      { x: 200, y: 0 },
-    ]),
+    oneArrow(
+      [
+        { x: 0, y: 0 },
+        { x: 100, y: 100, corner: 'sharp' },
+        { x: 200, y: 0 },
+      ],
+      // The fillet is what this shaft is measured for, so it draws no head: a
+      // head is the last ink of its arrow, and would stop the shaft short of it.
+      { heads: { start: 'none', end: 'none' } },
+    ),
   );
 
   const shaft = shaftFrom(svg, { x: 0, y: 0 });
@@ -413,11 +418,15 @@ test('a sharp bend takes the same pullback from a short leg as from a long one',
   // the long one at (2,1). Taking a full 7px from the long leg alone would bend
   // the corner about a leg it has already left.
   const svg = await ink(
-    oneArrow([
-      { x: 0, y: 0 },
-      { x: 2, y: 0, corner: 'sharp' },
-      { x: 2, y: 100 },
-    ]),
+    oneArrow(
+      [
+        { x: 0, y: 0 },
+        { x: 2, y: 0, corner: 'sharp' },
+        { x: 2, y: 100 },
+      ],
+      // No head: the whole leg is drawn, so every point of it can be read.
+      { heads: { start: 'none', end: 'none' } },
+    ),
   );
 
   const drawn = drawnPoints(attribute(shaftFrom(svg, { x: 0, y: 0 }), 'd') ?? '');
@@ -742,7 +751,8 @@ test('a two-point shaft keeps the bytes it always drew, its Snap fraction includ
   // The Snap lands on a fraction of a pixel of the ellipse, and the ink is
   // roughened from that fraction: rounding it on the way into Rough.js moves a
   // control point in the last decimal and changes the SVG of a Scene that never
-  // bent at all.
+  // bent at all. The shaft is drawn with no head, so the bytes below are the
+  // shaft's own.
   const svg = await ink({
     version: 1,
     defaults: { roughness: 2 },
@@ -751,6 +761,7 @@ test('a two-point shaft keeps the bytes it always drew, its Snap fraction includ
       {
         id: 'a',
         type: 'arrow',
+        heads: { start: 'none', end: 'none' },
         points: [
           { x: 48, y: 61, snap: 'e' },
           { x: 300, y: 200 },
@@ -760,10 +771,11 @@ test('a two-point shaft keeps the bytes it always drew, its Snap fraction includ
   });
 
   // The page this Scene is drawn on is the two ends' box padded, as it always
-  // was: a two-point shaft reaches no further than its ends.
+  // was: a two-point shaft reaches no further than its ends. The hash is the
+  // Scene's own, so it moved with the one field that says the shaft has no head.
   assert.equal(
     svg.slice(0, svg.indexOf('\n')),
-    `<svg xmlns="http://www.w3.org/2000/svg" width="332" height="232" viewBox="-16 -16 332 232" role="img" font-family="${FONT}" data-scene-hash="sha256:1e9fc623956998c47d956f280555a5fd4755fc951221f85bd8db54b4de90360c">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="332" height="232" viewBox="-16 -16 332 232" role="img" font-family="${FONT}" data-scene-hash="sha256:12158a7a977d3d16497d4f447898682cde72301ac635d39f51cf0f9e27f14c34">`,
   );
   assert.equal(
     attribute(shaftFrom(svg, { x: 81.59, y: 52.8 }), 'd'),
@@ -800,33 +812,45 @@ test('a zero-length shaft keeps the bytes it always drew', async () => {
 });
 
 test('a curved shaft draws its dash pattern along an unbroken stroke', async () => {
+  const points = [
+    { x: 0, y: 0 },
+    { x: 100, y: 100, corner: 'round' },
+    { x: 200, y: 0 },
+  ];
   for (const style of ['dashed', 'dotted'] as const) {
-    const svg = await ink(
-      oneArrow(
-        [
-          { x: 0, y: 0 },
-          { x: 100, y: 100, corner: 'round' },
-          { x: 200, y: 0 },
-        ],
-        { stroke: { width: 'bold', style } },
-      ),
+    const bare = await ink(
+      oneArrow(points, { stroke: { width: 'bold', style }, heads: { start: 'none', end: 'none' } }),
+    );
+    const headed = await ink(
+      oneArrow(points, { stroke: { width: 'bold', style }, heads: { start: 'none', end: 'arrow' } }),
     );
 
-    const dashed = tags(svg, 'path').filter((tag) => attribute(tag, 'stroke-dasharray') !== undefined);
-    assert.equal(dashed.length, 1, `${style}: one pattern fits one path`);
-    const d = attribute(dashed[0]!, 'd') ?? '';
+    const patterned = (svg: string) =>
+      tags(svg, 'path').filter((tag) => attribute(tag, 'stroke-dasharray') !== undefined);
+    assert.equal(patterned(bare).length, 1, `${style}: one pattern fits one path`);
+    assert.equal(patterned(headed).length, 1, `${style}: and one with a head on the end`);
+    // The head takes ink off the end of the shaft, and nothing else: the pattern
+    // is still fitted to the whole of it, so every dash away from the head falls
+    // where it fell with no head at all.
+    assert.equal(
+      attribute(patterned(headed)[0]!, 'stroke-dasharray'),
+      attribute(patterned(bare)[0]!, 'stroke-dasharray'),
+      `${style}: the head changes neither the fit nor the phase`,
+    );
+
+    const d = attribute(patterned(bare)[0]!, 'd') ?? '';
     // One subpath per stroke pass, each running the whole shaft: a move per
     // piece would start the pattern again at every bend.
     const subpaths = d.split('M').slice(1);
     assert.equal(subpaths.length, 2, `${style}: one subpath per stroke pass, got ${subpaths.length}`);
     for (const subpath of subpaths) {
-      const drawn = inkSamples(`M${subpath}`);
+      const stroke = inkSamples(`M${subpath}`);
       assert.ok(
-        drawn.some((point) => near(point.x, 0) && near(point.y, 0)),
+        stroke.some((point) => near(point.x, 0) && near(point.y, 0)),
         `${style}: the stroke starts at the shaft`,
       );
       assert.ok(
-        drawn.some((point) => near(point.x, 200) && near(point.y, 0)),
+        stroke.some((point) => near(point.x, 200) && near(point.y, 0)),
         `${style}: and runs to its end`,
       );
     }
@@ -834,7 +858,9 @@ test('a curved shaft draws its dash pattern along an unbroken stroke', async () 
     // The pattern is fitted to the ink's own length, not to the line between
     // the ends: whole periods of it fit what the stroke draws, and that is a
     // good deal longer than the chord on this shaft.
-    const [dash = 0, gap = 0] = (attribute(dashed[0]!, 'stroke-dasharray') ?? '').split(' ').map(Number);
+    const [dash = 0, gap = 0] = (attribute(patterned(bare)[0]!, 'stroke-dasharray') ?? '')
+      .split(' ')
+      .map(Number);
     const length = inkLength(firstPass(d));
     assert.ok(length > 230, `the ink is longer than the chord between its ends (${length})`);
     const periods = (length - dash) / (dash + gap);
@@ -842,6 +868,24 @@ test('a curved shaft draws its dash pattern along an unbroken stroke', async () 
       Math.abs(periods - Math.round(periods)) < 0.1,
       `${style}: whole periods fit the ink, ${periods} did`,
     );
+
+    // With a head on the end the strokes are still one run each, and they stop
+    // under the head instead of at the arrow's tip.
+    const cut = (attribute(patterned(headed)[0]!, 'd') ?? '').split('M').slice(1);
+    assert.equal(cut.length, 2, `${style}: the head leaves a subpath per stroke pass`);
+    for (const subpath of cut) {
+      const stroke = inkSamples(`M${subpath}`);
+      assert.ok(
+        stroke.some((point) => near(point.x, 0) && near(point.y, 0)),
+        `${style}: the headed stroke starts at the shaft too`,
+      );
+      assert.ok(
+        !stroke.some((point) => near(point.x, 200) && near(point.y, 0)),
+        `${style}: and stops under the head, not on the tip`,
+      );
+      const nearest = Math.min(...stroke.map((point) => Math.hypot(point.x - 200, point.y)));
+      assert.ok(nearest <= 13, `${style}: the stroke reaches its head, ${nearest} from the tip`);
+    }
   }
 });
 
