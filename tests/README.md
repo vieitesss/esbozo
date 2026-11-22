@@ -31,6 +31,21 @@ holds the list, so a new file cannot sit unrun.
 
 For fast inner-loop runs without creating scratch files or running an entire suite, filter to one test with `npx e2e run tests/<file>.e2e.ts:<line>`, `--grep <pattern>`, or `--last-failed` (after `pnpm build`).
 
+When a failure shows only in CI and not here, run the same file on the Linux
+that CI runs it on: `pnpm e2e:linux [e2e args]`. It builds `docker/e2e.Dockerfile` once
+(Ubuntu 26.04, the release CI's `ubuntu-latest` runs, with the Node
+`.node-version` pins and the pnpm `package.json` pins, and Chromium with its
+system libraries), then reuses that image while every file it
+is built from holds still. The worktree is copied into the container at run time
+without the host's `node_modules`, so a source change costs no rebuild, and the
+arguments are `e2e run`'s own — `pnpm e2e:linux tests/cdp.e2e.ts:42`,
+`pnpm e2e:linux --grep '<title>'` — with none it runs what `pnpm e2e` runs.
+Docker has to be running; `ESBOZO_*` and `OPENCODE_API_KEY` cross into the
+container and nothing else, the container is removed however the run ends, and
+the run exits with the suite's own code, so a failure is still a red shell. This
+is the loop for a `Meta+`-vs-`Ctrl+` or middle-click failure that only the Linux
+Chromium shows: it is the same suite, not a second one.
+
 For one look at the live editor with no e2e file at all, write a probe whose default export takes `{ page, url, cdp }` and run `pnpm probe <probe.mjs>`: it serves the built editor on an ephemeral port, opens Chromium, prints what the probe returned as JSON, and closes both however the probe ends. It does not build, so `pnpm build` first.
 
 `pnpm test` and the three `e2e` scripts run through `scripts/fresh-tmp.mjs`, which hands the run a fresh `TMPDIR` and fails it when an `esbozo*` folder is still in there at the end: a test that stops removing its folder is a red run, not a folder a person finds weeks later. A bare `npx e2e run` skips that guard, which is the point of the fast inner loops above and the cost of them.

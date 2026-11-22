@@ -30,7 +30,9 @@ jobs:
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version-file: package.json
+          # The one file `pnpm e2e:linux` reads too, so the image and this run
+          # install the same Node. `engines` stays the floor the project needs.
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Install the browser the suite launches
