@@ -31,8 +31,8 @@ holds the list, so a new file cannot sit unrun.
 
 For fast inner-loop runs without creating scratch files or running an entire suite, filter to one test with `npx e2e run tests/<file>.e2e.ts:<line>`, `--grep <pattern>`, or `--last-failed` (after `pnpm build`).
 
-When a failure shows only in CI and not here, run the same file on the Linux CI
-runs it on: `pnpm e2e:linux [e2e args]`. It builds `docker/e2e.Dockerfile` once
+When a failure shows only in CI and not here, run the same file on the Linux
+that CI runs it on: `pnpm e2e:linux [e2e args]`. It builds `docker/e2e.Dockerfile` once
 (Ubuntu with the Node and pnpm `package.json` gives the workflow, and Chromium
 with its system libraries), then reuses that image while the Dockerfile and those
 versions hold still. The worktree is copied into the container at run time
