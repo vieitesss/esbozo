@@ -209,6 +209,26 @@ class EsbozoEditorElement extends HTMLElement {
     pattern.id = dots;
     gridRect.setAttribute('fill', `url(#${dots})`);
 
+    // The words being typed are built first: the page draws them and the pointer
+    // opens them, so both read what is already there. Committed words land
+    // through the same history and save path as other Scene edits. The page is
+    // built later, and is the one thing the words ask for instead of holding.
+    this.#typing = new Typing({
+      field: this,
+      page: () => this.#page,
+      scene: () => this.#scene,
+      layout: () => this.#connection.layout,
+      writable: () => this.#connection.writable(),
+      useSelectTool: () => this.#setTool('select'),
+      selectElement: (id) => {
+        this.#selected = [id];
+        this.#refresh();
+      },
+      refused: (problem) => this.#setSaved('failed', problem),
+      applyScene: (next, select) => this.#applyScene(next, { select }),
+      forgetWordClick: () => this.#gestures.forgetWordClick(),
+    });
+
     // The page's frame is told what the page may show, and asked for it. It owns
     // the view, the drawings kept between frames and the overlay that marks them.
     this.#page = new Page(
@@ -220,6 +240,8 @@ class EsbozoEditorElement extends HTMLElement {
         overlay: this.querySelector('.overlay')!,
         zoom: this.querySelector('.zoom')!,
         painted: this.querySelector('.painted')!,
+        note: this.#menu,
+        rail: this.#rail,
       },
       {
         layout: () => this.#connection.layout,
@@ -227,10 +249,9 @@ class EsbozoEditorElement extends HTMLElement {
         shown: () => this.#shown(),
         selected: () => this.#selected,
         drag: () => this.#gestures.drag,
-        typing: () => this.#typing,
+        typing: this.#typing,
       },
     );
-    this.#page.viewport.showGrid(this.#grid);
 
     // The connection is the page's font, its folder and its writes: every answer
     // it gets is late, and every one of them is bound to the token that asked.
@@ -247,29 +268,6 @@ class EsbozoEditorElement extends HTMLElement {
         this.querySelector('[data-act="open"]')!.textContent = 'Scenes';
       },
       files: (scene) => this.#page.files(scene),
-    });
-
-    // The pointer opens the session and the page draws its preview. Committed
-    // words land through the same history and save path as other Scene edits.
-    this.#typing = new Typing({
-      field: this,
-      page: {
-        paint: () => this.#page.paint(),
-        paintWords: () => this.#page.paintWords(),
-        wordsLine: (key, state) => this.#page.wordsLine(key, state),
-        clearOfNote: () => this.#page.clearOfNote(this.#menu, this.#rail),
-      },
-      scene: () => this.#scene,
-      layout: () => this.#connection.layout,
-      writable: () => this.#connection.writable(),
-      useSelectTool: () => this.#setTool('select'),
-      selectElement: (id) => {
-        this.#selected = [id];
-        this.#refresh();
-      },
-      refused: (problem) => this.#setSaved('failed', problem),
-      applyScene: (next, select) => this.#applyScene(next, { select }),
-      forgetWordClick: () => this.#gestures.forgetWordClick(),
     });
 
     // The pointer's machine is told what the page holds, and asked for the one
@@ -293,6 +291,10 @@ class EsbozoEditorElement extends HTMLElement {
       refresh: () => this.#refresh(),
       showPanning: () => this.#showPill(),
     });
+
+    // Nothing draws, takes the keys or asks the folder for a Scene until every
+    // module holds the ones it needs: the wiring is done, and starts here.
+    this.#page.viewport.showGrid(this.#grid);
 
     if (this.#ownsKeysWhenFocused) {
       // An embedded editor is one box on someone else's page: a click into it
@@ -885,7 +887,7 @@ class EsbozoEditorElement extends HTMLElement {
    */
   #refresh(): void {
     this.#syncMenu();
-    this.#page.clearOfNote(this.#menu, this.#rail);
+    this.#page.clearOfNote();
     // The view may have moved to make room for the note: the words being typed
     // travel with it, caret and all, rather than staying behind on the page.
     this.#page.paint();
@@ -901,7 +903,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#page.viewport.view = view;
     // Zoom is not part of a double-click: the next press starts a new one.
     this.#gestures.forgetClicks();
-    this.#page.clearOfNote(this.#menu, this.#rail);
+    this.#page.clearOfNote();
     this.#page.paint();
   }
 

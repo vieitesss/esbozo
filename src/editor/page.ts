@@ -77,13 +77,17 @@ interface PageHost {
   /** The gesture in flight, as the drawing and the overlay read it. */
   drag(): Drag | null;
   /** The preview Element and the field whose caret the page draws. */
-  typing(): Pick<Typing, 'editingId' | 'words'>;
+  readonly typing: Pick<Typing, 'editingId' | 'words'>;
 }
 
 /** The nodes a frame draws into. */
 interface PageParts extends ViewportParts {
   /** The group every Element's drawing goes into. */
   readonly painted: SVGGElement;
+  /** The docked Style note, which must never sit on what it edits. */
+  readonly note: HTMLElement;
+  /** The rail the note is docked beside: its right edge is where the note starts. */
+  readonly rail: HTMLElement;
 }
 
 export class Page {
@@ -91,6 +95,9 @@ export class Page {
   readonly #host: PageHost;
   readonly #overlay: SVGGElement;
   readonly #paintedLayer: SVGGElement;
+  /** The Style note and the rail beside it, which `clearOfNote` keeps the view clear of. */
+  readonly #note: HTMLElement;
+  readonly #rail: HTMLElement;
   /** What the next frame owes the page: nothing yet, the words' own layer, or the whole page. */
   #queued: 'none' | 'words' | 'page' = 'none';
   /** The settled Scene last drawn, or null when a preview or new measurement invalidates it. */
@@ -136,6 +143,8 @@ export class Page {
     this.#host = host;
     this.#overlay = parts.overlay;
     this.#paintedLayer = parts.painted;
+    this.#note = parts.note;
+    this.#rail = parts.rail;
     this.viewport = new Viewport(parts);
   }
 
@@ -201,11 +210,11 @@ export class Page {
    * mid-drag would make the Element chase it. The rectangle is measured from
    * what the page shows, so a box grown by the words being typed is cleared too.
    */
-  clearOfNote(note: HTMLElement, rail: HTMLElement): void {
+  clearOfNote(): void {
     if (this.#host.drag() !== null) {
       return;
     }
-    const box = this.#noteBox(note);
+    const box = this.#noteBox();
     if (box === null) {
       return;
     }
@@ -219,7 +228,7 @@ export class Page {
         this.#host.layout(),
       ),
       note: box,
-      left: rail.getBoundingClientRect().right - canvas.left + MENU_GAP,
+      left: this.#rail.getBoundingClientRect().right - canvas.left + MENU_GAP,
       gap: MENU_GAP,
     });
   }
@@ -232,7 +241,7 @@ export class Page {
    * place for a caret at all.
    */
   #block(): Block | null {
-    const element = this.#host.typing().words()?.element ?? null;
+    const element = this.#host.typing.words()?.element ?? null;
     if (element === null) {
       return null;
     }
@@ -264,7 +273,7 @@ export class Page {
    * whichever end the words begin and stop.
    */
   wordsLine(key: 'up' | 'down' | 'home' | 'end', state: TextSessionState): number | null {
-    const shift = this.#host.typing().words()?.shift;
+    const shift = this.#host.typing.words()?.shift;
     const block = this.#block();
     if (shift === undefined || block === null) {
       return null;
@@ -346,7 +355,8 @@ export class Page {
   }
 
   /** The Style note's own page box, while it is on the page. */
-  #noteBox(note: HTMLElement): Box | null {
+  #noteBox(): Box | null {
+    const note = this.#note;
     if (note.hidden) {
       return null;
     }
@@ -404,7 +414,7 @@ export class Page {
     // next letter would go in: only the Element being typed in is drawn with
     // them. An Element nobody is editing keeps the words the Scene holds, so an
     // unlabeled arrow draws no words — and no paper for them either.
-    const typing = this.#host.typing();
+    const typing = this.#host.typing;
     const editingId = typing.editingId();
     const paint = paintables.paint(
       editingId === null
@@ -610,7 +620,7 @@ export class Page {
     this.#wordsLayer = null;
     clearWashes(this.#washes);
     this.#washes = [];
-    const typing = this.#host.typing().words();
+    const typing = this.#host.typing.words();
     const block = this.#block();
     if (typing === null || block === null) {
       return;
@@ -632,7 +642,7 @@ export class Page {
 
   /** The group the page drew the words being typed in: where their wash goes. */
   #wordsGroup(): SVGGElement | null {
-    const id = this.#host.typing().words()?.element.id;
+    const id = this.#host.typing.words()?.element.id;
     return id === undefined ? null : (this.#groups.get(id)?.node ?? null);
   }
 
