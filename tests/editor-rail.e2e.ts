@@ -1,0 +1,182 @@
+/**
+ * Seam 2: the frame the tool rail hangs on.
+ *
+ * A Scene opens with the rail docked on the frame around its diagram: the
+ * diagram's box on screen, at least 960×600 about its centre and cut to the
+ * editor's box, with the rail's pencil outline one gap above the frame's top
+ * side — or just inside the editor's top edge when the frame leaves no room for
+ * it. Asserted on the ink a screenshot holds, never on a box the page reports.
+ */
+import { test } from '@e2e-dev/web';
+import { expect } from 'e2e';
+import { openEditor, settle } from './helpers.ts';
+import type { Ui } from './helpers.ts';
+import { shot } from './pixels.ts';
+import type { Rect } from './pixels.ts';
+
+/** An empty Scene: bare paper, so the only ink up top is the strip's own. */
+const BARE_SOURCE = JSON.stringify(
+  { version: 1, title: 'Empty', defaults: {}, elements: [] },
+  null,
+  2,
+);
+
+/** A diagram larger than the frame's minimum, with room around it on every side. */
+const BIG_SOURCE = JSON.stringify(
+  {
+    version: 1,
+    title: 'Big',
+    defaults: { roughness: 0 },
+    elements: [
+      { id: 'big', type: 'rectangle', x: 40, y: 40, width: 1000, height: 700, fill: { kind: 'solid', grey: 6 } },
+    ],
+  },
+  null,
+  2,
+);
+
+/** A diagram far smaller than the frame's minimum: a thumbprint of a box. */
+const TINY_SOURCE = JSON.stringify(
+  {
+    version: 1,
+    title: 'Tiny',
+    defaults: { roughness: 0 },
+    elements: [{ id: 'tiny', type: 'rectangle', x: 40, y: 40, width: 40, height: 40, fill: { kind: 'solid', grey: 6 } }],
+  },
+  null,
+  2,
+);
+
+/** The tool rail, as the accessibility tree offers it. */
+function rail(ui: Ui) {
+  return ui.screen.getByRole('navigation', { name: 'Tools' });
+}
+
+/**
+ * Where the strip's ink reaches inside a band, with a tile focused so the strip
+ * is drawn at full ink: its outline is what the eye sees of where the rail is,
+ * and the band keeps the status in the corners and any diagram below it out.
+ */
+async function railInk(ui: Ui, band: Rect): Promise<Rect> {
+  await rail(ui).getByRole('button', 'Select').focus();
+  const ink = async (): Promise<Rect | null> => (await shot(ui)).darkBounds(band, 0.6);
+  await expect.poll(async () => (await ink()) !== null, { timeout: 5000 }).toBe(true);
+  return (await ink())!;
+}
+
+/** An empty Scene, opened at the window a test set first. */
+async function openBare(ui: Ui, window?: { width: number; height: number }): Promise<void> {
+  if (window !== undefined) {
+    await ui.browser.setViewport(window);
+  }
+  await openEditor(ui, { A: { 'bare.json': BARE_SOURCE } }, 'bare.json');
+  await settle(ui);
+}
+
+test('an empty Scene hangs the rail above a centred 960×600 frame, 20 px down at 1280×800', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+
+  // The frame is 960×600 about the editor's middle, so its top side is 100 px
+  // down; the strip's outline hangs the 16 px gap above it, and the strip is
+  // 63 px tall, so the outline's top is about 20 px down. The tilt leans the
+  // strip, so a couple of pixels either way is the look, not the place.
+  const ink = await railInk(ui, { x: 400, y: 0, width: 480, height: 240 });
+  expect(ink.y, 'the outline hangs above the frame').toBeGreaterThan(10);
+  expect(ink.y, 'the outline hangs above the frame').toBeLessThan(28);
+
+  // Horizontal: seven tiles wide against one tile tall.
+  expect(ink.width).toBeGreaterThan(ink.height * 2);
+
+  // Centred on the frame, which is centred on the editor: a strip turned about
+  // its own middle keeps that middle where it was.
+  expect(Math.abs(ink.x + ink.width / 2 - 1280 / 2), 'the strip is centred').toBeLessThan(4);
+});
+
+test('an empty Scene at 3440×1440 hangs the rail about 340 px down', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openBare(ui, { width: 3440, height: 1440 });
+
+  // The same 960×600 frame, whose top side is 420 px down in a window this
+  // tall: 420, less the 16 px gap and the 63 px strip, is about 340 px down.
+  const ink = await railInk(ui, { x: 1320, y: 0, width: 800, height: 480 });
+  expect(ink.y, 'the outline hangs above the frame').toBeGreaterThan(330);
+  expect(ink.y, 'the outline hangs above the frame').toBeLessThan(352);
+  expect(ink.width).toBeGreaterThan(ink.height * 2);
+  expect(Math.abs(ink.x + ink.width / 2 - 3440 / 2), 'the strip is centred').toBeLessThan(4);
+});
+
+test('a diagram larger than the frame keeps the rail a gap above its own box, centred on it', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await browser.setViewport({ width: 3440, height: 1440 });
+  await openEditor(ui, { A: { 'big.json': BIG_SOURCE } }, 'big.json');
+  await settle(ui);
+
+  // The 1000×700 box is shown 1:1 in the middle of the window: its top stroke
+  // is 370 px down. The strip is measured in a band that stops above that
+  // stroke, and the box in one beside the strip's own reach.
+  await rail(ui).getByRole('button', 'Select').focus();
+  const stripBand: Rect = { x: 1400, y: 0, width: 640, height: 366 };
+  await expect
+    .poll(async () => (await shot(ui)).darkBounds(stripBand, 0.6) !== null, { timeout: 5000 })
+    .toBe(true);
+  const picture = await shot(ui);
+  const strip = picture.darkBounds(stripBand, 0.6)!;
+  const box = picture.darkBounds({ x: 1230, y: 340, width: 330, height: 740 }, 0.6)!;
+
+  // One gap above the diagram's own box, not the minimum's: the outline clears
+  // the box, less the strip's tilt and the stroke the box paints outside its
+  // bounds. Had the minimum framed it, the strip would be 50 px higher.
+  const gap = box.y - (strip.y + strip.height);
+  expect(gap, 'the outline clears the diagram by the gap').toBeGreaterThan(6);
+  expect(gap, 'the outline clears the diagram by the gap').toBeLessThan(24);
+  expect(strip.y, 'the dock follows the diagram, not the minimum').toBeLessThan(330);
+
+  // Centred: the fitted page puts the diagram's middle at the window's, and the
+  // strip's middle is on it.
+  expect(Math.abs(strip.x + strip.width / 2 - 3440 / 2), 'the strip is centred').toBeLessThan(4);
+});
+
+test('a tiny diagram is framed at the minimum, so the rail clears it by far', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'tiny.json': TINY_SOURCE } }, 'tiny.json');
+  await settle(ui);
+
+  // The 40×40 box is a mark in the middle of the window; the frame around it is
+  // the minimum, so the strip hangs where an empty Scene's does, 20 px down.
+  const strip = await railInk(ui, { x: 400, y: 0, width: 480, height: 240 });
+  expect(strip.y).toBeGreaterThan(10);
+  expect(strip.y).toBeLessThan(28);
+  expect(Math.abs(strip.x + strip.width / 2 - 1280 / 2), 'the strip is centred').toBeLessThan(4);
+
+  // The diagram itself is nowhere near the strip: the frame, not the mark, is
+  // what the rail is measured against.
+  const mark = (await shot(ui)).darkBounds({ x: 560, y: 300, width: 180, height: 200 }, 0.6)!;
+  expect(mark.y - (strip.y + strip.height)).toBeGreaterThan(200);
+});
+
+test('a diagram with no room above it puts the rail 15 px inside the editor top edge', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  // A short window: the diagram's frame is cut by the editor's own box, whose
+  // top side leaves no room for the strip above it.
+  await browser.setViewport({ width: 1280, height: 300 });
+  await openEditor(ui, { A: { 'big.json': BIG_SOURCE } }, 'big.json');
+  await settle(ui);
+
+  const ink = await railInk(ui, { x: 400, y: 0, width: 480, height: 140 });
+  expect(ink.y, 'the strip stops just inside the editor top edge').toBeGreaterThan(2);
+  expect(ink.y, 'the strip stops just inside the editor top edge').toBeLessThan(18);
+  expect(Math.abs(ink.x + ink.width / 2 - 1280 / 2), 'the strip is centred').toBeLessThan(4);
+});
