@@ -44,7 +44,11 @@ export function endPoint(element: ArrowOrLineElement, end: End): Point {
 }
 
 /** This shaft with the point at `index` replaced: every other point, bends included, is kept. */
-function withPoint(element: ArrowOrLineElement, index: number, point: Point): ArrowOrLineElement {
+export function withPoint(
+  element: ArrowOrLineElement,
+  index: number,
+  point: Point,
+): ArrowOrLineElement {
   const points = [...element.points];
   points[index] = point;
   return { ...element, points: points as ArrowOrLineElement['points'] };
@@ -83,65 +87,6 @@ export function targetAt(
     }
   }
   return null;
-}
-
-/**
- * The arrow or line with the bend at `index` stored where the pointer put it:
- * whole-pixel like every other coordinate in a Scene, its own `corner` kept,
- * and no Snap. A Snap is an end's, so a bend dropped over an Element does not
- * take one, and the ends it sits between keep the ones they have.
- */
-export function withBend(
-  element: ArrowOrLineElement,
-  index: number,
-  point: Point,
-): ArrowOrLineElement {
-  const corner = element.points[index]?.corner;
-  const stored: Point = {
-    x: Math.round(point.x),
-    y: Math.round(point.y),
-    ...(corner === undefined ? {} : { corner }),
-  };
-  return withPoint(element, index, stored);
-}
-
-/**
- * The arrow or line with a new bend inserted at `index`, stored where the dot
- * stood: whole-pixel like every other coordinate, no `corner` of its own so it
- * turns by the Element's, and no Snap — a point pulled out of a shaft's ink is
- * a bend and only a bend, even over an Element an end would attach to. The ends
- * either side of it, and every other point, are the Scene's own.
- */
-export function withInsertedBend(
-  element: ArrowOrLineElement,
-  index: number,
-  point: Point,
-): ArrowOrLineElement {
-  const points = [...element.points];
-  points.splice(index, 0, { x: Math.round(point.x), y: Math.round(point.y) });
-  return { ...element, points: points as ArrowOrLineElement['points'] };
-}
-
-/**
- * The arrow or line with the bend at `index` gone: every other point keeps its
- * place, its `corner` and its Snap, and so does the Element its corners. A
- * removal that would leave a two-point shaft with both ends Snapped to one
- * Element removes nothing, because the Scene has no such shaft: two ends on one
- * outline have no direction to aim along, and the point between them is what
- * gave it one.
- */
-export function withoutBend(
-  element: ArrowOrLineElement,
-  index: number,
-): ArrowOrLineElement | null {
-  const points = [...element.points];
-  points.splice(index, 1);
-  const start = points[0]!;
-  const end = points[points.length - 1]!;
-  if (points.length === 2 && start.snap !== undefined && start.snap === end.snap) {
-    return null;
-  }
-  return { ...element, points: points as ArrowOrLineElement['points'] };
 }
 
 /**

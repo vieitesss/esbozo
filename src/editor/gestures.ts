@@ -32,23 +32,21 @@ import type { Layout } from '../layout.js';
 import { labelAtFor } from '../geometry.js';
 import { boxBetween, elementsInBox, moved, pickAt, resized, resizedBox } from './geometry.js';
 import type { Box, Handle, Point, Pointer, View } from './geometry.js';
-import { bendFromDot, bendFromHandle, dotAt, sameBend, shaftIn } from './bend-point.js';
+import {
+  bendFromDot,
+  bendFromHandle,
+  dotAt,
+  sameBend,
+  shaftIn,
+  withBend,
+  withInsertedBend,
+} from './bend-point.js';
 import type { Bend, ShaftOf } from './bend-point.js';
 import type { ToolId } from './actions.js';
 import { drawn, drawnAtClick, freshId, idsOf, isClick } from './elements.js';
 import type { ElementTool } from './elements.js';
 import type { Page, Shown } from './page.js';
-import {
-  attachedTo,
-  endPoint,
-  isShaft,
-  otherEnd,
-  released,
-  targetAt,
-  withBend,
-  withEnd,
-  withInsertedBend,
-} from './snap.js';
+import { attachedTo, endPoint, isShaft, otherEnd, released, targetAt, withEnd } from './snap.js';
 import type { End } from './snap.js';
 import type { Typing } from './typing.js';
 import { wordAt } from './words.js';

@@ -2462,4 +2462,31 @@ describe('a cut, a Shift press and a held key', () => {
       { x: 550, y: 50 },
     ]);
   });
+
+  test('palette Delete does not rearm a held Backspace', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    const ends = [
+      { x: 50, y: 50 },
+      { x: 550, y: 50 },
+    ];
+    await picked(ui);
+    await browser.keyboard.down('Backspace');
+    await expectPoints(ui, ends);
+
+    // The palette's Delete runs on its own, outside the key that is still held:
+    // it takes the shaft, and must not tell the hold it has work left to do.
+    await palette(ui);
+    await browser.keyboard.type('delete');
+    await command(ui, 'Delete · X · ⌫ · Del').click();
+    await expectPoints(ui, []);
+
+    await browser.keyboard.press('Meta+z');
+    await expectPoints(ui, ends);
+    await clickScene(ui, { x: 175, y: 50 }, [], SHARP);
+    await settle(ui);
+    await browser.keyboard.down('Backspace');
+    await browser.keyboard.up('Backspace');
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    await expectPoints(ui, ends);
+  });
 });

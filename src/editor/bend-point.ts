@@ -1,6 +1,7 @@
 /**
- * The bend point: the point of a Shaft between its ends, the marks a lone Shaft
- * shows to reach one, and the one reader of the press that lands on one.
+ * The bend point: the point of a Shaft between its ends, the edits that move,
+ * pull out and remove one, the one rule that decides a removal, the marks a lone
+ * Shaft shows to reach one, and the one reader of the press that lands on one.
  *
  * A Shaft is the drawn path of an arrow or line between its two ends, and the
  * points it turns by in between are bend points: a person drags one by its
@@ -19,7 +20,7 @@
 import type { ArrowOrLineElement, Corner, Point, Scene } from '../scene.js';
 import { cornerOf, shaftDots } from '../geometry.js';
 import type { ShaftPath } from '../geometry.js';
-import { isShaft } from './snap.js';
+import { isShaft, withPoint } from './snap.js';
 
 /**
  * One bend point of a Shaft, as the selection holds it: the arrow or line it is
@@ -62,6 +63,128 @@ export interface PressedBend {
 export function shaftIn(scene: Scene, id: string): ArrowOrLineElement | null {
   const element = scene.elements.find((candidate) => candidate.id === id);
   return element !== undefined && isShaft(element) ? element : null;
+}
+
+/**
+ * The one bend point the selection holds, and the lifetime it has. A press picks
+ * it; a change of the selection, a removal, another Scene and a page that may
+ * only read let it go; and the delete press that spends it leaves a held key
+ * nothing to do, so the key does not walk on from the point to the shaft behind
+ * it. Every one of those is decided here, so no index outlives the point it named.
+ */
+export class PickedBend {
+  #held: Bend | null = null;
+  /** Whether the delete press in hand already spent the point it found. */
+  #spent = false;
+
+  /** The point the selection holds, or null where it holds none. */
+  get bend(): Bend | null {
+    return this.#held;
+  }
+
+  /** Pick the point a press took, or let go of the one picked before it. */
+  pick(bend: Bend | null): void {
+    this.#held = bend;
+  }
+
+  /**
+   * Let go of the point: the selection changed, the point went, the Scene
+   * switched, or the page may only read.
+   */
+  letGo(): void {
+    this.#held = null;
+  }
+
+  /**
+   * Whether this delete press runs: a held key whose press is already spent runs
+   * nothing, so it does not go on to the shaft the point is a part of. Only a new
+   * press of a delete key is one, so a key pressed inside the hold is not.
+   */
+  pressDelete(repeated: boolean): boolean {
+    if (repeated && this.#spent) {
+      return false;
+    }
+    this.#spent = false;
+    return true;
+  }
+
+  /**
+   * The point this delete press removes, spending the press whether the point may
+   * go or not: the shaft behind it answers only to a press of its own. A press
+   * that finds no point spends nothing, so a held key stays spent even when a
+   * palette Delete runs inside its hold.
+   */
+  spend(): Bend | null {
+    if (this.#held !== null) {
+      this.#spent = true;
+    }
+    return this.#held;
+  }
+}
+
+/**
+ * The arrow or line with the bend at `index` stored where the pointer put it:
+ * whole-pixel like every other coordinate in a Scene, its own `corner` kept,
+ * and no Snap. A Snap is an end's, so a bend dropped over an Element does not
+ * take one, and the ends it sits between keep the ones they have.
+ */
+export function withBend(
+  element: ArrowOrLineElement,
+  index: number,
+  point: Point,
+): ArrowOrLineElement {
+  const corner = element.points[index]?.corner;
+  const stored: Point = {
+    x: Math.round(point.x),
+    y: Math.round(point.y),
+    ...(corner === undefined ? {} : { corner }),
+  };
+  return withPoint(element, index, stored);
+}
+
+/**
+ * The arrow or line with a new bend inserted at `index`, stored where the dot
+ * stood: whole-pixel like every other coordinate, no `corner` of its own so it
+ * turns by the Element's, and no Snap — a point pulled out of a shaft's ink is
+ * a bend and only a bend, even over an Element an end would attach to. The ends
+ * either side of it, and every other point, are the Scene's own.
+ */
+export function withInsertedBend(
+  element: ArrowOrLineElement,
+  index: number,
+  point: Point,
+): ArrowOrLineElement {
+  const points = [...element.points];
+  points.splice(index, 0, { x: Math.round(point.x), y: Math.round(point.y) });
+  return { ...element, points: points as ArrowOrLineElement['points'] };
+}
+
+/**
+ * Whether the bend at an interior index may go: the one rule a removal keeps,
+ * asked by the editor before it removes a point and by the point menu before it
+ * offers the row, so a point the menu shows as disabled is exactly a point the
+ * key cannot remove. A removal that would leave a two-point shaft with both ends
+ * Snapped to one Element takes nothing, because the Scene has no such shaft: two
+ * ends on one outline have no direction to aim along, and the point between them
+ * is what gave it one. Only a three-point Shaft can become that two-point loop,
+ * so the count and the two ends are the whole rule.
+ */
+export function mayRemove(shaft: ArrowOrLineElement): boolean {
+  const points = shaft.points;
+  const start = points[0]!;
+  const end = points[points.length - 1]!;
+  return !(points.length === 3 && start.snap !== undefined && start.snap === end.snap);
+}
+
+/**
+ * The shaft with the bend at `index` gone: every other point keeps its place, its
+ * `corner` and its Snap, and so does the Element its corners. Only a point
+ * `mayRemove` allows goes, so the caller asks that first.
+ */
+export function withoutBend(element: ArrowOrLineElement, index: number): ArrowOrLineElement {
+  const points = [...element.points];
+  points.splice(index, 1);
+  return { ...element, points: points as ArrowOrLineElement['points'] };
 }
 
 /** A bend point a lone Shaft shows a handle for, in the Scene's own coordinates. */

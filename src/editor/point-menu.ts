@@ -10,12 +10,13 @@
  * the Scene from under it; every key that would is the menu's or nobody's.
  *
  * The point is `#removeBend`'s alone: this module names no removal of its own,
- * and asks the editor whether the point may go before it offers the row, so a
- * point a self-loop must keep reads as disabled rather than failing on the press.
+ * and asks the Bend point module — the one rule the removal keeps — whether the
+ * point may go before it offers the row, so a point a self-loop must keep reads
+ * as disabled rather than failing on the press.
  * Ties to the editor are callbacks only, so the menu knows nothing about the
  * Scene and cannot change it by itself.
  */
-import { bendFromHandle } from './bend-point.js';
+import { bendFromHandle, mayRemove } from './bend-point.js';
 import type { Bend, ShaftOf } from './bend-point.js';
 import type { Point } from './geometry.js';
 
@@ -35,8 +36,6 @@ export interface PointMenuOptions {
    * press means what it always did.
    */
   readonly canOpen: () => boolean;
-  /** Whether the point may go, which is the one rule the removal keeps. */
-  readonly removable: (bend: Bend) => boolean;
   /** The Shaft a mark names, which is what makes a press on it a bend point's. */
   readonly shaft: ShaftOf;
   /** Make the point the selection's, and paint it: the editor's own selection. */
@@ -69,8 +68,11 @@ export class PointMenu {
   /** Open over a point, by the pointer, wholly inside the editor. */
   show(bend: Bend, at: Point): void {
     const { root, inside } = this.#options;
+    const shaft = this.#options.shaft(bend.id);
     this.#bend = bend;
-    this.#row.disabled = !this.#options.removable(bend);
+    // The removal's own rule, so the row is disabled on exactly the points the
+    // key cannot remove.
+    this.#row.disabled = shaft === null || !mayRemove(shaft);
     this.#options.selectBend(bend);
     root.hidden = false;
     // The panel has a size only once it is on the page, and the editor's box is
