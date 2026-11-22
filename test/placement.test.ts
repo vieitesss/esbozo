@@ -23,6 +23,7 @@ const {
   elementBounds,
   elementAt,
   caretLine,
+  railFrame,
   createLayout,
   parseFontFile,
   KALAM,
@@ -226,6 +227,62 @@ test('the caret’s line fits the slot it is drawn in, at every zoom a page offe
       `and its stroke stays inside the slot`,
     );
   }
+});
+
+test('the rail frames the diagram, at least 960×600, and hangs the top dock above it', () => {
+  // The rail's strip as the sheet draws it: 49 px of box and its two pencil
+  // passes 7 px outside it on every side, so the outline is 63 px tall.
+  const OUTLINE = { height: 63, overhang: 7 };
+  const WINDOW = { width: 1280, height: 800 };
+  const still = { zoom: 1, panX: 0, panY: 0 };
+
+  /** One rectangle, seen at 1:1 where `view` puts it, so only its box is in play. */
+  const oneBox = (x: number, y: number, width: number, height: number): Scene =>
+    parsed({
+      version: 1,
+      defaults: { roughness: 0 },
+      elements: [{ id: 'a', type: 'rectangle', x, y, width, height }],
+    });
+
+  // An empty Scene frames the editor's middle at the minimum size, so the
+  // outline's top is the frame's 100 px down, less the gap and the strip.
+  const empty = railFrame(parsed({ version: 1, elements: [] }), still, WINDOW, OUTLINE, LAYOUT);
+  assert.deepEqual(empty.frame, { x: 160, y: 100, width: 960, height: 600 });
+  assert.deepEqual(empty.dock, { x: 640, y: 100 - 16 - 63 + 7 });
+
+  // A tiny diagram gets the minimum about its own centre, not the editor's: a
+  // 40×40 box at (700, 480) is framed by 960×600 around (720, 500).
+  const tiny = railFrame(oneBox(100, 100, 40, 40), { zoom: 1, panX: 600, panY: 380 }, WINDOW, OUTLINE, LAYOUT);
+  assert.deepEqual(tiny.frame, { x: 240, y: 200, width: 960, height: 600 });
+  assert.deepEqual(tiny.dock, { x: 720, y: 200 - 16 - 63 + 7 });
+
+  // A diagram already larger than the minimum is its own frame, and the dock is
+  // one gap above its top side, centred on it. The window is tall enough to
+  // hold the whole of it, so the frame is not cut.
+  const large = railFrame(oneBox(140, 370, 1000, 700), still, { width: 1280, height: 1440 }, OUTLINE, LAYOUT);
+  assert.deepEqual(large.frame, { x: 140, y: 370, width: 1000, height: 700 });
+  assert.deepEqual(large.dock, { x: 140 + 500, y: 370 - 16 - 63 + 7 });
+
+  // A frame cut by the editor's box: the dock follows the cut's top side.
+  const cut = railFrame(oneBox(-400, 140, 1000, 620), still, WINDOW, OUTLINE, LAYOUT);
+  assert.deepEqual(cut.frame, { x: 0, y: 140, width: 600, height: 620 });
+  assert.deepEqual(cut.dock, { x: 300, y: 140 - 16 - 63 + 7 });
+
+  // No room above the frame's top side: the rail stops 15 px inside the
+  // editor's top edge, over the paper.
+  const squeezed = railFrame(oneBox(140, 40, 1000, 700), still, WINDOW, OUTLINE, LAYOUT);
+  assert.deepEqual(squeezed.frame, { x: 140, y: 40, width: 1000, height: 700 });
+  assert.equal(squeezed.dock.y, 15);
+
+  // Nothing of a diagram on screen: the frame is the empty Scene's.
+  const offscreen = railFrame(oneBox(4000, 4000, 40, 40), still, WINDOW, OUTLINE, LAYOUT);
+  assert.deepEqual(offscreen.frame, empty.frame);
+
+  // A window shorter than the minimum frame: the frame is the editor's own box,
+  // which leaves no room above it.
+  const short = railFrame(parsed({ version: 1, elements: [] }), still, { width: 1280, height: 300 }, OUTLINE, LAYOUT);
+  assert.deepEqual(short.frame, { x: 160, y: 0, width: 960, height: 300 });
+  assert.equal(short.dock.y, 15);
 });
 
 /** The y of every point a path names, in the order it names them. */

@@ -206,11 +206,15 @@ esbozo-editor .sweep {
   pointer-events: none;
 }
 
-/* tool rail: a rough, hand-drawn strip along the editor's top edge */
+/* tool rail: a rough, hand-drawn strip hung on the frame around the diagram */
 esbozo-editor .rail {
+  /* Where the editor hangs the dock, in screen pixels. Until a Scene opens and
+     its frame is measured, the strip waits at the editor's top edge. */
+  --rail-left: 50%;
+  --rail-top: 15px;
   position: absolute;
-  left: 50%;
-  top: 15px;
+  left: var(--rail-left);
+  top: var(--rail-top);
   transform: translateX(-50%) rotate(-1.1deg);
   z-index: 20;
   display: flex;

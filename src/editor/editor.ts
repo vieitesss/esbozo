@@ -32,7 +32,7 @@ import { nextRoughness, roughnessLabel, styled } from './style.js';
 import type { StyleKey } from './style.js';
 import { canPickFolder } from './files.js';
 import { servedFolder } from './server-folder.js';
-import { boxOf, fittedView, landingOffset, moved, zoomedAt } from './geometry.js';
+import { boxOf, fittedView, landingOffset, moved, railFrame, zoomedAt } from './geometry.js';
 import type { View } from './geometry.js';
 import { History } from './history.js';
 import { railArt } from './rail.js';
@@ -49,6 +49,12 @@ const ZOOM_STEP = 1.2;
 const COPY_OFFSET = { x: 16, y: 16 };
 /** Nudges closer together than this are one undo step: a held arrow key is one gesture. */
 const NUDGE_BURST_MS = 800;
+/**
+ * How far the rail's pencil outline hangs outside the rail's own box on every
+ * side, which the rail's measured box cannot say: `rail-art` in the sheet is
+ * drawn `-7px` out, and `rail.ts` draws it in a box `2 × 7` bigger.
+ */
+const RAIL_OUTLINE = 7;
 
 /**
  * The instance the keys and the clipboard belong to: the last one a person
@@ -481,6 +487,7 @@ class EsbozoEditorElement extends HTMLElement {
       this.#page.viewport.size(),
       this.#connection.layout,
     );
+    this.#placeRail();
     this.#page.paint();
   }
 
@@ -589,6 +596,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#history.reset(serialiseScene(scene));
     this.#menuFor = null;
     this.#page.viewport.view = fittedView(scene, this.#page.viewport.size(), this.#connection.layout);
+    this.#placeRail();
     this.#whereLabel.textContent = `${target.folder.name} / ${target.name}`;
     this.#note.hidden = true;
     // Another Scene: the tool in hand and the words half-typed into the last
@@ -1009,8 +1017,8 @@ class EsbozoEditorElement extends HTMLElement {
   }
 
   #drawRailArt(): void {
-    const width = this.#rail.offsetWidth + 14;
-    const height = this.#rail.offsetHeight + 14;
+    const width = this.#rail.offsetWidth + RAIL_OUTLINE * 2;
+    const height = this.#rail.offsetHeight + RAIL_OUTLINE * 2;
     if (width <= 14 || height <= 14) {
       return;
     }
@@ -1018,6 +1026,28 @@ class EsbozoEditorElement extends HTMLElement {
     this.#railArt.setAttribute('height', String(height));
     this.#railArt.setAttribute('viewBox', `0 0 ${width} ${height}`);
     this.#railArt.innerHTML = railArt(width, height);
+  }
+
+  /**
+   * Hang the rail on the frame around the diagram, measured when the Scene
+   * opens: the top dock's outline a gap above the frame, or the strip just
+   * inside the editor's top edge when the frame leaves no room for that. It
+   * measures the view and never moves it: the rail floats over the paper.
+   */
+  #placeRail(): void {
+    const outline = {
+      height: this.#rail.offsetHeight + RAIL_OUTLINE * 2,
+      overhang: RAIL_OUTLINE,
+    };
+    const { dock } = railFrame(
+      this.#scene,
+      this.#page.viewport.view,
+      this.#page.viewport.size(),
+      outline,
+      this.#connection.layout,
+    );
+    this.#rail.style.setProperty('--rail-left', `${dock.x}px`);
+    this.#rail.style.setProperty('--rail-top', `${dock.y}px`);
   }
 
   // ------------------------------------------------------------------- menu

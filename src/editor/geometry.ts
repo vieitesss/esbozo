@@ -550,6 +550,116 @@ export function fittedView(
   };
 }
 
+/**
+ * The frame the tool rail docks on: the diagram as shown on screen, at least
+ * the minimum size, cut to the editor's box, and the top dock's rail on it.
+ */
+export interface RailFrame {
+  /** The diagram's frame on screen: what a dock sits outside of. */
+  readonly frame: Box;
+  /**
+   * The top dock: the rail's own box turns about `x` and its top edge is `y`,
+   * so the pencil outline that hangs outside it clears the frame by the gap.
+   */
+  readonly dock: Point;
+}
+
+/**
+ * The pencil outline the rail wears, as the rail box cannot measure it: the
+ * strip is wider and taller than the box it turns about.
+ */
+export interface RailOutline {
+  /** How tall the outline is, in screen pixels. */
+  readonly height: number;
+  /** How far the outline hangs outside the rail's box, above and below it. */
+  readonly overhang: number;
+}
+
+/** The smallest frame a diagram gets on screen (D2). */
+const FRAME_MIN_WIDTH = 960;
+const FRAME_MIN_HEIGHT = 600;
+
+/** The gap between the frame's top side and the rail's pencil outline: the note's own (I2). */
+const RAIL_GAP = 16;
+
+/** How far inside the editor's top edge the rail stops when the frame leaves no room above it (D2). */
+const RAIL_INSET = 15;
+
+/**
+ * The frame around a Scene's diagram, and where the top dock's rail sits on it.
+ *
+ * The frame is the diagram as the page shows it — the union of its Elements'
+ * bounds, without the page's own padding — grown to at least the minimum size
+ * about its centre and then cut to the editor's box. An empty Scene, and one
+ * with nothing of that frame left on screen, is framed at the minimum size
+ * around the editor's middle (D2, I1).
+ *
+ * The dock is centred on the frame's top side with the outline one gap above
+ * it. Where the frame's top leaves no room for that, the rail stops just inside
+ * the editor's top edge instead, over the paper (D2).
+ */
+export function railFrame(
+  scene: Scene,
+  view: View,
+  viewport: { width: number; height: number },
+  outline: RailOutline,
+  layout: Layout,
+): RailFrame {
+  const editor: Box = { x: 0, y: 0, width: viewport.width, height: viewport.height };
+  const diagram = boxOf(scene.elements, elementsById(scene.elements), layout);
+  const shown = diagram === null ? null : grown(onScreen(diagram, view));
+  const frame = (shown === null ? null : cutTo(shown, editor)) ?? emptyFrame(editor);
+  const above = frame.y - RAIL_GAP - outline.height;
+  return {
+    frame,
+    dock: {
+      x: frame.x + frame.width / 2,
+      y: above < 0 ? RAIL_INSET : above + outline.overhang,
+    },
+  };
+}
+
+/** A box grown about its own centre to at least the frame's minimum size. */
+function grown(box: Box): Box {
+  const width = Math.max(box.width, FRAME_MIN_WIDTH);
+  const height = Math.max(box.height, FRAME_MIN_HEIGHT);
+  return {
+    x: box.x - (width - box.width) / 2,
+    y: box.y - (height - box.height) / 2,
+    width,
+    height,
+  };
+}
+
+/** A Scene box, in the pixels the page draws in. */
+function onScreen(box: Box, view: View): Box {
+  return { ...toScreen(view, box), width: box.width * view.zoom, height: box.height * view.zoom };
+}
+
+/** What of a box the editor's own box leaves, or null when it leaves nothing. */
+function cutTo(box: Box, editor: Box): Box | null {
+  const left = Math.max(box.x, editor.x);
+  const top = Math.max(box.y, editor.y);
+  const right = Math.min(box.x + box.width, editor.x + editor.width);
+  const bottom = Math.min(box.y + box.height, editor.y + editor.height);
+  if (right <= left || bottom <= top) {
+    return null;
+  }
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+/** The empty Scene's frame: the minimum size about the editor's middle, inside its box. */
+function emptyFrame(editor: Box): Box {
+  const width = Math.min(FRAME_MIN_WIDTH, editor.width);
+  const height = Math.min(FRAME_MIN_HEIGHT, editor.height);
+  return {
+    x: editor.x + (editor.width - width) / 2,
+    y: editor.y + (editor.height - height) / 2,
+    width,
+    height,
+  };
+}
+
 /** Whether two boxes share any area at all. */
 function overlaps(one: Box, other: Box): boolean {
   return (
