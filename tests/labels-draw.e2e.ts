@@ -1,7 +1,8 @@
 /**
  * One of the Label suites, split by what a person sees, not by module: `tests/labels-*.e2e.ts`.
- * Seam 2: how the words are drawn — the paper they knock out, the Align and Size the Style
- * menu gives them, and the box they grow into and are trimmed out of as they are typed.
+ * Seam 2: how the words are drawn — the fill they let show between them, the Align and
+ * Size the Style menu gives them, and the box they grow into and are trimmed out of as
+ * they are typed.
  */
 import { describe, test } from '@e2e-dev/web';
 import { expect } from 'e2e';
@@ -20,7 +21,15 @@ import {
   savedScene,
   settle,
 } from './helpers.ts';
-import { BESIDE_SOURCE, DARK, LONG_WORD, ROOM_SOURCE, SCENE_SOURCE, WORDS_SOURCE } from './labels-shared.ts';
+import {
+  BESIDE_SOURCE,
+  DARK,
+  GLYPH,
+  LONG_WORD,
+  ROOM_SOURCE,
+  SCENE_SOURCE,
+  WORDS_SOURCE,
+} from './labels-shared.ts';
 import type { Ui, View } from './helpers.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
@@ -31,8 +40,8 @@ const BLANK_SOURCE = JSON.stringify(BLANK_SCENE, null, 2);
 
 /**
  * A filled box the size of the page, so anything drawn on it sits on grey fill
- * rather than on bare paper: paper knocked out of it shows as a paler patch
- * instead of hiding in the sheet it is cut from.
+ * rather than on bare paper: a patch of paper where the fill belongs shows at
+ * once, instead of hiding in the sheet it was cut from.
  */
 const UNDER_SOURCE = JSON.stringify(
   {
@@ -59,19 +68,33 @@ const UNDER_SOURCE = JSON.stringify(
 const UNDER: View = { zoom: 1, panX: 390, panY: 200 };
 
 /**
- * Where an arrow drawn across that box at Scene y 220 would paint its empty
- * Label, and a patch of the same grey fill away from it: one grey reads the
- * same in both places until paper is knocked out of one of them.
+ * Where an arrow drawn across that box at Scene y 220 would place its empty
+ * Label, and a patch of the same grey fill away from it: one grey reads the same
+ * in both places while nothing is drawn over either.
  */
 const UNDER_LABEL: Rect = { x: 645, y: 388, width: 10, height: 27 };
 const UNDER_FILL: Rect = { x: 700, y: 388, width: 10, height: 27 };
 
 /**
- * The same patch either side of the caret an empty Label draws, where the papers
- * a blank Label would knock out would be and the caret's own ink is not.
+ * The same patch either side of the caret an empty Label draws, inside the box
+ * its words will take and clear of the caret's own ink.
  */
 const UNDER_CARET: Rect = { x: 646, y: 388, width: 2, height: 27 };
 const UNDER_CARET_BESIDE: Rect = { x: 652, y: 388, width: 2, height: 27 };
+
+/**
+ * The shaft's own row across the box, a little taller than the stroke, so the
+ * whole of it is counted wherever the whole of it is drawn. The grey the box is
+ * filled with sits close to paper's own line, so what the row is counted with is
+ * the ink of the stroke and not the wash under it.
+ */
+const SHAFT_ROW: Rect = { x: 560, y: 419, width: 180, height: 4 };
+
+/**
+ * The space between the first two words, inside the box their own ink covers and
+ * clear of every glyph beside it: bare fill there, where paper used to be.
+ */
+const BETWEEN_WORDS: Rect = { x: 628, y: 392, width: 4, height: 15 };
 
 /** An arrow whose Label is two lines of different lengths, so an alignment shows. */
 const ALIGNED_SHAFT_SOURCE = JSON.stringify(
@@ -128,7 +151,7 @@ async function labelLines(ui: Ui): Promise<[Rect, Rect]> {
 }
 
 describe('labels draw', () => {
-  test('a freshly drawn arrow knocks no paper out of what runs under it, and its words do', async ({
+  test("a drawn arrow's Label shows the fill between its words and cuts nothing out of its shaft", async ({
     app,
     browser,
     screen,
@@ -137,7 +160,7 @@ describe('labels draw', () => {
     await openEditor(ui, { A: { 'under.json': UNDER_SOURCE } }, 'under.json');
 
     // An arrow drawn straight across the box, with Alt so its ends stay free of
-    // the outline: the place its Label would take is grey fill either way.
+    // the outline: the place its Label will take is grey fill either way.
     await screen.getByRole('button', { name: 'Arrow' }).click();
     await browser.keyboard.down('Alt');
     await drag(ui, at({ x: 160, y: 220 }, UNDER), at({ x: 360, y: 220 }, UNDER));
@@ -145,33 +168,35 @@ describe('labels draw', () => {
     await settle(ui);
     expect((await savedScene(ui, 'under.json')).elements.length).toBe(2);
 
-    // The arrow carries no words yet, so there is nothing to sit on paper: the
-    // fill under the place its Label would take shows through untouched.
+    // The arrow carries no words yet, so nothing is placed on the fill: the grey
+    // under the place its Label will take reads as the grey anywhere else, and
+    // the shaft's own ink runs whole through its middle.
     const empty = await shot(ui);
     const fill = empty.meanLuminance(UNDER_FILL);
     expect(Math.abs(empty.meanLuminance(UNDER_LABEL) - fill)).toBeLessThan(0.02);
-
-    // And the shaft's own ink runs whole through its middle.
-    expect(empty.darkCount({ x: 560, y: 419, width: 180, height: 4 }, 0.5)).toBeGreaterThan(600);
+    expect(empty.darkCount(SHAFT_ROW, GLYPH)).toBeGreaterThan(400);
 
     // Opening the Label draws a caret and no words: a blank Label is still no
-    // Label, so the patch a paper rectangle would cover stays fill either side
-    // of the caret standing in it.
+    // Label, so the fill stays fill either side of the caret standing in it.
     await doubleClickScene(ui, { x: 260, y: 220 }, UNDER);
     const opened = await shot(ui);
     for (const beside of [UNDER_CARET, UNDER_CARET_BESIDE]) {
       expect(Math.abs(opened.meanLuminance(beside) - fill)).toBeLessThan(0.02);
     }
 
-    // Words arrive: they are drawn where they will save, and the paper they sit
-    // on knocks the fill out from under them.
+    // Words arrive: they are drawn where they will save, and the fill under them
+    // stays fill between them — the grey of it shows through the space between
+    // the first two words, where paper would read as a paler patch.
     const label = screen.getByRole('textbox', { name: 'Label' });
     await label.pressSequentially('on the line');
     await settle(ui);
 
     const written = await shot(ui);
-    expect(written.meanLuminance(UNDER_LABEL)).toBeGreaterThan(fill + 0.2);
+    expect(Math.abs(written.meanLuminance(BETWEEN_WORDS) - fill)).toBeLessThan(0.02);
     expect(written.darkCount(UNDER_LABEL, 0.2)).toBeGreaterThan(0);
+    // And the shaft the words are placed above is cut nowhere: a Label above its
+    // shaft has no shaft under it to take out, so the whole row is drawn still.
+    expect(written.darkCount(SHAFT_ROW, GLYPH)).toBeGreaterThan(400);
 
     await label.press('Escape');
     const saved = await savedScene(ui, 'under.json');

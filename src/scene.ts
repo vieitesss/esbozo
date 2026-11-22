@@ -85,8 +85,8 @@
  * `ez check` measure them with the same font. An arrow or line may also write
  * `labelAt`: `t` is how far along the drawn shaft its Label sits, and `offset`
  * is a signed distance to one side, so a shaft's words need not stay where
- * Layout puts them. Only a shaft has one, and the Renderer draws paper behind
- * every shaft Label, so a Label over its own shaft stays legible.
+ * Layout puts them. Only a shaft has one; where a shaft Label sits over its own
+ * shaft, the Renderer cuts that shaft open so the words stay legible.
  *
  * Geometry is rounded to whole pixels in one place, `canonicalScene`: parsing,
  * serialising, hashing and drawing all go through it, so a Scene mutated in

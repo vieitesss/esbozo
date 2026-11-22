@@ -40,10 +40,11 @@
  *
  * A shaft's Label sits where the Scene's `labelAt` puts it — a fraction along
  * the drawn shaft and a signed distance to one side — and Layout's own place
- * above the middle of the shaft when the Scene writes none. Every shaft Label
- * has paper drawn behind it, so its own shaft, or anything else under it, is
- * cut away instead of read through the words; the paper is `var(--paper)`, the
- * same variable the page paints with, so light, dark and the editor agree.
+ * above the middle of the shaft when the Scene writes none. A Label has no
+ * paper behind it: where the words sit over their own shaft, that shaft is cut
+ * open and the page shows through. Only the shaft is cut, so anything else
+ * under the words — a box the shaft crosses, another Element — shows through
+ * them as well.
  *
  * Each Element is measured once per drawing, and both the box it covers and the
  * SVG that draws it come from that one result. The editor reads the same boxes
@@ -68,14 +69,18 @@ import type { Block, Box, Layout } from './layout.js';
 import {
   arrowHeadTriangle,
   barThrough,
+  curve,
+  cutAtGap,
   fillets,
+  pathMeetsGap,
   quadraticRoots,
   shaftEnds,
   shaftLabelAnchor,
   shaftPath,
   shaftTangentAt,
+  straight,
 } from './geometry.js';
-import type { ShaftPath } from './geometry.js';
+import type { ShaftPath, ShaftPiece } from './geometry.js';
 
 /**
  * The theme's variables, each with the light theme as its own fallback, so a
@@ -304,16 +309,16 @@ export function strokeWidthOf(element: Element): number {
  * How far a hand font's glyphs hang past the advance box Layout measures their
  * words by, as a share of the font size: Kalam's `j`, the widest hang in the
  * bundled font, puts its hook 0.22 em left of the origin. The ink is the ink a
- * person sees, so a press on that hook is a press on the words, and the paper
- * behind a shaft Label has to reach it as well.
+ * person sees, so a press on that hook is a press on the words, and a shaft's
+ * own ink is cut to reach it as well.
  */
 const GLYPH_HANG_EM = 0.25;
 
 /**
  * The box one Block of words paints: the advance box Layout measured, grown by
- * that hang on both sides. It is the box the paper behind a shaft's Label
- * covers, the ink a Text is picked by and the box a shaft's Label is pressed
- * on, so a painted pixel is a pixel a person can press.
+ * that hang on both sides. It is the ink a Text is picked by and the box a
+ * shaft's Label is pressed on; `labelGap` grows it by half the stroke width to
+ * cut its own shaft, so the cut reaches half a stroke past what a press hits.
  */
 export function wordsInkBounds(words: Block): Box {
   const hang = words.size * GLYPH_HANG_EM;
@@ -537,10 +542,9 @@ function roughenedInk(element: ArrowOrLineElement, path: ShaftPath): Extent | nu
 /**
  * The shaft's words: where Layout wrapped them, moved to the `labelAt` the Scene
  * wrote. A shaft that writes none keeps the place Layout gives it, so a Scene
- * that never asks for a position keeps the position it always had; only the
- * paper behind the words is new. What moves is where the words draw: a Line's
- * boundaries are offsets into its words, not x, and they stay where Layout put
- * them so a caret names the glyph it always named.
+ * that never asks for a position keeps the position it always had. What moves is
+ * where the words draw: a Line's boundaries are offsets into its words, not x,
+ * and they stay where Layout put them so a caret names the glyph it always named.
  */
 function shaftWords(
   element: ArrowOrLineElement,
@@ -783,13 +787,33 @@ function arrowOrLineSvg(
   // Rough.js starts a new subpath at every piece it draws, so the passes are
   // joined back into one stroke each before they are written.
   const shaft = generator.path(shaftData(path), lineOptions(element));
-  const d = strokePasses(shaft)
-    .map((ops) => generator.opsToPath({ type: 'path', ops }))
-    .join(' ');
-  paths.push(
-    `<path d="${pathData(d)}" fill="none" stroke="${colour}"` +
-      ` stroke-width="${formatNumber(width)}"${dash}/>`,
-  );
+  const gap = labelGap(path, words, width);
+  const runs: { d: string; from: number }[] = [];
+  if (gap === null) {
+    runs.push({
+      d: strokePasses(shaft)
+        .map((ops) => generator.opsToPath({ type: 'path', ops }))
+        .join(' '),
+      from: 0,
+    });
+  } else {
+    for (const pass of strokePasses(shaft)) {
+      for (const run of cutAtGap(passPieces(pass), gap)) {
+        runs.push({ d: piecePath(generator, run.pieces), from: run.start });
+      }
+    }
+  }
+
+  for (const run of runs) {
+    // A run keeps its place in the fitted dash pattern: the offset is the
+    // distance the gap took out from in front of it, so the dashes outside the
+    // gap fall where they would with no Label at all.
+    const offset = dash !== '' && run.from > 0 ? ` stroke-dashoffset="${formatNumber(run.from)}"` : '';
+    paths.push(
+      `<path d="${pathData(run.d)}" fill="none" stroke="${colour}"` +
+        ` stroke-width="${formatNumber(width)}"${dash}${offset}/>`,
+    );
+  }
 
   for (const head of headsOf(element, path)) {
     paths.push(...headPaths(generator, element, head, colour));
@@ -797,30 +821,86 @@ function arrowOrLineSvg(
 
   return (
     `<g stroke-linecap="round" stroke-linejoin="round">${paths.join('')}</g>` +
-    paperBehind(words) +
     renderBlock(words, colour)
   );
 }
 
 /**
- * The paper a shaft's Label sits on, drawn over everything under it: the words
- * stay legible on their own shaft at any `labelAt`, and nothing else shows
- * through them. Paper is the page's own variable, so the same drawing clears
- * the same space in light, dark and the editor. It covers the words' ink rather
- * than the advance box Layout measured, so a glyph that hangs past it has paper
- * under its overhang too. Words with nothing to read are no Label: paper under a
- * blank line would knock a hole out of whatever the shaft crosses.
+ * The gap a shaft's Label cuts in its own shaft, or null when it cuts none. Two
+ * boxes decide it: the words' advance box, which the shaft's own centre line has
+ * to enter, and the words' ink box grown by half the stroke, which is what is
+ * cut out. The centre line decides because the ink that is drawn is roughened
+ * after the decision: a stroke that wobbles past the words, or a Label placed
+ * beside its shaft, cuts nothing. Words with nothing to read cut nothing either.
  */
-function paperBehind(words: Block | null): string {
+function labelGap(path: ShaftPath, words: Block | null, width: number): Box | null {
   if (words === null || !words.lines.some((line) => line.text.trim() !== '')) {
+    return null;
+  }
+  if (!pathMeetsGap(path.pieces, words)) {
+    return null;
+  }
+  // The cut reaches half a stroke past the words' ink, so a round cap ends
+  // where the words begin and no sliver of the shaft is left inside them.
+  const ink = wordsInkBounds(words);
+  const half = width / 2;
+  return {
+    x: ink.x - half,
+    y: ink.y - half,
+    width: ink.width + width,
+    height: ink.height + width,
+  };
+}
+
+/** One Rough.js pass as the pieces a shaft is measured in, so a gap can cut it. */
+function passPieces(ops: OpSet['ops']): ShaftPiece[] {
+  const pieces: ShaftPiece[] = [];
+  let from: Point | null = null;
+  for (const op of ops) {
+    const [first, second, third, fourth, fifth, sixth] = op.data;
+    if (op.op === 'move') {
+      from = { x: first!, y: second! };
+      continue;
+    }
+    if (from === null) {
+      continue;
+    }
+    const to = op.op === 'lineTo' ? { x: first!, y: second! } : { x: fifth!, y: sixth! };
+    pieces.push(
+      op.op === 'lineTo'
+        ? straight(from, to)
+        : curve(from, { x: first!, y: second! }, { x: third!, y: fourth! }, to),
+    );
+    from = to;
+  }
+  return pieces;
+}
+
+/** One run of pieces as SVG path data, written the way Rough.js writes its own ops. */
+function piecePath(generator: RoughGenerator, pieces: readonly ShaftPiece[]): string {
+  const first = pieces[0];
+  if (first === undefined) {
     return '';
   }
-  const paper = wordsInkBounds(words);
-  return (
-    `<rect x="${formatNumber(paper.x)}" y="${formatNumber(paper.y)}"` +
-    ` width="${formatNumber(paper.width)}" height="${formatNumber(paper.height)}"` +
-    ` fill="${PAPER}"/>`
-  );
+  const ops: OpSet['ops'] = [{ op: 'move', data: [first.from.x, first.from.y] }];
+  for (const piece of pieces) {
+    if (piece.kind === 'straight') {
+      ops.push({ op: 'lineTo', data: [piece.to.x, piece.to.y] });
+    } else {
+      ops.push({
+        op: 'bcurveTo',
+        data: [
+          piece.control1.x,
+          piece.control1.y,
+          piece.control2.x,
+          piece.control2.y,
+          piece.to.x,
+          piece.to.y,
+        ],
+      });
+    }
+  }
+  return generator.opsToPath({ type: 'path', ops });
 }
 
 /**

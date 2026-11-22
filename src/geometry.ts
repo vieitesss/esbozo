@@ -20,8 +20,12 @@
  * softens with a small fillet, and the arc-length measure the Label, the arrow
  * heads and the page bounds all read. One owner for that path is what keeps the
  * ink, the heads pointing along it and the words on it from drifting apart.
+ *
+ * A shaft's Label cuts the gap it needs out of that path here as well, so a
+ * drawing cuts its own ink with the same pieces it measured it with.
  */
 import type { Corner, Point } from './scene.js';
+import type { Box } from './layout.js';
 
 /** The outline of an Element, as a Snap target. */
 export interface Outline {
@@ -476,7 +480,7 @@ interface CurvedPiece extends ShaftPieceBase {
 }
 
 /** One piece of a resolved shaft: a straight run, or the cubic curve it bends by. */
-type ShaftPiece = StraightPiece | CurvedPiece;
+export type ShaftPiece = StraightPiece | CurvedPiece;
 
 /** The box a resolved shaft covers, its bulge extremes included. */
 interface ShaftBounds {
@@ -750,12 +754,17 @@ function secant(from: Point, to: Point, knot: number): Point {
 }
 
 /** A straight piece, measured by the distance it spans. */
-function straight(from: Point, to: Point): ShaftPiece {
+export function straight(from: Point, to: Point): StraightPiece {
   return { kind: 'straight', from, to, length: Math.hypot(to.x - from.x, to.y - from.y) };
 }
 
 /** A curve piece, measured along its own arc, once. */
-function curve(from: Point, control1: Point, control2: Point, to: Point): ShaftPiece {
+export function curve(
+  from: Point,
+  control1: Point,
+  control2: Point,
+  to: Point,
+): CurvedPiece {
   const arcs = arcsOf(from, control1, control2, to);
   return { kind: 'curved', from, control1, control2, to, arcs, length: arcs[arcs.length - 1]! };
 }
@@ -1157,5 +1166,164 @@ export function barThrough(
   return [
     { x: apex.x + normal.x * halfLength, y: apex.y + normal.y * halfLength },
     { x: apex.x - normal.x * halfLength, y: apex.y - normal.y * halfLength },
+  ];
+}
+
+/** One run of a shaft a gap leaves whole: the pieces it draws, and where it starts. */
+export interface CutPath {
+  readonly pieces: readonly ShaftPiece[];
+  /** How far along the whole drawn path this run starts, for the dash to carry on. */
+  readonly start: number;
+}
+
+/**
+ * Whether a drawn path enters the gap: the shaft's own centre line, before
+ * Rough.js roughens it, is what decides, so a stroke wobbling past the words
+ * never cuts them and a Label placed beside its shaft never cuts it either.
+ */
+export function pathMeetsGap(pieces: readonly ShaftPiece[], gap: Box): boolean {
+  return pieces.some((piece) => {
+    const spans = outsideSpans(piece, gap);
+    return spans.length !== 1 || spans[0]![0] !== 0 || spans[0]![1] !== 1;
+  });
+}
+
+/**
+ * The runs a gap leaves of the path it cuts: each maximal stretch that stays
+ * outside it, as the pieces it is drawn by, with the distance along the whole
+ * path each stretch starts at. A piece the gap does not touch comes back whole,
+ * so the ink outside the gap keeps every wobble it was drawn with.
+ */
+export function cutAtGap(pieces: readonly ShaftPiece[], gap: Box): CutPath[] {
+  const cut: CutPath[] = [];
+  let open: { pieces: ShaftPiece[]; start: number } | null = null;
+  let walked = 0;
+  for (const piece of pieces) {
+    const spans = outsideSpans(piece, gap);
+    for (const [from, to] of spans) {
+      if (from > 0 && open !== null) {
+        cut.push(open);
+        open = null;
+      }
+      open ??= { pieces: [], start: walked + sliceOf(piece, 0, from).length };
+      open.pieces.push(sliceOf(piece, from, to));
+    }
+    const last = spans[spans.length - 1];
+    if (open !== null && (last === undefined || last[1] < 1)) {
+      cut.push(open);
+      open = null;
+    }
+    walked += piece.length;
+  }
+  if (open !== null) {
+    cut.push(open);
+  }
+  return cut;
+}
+
+/** The parts of one piece outside the gap, as spans of its own parameter, in order. */
+function outsideSpans(piece: ShaftPiece, gap: Box): [number, number][] {
+  const stops = [0, ...edgeCrossings(piece, gap), 1];
+  const spans: [number, number][] = [];
+  for (let index = 0; index + 1 < stops.length; index += 1) {
+    const from = stops[index]!;
+    const to = stops[index + 1]!;
+    if (from === to || insideGap(pointOf(piece, (from + to) / 2), gap)) {
+      continue;
+    }
+    const last = spans[spans.length - 1];
+    if (last !== undefined && last[1] === from) {
+      last[1] = to;
+    } else {
+      spans.push([from, to]);
+    }
+  }
+  return spans;
+}
+
+/** The parameters where a piece crosses one of the gap's four edges, in order, without repeats. */
+function edgeCrossings(piece: ShaftPiece, gap: Box): number[] {
+  const found = [
+    ...crossingsOn(piece, 'x', gap.x),
+    ...crossingsOn(piece, 'x', gap.x + gap.width),
+    ...crossingsOn(piece, 'y', gap.y),
+    ...crossingsOn(piece, 'y', gap.y + gap.height),
+  ]
+    .filter((u) => u > 0 && u < 1)
+    .sort((left, right) => left - right);
+  return found.filter((u, index) => index === 0 || u !== found[index - 1]);
+}
+
+/**
+ * Where one axis of a piece reaches `value`, as the parameters that do. A
+ * straight run is solved directly; a curve is read as the monotonic runs its own
+ * turning points leave, and each run is halved to its crossing the way an arc
+ * distance is.
+ */
+function crossingsOn(piece: ShaftPiece, axis: 'x' | 'y', value: number): number[] {
+  if (piece.kind === 'straight') {
+    const from = piece.from[axis];
+    const to = piece.to[axis];
+    return from === to ? [] : [(value - from) / (to - from)];
+  }
+  const stops = [0, ...curveTurns(piece, axis), 1];
+  const found: number[] = [];
+  for (let index = 0; index + 1 < stops.length; index += 1) {
+    const from = stops[index]!;
+    const to = stops[index + 1]!;
+    const start = pointOf(piece, from)[axis] - value;
+    const end = pointOf(piece, to)[axis] - value;
+    if (start * end > 0) {
+      continue;
+    }
+    const rising = start < 0;
+    let short = from;
+    let long = to;
+    for (let step = 0; step < CURVE_SOLVE_STEPS; step += 1) {
+      const middle = (short + long) / 2;
+      if (pointOf(piece, middle)[axis] - value < 0 === rising) {
+        short = middle;
+      } else {
+        long = middle;
+      }
+    }
+    found.push((short + long) / 2);
+  }
+  return found;
+}
+
+/** Whether a point lies strictly inside the gap: a run that only touches an edge is not cut. */
+function insideGap(point: Point, gap: Box): boolean {
+  return (
+    point.x > gap.x &&
+    point.x < gap.x + gap.width &&
+    point.y > gap.y &&
+    point.y < gap.y + gap.height
+  );
+}
+
+/** The part of one piece between two of its own parameters, measured as the piece was. */
+function sliceOf(piece: ShaftPiece, from: number, to: number): ShaftPiece {
+  if (from === 0 && to === 1) {
+    return piece;
+  }
+  if (piece.kind === 'straight') {
+    return straight(pointOf(piece, from), pointOf(piece, to));
+  }
+  const rest = from === 0 ? piece : splitCurve(piece, from)[1];
+  return to === 1 ? rest : splitCurve(rest, (to - from) / (1 - from))[0];
+}
+
+/** One curve, split at its own parameter into the part before and the part after. */
+function splitCurve(piece: CurvedPiece, u: number): [CurvedPiece, CurvedPiece] {
+  const first = lerp(piece.from, piece.control1, u);
+  const second = lerp(piece.control1, piece.control2, u);
+  const third = lerp(piece.control2, piece.to, u);
+  const before = lerp(first, second, u);
+  const after = lerp(second, third, u);
+  const middle = lerp(before, after, u);
+  return [
+    curve(piece.from, first, before, middle),
+    curve(middle, after, third, piece.to),
   ];
 }
