@@ -255,18 +255,23 @@ esbozo-editor .rail button {
 esbozo-editor .rail button:hover { color: var(--ink); background: var(--line); transform: rotate(-2deg); }
 esbozo-editor .rail button[aria-pressed="true"] { color: var(--paper); background: var(--ink); transform: rotate(-1.5deg); }
 
-/* the shortcut, in the corner of the button, faint until the rail is looked at */
+/* the shortcut, inside the button's bottom-left corner, so it never leans off
+   the tile onto the paper: it wears the button's own colour, ink on a hovered
+   tile and paper on the pressed one, so the theme keeps its contrast. Shown
+   only while the button is hovered; a tooltip still names it otherwise. */
 esbozo-editor .rail button .key {
   position: absolute;
-  right: 1px;
-  bottom: -2px;
+  left: 3px;
+  bottom: 1px;
   font-family: var(--font-ui);
-  font-size: 7px;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
   opacity: 0;
   transition: opacity 0.12s;
 }
 
-esbozo-editor .rail button:hover .key, esbozo-editor .rail button[aria-pressed="true"] .key { opacity: 0.5; }
+esbozo-editor .rail button:hover .key { opacity: 1; }
 
 esbozo-editor .rail button svg {
   width: 21px;
