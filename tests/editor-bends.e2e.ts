@@ -19,7 +19,9 @@
 import { describe, test } from '@e2e-dev/web';
 import { afterAll, expect } from 'e2e';
 import { at, clickScene, drag, openEditor, savedFiles } from './helpers.ts';
-import type { SavedScene, Ui, View } from './helpers.ts';
+import type { Point, SavedScene, Ui, View } from './helpers.ts';
+import { shot } from './pixels.ts';
+import type { Rect } from './pixels.ts';
 import { removeTempFolders } from '../test/temp.ts';
 
 // One folder of fixtures per test, made and removed by the same helper every
@@ -58,10 +60,60 @@ const SHARP_ON = { x: 175, y: 150 };
 /** Where the sharp bend is stored, and so where its handle sits on the page. */
 const SHARP_BEND = { x: 300, y: 250 };
 
-/** The Scene files the `bends.json` fixture folder holds, by the name a person opens. */
+/**
+ * An arrow with one `sharp` bend and one `round` bend, on a box that holds the
+ * page still: the box is what the view fits, so where each handle sits is the
+ * box's own arithmetic and no bent ink moves it.
+ */
+const SHAPES_SCENE = {
+  version: 1,
+  title: 'Two bends',
+  defaults: { roughness: 0 },
+  elements: [
+    { id: 'page', type: 'rectangle', x: 0, y: 0, width: 800, height: 560 },
+    {
+      id: 'bent',
+      type: 'arrow',
+      points: [
+        { x: 150, y: 300 },
+        { x: 300, y: 180, corner: 'sharp' },
+        { x: 500, y: 180, corner: 'round' },
+        { x: 650, y: 300 },
+      ],
+      heads: { start: 'none', end: 'none' },
+    },
+  ],
+};
+const SHAPES_SOURCE = JSON.stringify(SHAPES_SCENE, null, 2);
+
+/** The view `SHAPES_SCENE` lands in: its 800×560 box fitted 1:1. */
+const SHAPES: View = { zoom: 1, panX: 240, panY: 120 };
+
+/** On the arrow's first run, on no box edge: where a press selects the arrow. */
+const SHAPES_ON = { x: 225, y: 240 };
+
+/** Where the arrow's two bends are stored, and so where their handles sit. */
+const SHARP_MARK = { x: 300, y: 180 };
+const ROUND_MARK = { x: 500, y: 180 };
+
+/**
+ * One pixel of the page, at an offset from a bend's handle: what a square puts
+ * ink on and a circle leaves alone, and the other way round. The offsets are the
+ * inks the two shapes paint at an eight-pixel handle, read as pixels and never
+ * as markup.
+ */
+function pixelAt(handle: Point, dx: number, dy: number): Rect {
+  return { x: handle.x + dx, y: handle.y + dy, width: 1, height: 1 };
+}
+
+/**
+ * The Scene files the `bends.json` fixture folder holds, by the name a person opens.
+ * `A` is the folder every helper in this suite reads back.
+ */
 const SCENES = {
   A: {
     'bends.json': SHARP_SOURCE,
+    'shapes.json': SHAPES_SOURCE,
   },
 };
 
@@ -120,5 +172,30 @@ describe('a bend point handle', () => {
       { x: 340, y: 270, corner: 'sharp' },
       { x: 550, y: 50 },
     ]);
+  });
+
+  test('a sharp bend is marked by a square', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'shapes.json');
+    await clickScene(ui, SHAPES_ON, [], SHAPES);
+
+    // A square's corner reaches past where a circle of the same eight pixels
+    // stops, so ink there is the square and only the square.
+    const corner = pixelAt(at(SHARP_MARK, SHAPES), 4, -4);
+    expect((await shot(ui)).darkCount(corner, 0.6)).toBeGreaterThan(0);
+  });
+
+  test('a round bend is marked by a circle', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'shapes.json');
+    await clickScene(ui, SHAPES_ON, [], SHAPES);
+    const painted = await shot(ui);
+
+    // The circle's stroke crosses the diagonal inside the square's corner: ink
+    // there is the circle's, and a square of the same size is bare fill.
+    const stroke = pixelAt(at(ROUND_MARK, SHAPES), 3, -3);
+    expect(painted.darkCount(stroke, 0.6)).toBeGreaterThan(0);
+    const corner = pixelAt(at(ROUND_MARK, SHAPES), 4, -4);
+    expect(painted.darkCount(corner, 0.6)).toBe(0);
   });
 });
