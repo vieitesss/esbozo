@@ -29,10 +29,11 @@ import { elementsById, outlineBox, shaftInk, shaftLabel, wordsInkBounds } from '
 import { isOutlined } from '../scene.js';
 import type { Corner, Element as SceneElement, Scene } from '../scene.js';
 import type { Block, Layout, LineGlyphs } from '../layout.js';
-import { cornerOf, shaftDots } from '../geometry.js';
 import { HANDLES, boxBetween, boxOf, clearedView, handlePoint, unionOf } from './geometry.js';
 import type { Box, Point } from './geometry.js';
-import type { Bend, Drag } from './gestures.js';
+import type { Drag } from './gestures.js';
+import { bendDots, bendPoints, nameBendHandle, nameDot, sameBend } from './bend-point.js';
+import type { Bend, BendPoint } from './bend-point.js';
 import { PaintCache, paintedInk } from './paint.js';
 import type { Paint, SceneFiles } from './paint.js';
 import { isShaft } from './snap.js';
@@ -70,7 +71,7 @@ const MENU_GAP = 16;
  */
 type HandleMark =
   | { readonly at: Point; readonly kind: 'handle'; readonly name: string }
-  | { readonly at: Point; readonly kind: 'bend'; readonly index: number; readonly corner: Corner };
+  | (BendPoint & { readonly kind: 'bend' });
 
 /**
  * The Elements the page draws, and whether they are still a preview: a settled
@@ -714,28 +715,14 @@ export class Page {
         { at: this.viewport.pagePoint(path.start), kind: 'handle', name: 'start' },
         { at: this.viewport.pagePoint(path.end), kind: 'handle', name: 'end' },
       );
-      for (let index = 1; index < element.points.length - 1; index += 1) {
-        const point = element.points[index]!;
-        handles.push({
-          at: this.viewport.pagePoint(point),
-          kind: 'bend',
-          index,
-          corner: cornerOf(point, element.corners),
-        });
+      for (const bend of bendPoints(element)) {
+        handles.push({ ...bend, at: this.viewport.pagePoint(bend.at), kind: 'bend' });
       }
-      // A dot stands on the ink between the handles, and a press on a handle is
-      // a press on the point it holds: a dot that would land on one is left off
-      // rather than drawn where a press could never take it.
-      // A page that may only read draws none at all: a mark that promises a
-      // bend out of the ink is a promise only a page that can change the Scene
-      // keeps.
-      if (this.#host.writable()) {
-        for (const dot of shaftDots(path)) {
-          const at = this.viewport.pagePoint(dot.at);
-          if (handles.every((handle) => distance(handle.at, at) >= DOT_CLEARANCE)) {
-            this.#appendDot(overlay, at, dot.index, id);
-          }
-        }
+      for (const dot of bendDots(element, path, {
+        writable: this.#host.writable(),
+        clearance: DOT_CLEARANCE / this.viewport.view.zoom,
+      })) {
+        this.#appendDot(overlay, this.viewport.pagePoint(dot.at), dot.index, id);
       }
     }
     for (const handle of handles) {
@@ -754,11 +741,12 @@ export class Page {
               height: HANDLE_SIZE,
               class: `handle handle-${handle.name}`,
             });
-      node.setAttribute('data-handle', handle.kind === 'bend' ? 'bend' : handle.name);
       if (handle.kind === 'bend') {
-        node.setAttribute('data-point', String(handle.index));
+        nameBendHandle(node, id, handle.index);
+      } else {
+        node.setAttribute('data-handle', handle.name);
+        node.setAttribute('data-element', id);
       }
-      node.setAttribute('data-element', id);
     }
   }
 
@@ -767,8 +755,7 @@ export class Page {
    * picked, filled with the selection's colour and nothing else about it changed.
    */
   #isBend(id: string, index: number): boolean {
-    const bend = this.#host.bend();
-    return bend !== null && bend.id === id && bend.index === index;
+    return sameBend(this.#host.bend(), { id, index });
   }
 
   /**
@@ -813,9 +800,7 @@ export class Page {
     node.setAttribute('cy', String(at.y));
     node.setAttribute('r', String(DOT_SIZE / 2));
     node.setAttribute('class', 'handle-dot');
-    node.setAttribute('data-dot', 'bend');
-    node.setAttribute('data-point', String(index));
-    node.setAttribute('data-element', id);
+    nameDot(node, id, index);
     parent.append(node);
   }
 
@@ -856,11 +841,6 @@ export class Page {
     parent.append(node);
     return node;
   }
-}
-
-/** How far apart two places on the page are, in screen pixels. */
-function distance(one: Point, other: Point): number {
-  return Math.hypot(one.x - other.x, one.y - other.y);
 }
 
 /**

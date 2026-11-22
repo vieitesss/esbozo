@@ -29,9 +29,11 @@ import { elementsById, drawnShaft, outlineBox, shaftInk } from '../renderer.js';
 import { canonicalElement, isOutlined } from '../scene.js';
 import type { ArrowOrLineElement, Element as SceneElement, Scene } from '../scene.js';
 import type { Layout } from '../layout.js';
-import { labelAtFor, shaftDots } from '../geometry.js';
+import { labelAtFor } from '../geometry.js';
 import { boxBetween, elementsInBox, moved, pickAt, resized, resizedBox } from './geometry.js';
 import type { Box, Handle, Point, Pointer, View } from './geometry.js';
+import { bendFromDot, bendFromHandle, dotAt, sameBend, shaftIn } from './bend-point.js';
+import type { Bend, ShaftOf } from './bend-point.js';
 import type { ToolId } from './actions.js';
 import { drawn, drawnAtClick, freshId, idsOf, isClick } from './elements.js';
 import type { ElementTool } from './elements.js';
@@ -56,16 +58,6 @@ const PICK_TOLERANCE = 6;
 /** How long, and how near, a second click is still the same double-click. */
 const DOUBLE_CLICK_MS = 500;
 const DOUBLE_CLICK_SLOP = 4;
-
-/**
- * One bend point of a shaft, as the selection holds it: the arrow or line it is
- * a point of, and which point of it. A point is never held by its index alone,
- * because a Scene that loses one point renumbers the ones after it.
- */
-export interface Bend {
-  readonly id: string;
-  readonly index: number;
-}
 
 /**
  * Whether a pointer is still within the click's own slop of where it landed: the
@@ -282,6 +274,8 @@ export class Gestures {
    */
   #cancelledClick = false;
   #spaceDown = false;
+  /** The Shaft a page mark names, which is what makes the mark a bend point's. */
+  #shaft: ShaftOf = (id) => shaftIn(this.#host.scene(), id);
 
   constructor(host: GestureHost) {
     this.#host = host;
@@ -536,6 +530,35 @@ export class Gestures {
     const handle = editing ? (target?.closest('[data-handle]') ?? null) : null;
     if (handle !== null) {
       this.#press = null;
+      // A bend handle is on the Shaft itself, so the press is asked about the
+      // bend before any Element is looked up: only an end or a resize handle
+      // needs the Element its `data-element` names.
+      const pressed = bendFromHandle(handle, this.#shaft);
+      if (pressed !== null) {
+        const stored = pressed.shaft.points[pressed.bend.index]!;
+        // A bend handle is a mark on the shaft, and a press on it is a click
+        // there: two of them on one handle are a double-click that takes the
+        // point, and a single one is each of the two clicks it is half of.
+        this.#press = {
+          id: pressed.bend.id,
+          at: viewport.screenPoint(event),
+          time: event.timeStamp,
+          shift: event.shiftKey,
+          bend: pressed.bend,
+        };
+        this.#drag = {
+          kind: 'bend',
+          id: pressed.bend.id,
+          index: pressed.bend.index,
+          inserted: false,
+          shift: event.shiftKey,
+          from: viewport.scenePoint(event),
+          origin: { x: stored.x, y: stored.y },
+          moved: false,
+          shown: pressed.shaft,
+        };
+        return;
+      }
       const id = handle.getAttribute('data-element') ?? '';
       const which = handle.getAttribute('data-handle');
       const element = this.#host.scene().elements.find((candidate) => candidate.id === id);
@@ -554,38 +577,6 @@ export class Gestures {
         };
         return;
       }
-      const bend = which === 'bend' ? Number(handle.getAttribute('data-point')) : Number.NaN;
-      if (
-        element !== undefined &&
-        isShaft(element) &&
-        Number.isInteger(bend) &&
-        bend > 0 &&
-        bend < element.points.length - 1
-      ) {
-        const stored = element.points[bend]!;
-        // A bend handle is a mark on the shaft, and a press on it is a click
-        // there: two of them on one handle are a double-click that takes the
-        // point, and a single one is each of the two clicks it is half of.
-        this.#press = {
-          id,
-          at: viewport.screenPoint(event),
-          time: event.timeStamp,
-          shift: event.shiftKey,
-          bend: { id, index: bend },
-        };
-        this.#drag = {
-          kind: 'bend',
-          id,
-          index: bend,
-          inserted: false,
-          shift: event.shiftKey,
-          from: viewport.scenePoint(event),
-          origin: { x: stored.x, y: stored.y },
-          moved: false,
-          shown: element,
-        };
-        return;
-      }
       if (element !== undefined && isOutlined(element)) {
         this.#drag = {
           kind: 'resize',
@@ -599,8 +590,7 @@ export class Gestures {
       }
     }
 
-    const dot = editing ? (target?.closest('[data-dot]') ?? null) : null;
-    if (dot !== null && this.#pullBend(dot, event)) {
+    if (editing && this.#pullBend(target, event)) {
       return;
     }
 
@@ -856,7 +846,7 @@ export class Gestures {
           bend !== undefined || first.id === null
             ? undefined
             : this.#host.scene().elements.find((element) => element.id === first.id);
-        if (bend !== undefined && click.bend?.id === bend.id && click.bend.index === bend.index) {
+        if (bend !== undefined && sameBend(click.bend, bend)) {
           this.#drag = null;
           this.#host.removeBend(bend);
           return;
@@ -1010,41 +1000,33 @@ export class Gestures {
    * click on the shaft there — it keeps the press a double-click reads, and a
    * press that carries nothing inserts nothing.
    */
-  #pullBend(dot: Element, event: PointerEvent): boolean {
+  #pullBend(target: EventTarget | null, event: PointerEvent): boolean {
     const { viewport } = this.#host.page;
-    const id = dot.getAttribute('data-element') ?? '';
-    const index = Number(dot.getAttribute('data-point'));
-    const element = this.#host.scene().elements.find((candidate) => candidate.id === id);
-    if (
-      element === undefined ||
-      !isShaft(element) ||
-      !Number.isInteger(index) ||
-      index < 1 ||
-      index > element.points.length - 1
-    ) {
+    const pressed = bendFromDot(target, this.#shaft);
+    if (pressed === null) {
       return false;
     }
     const byId = elementsById(this.#host.scene().elements);
-    const pulled = shaftDots(shaftInk(element, byId).path).find((one) => one.index === index);
-    if (pulled === undefined) {
+    const origin = dotAt(shaftInk(pressed.shaft, byId).path, pressed.bend.index);
+    if (origin === null) {
       return false;
     }
     this.#press = {
-      id,
+      id: pressed.bend.id,
       at: viewport.screenPoint(event),
       time: event.timeStamp,
       shift: event.shiftKey,
     };
     this.#drag = {
       kind: 'bend',
-      id,
-      index,
+      id: pressed.bend.id,
+      index: pressed.bend.index,
       inserted: true,
       shift: event.shiftKey,
       from: viewport.scenePoint(event),
-      origin: { x: pulled.at.x, y: pulled.at.y },
+      origin,
       moved: false,
-      shown: element,
+      shown: pressed.shaft,
     };
     this.#host.refresh();
     return true;
@@ -1339,10 +1321,7 @@ export class Gestures {
   #isDoubleClick(first: Press, second: Press): boolean {
     const bend = first.bend;
     const taken = second.bend;
-    const oneBend =
-      bend === undefined
-        ? taken === undefined
-        : taken !== undefined && taken.id === bend.id && taken.index === bend.index;
+    const oneBend = bend === undefined ? taken === undefined : sameBend(taken, bend);
     return (
       oneBend &&
       !first.shift &&
