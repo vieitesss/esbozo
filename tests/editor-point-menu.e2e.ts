@@ -803,7 +803,7 @@ describe('the point menu', () => {
     expect((await shot(ui)).meanLuminance(atHandle(PEAK))).toBeLessThan(0.6);
   });
 
-  test('Space runs no row, and Tab leaves Escape its key', async ({ app, browser, screen }) => {
+  test('Space runs no row, on either of them', async ({ app, browser, screen }) => {
     const ui = { app, browser, screen };
     await open(ui);
     await selectShaft(ui);
@@ -822,14 +822,27 @@ describe('the point menu', () => {
     await browser.keyboard.press('Space');
     await expect(menu(ui)).toBeVisible();
     expect(pointsOf(await savedScene(ui, 'zig.json'))).toEqual(ZIG_POINTS);
+  });
 
-    // Tab is no more a way out of the menu: the keys stay in it, so Escape still
-    // shuts it and leaves the point it was for selected.
+  test('Tab is no way out of the menu, and Escape still shuts it', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await selectShaft(ui);
+
+    // The keys stay in the menu, so Escape still shuts it and leaves the point it
+    // was for selected.
+    await rightClick(ui, PEAK);
+    await expect(menu(ui)).toBeVisible();
     await browser.keyboard.press('Tab');
     await browser.keyboard.press('Escape');
     await expect(menu(ui)).toBeHidden();
     await settle(ui);
     expect((await shot(ui)).meanLuminance(atHandle(PEAK))).toBeLessThan(0.6);
+    expect(pointsOf(await savedScene(ui, 'zig.json'))).toEqual(ZIG_POINTS);
 
     // The same in the other direction, on a fresh open.
     await rightClick(ui, PEAK);
