@@ -64,6 +64,27 @@ async function railInk(ui: Ui, band: Rect): Promise<Rect> {
   return (await ink())!;
 }
 
+/**
+ * The strip's fade to full ink, slowed down so a run can catch it mid-fade.
+ *
+ * Focusing a tile fades the strip from 0.58 to 1 over 0.22 s (`editor.css`). A
+ * screenshot taken during that fade holds the tiles' ink while the pencil
+ * outline around them is still too pale to pass the ink threshold, so the same
+ * strip reads 26 px down instead of 8 px. Linux CI lost that race on main
+ * (issue #29b); this hands every machine the same race, and no run gets lucky.
+ */
+async function slowFade(ui: Ui, seconds: number): Promise<void> {
+  const slowed = await ui.browser.evaluate((duration) => {
+    const strip = document.querySelector('esbozo-editor nav[aria-label="Tools"]');
+    if (!(strip instanceof HTMLElement)) {
+      return false;
+    }
+    strip.style.setProperty('transition-duration', `${duration}s`);
+    return true;
+  }, seconds);
+  expect(slowed, 'the strip is the one this test slowed down').toBe(true);
+}
+
 /** An empty Scene, opened at the window a test set first. */
 async function openBare(ui: Ui, window?: { width: number; height: number }): Promise<void> {
   if (window !== undefined) {
@@ -179,4 +200,22 @@ test('a diagram with no room above it puts the rail 15 px inside the editor top 
   expect(ink.y, 'the strip stops just inside the editor top edge').toBeGreaterThan(2);
   expect(ink.y, 'the strip stops just inside the editor top edge').toBeLessThan(18);
   expect(Math.abs(ink.x + ink.width / 2 - 1280 / 2), 'the strip is centred').toBeLessThan(4);
+});
+
+test('the rail is measured at its full ink, not at the tiles a fade shows first', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await browser.setViewport({ width: 1280, height: 300 });
+  await openEditor(ui, { A: { 'big.json': BIG_SOURCE } }, 'big.json');
+  await settle(ui);
+
+  // Two seconds of fade: no screenshot can slip past it, and the reading is
+  // taken while the strip is still on its way to the ink a person sees.
+  await slowFade(ui, 2);
+  const ink = await railInk(ui, { x: 400, y: 0, width: 480, height: 140 });
+  expect(ink.y, 'the reading is the outline, not the tiles below it').toBeGreaterThan(2);
+  expect(ink.y, 'the reading is the outline, not the tiles below it').toBeLessThan(18);
 });
