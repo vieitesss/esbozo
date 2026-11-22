@@ -170,6 +170,10 @@ esbozo-editor .handle-n, esbozo-editor .handle-s { cursor: ns-resize; }
 esbozo-editor .handle-e, esbozo-editor .handle-w { cursor: ew-resize; }
 esbozo-editor .handle-start, esbozo-editor .handle-end { cursor: move; }
 
+/* A bend between a shaft's ends: the same square or circle at every zoom, and
+   the grab a drag of that one point starts from. */
+esbozo-editor .handle-bend { cursor: move; }
+
 /* Snap: the Element a dragged arrow or line end will attach to. It stands off
    the outline so it reads around the target rather than as the target's edge. */
 esbozo-editor .snap {

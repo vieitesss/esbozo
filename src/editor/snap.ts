@@ -86,6 +86,26 @@ export function targetAt(
 }
 
 /**
+ * The arrow or line with the bend at `index` stored where the pointer put it:
+ * whole-pixel like every other coordinate in a Scene, its own `corner` kept,
+ * and no Snap. A Snap is an end's, so a bend dropped over an Element does not
+ * take one, and the ends it sits between keep the ones they have.
+ */
+export function withBend(
+  element: ArrowOrLineElement,
+  index: number,
+  point: Point,
+): ArrowOrLineElement {
+  const corner = element.points[index]?.corner;
+  const stored: Point = {
+    x: Math.round(point.x),
+    y: Math.round(point.y),
+    ...(corner === undefined ? {} : { corner }),
+  };
+  return withPoint(element, index, stored);
+}
+
+/**
  * The arrow or line with one end stored where the pointer put it: attached to
  * `target`, or free when that is null. The stored point is kept whole-pixel
  * like every other coordinate in a Scene.

@@ -35,7 +35,16 @@ import type { ToolId } from './actions.js';
 import { drawn, drawnAtClick, freshId, idsOf, isClick } from './elements.js';
 import type { ElementTool } from './elements.js';
 import type { Page } from './page.js';
-import { attachedTo, endPoint, isShaft, otherEnd, released, targetAt, withEnd } from './snap.js';
+import {
+  attachedTo,
+  endPoint,
+  isShaft,
+  otherEnd,
+  released,
+  targetAt,
+  withBend,
+  withEnd,
+} from './snap.js';
 import type { End } from './snap.js';
 import type { Typing } from './typing.js';
 import { wordAt } from './words.js';
@@ -96,6 +105,18 @@ export type Drag =
       moved: boolean;
       shown: SceneElement;
     }
+  | {
+      kind: 'bend';
+      id: string;
+      /** The point the handle stands on: a bend between the ends, never an end. */
+      index: number;
+      from: Point;
+      /** The bend as the Scene stores it: where the pointer grabbed it. */
+      origin: Point;
+      /** Whether the handle has moved at all during the gesture. */
+      moved: boolean;
+      shown: SceneElement;
+    }
   | { kind: 'text'; at: Point }
   | {
       kind: 'label';
@@ -124,7 +145,7 @@ export type Drag =
  * taken off its shaft. Those are shown as the pointer has made them, and only
  * those: the rest of the Scene is the Scene.
  */
-export type ShownDrag = Extract<Drag, { kind: 'move' | 'resize' | 'end' | 'label' }>;
+export type ShownDrag = Extract<Drag, { kind: 'move' | 'resize' | 'end' | 'bend' | 'label' }>;
 
 /**
  * The Scene's Elements as the gesture in flight shows them. The ink the pointer
@@ -234,6 +255,7 @@ export class Gestures {
         drag.kind === 'move' ||
         drag.kind === 'resize' ||
         drag.kind === 'end' ||
+        drag.kind === 'bend' ||
         drag.kind === 'label')
     );
   }
@@ -454,6 +476,26 @@ export class Gestures {
         };
         return;
       }
+      const bend = which === 'bend' ? Number(handle.getAttribute('data-point')) : Number.NaN;
+      if (
+        element !== undefined &&
+        isShaft(element) &&
+        Number.isInteger(bend) &&
+        bend > 0 &&
+        bend < element.points.length - 1
+      ) {
+        const stored = element.points[bend]!;
+        this.#drag = {
+          kind: 'bend',
+          id,
+          index: bend,
+          from: viewport.scenePoint(event),
+          origin: { x: stored.x, y: stored.y },
+          moved: false,
+          shown: element,
+        };
+        return;
+      }
       if (element !== undefined && isOutlined(element)) {
         this.#drag = {
           kind: 'resize',
@@ -644,6 +686,22 @@ export class Gestures {
       page.paint();
       return;
     }
+    if (drag.kind === 'bend') {
+      const element = this.#host.scene().elements.find((candidate) => candidate.id === drag.id);
+      if (element === undefined || !isShaft(element)) {
+        return;
+      }
+      // A bend never Snaps and never carries an end: it is the one point the
+      // pointer holds, rounded to whole pixels where the Scene rounds every
+      // number, and every other field of the Element stays the Scene's.
+      drag.moved = drag.moved || dx !== 0 || dy !== 0;
+      drag.shown = withBend(element, drag.index, {
+        x: drag.origin.x + dx,
+        y: drag.origin.y + dy,
+      });
+      page.paint();
+      return;
+    }
     if (drag.kind === 'move') {
       if (dx === 0 && dy === 0 && drag.shown.size === 0) {
         // A press that has not moved yet settles nothing: a mere click on an
@@ -748,6 +806,11 @@ export class Gestures {
     if (drag.kind === 'end') {
       this.#drag = null;
       this.#settleEnd(drag, viewport.scenePoint(event), event.altKey);
+      return;
+    }
+    if (drag.kind === 'bend') {
+      this.#drag = null;
+      this.#settleBend(drag, viewport.scenePoint(event));
       return;
     }
     if (drag.kind === 'box') {
@@ -967,6 +1030,29 @@ export class Gestures {
         .scene()
         .elements.map((candidate) =>
           candidate.id === drag.id ? withEnd(element, drag.which, to, target) : candidate,
+        ),
+    });
+  }
+
+  /**
+   * A released bend handle settles where the release put it, and only that
+   * point: its corner, every other bend and both ends — Snaps included — stay
+   * the Scene's. A press that did not move is a click on the handle and changes
+   * nothing, while a drag that comes back to its start is still one step.
+   */
+  #settleBend(drag: Extract<Drag, { kind: 'bend' }>, at: Point): void {
+    const element = this.#host.scene().elements.find((candidate) => candidate.id === drag.id);
+    if (!drag.moved || element === undefined || !isShaft(element)) {
+      this.#host.refresh();
+      return;
+    }
+    const to = { x: drag.origin.x + at.x - drag.from.x, y: drag.origin.y + at.y - drag.from.y };
+    this.#host.applyScene({
+      ...this.#host.scene(),
+      elements: this.#host
+        .scene()
+        .elements.map((candidate) =>
+          candidate.id === drag.id ? withBend(element, drag.index, to) : candidate,
         ),
     });
   }
