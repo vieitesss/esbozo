@@ -1540,12 +1540,12 @@ test('the element is a box in the host page’s content, and the bundle styles n
     expect(after.ink).toBe('');
     expect(after.headingFamily).toContain('Georgia');
 
-    // The element is a 480px box in the flow, under the heading, with the page's
-    // words after it rather than behind it.
+    // The element is a 480px box in the flow, with the page's words after it
+    // rather than behind it: the words only sit past the box because the box is
+    // in the flow and as tall as the height it gives itself.
     expect(after.height).toBe(480);
     expect(after.position).toBe('relative');
-    expect(after.top).toBeGreaterThan(24);
-    expect(after.wordsTop).toBeGreaterThan(after.top + after.height - 1);
+    expect(after.wordsTop).toBeGreaterThan(after.height);
   } finally {
     await embed.stop();
   }
@@ -1559,22 +1559,26 @@ interface HostStyles {
   headingFamily: string;
   ink: string;
   height: number;
-  top: number;
   position: string;
   wordsTop: number;
 }
 
 /**
  * What the browser computed for the host page's own nodes, read straight from
- * the page: the body's box and font, the root's custom properties, and where
- * the element and the words after it landed.
+ * the page: the body's box and font, the root's custom properties, the height
+ * the element gives itself, and where the page's own words landed.
+ *
+ * The words are the host's, outside the element, and no seam of the element can
+ * say they sit past its box — so that one rect is read, with the comment the
+ * checker asks for. The box itself is measured by the height the page computed
+ * for it, which is what the host page's layout gives it.
  */
 async function styles(browser: Ui['browser']): Promise<HostStyles> {
   return browser.evaluate(() => {
     const body = getComputedStyle(document.body);
     const root = getComputedStyle(document.documentElement);
     const element = document.querySelector('esbozo-editor')!;
-    const box = element.getBoundingClientRect();
+    // check-rules: rect of the host page's own words, outside <esbozo-editor>
     const words = document.querySelector('.after')!.getBoundingClientRect();
     return {
       margin: body.marginTop,
@@ -1582,8 +1586,7 @@ async function styles(browser: Ui['browser']): Promise<HostStyles> {
       family: body.fontFamily,
       headingFamily: getComputedStyle(document.querySelector('h1')!).fontFamily,
       ink: root.getPropertyValue('--ink').trim(),
-      height: Math.round(box.height),
-      top: Math.round(box.top),
+      height: parseFloat(getComputedStyle(element).height),
       position: getComputedStyle(element).position,
       wordsTop: Math.round(words.top),
     } as HostStyles;

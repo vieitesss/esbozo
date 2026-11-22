@@ -5,7 +5,7 @@
  */
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import { clickScene, settle, openEditor, savedScene } from './helpers.ts';
+import { clickScene, drag, settle, openEditor, savedScene } from './helpers.ts';
 import type { Ui } from './helpers.ts';
 import { shot } from './pixels.ts';
 import { SCENE_SOURCE, GRID, CORNER, command, palette, zoomReadout } from './editor-shared.ts';
@@ -131,19 +131,12 @@ test('the palette stays shut while a Text is being typed', async ({ app, browser
   expect(scene.elements.at(-1)?.content).toBe('qk');
 });
 
-/** The middle of a row, so a pointer press can land on it where it is drawn. */
-async function rowCentre(ui: Ui, name: string): Promise<{ x: number; y: number }> {
-  return ui.browser.evaluate((wanted: string) => {
-    const row = [...document.querySelectorAll('[role="option"]')].find(
-      (node) => node.getAttribute('aria-label') === wanted,
-    );
-    if (row === undefined) {
-      throw new Error(`no row called ${wanted}`);
-    }
-    const box = row.getBoundingClientRect();
-    return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
-  }, name);
-}
+/**
+ * The first Element's ink, where the page draws it when the Scene opens and
+ * again once the middle drag below has carried it by (20, 60): the second
+ * Element sits past this box to the right, and is never measured.
+ */
+const FIRST = { x: 480, y: 320, width: 180, height: 180 };
 
 /** Which of the page's two focus stops holds the focus: the search field or the canvas. */
 function focusOf(ui: Ui): Promise<'canvas' | 'search' | 'other'> {
@@ -156,26 +149,43 @@ function focusOf(ui: Ui): Promise<'canvas' | 'search' | 'other'> {
   });
 }
 
-test('the focus the palette hands back never scrolls the paper', async ({ app, browser, screen }) => {
+/**
+ * The paper the focus comes back to does not move: every pixel of the first
+ * Element's ink is where the pointer left it, and a press there still picks
+ * that Element. The middle drag first carries the drawing off centre, which is
+ * the only state in which a focus has anything to scroll.
+ */
+test('the focus the palette hands back leaves the paper where the pointer left it', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+  const ink = async () => (await shot(ui)).darkBounds(FIRST, 0.6);
+  const centred = await ink();
+  if (centred === null) {
+    throw new Error('the paper shows no ink');
+  }
 
-  // Where the paper is on the page: the view has panned the drawing down, and
-  // the focus coming back to the canvas must not scroll any of it.
-  const paperTop = (): Promise<number> =>
-    browser.evaluate(
-      () => Math.round(document.querySelector('esbozo-editor .board')!.getBoundingClientRect().top),
-    );
-  expect(await paperTop()).toBe(0);
+  await drag(ui, { x: 640, y: 300 }, { x: 660, y: 360 }, 'middle');
+  await settle(ui);
+  const before = await ink();
+  if (before === null) {
+    throw new Error('the panned paper shows no ink');
+  }
+  // The drag carried the paper by the pointer's own (20, 60): a pan that moved
+  // nothing would leave the rest of this test with nothing to check.
+  expect(before.x).toBeGreaterThan(centred.x + 10);
+  expect(before.y).toBeGreaterThan(centred.y + 50);
+
   await palette(ui);
   await browser.keyboard.press('Escape');
   await expect(screen.getByRole('dialog', 'Commands')).toBeHidden();
   await settle(ui);
-  expect(await paperTop()).toBe(0);
+  expect(await ink()).toEqual(before);
 
   // And a click right after it lands on the ink that is drawn there: the first
   // Element's middle, which is a selection and its Style menu.
-  await clickScene(ui, { x: 100, y: 80 });
+  await browser.mouse.move(before.x + before.width / 2, before.y + before.height / 2);
+  await browser.mouse.down();
+  await browser.mouse.up();
   await expect(screen.getByRole('button', { name: 'Corners: sharp' })).toBeVisible();
 });
 
@@ -242,12 +252,10 @@ test('shutting the palette puts the focus back on the canvas', async ({ app, bro
   // field, so the person can keep typing instead of hunting for it.
   await palette(ui);
   await browser.keyboard.type('delete');
-  // A person can press a greyed row; the press is what has to leave the
-  // palette open and the caret where it was.
-  const disabled = await rowCentre(ui, 'Delete · X · ⌫ · Del');
-  await browser.mouse.move(disabled.x, disabled.y);
-  await browser.mouse.down();
-  await browser.mouse.up();
+  // A person can press a greyed row, so the press names a point of the row
+  // rather than taking the platform's actionability checks: what it leaves
+  // behind is the palette, open, and the caret in the search field.
+  await command(ui, 'Delete · X · ⌫ · Del').click({ position: { x: 2, y: 2 } });
   await expect(screen.getByRole('dialog', 'Commands')).toBeVisible();
   await expect.poll(async () => focusOf(ui)).toBe('search');
   await browser.keyboard.type('zzz');
