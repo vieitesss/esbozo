@@ -15,12 +15,18 @@
 # it and not a wrapper's corpse: e2e cleans up and reports finish.
 set -eu
 
-tar -C /src \
-  --exclude=./node_modules \
-  --exclude=./.git \
-  --exclude=./dist \
-  --exclude=./.e2e \
-  -cf /tmp/source.tar .
+# The entries under the mount, not the mount itself: Docker Desktop reports the
+# mount root's own metadata as changed between the listing and the read, and tar
+# then calls an honest copy a failure (`tar: .: file changed as we read it`, on
+# every run). Archiving what sits under it is the same copy minus that entry.
+# `find … -print0` keeps a name with a space in it one name.
+cd /src
+find . -mindepth 1 -maxdepth 1 -print0 |
+  tar --exclude=./node_modules \
+    --exclude=./.git \
+    --exclude=./dist \
+    --exclude=./.e2e \
+    --null --files-from=- -cf /tmp/source.tar
 tar -C /work -xf /tmp/source.tar
 rm /tmp/source.tar
 
