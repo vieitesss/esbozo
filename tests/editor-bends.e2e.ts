@@ -492,9 +492,9 @@ const SNAPPED_ON = { x: 275, y: 181 };
 const SNAPPED_BEND = { x: 350, y: 200 };
 
 /**
- * An arrow whose words stand on its own bend, on a box that holds the page
- * still: the words' box is centred on the corner they paint over, and the
- * handle a press takes there is the one drawn after them.
+ * An arrow with words on its first leg, on a box that holds the page still: the
+ * words are ink a double-click would open, and they stand clear of the bend
+ * handle the presses below take.
  */
 const ON_BEND_SCENE = {
   version: 1,
@@ -512,16 +512,16 @@ const ON_BEND_SCENE = {
       ],
       heads: { start: 'none', end: 'none' },
       label: 'bend words',
-      labelAt: { t: 0.5, offset: 0 },
+      labelAt: { t: 0.3, offset: 0 },
     },
   ],
 };
 const ON_BEND_SOURCE = JSON.stringify(ON_BEND_SCENE, null, 2);
 
-/** On the arrow's first leg, clear of the words: where a press selects it. */
-const ON_BEND_ON = { x: 280, y: 360 };
+/** On the arrow's first leg, before the words: where a press selects it. */
+const ON_BEND_ON = { x: 240, y: 380 };
 
-/** The bend whose handle the words are centred on. */
+/** The bend whose handle the pair takes, clear of the words. */
 const ON_BEND_BEND = { x: 400, y: 300 };
 
 /**
@@ -1401,6 +1401,7 @@ describe('a double-click on a bend handle', () => {
     await open(ui);
 
     await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
     await doubleClickScene(ui, SHARP_BEND, SHARP);
 
     await expectPoints(ui, [
@@ -1414,6 +1415,7 @@ describe('a double-click on a bend handle', () => {
     await open(ui, 'shapes.json');
 
     await clickScene(ui, SHAPES_ON, [], SHAPES);
+    await settle(ui);
     await doubleClickScene(ui, SHARP_MARK, SHAPES);
 
     // The round bend's place, its corner and the ends either side of it are the
@@ -1438,6 +1440,7 @@ describe('a double-click on a bend handle', () => {
     await open(ui, 'snapped.json');
 
     await clickScene(ui, SNAPPED_ON, [], SNAPPED);
+    await settle(ui);
     await doubleClickScene(ui, { x: 550, y: 300 }, SNAPPED);
 
     await expectPoints(
@@ -1484,6 +1487,7 @@ describe('a double-click on a bend handle', () => {
     await open(ui, 'loop.json');
 
     await clickScene(ui, LOOP_ON, [], SHAPES);
+    await settle(ui);
     const before = await savedSource(ui, 'loop.json');
     await doubleClickScene(ui, LOOP_BEND, SHAPES);
     await settle(ui);
@@ -1517,6 +1521,7 @@ describe('a double-click on a bend handle', () => {
     await open(ui);
 
     await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
     const before = await savedSource(ui);
     await clickScene(ui, SHARP_BEND, [], SHARP);
     await settle(ui);
@@ -1530,6 +1535,7 @@ describe('a double-click on a bend handle', () => {
     await open(ui);
 
     await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
     const before = await savedSource(ui);
     // A wait that outlasts the editor's own half second: the two presses are a
     // click and a click, and the point they land on stays.
@@ -1547,6 +1553,7 @@ describe('a double-click on a bend handle', () => {
     await open(ui);
 
     await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
     const before = await savedSource(ui);
     // A Shift press is about the selection, never half of a double-click.
     await clickScene(ui, SHARP_BEND, ['Shift'], SHARP);
@@ -1566,6 +1573,7 @@ describe('a double-click on a bend handle', () => {
     await open(ui);
 
     await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
     await drag(ui, at(SHARP_BEND, SHARP), at({ x: 340, y: 270 }, SHARP));
     await expectPoints(ui, DRAGGED_POINTS);
 
@@ -1577,13 +1585,18 @@ describe('a double-click on a bend handle', () => {
     await expectPoints(ui, DRAGGED_POINTS);
   });
 
-  test('the words the handle stands on never open', async ({ app, browser, screen }) => {
+  test('the arrow’s words never open on the pair that removes a point', async ({
+    app,
+    browser,
+    screen,
+  }) => {
     const ui = { app, browser, screen };
     await open(ui, 'on-bend.json');
 
     await clickScene(ui, ON_BEND_ON, [], SHAPES);
-    // The note is docked beside the selection, and the arrow's words paint over
-    // the handle the two presses land on.
+    await settle(ui);
+    // The note is docked beside the selection, and the arrow the pair edits
+    // carries words of its own.
     await expect(screen.getByRole('dialog', 'Style')).toBeVisible();
     await doubleClickScene(ui, ON_BEND_BEND, SHAPES);
 
@@ -1595,7 +1608,7 @@ describe('a double-click on a bend handle', () => {
       ],
       'on-bend.json',
     );
-    // The pair is the point's: the words under it are not what was clicked.
+    // The pair is the point's: the arrow's words are not what was clicked.
     await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveCount(0);
   });
 
@@ -1604,6 +1617,7 @@ describe('a double-click on a bend handle', () => {
     await open(ui, 'near.json');
 
     await clickScene(ui, NEAR_ON, [], SHAPES);
+    await settle(ui);
     await doubleClickScene(ui, NEAR_FIRST, SHAPES);
     // The click right after the pair lands on the handle of the bend that took
     // the removed point's index, four pixels away: the pair is over, so this is
@@ -1625,6 +1639,7 @@ describe('a double-click on a bend handle', () => {
     const ui = { app, browser, screen };
     await open(ui);
     await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
 
     // An edit asks the folder to write, and the folder answers `403`: this page
     // may only read from now on.
@@ -1651,6 +1666,7 @@ describe('a double-click on a bend handle', () => {
     await open(ui);
 
     await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
     await doubleClickScene(ui, SHARP_BEND, SHARP);
     await expectPoints(ui, [
       { x: 50, y: 50 },

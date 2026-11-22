@@ -123,6 +123,28 @@ export function withInsertedBend(
 }
 
 /**
+ * The arrow or line with the bend at `index` gone: every other point keeps its
+ * place, its `corner` and its Snap, and so does the Element its corners. A
+ * removal that would leave a two-point shaft with both ends Snapped to one
+ * Element removes nothing, because the Scene has no such shaft: two ends on one
+ * outline have no direction to aim along, and the point between them is what
+ * gave it one.
+ */
+export function withoutBend(
+  element: ArrowOrLineElement,
+  index: number,
+): ArrowOrLineElement | null {
+  const points = [...element.points];
+  points.splice(index, 1);
+  const start = points[0]!;
+  const end = points[points.length - 1]!;
+  if (points.length === 2 && start.snap !== undefined && start.snap === end.snap) {
+    return null;
+  }
+  return { ...element, points: points as ArrowOrLineElement['points'] };
+}
+
+/**
  * The arrow or line with one end stored where the pointer put it: attached to
  * `target`, or free when that is null. The stored point is kept whole-pixel
  * like every other coordinate in a Scene.
