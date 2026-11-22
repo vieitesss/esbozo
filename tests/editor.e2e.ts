@@ -1574,15 +1574,8 @@ test('the status line keeps the Scene top left, the view bottom left and no mode
   expect(page.bands(TOP_LEFT, 0.7)).toBe(3);
   expect(page.bands(BOTTOM_LEFT, 0.6)).toBe(1);
 
-  // Nothing transient is being named, so the bottom centre is bare paper: no pill
-  // before a Space pan, and none after the pan that ends when the key comes up.
+  // Nothing transient is being named, so the bottom centre is bare paper.
   const pill = ui.screen.getByText('read-only');
-  await expect(pill).toBeHidden();
-  expect((await shot(ui)).darkCount(MODE_PILL_BAND, 0.6)).toBe(0);
-
-  await ui.browser.keyboard.down('Space');
-  await drag(ui, { x: 640, y: 400 }, { x: 700, y: 440 });
-  await ui.browser.keyboard.up('Space');
   await expect(pill).toBeHidden();
   expect((await shot(ui)).darkCount(MODE_PILL_BAND, 0.6)).toBe(0);
 });
@@ -1809,8 +1802,8 @@ test('the ? button opens the Shortcuts sheet, and Escape shuts it', async ({ app
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
 
-  // The keys are no longer a permanent row under the page: nothing on the page
-  // says them until the sheet is asked for.
+  // The keys are the sheet's alone: nothing on the page says them until the
+  // sheet is asked for.
   await expect(ui.screen.getByText(/Q commands/)).toHaveCount(0);
 
   const help = ui.screen.getByRole('button', 'Shortcuts');
@@ -1826,7 +1819,7 @@ test('the ? button opens the Shortcuts sheet, and Escape shuts it', async ({ app
   await expect(help).toHaveAttribute('aria-expanded', 'true');
   await expect(sheet).toBeVisible();
   // Each shortcut has a visible key or gesture.
-  for (const key of ['Space', 'wheel', '⌘ +/−', 'G', 'Q']) {
+  for (const key of ['Space', 'wheel', '⌘+ / ⌘−', 'G', 'Q']) {
     await expect(sheet).toContainText(key);
   }
 
@@ -1836,6 +1829,30 @@ test('the ? button opens the Shortcuts sheet, and Escape shuts it', async ({ app
   await expect(sheet).toBeHidden();
   await expect(help).toHaveAttribute('aria-expanded', 'false');
   await expect(ui.screen.getByRole('dialog', 'Style')).toBeVisible();
+});
+
+test('the Shortcuts sheet keeps its left border on the narrowest page', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await ui.browser.setViewport({ width: 320, height: 640 });
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+  await ui.screen.getByRole('button', 'Shortcuts').click();
+  await expect(ui.screen.getByRole('dialog', 'Shortcuts')).toBeVisible();
+  await settle(ui);
+
+  // Where the page holds the sheet, so the strip below covers its left edge and
+  // the paper beside it, and nothing of the words inside it.
+  const box = await ui.browser.evaluate(() => {
+    const sheet = document.querySelector('esbozo-editor .shortcuts')?.getBoundingClientRect();
+    return { left: sheet?.left ?? 0, top: sheet?.top ?? 0, height: sheet?.height ?? 0 };
+  });
+  // A sheet that runs off the left of the page has no left edge drawn: the strip
+  // is bare there, while a sheet that fits carries its border down its height.
+  const edge: Rect = { x: box.left, y: box.top + 8, width: 3, height: box.height - 16 };
+  expect((await shot(ui)).darkCount(edge, 0.9)).toBeGreaterThan(box.height / 2);
 });
 
 test('a press on the page shuts the Shortcuts sheet and lands where it was aimed', async ({

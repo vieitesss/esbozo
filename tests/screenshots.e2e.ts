@@ -1,5 +1,5 @@
 /**
- * The screenshots the ticket asks for: the editor in light and in dark, plus
+ * The screenshots a shot run writes: the editor in light and in dark, plus
  * the command palette over the paper.
  *
  * Skipped unless `ESBOZO_SHOTS` names a folder, so a normal run stays hermetic
@@ -21,10 +21,11 @@ import {
   settle,
 } from './helpers.ts';
 
-const shots = process.env['ESBOZO_SHOTS'];
+/** The folder a shot run fills; every test here is skipped when it is not named. */
+const folder = process.env['ESBOZO_SHOTS'] ?? '';
 
 // Skipped unless a folder is named, so a normal run writes nothing.
-test.skipIf(shots === undefined || shots === '')(
+test.skipIf(folder === '')(
   'the editor in light and dark',
   async ({ app, browser, screen }) => {
     const ui = { app, browser, screen };
@@ -34,7 +35,6 @@ test.skipIf(shots === undefined || shots === '')(
     // A selection, so the handles and the dashed box are in the picture.
     await clickScene(ui, { x: 170, y: 215 }, [], POSTER);
     await settle(ui);
-    const folder = shots ?? 'shots';
     await mkdir(folder, { recursive: true });
 
     await copyFile(await ui.app.screenshot('editor-light'), join(folder, 'editor-light.png'));
@@ -83,14 +83,13 @@ test.skipIf(shots === undefined || shots === '')(
 );
 
 // The status corners on a wide page and on a phone, with the Shortcuts sheet
-// open and shut: the ticket's own view of the two things #32 added.
-test.skipIf(shots === undefined || shots === '')('the shortcuts sheet, wide and narrow', async ({
+// open and shut.
+test.skipIf(folder === '')('the shortcuts sheet, wide and narrow', async ({
   app,
   browser,
   screen,
 }) => {
   const ui = { app, browser, screen };
-  const folder = shots ?? 'shots';
   await mkdir(folder, { recursive: true });
   const folders = { A: { 'scene.json': JSON.stringify(POSTER_SCENE, null, 2) } };
 

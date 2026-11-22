@@ -8,11 +8,24 @@
  * anything, and nothing in the editor draws it.
  */
 import { PRIMARY_SCENE_EXTENSION } from '../paths.js';
+import { actionById } from './actions.js';
 import { railMarkup } from './rail.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const DOT_SPACING = 22;
 const DOT_RADIUS = 1.1;
+
+/**
+ * One action's key, as the Shortcuts sheet writes it: read from the action that
+ * answers it, so a rebound key moves the sheet with the key press.
+ */
+function keyOf(id: string): string {
+  const action = actionById(id);
+  if (action === null) {
+    throw new Error(`the Shortcuts sheet names no action called ${id}`);
+  }
+  return action.primary;
+}
 
 /** The chrome the element puts on the page before it draws anything. */
 export const SHELL = `
@@ -55,8 +68,8 @@ export const SHELL = `
       <dl class="keys">
         <dt>Space</dt><dd>pan · middle-click too</dd>
         <dt>wheel</dt><dd>zoom</dd>
-        <dt>⌘ +/−</dt><dd>zoom</dd>
-        <dt>G</dt><dd>Grid</dd>
+        <dt>${keyOf('zoom-in')} / ${keyOf('zoom-out')}</dt><dd>zoom</dd>
+        <dt>${keyOf('grid')}</dt><dd>Grid</dd>
         <dt>Q</dt><dd>commands</dd>
       </dl>
     </div>

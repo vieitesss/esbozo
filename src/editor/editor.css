@@ -122,7 +122,7 @@ esbozo-editor:has(.canvas:focus-visible)::after {
   outline-offset: -4px;
 }
 
-esbozo-editor .board.hand, esbozo-editor .board.panning { cursor: grab; }
+esbozo-editor .board.hand { cursor: grab; }
 esbozo-editor .board.panning { cursor: grabbing; }
 /* drawing: the pencil is the pointer, so the tool in hand reads on the canvas */
 esbozo-editor .board.pen { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='26' viewBox='0 0 26 26'%3E%3Cg transform='rotate(42 13 13)'%3E%3Cpath d='M11 5h4v13h-4z' fill='%23e8b23c' stroke='%231b1a17' stroke-width='1.2'/%3E%3Cpath d='M11 18h4l-2 4.5z' fill='%23f6f0e2' stroke='%231b1a17' stroke-width='1.2'/%3E%3C/g%3E%3C/svg%3E") 4 22, crosshair; }
@@ -452,7 +452,9 @@ esbozo-editor .status .shortcuts {
   bottom: 32px;
   z-index: 40;
   width: 246px;
-  max-width: calc(100vw - 34px);
+  /* The 78px the button sits in from the right, and 8px of page to the sheet's
+     left: below 332 CSS px the sheet gives up width rather than its left edge. */
+  max-width: calc(100vw - 86px);
   padding: 12px 13px 11px;
   background: color-mix(in srgb, var(--paper) 97%, var(--ink));
   border: 1px solid var(--line-strong);
