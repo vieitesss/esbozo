@@ -249,6 +249,7 @@ class EsbozoEditorElement extends HTMLElement {
         shown: () => this.#shown(),
         selected: () => this.#selected,
         drag: () => this.#gestures.drag,
+        writable: () => this.#connection.writable(),
         typing: this.#typing,
       },
     );

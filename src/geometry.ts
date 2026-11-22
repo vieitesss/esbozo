@@ -502,9 +502,37 @@ export interface ShaftPath {
   readonly end: Point;
   /** The pieces in drawing order: `start` to `end`, with nothing between them. */
   readonly pieces: readonly ShaftPiece[];
+  /**
+   * The ink of each segment of the stored points, in their order: where the
+   * segments' halfway places are read from, so the dots drawn on them and the
+   * ink they sit on cannot disagree.
+   */
+  readonly segments: readonly ShaftSegment[];
   /** Total arc length of every piece: how far the ink runs from `start` to `end`. */
   readonly length: number;
   readonly bounds: ShaftBounds;
+}
+
+/**
+ * One segment of a shaft's stored points, as the ink between it and the point
+ * after it runs: a corner's fillet is the corner's ink, so a segment stops where
+ * the fillet starts.
+ */
+interface ShaftSegment {
+  /** The `points` index the segment ends at: the index a bend inserted on it takes. */
+  readonly index: number;
+  /** How far along the whole drawn shaft the segment's own ink starts. */
+  readonly from: number;
+  /** And where it ends. */
+  readonly to: number;
+}
+
+/** A dot on a selected shaft: the press that pulls a new bend point out of its ink. */
+interface ShaftDot {
+  /** Halfway along the segment's drawn ink, so the dot sits on the curve, not on its chord. */
+  readonly at: Point;
+  /** The `points` index the bend it pulls out takes. */
+  readonly index: number;
 }
 
 /**
@@ -602,7 +630,7 @@ export function shaftPath(
   endTarget: Outline | undefined,
 ): ShaftPath {
   const drawn = drawnPoints(points, startTarget, endTarget);
-  const pieces = piecesOf(gathered(drawn, points, corners));
+  const { pieces, segments } = piecesOf(gathered(drawn, points, corners));
   const start = drawn[0]!;
   const end = drawn[drawn.length - 1]!;
   // A shaft whose points all sit on one another still draws its one point, so
@@ -612,15 +640,31 @@ export function shaftPath(
     start: { x: start.x, y: start.y },
     end: { x: end.x, y: end.y },
     pieces: inked,
+    segments,
     length: inked.reduce((total, piece) => total + piece.length, 0),
     bounds: boundsOf(inked),
   };
+}
+
+/**
+ * The halfway dot of every segment of a drawn shaft, in the stored points'
+ * order: where a drag pulls a new bend point out of the ink, and the index that
+ * point takes. `shaftPath` is the one owner of where a shaft's ink runs, so a
+ * dot and the ink it sits on cannot disagree about where halfway is.
+ */
+export function shaftDots(path: ShaftPath): ShaftDot[] {
+  return path.segments.map((segment) => ({
+    at: pointAt(path, (segment.from + segment.to) / 2),
+    index: segment.index,
+  }));
 }
 
 /** One point a shaft draws through, and the corner it turns by; an end has no bend to style. */
 interface ShaftPoint {
   readonly at: Point;
   readonly corner: Corner;
+  /** The `points` index it is stored at: the index a segment ending here inserts at. */
+  readonly index: number;
 }
 
 /**
@@ -647,54 +691,66 @@ function gathered(
     if (samePoint(points[points.length - 1]?.at, point)) {
       continue;
     }
-    points.push({ at: { x: point.x, y: point.y }, corner: cornerOf(scene[index], corners) });
+    points.push({ at: { x: point.x, y: point.y }, corner: cornerOf(scene[index], corners), index });
   }
   return points;
 }
 
 /**
- * The pieces a shaft is drawn as: each `sharp` middle point is cut out of the
- * run it sits in and comes back as a fillet, so the runs between corners are
- * smooth curves when they have a `round` point to bend by and straight lines
- * when they do not.
+ * The pieces a shaft is drawn as, and the segments its stored points mark on
+ * them: each `sharp` middle point is cut out of the run it sits in and comes
+ * back as a fillet, so the runs between corners are smooth curves when they have
+ * a `round` point to bend by and straight lines when they do not.
  */
-function piecesOf(points: readonly ShaftPoint[]): ShaftPiece[] {
-  if (points.length < 2) {
-    return [];
-  }
+function piecesOf(points: readonly ShaftPoint[]): {
+  pieces: ShaftPiece[];
+  segments: ShaftSegment[];
+} {
   const pieces: ShaftPiece[] = [];
-  let run: Point[] = [points[0]!.at];
+  const segments: ShaftSegment[] = [];
+  if (points.length < 2) {
+    return { pieces, segments };
+  }
+  // A run is the stretch of ink one flush draws: the points it passes through —
+  // or, cut short by a fillet, the point on the segment it stops at.
+  let run: ShaftPoint[] = [points[0]!];
+  let walked = 0;
+  const flush = (): void => {
+    for (const [step, piece] of piecesThrough(run.map((point) => point.at)).entries()) {
+      pieces.push(piece);
+      segments.push({
+        index: run[step + 1]!.index,
+        from: walked,
+        to: walked + piece.length,
+      });
+      walked += piece.length;
+    }
+  };
   for (let index = 1; index < points.length - 1; index += 1) {
     const bend = points[index]!;
     if (bend.corner === 'round') {
-      run.push(bend.at);
+      run.push(bend);
       continue;
     }
     const [before, after] = filletEnds(points[index - 1]!.at, bend.at, points[index + 1]!.at);
-    run.push(before);
-    appendRun(pieces, run);
-    pieces.push(
-      curve(
-        before,
-        lerp(before, bend.at, 2 / 3),
-        lerp(after, bend.at, 2 / 3),
-        after,
-      ),
-    );
-    run = [after];
+    run.push({ ...bend, at: before });
+    flush();
+    const corner = curve(before, lerp(before, bend.at, 2 / 3), lerp(after, bend.at, 2 / 3), after);
+    pieces.push(corner);
+    walked += corner.length;
+    run = [{ ...bend, at: after }];
   }
-  run.push(points[points.length - 1]!.at);
-  appendRun(pieces, run);
-  return pieces;
+  run.push(points[points.length - 1]!);
+  flush();
+  return { pieces, segments };
 }
 
-/** One run added: straight between two points, and a smooth curve through three or more. */
-function appendRun(pieces: ShaftPiece[], run: readonly Point[]): void {
+/** The pieces one run is drawn by: straight between two points, and a smooth curve through three or more. */
+function piecesThrough(run: readonly Point[]): ShaftPiece[] {
   if (run.length === 2) {
-    pieces.push(straight(run[0]!, run[1]!));
-    return;
+    return [straight(run[0]!, run[1]!)];
   }
-  pieces.push(...smoothThrough(run));
+  return smoothThrough(run);
 }
 
 /**
@@ -916,7 +972,18 @@ function directionAt(piece: ShaftPiece, u: number): Point {
 
 /** A piece and how far along it a fraction of the shaft lands. */
 function placeOn(path: ShaftPath, t: number): { piece: ShaftPiece; u: number } {
-  let remained = Math.min(1, Math.max(0, t)) * path.length;
+  return placeAt(path, Math.min(1, Math.max(0, t)) * path.length);
+}
+
+/** The point a distance along the drawn shaft reaches. */
+function pointAt(path: ShaftPath, distance: number): Point {
+  const found = placeAt(path, distance);
+  return pointOf(found.piece, found.u);
+}
+
+/** A piece and how far along it a distance from the shaft's start lands. */
+function placeAt(path: ShaftPath, distance: number): { piece: ShaftPiece; u: number } {
+  let remained = distance;
   for (const [index, piece] of path.pieces.entries()) {
     if (remained <= piece.length || index === path.pieces.length - 1) {
       return { piece, u: uAt(piece, remained) };

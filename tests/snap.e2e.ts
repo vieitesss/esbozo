@@ -743,7 +743,9 @@ describe('a bent shaft keeps its bend', () => {
     const ui = { app, browser, screen };
     await open(ui, 'bent.json');
     await clickScene(ui, BENT_ON, [], BENT);
-    await dragBy(ui, BENT_ON, 0, -40, BENT);
+    // The shaft itself, clear of the dot halfway along its first run: a press on
+    // that dot pulls a new bend point out instead of moving the shaft.
+    await dragBy(ui, { x: 150, y: 130 }, 0, -40, BENT);
 
     const scene = await savedAndChecked(ui, 'bent.json');
     expect(scene.elements[2]?.points).toEqual([
