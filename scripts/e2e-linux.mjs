@@ -76,6 +76,12 @@ const args = [
   'esbozo-e2e-linux=1',
   '--volume',
   `${ROOT}:/src:ro`,
+  // The mount is the host's worktree, `node_modules` included. Masking that one
+  // path with an empty tmpfs hides the macOS binaries from every reader inside
+  // the container, so nothing can load them by accident; the copy in
+  // `scripts/e2e-linux-container.sh` builds `/work` from the image instead.
+  '--tmpfs',
+  '/src/node_modules',
   ...Object.entries(process.env)
     .filter(([key]) => PASSED.test(key))
     .flatMap(([key, value]) => ['--env', `${key}=${value ?? ''}`]),
