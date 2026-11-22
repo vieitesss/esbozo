@@ -391,11 +391,16 @@ test('a round bend point pulls the shaft into a curve through itself', async () 
 test('a sharp bend point turns at a corner softened by a small fillet', async () => {
   const bend = { x: 100, y: 100 };
   const svg = await ink(
-    oneArrow([
-      { x: 0, y: 0 },
-      { x: 100, y: 100, corner: 'sharp' },
-      { x: 200, y: 0 },
-    ]),
+    oneArrow(
+      [
+        { x: 0, y: 0 },
+        { x: 100, y: 100, corner: 'sharp' },
+        { x: 200, y: 0 },
+      ],
+      // The fillet is what this shaft is measured for, so it draws no head: a
+      // head is the last ink of its arrow, and would stop the shaft short of it.
+      { heads: { start: 'none', end: 'none' } },
+    ),
   );
 
   const shaft = shaftFrom(svg, { x: 0, y: 0 });
@@ -413,11 +418,15 @@ test('a sharp bend takes the same pullback from a short leg as from a long one',
   // the long one at (2,1). Taking a full 7px from the long leg alone would bend
   // the corner about a leg it has already left.
   const svg = await ink(
-    oneArrow([
-      { x: 0, y: 0 },
-      { x: 2, y: 0, corner: 'sharp' },
-      { x: 2, y: 100 },
-    ]),
+    oneArrow(
+      [
+        { x: 0, y: 0 },
+        { x: 2, y: 0, corner: 'sharp' },
+        { x: 2, y: 100 },
+      ],
+      // No head: the whole leg is drawn, so every point of it can be read.
+      { heads: { start: 'none', end: 'none' } },
+    ),
   );
 
   const drawn = drawnPoints(attribute(shaftFrom(svg, { x: 0, y: 0 }), 'd') ?? '');
@@ -742,7 +751,8 @@ test('a two-point shaft keeps the bytes it always drew, its Snap fraction includ
   // The Snap lands on a fraction of a pixel of the ellipse, and the ink is
   // roughened from that fraction: rounding it on the way into Rough.js moves a
   // control point in the last decimal and changes the SVG of a Scene that never
-  // bent at all.
+  // bent at all. The shaft is drawn with no head, so the bytes below are the
+  // shaft's own.
   const svg = await ink({
     version: 1,
     defaults: { roughness: 2 },
@@ -751,6 +761,7 @@ test('a two-point shaft keeps the bytes it always drew, its Snap fraction includ
       {
         id: 'a',
         type: 'arrow',
+        heads: { start: 'none', end: 'none' },
         points: [
           { x: 48, y: 61, snap: 'e' },
           { x: 300, y: 200 },
@@ -760,10 +771,11 @@ test('a two-point shaft keeps the bytes it always drew, its Snap fraction includ
   });
 
   // The page this Scene is drawn on is the two ends' box padded, as it always
-  // was: a two-point shaft reaches no further than its ends.
+  // was: a two-point shaft reaches no further than its ends. The hash is the
+  // Scene's own, so it moved with the one field that says the shaft has no head.
   assert.equal(
     svg.slice(0, svg.indexOf('\n')),
-    `<svg xmlns="http://www.w3.org/2000/svg" width="332" height="232" viewBox="-16 -16 332 232" role="img" font-family="${FONT}" data-scene-hash="sha256:1e9fc623956998c47d956f280555a5fd4755fc951221f85bd8db54b4de90360c">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="332" height="232" viewBox="-16 -16 332 232" role="img" font-family="${FONT}" data-scene-hash="sha256:12158a7a977d3d16497d4f447898682cde72301ac635d39f51cf0f9e27f14c34">`,
   );
   assert.equal(
     attribute(shaftFrom(svg, { x: 81.59, y: 52.8 }), 'd'),
@@ -808,7 +820,7 @@ test('a curved shaft draws its dash pattern along an unbroken stroke', async () 
           { x: 100, y: 100, corner: 'round' },
           { x: 200, y: 0 },
         ],
-        { stroke: { width: 'bold', style } },
+        { stroke: { width: 'bold', style }, heads: { start: 'none', end: 'none' } },
       ),
     );
 

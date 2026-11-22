@@ -396,7 +396,8 @@ test('both ends of an arrow can Snap, each to its own target', async () => {
   const end = shaft[shaft.length - 1]!;
 
   assert.ok(near(start.x, 140) && near(start.y, 80), 'the start sits on the rectangle edge');
-  assert.ok(near(end.x, 360) && near(end.y, 80), 'the end sits on the ellipse edge');
+  assert.ok(end.x < 360 && near(end.y, 80), `the shaft stops behind its head at ${end.x},${end.y}`);
+  assert.ok(headGap(svg, { x: 360, y: 80 }) <= 0.05, 'the head’s tip sits on the ellipse edge');
 });
 
 test('two Snapped ends aim at each other even after one box moves past the other', async () => {
@@ -438,10 +439,9 @@ test('two Snapped ends aim at each other even after one box moves past the other
         drawn.every((point) => near(point.y, 50, 1) && point.x >= 399 && point.x <= 501),
     );
   assert.ok(shaft, 'a shaft runs along y=50 between the facing edges');
-  assert.ok(near(shaft[0]!.x, 500, 0.5), `the shaft starts on the left box at ${shaft[0]!.x}`);
   assert.ok(
-    near(shaft[shaft.length - 1]!.x, 400, 0.5),
-    `the shaft ends on the right box at ${shaft[shaft.length - 1]!.x}`,
+    shaft.every((point) => point.x > 400 && point.x < 500),
+    'the shaft is drawn between the two heads, clear of both boxes',
   );
 
   // Each head has its apex on the facing edge where the shaft meets it, and its
@@ -502,8 +502,7 @@ test('a head points into its target even when the two targets overlap', async ()
   const start = shaft[0]!;
   const end = shaft[shaft.length - 1]!;
   assert.ok(onOutline('rectangle', first, start), `the start ${start.x},${start.y} is on the first box`);
-  assert.ok(onOutline('rectangle', second, end), `the end ${end.x},${end.y} is on the second box`);
-  assert.ok(near(end.x, 90) && near(end.y, 50), `the end lands on the second box at ${end.x},${end.y}`);
+  assert.ok(end.x < 90 && near(end.y, 50), `the shaft stops behind its head at ${end.x},${end.y}`);
 
   // Nothing at all is drawn inside the second box's outline.
   assert.deepEqual(
@@ -561,9 +560,8 @@ test('crossing targets draw a shaft into the target, not a stub or an outward he
   const start = shaft[0]!;
   const end = shaft[shaft.length - 1]!;
   assert.ok(onOutline('rectangle', bar, start), `the start ${start.x},${start.y} is on the bar`);
-  assert.ok(onOutline('rectangle', post, end), `the end ${end.x},${end.y} is on the post`);
   assert.ok(near(start.x, 100) && near(start.y, 50), `the shaft starts at ${start.x},${start.y}`);
-  assert.ok(near(end.x, 60) && near(end.y, 50), `the shaft ends at ${end.x},${end.y}`);
+  assert.ok(end.x > 60 && near(end.y, 50), `the shaft stops behind its head at ${end.x},${end.y}`);
   assert.ok(
     Math.hypot(end.x - start.x, end.y - start.y) > 1,
     'the shaft is longer than a point',
@@ -621,8 +619,11 @@ test('a target drawn wholly inside the other falls back to the centre line', asy
   const start = shaft[0]!;
   const end = shaft[shaft.length - 1]!;
   assert.ok(onOutline('rectangle', inner, start), `the start ${start.x},${start.y} is on the inner box`);
-  assert.ok(onOutline('rectangle', outer, end), `the end ${end.x},${end.y} is on the outer box`);
-  assert.ok(near(start.y, 30) && near(end.y, 0), `the shaft is the centre line, ${start.y} to ${end.y}`);
+  assert.ok(
+    near(start.y, 30) && near(end.x, 50) && end.y > 0,
+    `the shaft is the centre line, ${start.y} to ${end.y}`,
+  );
+  assert.ok(headGap(svg, { x: 50, y: 0 }) <= 0.05, 'the head’s tip is on the outer box');
 });
 
 test('arrow heads point along the arrow, into each end', async () => {
@@ -1068,6 +1069,18 @@ function escapeXml(text: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+/**
+ * How far the head of an arrow stops from a contact: the head's tip is the ink
+ * that reaches a Snapped end, with its shaft stopping behind the head's base.
+ */
+function headGap(svg: string, contact: Point): number {
+  const tips = pathTags(svg)
+    .filter((tag) => tag.fill !== 'none')
+    .flatMap((tag) => drawnPoints(tag.d));
+  assert.ok(tips.length > 0, 'a head is drawn');
+  return Math.min(...tips.map((point) => Math.hypot(point.x - contact.x, point.y - contact.y)));
 }
 
 /** The points of the shaft that starts at `from`: with roughness 0 that start is exact. */

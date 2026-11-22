@@ -283,7 +283,7 @@ export interface ShaftInk {
 export function shaftInk(element: ArrowOrLineElement, byId: ReadonlyMap<string, Element>): ShaftInk {
   const canonical = canonicalElement(element);
   const path = shaftPathOf(canonical, byId);
-  return { path, heads: headsOf(canonical, path) };
+  return { path, heads: headsOf(canonical, path).map((head) => head.ink) };
 }
 
 /**
@@ -788,26 +788,37 @@ function arrowOrLineSvg(
   // joined back into one stroke each before they are written.
   const shaft = generator.path(shaftData(path), lineOptions(element));
   const gap = labelGap(path, words, width);
+  const heads = headsOf(element, path);
+  const bases = headBasesOf(heads);
+  const passes = strokePasses(shaft).map((ops) => passPieces(ops));
   const runs: { d: string; from: number }[] = [];
-  if (gap === null) {
-    runs.push({
-      d: strokePasses(shaft)
-        .map((ops) => generator.opsToPath({ type: 'path', ops }))
-        .join(' '),
-      from: 0,
-    });
+  if (gap === null && bases.start === null) {
+    // Nothing cut this shaft: no Label, and no head takes ink off the end it
+    // starts at, so both passes are the one path they were drawn as.
+    const drawn = passes
+      .map((pieces) => shaftBehindHeads(pieces, bases))
+      .map((cut) => piecePath(generator, cut.pieces))
+      .filter((one) => one !== '');
+    if (drawn.length > 0) {
+      runs.push({ d: drawn.join(' '), from: 0 });
+    }
   } else {
-    for (const pass of strokePasses(shaft)) {
-      for (const run of cutAtGap(passPieces(pass), gap)) {
-        runs.push({ d: piecePath(generator, run.pieces), from: run.start });
+    for (const pieces of passes) {
+      for (const stop of gap === null ? [{ pieces, start: 0 }] : cutAtGap(pieces, gap)) {
+        const cut = shaftBehindHeads(stop.pieces, bases);
+        if (cut.pieces.length > 0) {
+          // A head takes ink out of the start of the whole shaft as well, so the
+          // phase it took off carries into the dashes that are left.
+          runs.push({ d: piecePath(generator, cut.pieces), from: stop.start + cut.removed });
+        }
       }
     }
   }
 
   for (const run of runs) {
     // A run keeps its place in the fitted dash pattern: the offset is the
-    // distance the gap took out from in front of it, so the dashes outside the
-    // gap fall where they would with no Label at all.
+    // distance in front of it that no ink is drawn for, so the dashes fall where
+    // they would with no Label and no head at all.
     const offset = dash !== '' && run.from > 0 ? ` stroke-dashoffset="${formatNumber(run.from)}"` : '';
     paths.push(
       `<path d="${pathData(run.d)}" fill="none" stroke="${colour}"` +
@@ -815,8 +826,8 @@ function arrowOrLineSvg(
     );
   }
 
-  for (const head of headsOf(element, path)) {
-    paths.push(...headPaths(generator, element, head, colour));
+  for (const head of heads) {
+    paths.push(...headPaths(generator, element, head.ink, colour));
   }
 
   return (
@@ -961,6 +972,12 @@ export type HeadInk =
   | { readonly kind: 'dot'; readonly centre: Point; readonly radius: number }
   | { readonly kind: 'bar'; readonly through: readonly [Point, Point] };
 
+/** One head as the page draws it, and the end of the shaft it belongs to. */
+interface PlacedHead {
+  readonly at: 'start' | 'end';
+  readonly ink: HeadInk;
+}
+
 /** The ink one head draws, or null for a head that draws nothing. */
 function inkOfHead(
   kind: Head,
@@ -984,7 +1001,7 @@ function inkOfHead(
  * The heads an arrow or line draws, each pointing along the curve that arrives
  * at it, in drawing order: the start's when it has one, then the end's.
  */
-function headsOf(element: ArrowOrLineElement, path: ShaftPath): HeadInk[] {
+function headsOf(element: ArrowOrLineElement, path: ShaftPath): PlacedHead[] {
   const headLength = HEAD_LENGTH_PX[element.stroke.width];
   const arriving = shaftTangentAt(path, 1);
   const leaving = shaftTangentAt(path, 0);
@@ -995,14 +1012,14 @@ function headsOf(element: ArrowOrLineElement, path: ShaftPath): HeadInk[] {
     start: path.length === 0 ? { x: 1, y: 0 } : { x: -leaving.x, y: -leaving.y },
     end: arriving,
   };
-  const heads: HeadInk[] = [];
-  for (const [kind, apex, along] of [
-    [element.heads.start, path.start, direction.start],
-    [element.heads.end, path.end, direction.end],
+  const heads: PlacedHead[] = [];
+  for (const [at, kind, apex, heading] of [
+    ['start', element.heads.start, path.start, direction.start],
+    ['end', element.heads.end, path.end, direction.end],
   ] as const) {
-    const head = inkOfHead(kind, apex, along, headLength);
-    if (head !== null) {
-      heads.push(head);
+    const ink = inkOfHead(kind, apex, heading, headLength);
+    if (ink !== null) {
+      heads.push({ at, ink });
     }
   }
   return heads;
@@ -1022,11 +1039,14 @@ function headPaths(
     stroke: colour,
   };
   if (head.kind === 'arrow') {
+    // Rough.js fills a solid polygon by jittering every corner of it, and reads
+    // no `preserveVertices` there, so the triangle is filled at roughness 0: its
+    // tip is the arrow's end and its corners are the ink a press on it lands on.
     return generator
       .toPaths(
         generator.polygon(
           head.triangle.map((point) => [point.x, point.y]),
-          { ...headOptions, stroke: 'none', fill: colour, fillStyle: 'solid' },
+          { ...headOptions, roughness: 0, stroke: 'none', fill: colour, fillStyle: 'solid' },
         ),
       )
       .map((path) => `<path d="${pathData(path.d)}" fill="${colour}"/>`);
@@ -1050,6 +1070,165 @@ function headPaths(
       `<path d="${pathData(path.d)}" fill="none" stroke="${path.stroke}"` +
       ` stroke-width="${formatNumber(path.strokeWidth)}"/>`,
   );
+}
+
+/**
+ * The plane an arrow head's base sits on. No ink of the shaft may reach past it,
+ * so the head's triangle is the last ink of its arrow.
+ */
+interface BasePlane {
+  /** The middle of the head's base: the widest the head's ink gets behind its tip. */
+  readonly middle: Point;
+  /** One unit away from the tip, towards the base: which way is behind the head. */
+  readonly away: Point;
+}
+
+/** The planes an arrow's heads sit on, with null for an end that has none. */
+interface HeadBases {
+  readonly start: BasePlane | null;
+  readonly end: BasePlane | null;
+}
+
+/**
+ * Halvings that find where a shaft crosses a head's base. Past a millionth of a
+ * pixel the drawing's own rounding to a hundredth takes over.
+ */
+const HEAD_CROSSING_STEPS = 24;
+
+/** The base plane of every head an arrow or line draws, for its shaft to stop behind. */
+function headBasesOf(heads: readonly PlacedHead[]): HeadBases {
+  const bases: { start: BasePlane | null; end: BasePlane | null } = { start: null, end: null };
+  for (const head of heads) {
+    bases[head.at] = headBaseOf(head.ink);
+  }
+  return bases;
+}
+
+/**
+ * The plane a head's triangle begins at, or null for a head that draws no
+ * triangle: a dot and a bar are wider than the stroke where they sit, so a shaft
+ * that reaches the tip under one of them shows nowhere beside it.
+ */
+function headBaseOf(ink: HeadInk): BasePlane | null {
+  if (ink.kind !== 'arrow') {
+    return null;
+  }
+  const [apex, left, right] = ink.triangle;
+  const middle = { x: (left.x + right.x) / 2, y: (left.y + right.y) / 2 };
+  const reach = Math.hypot(middle.x - apex.x, middle.y - apex.y);
+  if (reach === 0) {
+    return null;
+  }
+  return { middle, away: { x: (middle.x - apex.x) / reach, y: (middle.y - apex.y) / reach } };
+}
+
+/** A shaft with the ink of a head taken out of it, and what that took off its start. */
+interface HeadCut {
+  readonly pieces: readonly ShaftPiece[];
+  /**
+   * The arc length the cut took off the start of the pieces. The fitted dash is
+   * anchored at the start of the whole shaft, so a run that begins later says
+   * how far it is into that pattern.
+   */
+  readonly removed: number;
+}
+
+/**
+ * A roughened shaft with the ink its arrow heads cover taken out of it: each
+ * head's triangle is the last ink of its arrow, so the shaft stops behind the
+ * head's base.
+ *
+ * A shaft drawn to the tip showed half a stroke of its own width beside the tip,
+ * where the triangle is narrower than the stroke. The pieces are cut, rather
+ * than the path shortened before Rough.js draws it, so the sketch behind the
+ * head is the one the shaft was drawn with: a shorter path would roughen the
+ * whole of it another way.
+ */
+function shaftBehindHeads(pieces: readonly ShaftPiece[], bases: HeadBases): HeadCut {
+  const start = bases.start === null ? { pieces, removed: 0 } : behindBase(pieces, bases.start, 'start');
+  const end = bases.end === null ? start : behindBase(start.pieces, bases.end, 'end');
+  return { pieces: end.pieces, removed: start.removed };
+}
+
+/**
+ * The pieces of a shaft that stop behind one head's base, walked in from the
+ * head's end: every piece the head covers comes out whole, and the piece the
+ * base plane crosses is halved until that crossing is found and split there.
+ */
+function behindBase(
+  pieces: readonly ShaftPiece[],
+  base: BasePlane,
+  at: 'start' | 'end',
+): HeadCut {
+  const inward = at === 'end' ? [...pieces].reverse() : [...pieces];
+  const far = (piece: ShaftPiece): Point => (at === 'end' ? piece.from : piece.to);
+  const crossing = inward.findIndex((piece) => pastBase(base, far(piece)) >= 0);
+  if (crossing < 0) {
+    return { pieces: [], removed: 0 };
+  }
+  const piece = inward[crossing]!;
+  const cut = halvedAt(piece, crossingAt(piece, base, at));
+  const kept =
+    at === 'end'
+      ? [cut.before, ...inward.slice(crossing + 1)]
+      : [cut.after, ...inward.slice(crossing + 1)];
+  // What the head took off the whole shaft is what a dash has to carry on past.
+  const covered = inward.slice(0, crossing).reduce((sum, whole) => sum + whole.length, 0);
+  return {
+    pieces: at === 'end' ? kept.reverse() : kept,
+    removed: at === 'start' ? covered + cut.before.length : 0,
+  };
+}
+
+/** How far behind a head's base a point lies, in Scene units: positive is the shaft's own side. */
+function pastBase(plane: BasePlane, point: Point): number {
+  return (point.x - plane.middle.x) * plane.away.x + (point.y - plane.middle.y) * plane.away.y;
+}
+
+/** Where one piece of a shaft crosses a head's base, walking in from the end the head sits at. */
+function crossingAt(piece: ShaftPiece, base: BasePlane, at: 'start' | 'end'): number {
+  let front = at === 'end' ? 1 : 0;
+  let behind = at === 'end' ? 0 : 1;
+  for (let step = 0; step < HEAD_CROSSING_STEPS; step += 1) {
+    const middle = (front + behind) / 2;
+    if (pastBase(base, halvedAt(piece, middle).at) >= 0) {
+      behind = middle;
+    } else {
+      front = middle;
+    }
+  }
+  return behind;
+}
+
+/**
+ * One piece cut a fraction of the way along it: the two halves, and the point
+ * between them. The same halving `geometry.ts` cuts a gap out of a piece with,
+ * so a piece cut for a head is a piece of the same shaft.
+ */
+function halvedAt(
+  piece: ShaftPiece,
+  fraction: number,
+): { readonly at: Point; readonly before: ShaftPiece; readonly after: ShaftPiece } {
+  if (piece.kind === 'straight') {
+    const at = between(piece.from, piece.to, fraction);
+    return { at, before: straight(piece.from, at), after: straight(at, piece.to) };
+  }
+  const first = between(piece.from, piece.control1, fraction);
+  const second = between(piece.control1, piece.control2, fraction);
+  const third = between(piece.control2, piece.to, fraction);
+  const before = between(first, second, fraction);
+  const after = between(second, third, fraction);
+  const at = between(before, after, fraction);
+  return {
+    at,
+    before: curve(piece.from, first, before, at),
+    after: curve(at, after, third, piece.to),
+  };
+}
+
+/** The point a fraction of the way from one place to another. */
+function between(from: Point, to: Point, fraction: number): Point {
+  return { x: from.x + (to.x - from.x) * fraction, y: from.y + (to.y - from.y) * fraction };
 }
 
 /**
