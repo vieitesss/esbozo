@@ -244,6 +244,20 @@ function drawnPaths(svg: string): Point[][] {
   });
 }
 
+/** Whether a triangle of drawn corners covers a point, its own edges included. */
+function insideTriangle(triangle: readonly Point[], point: Point): boolean {
+  const [a, b, c] = triangle as [Point, Point, Point];
+  if (a === undefined || b === undefined || c === undefined) {
+    return false;
+  }
+  const sides = [
+    (b.x - a.x) * (point.y - a.y) - (b.y - a.y) * (point.x - a.x),
+    (c.x - b.x) * (point.y - b.y) - (c.y - b.y) * (point.x - b.x),
+    (a.x - c.x) * (point.y - c.y) - (a.y - c.y) * (point.x - c.x),
+  ];
+  return sides.every((side) => side >= -0.001) || sides.every((side) => side <= 0.001);
+}
+
 /** Select the line `tie` by its shaft and drag its end onto `post`. */
 async function tieToPost(ui: Ui): Promise<void> {
   await clickScene(ui, { x: 180, y: 80 }, [], SNAP);
@@ -715,19 +729,21 @@ describe('two targets that cross', () => {
     // post's top edge instead.
     const svg = (await savedFiles(ui))['crossing.svg'] ?? '';
     const paths = drawnPaths(svg);
+    const head = paths.find(
+      (points) => points.length === 3 && reaches(points[0]!, { x: 60, y: 50 }),
+    );
+    expect(head, 'the head’s tip reaches the post at (60,50)').toBeTruthy();
     const shaft = paths.find(
       (points) => points.length > 0 && reaches(points[0]!, { x: 100, y: 50 }),
     );
     expect(shaft, 'a shaft starts on the bar at (100,50)').toBeTruthy();
     const end = shaft?.[shaft.length - 1];
+    // The cut ends the shaft under the head that covers it: behind the tip and
+    // inside the triangle, so no ink of it shows beside the head.
     expect(
-      end !== undefined && end.x > 60 && reaches({ ...end, x: 0 }, { x: 0, y: 50 }),
-      `the shaft stops behind its head at ${end?.x},${end?.y}`,
+      end !== undefined && insideTriangle(head ?? [], end),
+      `the shaft ends under its head at ${end?.x},${end?.y}`,
     ).toBe(true);
-    expect(
-      paths.flat().find((point) => reaches(point, { x: 60, y: 50 })),
-      'the head’s tip reaches the post at (60,50)',
-    ).toBeTruthy();
   });
 });
 

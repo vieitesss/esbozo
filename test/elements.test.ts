@@ -496,13 +496,17 @@ test('a head points into its target even when the two targets overlap', async ()
   });
 
   // The start end leaves the first box on the far side from the second (0,50),
-  // so the shaft runs along +x into the second box and ends on its outline at
-  // (90,50). Both ends are on their own box's outline.
+  // so the shaft runs along +x into the second box and its head's apex lands on
+  // that box's outline at (90,50), with the shaft cut under the head's base: the
+  // start is on the first box's outline, the head's tip on the second's.
   const shaft = shaftFrom(svg, { x: 0, y: 50 });
   const start = shaft[0]!;
   const end = shaft[shaft.length - 1]!;
   assert.ok(onOutline('rectangle', first, start), `the start ${start.x},${start.y} is on the first box`);
-  assert.ok(end.x < 90 && near(end.y, 50), `the shaft stops behind its head at ${end.x},${end.y}`);
+  assert.ok(
+    filledHeads(svg).some((head) => underHead(head, end)),
+    `the shaft ends under its head at ${end.x},${end.y}`,
+  );
 
   // Nothing at all is drawn inside the second box's outline.
   assert.deepEqual(
@@ -561,7 +565,10 @@ test('crossing targets draw a shaft into the target, not a stub or an outward he
   const end = shaft[shaft.length - 1]!;
   assert.ok(onOutline('rectangle', bar, start), `the start ${start.x},${start.y} is on the bar`);
   assert.ok(near(start.x, 100) && near(start.y, 50), `the shaft starts at ${start.x},${start.y}`);
-  assert.ok(end.x > 60 && near(end.y, 50), `the shaft stops behind its head at ${end.x},${end.y}`);
+  assert.ok(
+    filledHeads(svg).some((head) => underHead(head, end)),
+    `the shaft ends under its head at ${end.x},${end.y}`,
+  );
   assert.ok(
     Math.hypot(end.x - start.x, end.y - start.y) > 1,
     'the shaft is longer than a point',
@@ -1081,6 +1088,27 @@ function headGap(svg: string, contact: Point): number {
     .flatMap((tag) => drawnPoints(tag.d));
   assert.ok(tips.length > 0, 'a head is drawn');
   return Math.min(...tips.map((point) => Math.hypot(point.x - contact.x, point.y - contact.y)));
+}
+
+/** Every head a drawing fills, as the corners its path runs through. */
+function filledHeads(svg: string): Point[][] {
+  return pathTags(svg)
+    .filter((tag) => tag.fill !== 'none')
+    .map((tag) => drawnPoints(tag.d));
+}
+
+/** Whether a triangle of drawn corners covers a point, its own edges included. */
+function underHead(triangle: readonly Point[], point: Point): boolean {
+  const [a, b, c] = triangle as [Point, Point, Point];
+  if (a === undefined || b === undefined || c === undefined) {
+    return false;
+  }
+  const sides = [
+    (b.x - a.x) * (point.y - a.y) - (b.y - a.y) * (point.x - a.x),
+    (c.x - b.x) * (point.y - b.y) - (c.y - b.y) * (point.x - b.x),
+    (a.x - c.x) * (point.y - c.y) - (a.y - c.y) * (point.x - c.x),
+  ];
+  return sides.every((side) => side >= -0.001) || sides.every((side) => side <= 0.001);
 }
 
 /** The points of the shaft that starts at `from`: with roughness 0 that start is exact. */
