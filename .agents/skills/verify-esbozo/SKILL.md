@@ -55,7 +55,7 @@ export SERVE_URL="$(sed -n 's|.*\(http://127\.0\.0\.1:[0-9]*\).*|\1|p' "$RUN_DIR
 export RUN_DIR
 ```
 
-Strip the trailing slash from the printed URL so `"${SERVE_URL}/api/health"` never sends `//api/health`, which returns HTTP 404. Pass `--read-only` to verify read-only mode. For a fixed local port (`4319`) during interactive checks, run `pnpm serve:editor` (`node dist/cli.js serve dist --port 4319`). Two `ez serve --port 0` instances with separate `$RUN_DIR` folders run side by side without conflict.
+Strip the trailing slash from the printed URL so `"${SERVE_URL}/api/health"` never sends `//api/health`, which returns HTTP 404. Pass `--read-only` to verify read-only mode. Never serve on a fixed port: `pnpm serve:editor` takes `4319`, which belongs to the person's own try-server, so an agent always serves with `--port 0`. Two `ez serve --port 0` instances with separate `$RUN_DIR` folders run side by side without conflict.
 
 ## Doctor
 
