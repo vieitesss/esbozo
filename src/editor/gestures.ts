@@ -674,6 +674,12 @@ export class Gestures {
     // The pointer comes up for this gesture or for one already ended: either way
     // it is the browser's again.
     this.#releasePointer();
+    // Chromium pastes the primary selection when the middle button comes up, into
+    // whatever holds the focus — the words being typed included. A middle release
+    // the board gets is a pan's, even one a Space press already ended.
+    if (event.button === 1) {
+      event.preventDefault();
+    }
     if (drag === null) {
       return;
     }
@@ -766,9 +772,6 @@ export class Gestures {
     // primary selection — into whatever holds the focus, the words being typed
     // included. The pan is the editor's own, so its end is not the browser's to
     // paste: cancelling this default is what keeps a pan from typing.
-    if (event.button === 1) {
-      event.preventDefault();
-    }
     this.#drag = null;
     this.#showPanDrag();
     this.#host.refresh();

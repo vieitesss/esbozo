@@ -5,6 +5,7 @@
  */
 import { describe, test } from '@e2e-dev/web';
 import { expect } from 'e2e';
+import type { Screen } from 'e2e';
 import {
   MIXED,
   ROOM,
@@ -32,6 +33,44 @@ const STRAY_FRAGMENT = JSON.stringify({
 /** A word wide enough that the grown Element reaches under the docked note. */
 const HUGE_WORD = LONG_WORD + LONG_WORD;
 
+/**
+ * Leaves words on the browser's primary selection, the way a person does: words
+ * typed, selected, and typed over, so the selection still holds the ones no
+ * field shows any more. On Linux the middle button pastes that selection when
+ * it comes up, so every test here that pans seeds its own.
+ */
+async function seedPrimarySelection(
+  field: ReturnType<Screen['getByRole']>,
+  seeded: string,
+  typed: string,
+): Promise<void> {
+  await field.pressSequentially(seeded);
+  await field.press('ControlOrMeta+a');
+  await field.pressSequentially(typed);
+}
+
+/**
+ * Puts the middle button down on a Scene point and drags it 100×70 page pixels,
+ * in five moves, without letting go: a pan is the moves between the two.
+ */
+async function middleDrag(from: { x: number; y: number }): Promise<void> {
+  const page = livePage();
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down({ button: 'middle' });
+  for (let step = 1; step <= 5; step += 1) {
+    const share = step / 5;
+    await page.mouse.move(from.x + 100 * share, from.y + 70 * share);
+  }
+}
+
+/**
+ * A point the board does not reach: the page's own light and dark switch, in the
+ * bottom right corner of the 1280×800 page. Worked out the way the other page
+ * points here are, from the page's rules — `right: 20px; bottom: 14px`, and the
+ * words in it — so it is the switch's middle whatever the font draws them with.
+ */
+const OFF_THE_CANVAS = { x: 1248, y: 776 };
+
 describe('labels view', () => {
   test('a middle drag pans the page and keeps the words open, ink and all', async ({
     app,
@@ -44,13 +83,7 @@ describe('labels view', () => {
 
     await doubleClickScene(ui, { x: 100, y: 80 });
     const label = screen.getByRole('textbox', { name: 'Label' });
-    // The browser's primary selection still holds the words a person selected
-    // before typing over them, and on Linux the middle button pastes that
-    // selection: leave some here, so the pan is the only thing that can put
-    // words in the open Label and the test does not lean on an earlier one.
-    await label.pressSequentially('cd');
-    await label.press('ControlOrMeta+a');
-    await label.pressSequentially('Orders');
+    await seedPrimarySelection(label, 'cd', 'Orders');
     // The ink of the words travels with the page: it is the canvas's, drawn at
     // the glyphs, and nothing else on the screen holds a copy of them.
     const written: Rect = { x: 545, y: 368, width: 52, height: 20 };
@@ -100,16 +133,12 @@ describe('labels view', () => {
     const ui = { app, browser, screen };
     await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
 
-    // The primary selection is the one a person leaves behind by typing over the
-    // words they had selected, so the words it holds are the ones no field shows
-    // any more. On Linux the middle button pastes it on release, and Scene text
-    // on the clipboard is Elements: leave a fragment of a Scene there, close the
-    // words, and the pan below is the only thing that could paste it in.
+    // Scene text on the primary selection is Elements: leave a fragment of a
+    // Scene there, close the words, and the pan below is the only thing that
+    // could paste it in.
     await doubleClickScene(ui, { x: 100, y: 80 });
     const label = screen.getByRole('textbox', { name: 'Label' });
-    await label.pressSequentially(STRAY_FRAGMENT);
-    await label.press('ControlOrMeta+a');
-    await label.pressSequentially('Orders');
+    await seedPrimarySelection(label, STRAY_FRAGMENT, 'Orders');
     await label.press('Escape');
     await expect(label).toHaveCount(0);
     const before = await savedFiles(ui);
@@ -125,6 +154,81 @@ describe('labels view', () => {
     await page.mouse.up({ button: 'middle' });
 
     expect((await savedScene(ui)).elements).toHaveLength(SCENE.elements.length);
+    expect(await savedFiles(ui)).toEqual(before);
+  });
+
+  test('a Space press during a middle drag pastes nothing into the open Label', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+    const before = await savedFiles(ui);
+
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await seedPrimarySelection(label, 'cd', 'Orders');
+
+    // The words hold the focus, so the Space is theirs and types itself into
+    // them: it is still the key whose release ends a pan, and the button comes
+    // up after it.
+    const page = livePage();
+    await middleDrag(at({ x: 100, y: 80 }));
+    await page.keyboard.down('Space');
+    await page.keyboard.up('Space');
+    await page.mouse.up({ button: 'middle' });
+
+    await expect(label).toHaveValue('Orders ');
+    expect(await savedFiles(ui)).toEqual(before);
+  });
+
+  test('a Space press during a middle drag pastes nothing into the Scene', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await seedPrimarySelection(label, STRAY_FRAGMENT, 'Orders');
+    await label.press('Escape');
+    await expect(label).toHaveCount(0);
+    const before = await savedFiles(ui);
+
+    const page = livePage();
+    await middleDrag(at({ x: 100, y: 80 }));
+    await page.keyboard.down('Space');
+    await page.keyboard.up('Space');
+    await page.mouse.up({ button: 'middle' });
+
+    expect((await savedScene(ui)).elements).toHaveLength(SCENE.elements.length);
+    expect(await savedFiles(ui)).toEqual(before);
+  });
+
+  test('a middle drag released off the canvas pastes nothing into the open Label', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+    const before = await savedFiles(ui);
+
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await seedPrimarySelection(label, 'cd', 'Orders');
+
+    // Off the canvas, the release is still the pan's: the board holds the
+    // pointer it took, so the end of the pan is the board's to settle.
+    const page = livePage();
+    await middleDrag(at({ x: 100, y: 80 }));
+    await page.mouse.move(OFF_THE_CANVAS.x, OFF_THE_CANVAS.y);
+    await page.mouse.up({ button: 'middle' });
+
+    await expect(label).toHaveValue('Orders');
     expect(await savedFiles(ui)).toEqual(before);
   });
 
