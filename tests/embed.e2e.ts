@@ -1525,12 +1525,27 @@ test('the pointer measures the paper the view draws on, not the host’s border 
   }
 });
 
+/**
+ * The strip of the host page the element's paper fills, to the right of the
+ * heading and of the Scene's own ink: the paper is not white, and the host's
+ * page is, so the pixels say where the box starts and ends.
+ */
+const HOST_PAPER = { x: 1000, y: 0, width: 40, height: 2000 };
+
+/** The luminance below which a pixel is the element's paper rather than the page's white. */
+const HOST_PAPER_INK = 0.995;
+
 test('the element is a box in the host page’s content, and the bundle styles nothing else', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
   const embed = await startEmbed(await bundleFolder());
   try {
     await app.open(`${embed.url}/host.html`);
     await expect(screen.getByRole('status')).toHaveText('saved');
     const after = await styles(browser);
+    const paper = (await shot(ui)).darkBounds(HOST_PAPER, HOST_PAPER_INK);
+    if (paper === null) {
+      throw new Error('the host page shows no paper');
+    }
 
     // The host's own page, exactly as it was: margins, font, scrolling and its
     // custom properties. Nothing the bundle writes reaches them.
@@ -1540,12 +1555,14 @@ test('the element is a box in the host page’s content, and the bundle styles n
     expect(after.ink).toBe('');
     expect(after.headingFamily).toContain('Georgia');
 
-    // The element is a 480px box in the flow, under the heading, with the page's
-    // words after it rather than behind it.
+    // The element is a 480px box in the flow, under the heading and below the
+    // page's top margin, with the page's words after it rather than behind it:
+    // the paper's own rows say where the box is, and the words sit past the
+    // bottom of those rows.
     expect(after.height).toBe(480);
     expect(after.position).toBe('relative');
-    expect(after.top).toBeGreaterThan(24);
-    expect(after.wordsTop).toBeGreaterThan(after.top + after.height - 1);
+    expect(paper.y).toBeGreaterThan(24);
+    expect(after.wordsTop).toBeGreaterThan(paper.y + paper.height - 1);
   } finally {
     await embed.stop();
   }
@@ -1559,22 +1576,27 @@ interface HostStyles {
   headingFamily: string;
   ink: string;
   height: number;
-  top: number;
   position: string;
   wordsTop: number;
 }
 
 /**
  * What the browser computed for the host page's own nodes, read straight from
- * the page: the body's box and font, the root's custom properties, and where
- * the element and the words after it landed.
+ * the page: the body's box and font, the root's custom properties, the height
+ * the element gives itself, and where the page's own words landed.
+ *
+ * The words are the host's, outside the element, and no seam of the element can
+ * say they sit past its box — so that one rect is read, with the comment the
+ * checker asks for. Where the box starts and ends is what the page draws, so the
+ * paper's own pixels say it (`HOST_PAPER`), and the height the layout computed
+ * for the element is the rule that box obeys.
  */
 async function styles(browser: Ui['browser']): Promise<HostStyles> {
   return browser.evaluate(() => {
     const body = getComputedStyle(document.body);
     const root = getComputedStyle(document.documentElement);
     const element = document.querySelector('esbozo-editor')!;
-    const box = element.getBoundingClientRect();
+    // check-rules: rect of the host page's own words, outside <esbozo-editor>
     const words = document.querySelector('.after')!.getBoundingClientRect();
     return {
       margin: body.marginTop,
@@ -1582,8 +1604,7 @@ async function styles(browser: Ui['browser']): Promise<HostStyles> {
       family: body.fontFamily,
       headingFamily: getComputedStyle(document.querySelector('h1')!).fontFamily,
       ink: root.getPropertyValue('--ink').trim(),
-      height: Math.round(box.height),
-      top: Math.round(box.top),
+      height: parseFloat(getComputedStyle(element).height),
       position: getComputedStyle(element).position,
       wordsTop: Math.round(words.top),
     } as HostStyles;

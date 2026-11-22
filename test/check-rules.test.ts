@@ -578,3 +578,95 @@ test('the comment forgives a markup regex, and nothing else', async () => {
 
   assert.match(line, /^tests\/editor\.e2e\.ts:2: bounding box: assert on what the page shows, not on the SVG's geometry$/);
 });
+
+test('a DOM structure read in a test is a finding, whichever one it is', async () => {
+  const reads = [
+    'tagName',
+    'nodeName',
+    'children',
+    'childElementCount',
+    'firstElementChild',
+    'lastElementChild',
+    'innerHTML',
+    'outerHTML',
+  ];
+
+  for (const read of reads) {
+    const line = await finding({ 'tests/editor.e2e.ts': `const seen = node.${read};\n` });
+    assert.match(
+      line,
+      new RegExp(
+        `^tests/editor\\.e2e\\.ts:1: dom read "${read}": assert on what the page shows, not on its structure or its rect$`,
+      ),
+    );
+  }
+});
+
+test('a rect read in a test is a finding, so a box is no way round the bounding-box rule', async () => {
+  const line = await finding({
+    'tests/embed.e2e.ts': 'const box = element.getBoundingClientRect();\n',
+  });
+
+  assert.match(
+    line,
+    /^tests\/embed\.e2e\.ts:1: dom read "getBoundingClientRect": assert on what the page shows, not on its structure or its rect$/,
+  );
+});
+
+test('the host page’s own words may be measured, with the one comment that says so', async () => {
+  await quiet({
+    'tests/embed.e2e.ts': [
+      'function wordsTop(): number {',
+      "  // check-rules: rect of the host page's own words, outside <esbozo-editor>",
+      "  return Math.round(document.querySelector('.after')!.getBoundingClientRect().top);",
+      '}',
+    ].join('\n'),
+  });
+});
+
+test('each comment forgives its own rule, and not the other', async () => {
+  const read = await finding({
+    'tests/embed.e2e.ts': [
+      'const box = // check-rules: markup of a written SVG file, not the page',
+      '  element.getBoundingClientRect();',
+    ].join('\n'),
+  });
+  assert.match(
+    read,
+    /^tests\/embed\.e2e\.ts:2: dom read "getBoundingClientRect": assert on what the page shows, not on its structure or its rect$/,
+  );
+
+  const markup = await finding({
+    'tests/editor.e2e.ts': [
+      "const box = // check-rules: rect of the host page's own words, outside <esbozo-editor>",
+      '  /<svg[\\s>]/.exec(markup);',
+    ].join('\n'),
+  });
+  assert.match(markup, /^tests\/editor\.e2e\.ts:2: markup in a regex: drive the page, do not read the SVG it wrote$/);
+});
+
+test('the host-page comment forgives the rect of its words, and no other read', async () => {
+  const line = await finding({
+    'tests/embed.e2e.ts': [
+      "const markup = // check-rules: rect of the host page's own words, outside <esbozo-editor>",
+      '  element.innerHTML;',
+    ].join('\n'),
+  });
+
+  assert.match(
+    line,
+    /^tests\/embed\.e2e\.ts:2: dom read "innerHTML": assert on what the page shows, not on its structure or its rect$/,
+  );
+});
+
+test('what a node says and how it is styled is not structure, and stays quiet', async () => {
+  await quiet({
+    'tests/editor.e2e.ts': [
+      "const words = document.querySelector('[data-element=\"l\"]')!.textContent;",
+      "const role = document.querySelector('[role=\"option\"]')?.getAttribute('role');",
+      'const family = getComputedStyle(document.body).fontFamily;',
+      'const focused = document.activeElement;',
+      'const ink = getComputedStyle(document.documentElement).getPropertyValue("--ink");',
+    ].join('\n'),
+  });
+});
