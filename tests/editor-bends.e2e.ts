@@ -586,7 +586,7 @@ const LOOP_SCENE = {
 const LOOP_SOURCE = JSON.stringify(LOOP_SCENE, null, 2);
 
 /** On the arrow's left leg, above box `a`: where a press selects it. */
-const LOOP_ON = { x: 400, y: 300 };
+const LOOP_ON = { x: 375, y: 300 };
 
 /** The bend between the two Snapped ends, where its handle sits. */
 const LOOP_BEND = { x: 400, y: 200 };
@@ -1506,10 +1506,13 @@ describe('a double-click on a bend handle', () => {
     const ui = { app, browser, screen };
     await open(ui);
 
-    // No handle is painted yet: the first press selects the arrow, and the
-    // second lands where the handle the selection painted now stands.
+    // No handle is painted on an unselected shaft, so the first press takes the
+    // ink and only selects the arrow; the frame that paints the handle the
+    // selection earned has come when the second press lands on it.
     const before = await savedSource(ui);
-    await doubleClickScene(ui, SHARP_BEND, SHARP);
+    await clickScene(ui, SHARP_BEND, [], SHARP);
+    await settle(ui);
+    await clickScene(ui, SHARP_BEND, [], SHARP);
     await settle(ui);
 
     expect(await savedSource(ui)).toBe(before);
@@ -1555,9 +1558,12 @@ describe('a double-click on a bend handle', () => {
     await clickScene(ui, SHARP_ON, [], SHARP);
     await settle(ui);
     const before = await savedSource(ui);
-    // A Shift press is about the selection, never half of a double-click.
-    await clickScene(ui, SHARP_BEND, ['Shift'], SHARP);
-    await clickScene(ui, SHARP_BEND, ['Shift'], SHARP);
+    // A Shift press is about the selection, never half of a double-click: the
+    // key is held across both, so the presses are one pair by place and clock.
+    await browser.keyboard.down('Shift');
+    await clickScene(ui, SHARP_BEND, [], SHARP);
+    await clickScene(ui, SHARP_BEND, [], SHARP);
+    await browser.keyboard.up('Shift');
     await settle(ui);
 
     expect(await savedSource(ui)).toBe(before);
@@ -1619,9 +1625,11 @@ describe('a double-click on a bend handle', () => {
     await clickScene(ui, NEAR_ON, [], SHAPES);
     await settle(ui);
     await doubleClickScene(ui, NEAR_FIRST, SHAPES);
-    // The click right after the pair lands on the handle of the bend that took
-    // the removed point's index, four pixels away: the pair is over, so this is
-    // the first click of a new one and takes nothing.
+    // The frame the pair's own write asks for paints the handle of the bend
+    // that took the removed point's index, four pixels from where the pointer
+    // is: the click that lands on it is still the pair's own half second, and
+    // the pair is over, so it is the first click of a new one and takes nothing.
+    await settle(ui);
     await clickScene(ui, NEAR_NEXT, [], SHAPES);
 
     await expectPoints(
@@ -1642,18 +1650,24 @@ describe('a double-click on a bend handle', () => {
     await settle(ui);
 
     // An edit asks the folder to write, and the folder answers `403`: this page
-    // may only read from now on.
+    // may only read from now on. The arrow is in hand the ten pixels the Shift
+    // nudge carried it, though no byte of that move ever landed.
     await holdWrites(ui, 'bends.json');
     await browser.keyboard.press('Shift+ArrowRight');
     await refuseWrite(ui, 'this folder is served read-only');
     await expect(screen.getByText('read-only')).toBeVisible();
+    const bend = { x: SHARP_BEND.x + 10, y: SHARP_BEND.y };
 
     const before = await savedSource(ui);
-    await doubleClickScene(ui, SHARP_BEND, SHARP);
+    await doubleClickScene(ui, bend, SHARP);
     await settle(ui);
 
     expect(await savedSource(ui)).toBe(before);
     await expectPoints(ui, SHARP_POINTS);
+    // The point the pair pressed is still there to press: the square its handle
+    // paints on the corner is the one a page that may only read still draws.
+    const corner = pixelAt(at(bend, SHARP), 4, -4);
+    expect((await shot(ui)).darkCount(corner, 0.6)).toBeGreaterThan(0);
     await allowWrites(ui);
   });
 
