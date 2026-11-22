@@ -186,9 +186,10 @@ test('builds with the Node runtime and pnpm versions CI pins', async () => {
   assert.match(built.stdout, /^building esbozo:e2e-linux-[0-9a-f]{12} from docker\/e2e\.Dockerfile/m);
   const argv = call(built.calls, 'build');
   assert.equal(argumentAfter(argv, '--file'), join(root, 'docker/e2e.Dockerfile'));
+  const pinned = JSON.parse(await readFile(join(root, 'package.json'), 'utf8')) as { packageManager: string };
   assert.deepEqual(argumentsAfter(argv, '--build-arg'), [
     `NODE_VERSION=${(await readFile(join(root, '.node-version'), 'utf8')).trim()}`,
-    'PNPM_VERSION=11.24.0',
+    `PNPM_VERSION=${pinned.packageManager.replace(/^pnpm@/, '')}`,
   ]);
   assert.equal(argv[argv.length - 1], `${root}/`);
 });
