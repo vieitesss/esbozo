@@ -280,13 +280,14 @@ export class Gestures {
   /**
    * End a Space pan: the key came up, or the page lost the focus that held it.
    * A pan the pointer is still in the middle of ends here too, so a move after
-   * the event cannot carry the view any further.
+   * the event cannot carry the view any further. The pointer stays the board's
+   * until the button comes up, which is where every gesture lets it go: only a
+   * release the board gets can answer for the pan, and its default with it.
    */
   endSpacePan(): void {
     const wasPanning = this.panning;
     if (this.#drag?.kind === 'pan') {
       this.#drag = null;
-      this.#releasePointer();
     }
     if (this.#spaceDown) {
       this.#spaceDown = false;
@@ -768,10 +769,6 @@ export class Gestures {
       this.#host.applyScene(settled);
       return;
     }
-    // The pan ends here, and a middle release is where Chromium pastes the
-    // primary selection — into whatever holds the focus, the words being typed
-    // included. The pan is the editor's own, so its end is not the browser's to
-    // paste: cancelling this default is what keeps a pan from typing.
     this.#drag = null;
     this.#showPanDrag();
     this.#host.refresh();
