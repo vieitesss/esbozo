@@ -138,7 +138,7 @@ function argumentsAfter(argv: readonly string[], flag: string): string[] {
   return argv.flatMap((argument, index) => (argument === flag ? [argv[index + 1] as string] : []));
 }
 
-test('forwards the e2e arguments, the read-only mount with node_modules masked, and the image', async () => {
+test('forwards the e2e arguments, the read-only mount and the image', async () => {
   const root = await fakeRoot();
   const run1 = await run({ root, args: ['tests/cdp.e2e.ts:42', '--grep', 'one title'] });
 
@@ -147,7 +147,6 @@ test('forwards the e2e arguments, the read-only mount with node_modules masked, 
   assert.deepEqual(argv.slice(0, 5), ['run', '--rm', '--init', '--shm-size', '1g']);
   assert.match(argumentAfter(argv, '--name'), /^esbozo-e2e-linux-\d+$/);
   assert.equal(argumentAfter(argv, '--volume'), `${root}/:/src:ro`);
-  assert.equal(argumentAfter(argv, '--tmpfs'), '/src/node_modules');
   assert.match(argumentAfter(argv, '--label'), /^esbozo-e2e-linux=1$/);
   const image = argv[argv.indexOf('sh') - 1] as string;
   assert.match(image, /^esbozo:e2e-linux-[0-9a-f]{12}$/);
@@ -160,6 +159,23 @@ test('forwards the e2e arguments, the read-only mount with node_modules masked, 
   ]);
   assert.deepEqual(call(run1.calls, 'rm'), ['rm', '--force', argumentAfter(argv, '--name')]);
   assert.equal(run1.calls.filter((args) => args[0] === 'build').length, 0, 'an image already there is reused');
+});
+
+test('masks the mount node_modules with an empty tmpfs when the worktree has one', async () => {
+  const root = await fakeRoot();
+  await mkdir(join(root, 'node_modules'));
+  const masked = await run({ root });
+
+  assert.equal(masked.code, 0, masked.stderr);
+  assert.equal(argumentAfter(call(masked.calls, 'run'), '--tmpfs'), '/src/node_modules');
+});
+
+test('masks nothing when the worktree has no node_modules, as a clean checkout does not', async () => {
+  const root = await fakeRoot();
+  const plain = await run({ root });
+
+  assert.equal(plain.code, 0, plain.stderr);
+  assert.deepEqual(argumentsAfter(call(plain.calls, 'run'), '--tmpfs'), []);
 });
 
 test('builds with the Node runtime and pnpm versions CI pins', async () => {

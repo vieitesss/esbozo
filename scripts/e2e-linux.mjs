@@ -12,7 +12,7 @@
  * The worktree is mounted at `/src` and copied over the image's dependencies at
  * run time (see `scripts/e2e-linux-container.sh`): a source change costs a copy,
  * never a rebuild, and the host's macOS `node_modules` is masked out of the
- * mount, so it never crosses in.
+ * mount when there is one, so it never crosses in.
  *
  * The arguments go to `e2e run`, so `tests/<file>.e2e.ts:<line>` and `--grep`
  * work as they do locally; with none it runs what `pnpm e2e` runs. The
@@ -22,7 +22,7 @@
  */
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { constants } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -63,7 +63,20 @@ if (!(await imageExists())) {
   }
 }
 
+/**
+ * Whether the mount hands Docker a `node_modules` to mask: the host worktree
+ * has one, or it is a clean checkout that never installed.
+ */
+async function hostsNodeModules() {
+  try {
+    return (await stat(join(ROOT, 'node_modules'))).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 const name = `esbozo-e2e-linux-${process.pid}`;
+const maskNodeModules = await hostsNodeModules();
 const args = [
   'run',
   '--rm',
@@ -80,8 +93,10 @@ const args = [
   // path with an empty tmpfs hides the macOS binaries from every reader inside
   // the container, so nothing can load them by accident; the copy in
   // `scripts/e2e-linux-container.sh` builds `/work` from the image instead.
-  '--tmpfs',
-  '/src/node_modules',
+  // A clean checkout has no `node_modules` to mask, and Docker refuses to mount
+  // a tmpfs where the read-only `/src` has no such directory: there the flag is
+  // left out, since there is nothing to hide.
+  ...(maskNodeModules ? ['--tmpfs', '/src/node_modules'] : []),
   ...Object.entries(process.env)
     .filter(([key]) => PASSED.test(key))
     .flatMap(([key, value]) => ['--env', `${key}=${value ?? ''}`]),
