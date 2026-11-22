@@ -316,9 +316,9 @@ const GLYPH_HANG_EM = 0.25;
 
 /**
  * The box one Block of words paints: the advance box Layout measured, grown by
- * that hang on both sides. It is the box a shaft's Label cuts out of its own
- * shaft, the ink a Text is picked by and the box a shaft's Label is pressed on,
- * so a cut pixel is a pixel a person can press.
+ * that hang on both sides. It is the ink a Text is picked by and the box a
+ * shaft's Label is pressed on; `labelGap` grows it by half the stroke width to
+ * cut its own shaft, so the cut reaches half a stroke past what a press hits.
  */
 export function wordsInkBounds(words: Block): Box {
   const hang = words.size * GLYPH_HANG_EM;
@@ -542,10 +542,9 @@ function roughenedInk(element: ArrowOrLineElement, path: ShaftPath): Extent | nu
 /**
  * The shaft's words: where Layout wrapped them, moved to the `labelAt` the Scene
  * wrote. A shaft that writes none keeps the place Layout gives it, so a Scene
- * that never asks for a position keeps the position it always had; only the
- * paper behind the words is new. What moves is where the words draw: a Line's
- * boundaries are offsets into its words, not x, and they stay where Layout put
- * them so a caret names the glyph it always named.
+ * that never asks for a position keeps the position it always had. What moves is
+ * where the words draw: a Line's boundaries are offsets into its words, not x,
+ * and they stay where Layout put them so a caret names the glyph it always named.
  */
 function shaftWords(
   element: ArrowOrLineElement,
