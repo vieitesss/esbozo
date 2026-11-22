@@ -19,14 +19,15 @@ set -eu
 # mount root's own metadata as changed between the listing and the read, and tar
 # then calls an honest copy a failure (`tar: .: file changed as we read it`, on
 # every run). Archiving what sits under it is the same copy minus that entry.
-# `find … -print0` keeps a name with a space in it one name.
-cd /src
-find . -mindepth 1 -maxdepth 1 -print0 |
+# `find … -print0` keeps a name with a space in it one name. The subshell keeps
+# `/work` the working directory: pnpm run from the read-only mount tries to
+# install its dependencies there.
+( cd /src && find . -mindepth 1 -maxdepth 1 -print0 |
   tar --exclude=./node_modules \
     --exclude=./.git \
     --exclude=./dist \
     --exclude=./.e2e \
-    --null --files-from=- -cf /tmp/source.tar
+    --null --files-from=- -cf /tmp/source.tar )
 tar -C /work -xf /tmp/source.tar
 rm /tmp/source.tar
 
