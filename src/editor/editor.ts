@@ -75,7 +75,7 @@ class EsbozoEditorElement extends HTMLElement {
    * Where the rail was last measured, as an offset from the editor's middle and
    * before any clamp: a resize carries it and growing back restores it (D3, I7).
    */
-  #railDock: Point | null = null;
+  #railDockOffset: Point | null = null;
   /** True once the editor's listeners are on the page. */
   #wired = false;
   /**
@@ -462,7 +462,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#gestures.drop();
     this.#endEdits();
     // No Scene in the hand is no frame to hang the rail on either.
-    this.#railDock = null;
+    this.#railDockOffset = null;
     // No Scene to hold in the hand either: the pan and the word it named go
     // with the Scene the page let go of.
     this.#gestures.endSpacePan();
@@ -1029,7 +1029,7 @@ class EsbozoEditorElement extends HTMLElement {
     const viewport = this.#page.viewport;
     const size = viewport.size();
     const { dock } = railFrame(this.#scene, viewport.view, size, outline, this.#connection.layout);
-    this.#railDock = { x: dock.x - size.width / 2, y: dock.y - size.height / 2 };
+    this.#railDockOffset = { x: dock.x - size.width / 2, y: dock.y - size.height / 2 };
     this.#hangRail();
   }
 
@@ -1040,7 +1040,7 @@ class EsbozoEditorElement extends HTMLElement {
    * where the frame had it (I7).
    */
   #hangRail(): void {
-    const kept = this.#railDock;
+    const kept = this.#railDockOffset;
     if (kept === null) {
       return;
     }
