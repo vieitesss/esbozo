@@ -339,8 +339,9 @@ export class Connection {
    * `scene` that changes afterwards is another connection, and a write already
    * queued is a person's edit to *this* Scene, so it goes where it was made and
    * never to a URL the page names later. Writes land in order, and the status
-   * says `saved` only for the newest one, so it never claims a Scene that a
-   * newer edit has overtaken.
+   * says `saved` only for the newest one, and only while the Scene it was made
+   * for is still the one in hand: a write that lands after the page moved to
+   * another Scene says nothing about the Scene it left.
    */
   async save(scene: Scene): Promise<void> {
     const target = this.#target;
@@ -350,7 +351,7 @@ export class Connection {
     this.#host.status('saving');
     const writing = this.#saveQueue.then(() => this.#writeScene(target, scene));
     this.#saveQueue = writing;
-    if (await writing && this.#saveQueue === writing) {
+    if (await writing && this.#saveQueue === writing && this.#target === target) {
       this.#host.status('saved');
     }
   }

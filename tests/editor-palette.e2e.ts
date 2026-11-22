@@ -132,11 +132,12 @@ test('the palette stays shut while a Text is being typed', async ({ app, browser
 });
 
 /**
- * The first Element's ink, where the page draws it when the Scene opens and
- * again once the middle drag below has carried it by (20, 60): the second
- * Element sits past this box to the right, and is never measured.
+ * The first Element's ink, where the page draws it once the host page below has
+ * given the editor a box and the drawing was fitted to it, and again once the
+ * middle drag below has carried it by (−20, −60): the second Element sits past
+ * this box to the right, and is never measured.
  */
-const FIRST = { x: 480, y: 320, width: 180, height: 180 };
+const FIRST = { x: 460, y: 450, width: 180, height: 340 };
 
 /** Which of the page's two focus stops holds the focus: the search field or the canvas. */
 function focusOf(ui: Ui): Promise<'canvas' | 'search' | 'other'> {
@@ -150,35 +151,74 @@ function focusOf(ui: Ui): Promise<'canvas' | 'search' | 'other'> {
 }
 
 /**
+ * A page that has the editor in its own flow, a screen down, with its own words
+ * below: the window holds most of the editor and cuts its last 80 pixels off,
+ * which is what gives a focus somewhere to scroll *to*. Only a host page can: a
+ * drawing panned inside the editor is clipped by the element and scrolls
+ * nothing, and the served page fills the window and locks the page's scrolling.
+ */
+async function hostPage(ui: Ui): Promise<void> {
+  await ui.browser.evaluate(() => {
+    const style = document.createElement('style');
+    style.textContent =
+      'html, body { height: auto; overflow: visible } esbozo-editor { position: relative; height: 480px }';
+    document.head.append(style);
+    const ahead = document.createElement('div');
+    ahead.style.height = '700px';
+    document.body.prepend(ahead);
+    return true;
+  });
+  // The drawing is fitted to the box the host gave the editor, so the ink sits
+  // in the part of it the window shows.
+  await ui.browser.keyboard.press('Meta+0');
+  await settle(ui);
+  await ui.browser.evaluate(() => {
+    window.scrollTo(0, 300);
+    return true;
+  });
+  await expect.poll(() => ui.browser.evaluate(() => window.scrollY)).toBe(300);
+}
+
+/**
  * The paper the focus comes back to does not move: every pixel of the first
  * Element's ink is where the pointer left it, and a press there still picks
- * that Element. The middle drag first carries the drawing off centre, which is
- * the only state in which a focus has anything to scroll.
+ * that Element. The page around the editor is scrolled, so a focus that scrolls
+ * the canvas into view would drag the whole paper out from under the pointer.
  */
 test('the focus the palette hands back leaves the paper where the pointer left it', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+  await hostPage(ui);
   const ink = async () => (await shot(ui)).darkBounds(FIRST, 0.6);
   const centred = await ink();
   if (centred === null) {
     throw new Error('the paper shows no ink');
   }
 
-  await drag(ui, { x: 640, y: 300 }, { x: 660, y: 360 }, 'middle');
+  await drag(ui, { x: 900, y: 700 }, { x: 880, y: 640 }, 'middle');
   await settle(ui);
   const before = await ink();
   if (before === null) {
     throw new Error('the panned paper shows no ink');
   }
-  // The drag carried the paper by the pointer's own (20, 60): a pan that moved
+  // The drag carried the paper by the pointer's own (−20, −60): a pan that moved
   // nothing would leave the rest of this test with nothing to check.
-  expect(before.x).toBeGreaterThan(centred.x + 10);
-  expect(before.y).toBeGreaterThan(centred.y + 50);
+  expect(before.x).toBeLessThan(centred.x - 10);
+  expect(before.y).toBeLessThan(centred.y - 50);
 
   await palette(ui);
+  await settle(ui);
+  // The scroll the page is at once the palette has the caret: the focus it
+  // hands back on the way out is what may move it.
+  const scrolled = await browser.evaluate(() => window.scrollY);
+
   await browser.keyboard.press('Escape');
   await expect(screen.getByRole('dialog', 'Commands')).toBeHidden();
   await settle(ui);
+
+  // The page is where it was, and so is the paper: the focus came back to the
+  // canvas without the window scrolling it into view.
+  expect(await browser.evaluate(() => window.scrollY)).toBe(scrolled);
   expect(await ink()).toEqual(before);
 
   // And a click right after it lands on the ink that is drawn there: the first
