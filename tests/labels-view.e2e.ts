@@ -8,6 +8,7 @@ import { expect } from 'e2e';
 import {
   MIXED,
   ROOM,
+  SCENE,
   at,
   clickScene,
   doubleClickScene,
@@ -19,6 +20,14 @@ import { DARK, LONG_WORD, MIXED_SOURCE, ROOM_SOURCE, SCENE_SOURCE } from './labe
 import { livePage } from './cdp.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
+
+/**
+ * Scene text one middle click could paste: one rectangle, the smallest fragment
+ * the Scene takes, as the words a person leaves on the primary selection.
+ */
+const STRAY_FRAGMENT = JSON.stringify({
+  elements: [{ id: 'stray', type: 'rectangle', x: 0, y: 0, width: 20, height: 20 }],
+});
 
 /** A word wide enough that the grown Element reaches under the docked note. */
 const HUGE_WORD = LONG_WORD + LONG_WORD;
@@ -35,6 +44,12 @@ describe('labels view', () => {
 
     await doubleClickScene(ui, { x: 100, y: 80 });
     const label = screen.getByRole('textbox', { name: 'Label' });
+    // The browser's primary selection still holds the words a person selected
+    // before typing over them, and on Linux the middle button pastes that
+    // selection: leave some here, so the pan is the only thing that can put
+    // words in the open Label and the test does not lean on an earlier one.
+    await label.pressSequentially('cd');
+    await label.press('ControlOrMeta+a');
     await label.pressSequentially('Orders');
     // The ink of the words travels with the page: it is the canvas's, drawn at
     // the glyphs, and nothing else on the screen holds a copy of them.
@@ -75,6 +90,42 @@ describe('labels view', () => {
 
     await label.press('Escape');
     expect((await savedScene(ui)).elements[0]?.label).toBe('Orders');
+  });
+
+  test('a middle drag with the words closed pastes nothing into the Scene', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+    // The primary selection is the one a person leaves behind by typing over the
+    // words they had selected, so the words it holds are the ones no field shows
+    // any more. On Linux the middle button pastes it on release, and Scene text
+    // on the clipboard is Elements: leave a fragment of a Scene there, close the
+    // words, and the pan below is the only thing that could paste it in.
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.pressSequentially(STRAY_FRAGMENT);
+    await label.press('ControlOrMeta+a');
+    await label.pressSequentially('Orders');
+    await label.press('Escape');
+    await expect(label).toHaveCount(0);
+    const before = await savedFiles(ui);
+
+    const from = at({ x: 100, y: 80 });
+    const page = livePage();
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down({ button: 'middle' });
+    for (let step = 1; step <= 5; step += 1) {
+      const share = step / 5;
+      await page.mouse.move(from.x + 100 * share, from.y + 70 * share);
+    }
+    await page.mouse.up({ button: 'middle' });
+
+    expect((await savedScene(ui)).elements).toHaveLength(SCENE.elements.length);
+    expect(await savedFiles(ui)).toEqual(before);
   });
 
   test('a wheel zoom carries the words of a new Text, and their caret, with the page', async ({
