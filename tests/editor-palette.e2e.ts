@@ -5,7 +5,17 @@
  */
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import { clickScene, drag, settle, openEditor, savedScene } from './helpers.ts';
+import {
+  clickScene,
+  drag,
+  settle,
+  openEditor,
+  savedFiles,
+  savedScene,
+  holdWrites,
+  refuseWrite,
+  allowWrites,
+} from './helpers.ts';
 import type { Ui } from './helpers.ts';
 import { shot } from './pixels.ts';
 import { SCENE_SOURCE, GRID, CORNER, command, palette, zoomReadout } from './editor-shared.ts';
@@ -369,4 +379,79 @@ test('Open folder is offered only where the page can open one', async ({ app, br
   await browser.keyboard.press('Enter');
   await expect(screen.getByRole('dialog', 'Commands')).toBeVisible();
   await expect(screen.getByRole('status')).not.toContainText('File System Access');
+});
+
+/** A diagram larger than the frame's minimum, with room around it on every side. */
+const BIG_SOURCE = JSON.stringify(
+  {
+    version: 1,
+    title: 'Big',
+    defaults: { roughness: 0 },
+    elements: [
+      { id: 'big', type: 'rectangle', x: 40, y: 40, width: 1000, height: 700, fill: { kind: 'solid', grey: 6 } },
+    ],
+  },
+  null,
+  2,
+);
+
+test('the four Tool rail rows name their dock, carry no key, and move a read-only Scene', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await browser.setViewport({ width: 3440, height: 1440 });
+  await openEditor(ui, { A: { 'big.json': BIG_SOURCE } }, 'big.json');
+  await settle(ui);
+
+  // One row per dock, offered with the others: the name is the whole row, so no
+  // key follows it and the row says nothing about a shortcut to learn (D8).
+  await palette(ui);
+  await browser.keyboard.type('tool rail');
+  for (const side of ['top', 'bottom', 'left', 'right']) {
+    await expect(command(ui, `Tool rail: ${side}`)).toBeVisible();
+    await expect(command(ui, `Tool rail: ${side}`)).not.toBeDisabled();
+  }
+  await browser.keyboard.press('Escape');
+  await expect(screen.getByRole('dialog', 'Commands')).toBeHidden();
+
+  // A page that may only read: a drawn box asks the folder to write, and the
+  // folder answers `403`, so the editor says so from then on.
+  await holdWrites(ui, 'big.json');
+  await browser.keyboard.press('r');
+  await drag(ui, { x: 200, y: 200 }, { x: 260, y: 260 });
+  await refuseWrite(ui, 'this folder is served read-only');
+  await allowWrites(ui);
+  await expect(screen.getByText('read-only')).toBeVisible();
+  await settle(ui);
+  const files = await savedFiles(ui);
+
+  // The row still runs, because a dock is the page's chrome and not an edit
+  // (D9): the rail stands to the right of the diagram's own box.
+  await palette(ui);
+  await browser.keyboard.type('tool rail right');
+  await expect(command(ui, 'Tool rail: right')).not.toBeDisabled();
+  await browser.keyboard.press('Enter');
+  await expect(screen.getByRole('dialog', { name: 'Commands' })).toBeHidden();
+  await settle(ui);
+  await screen.getByRole('navigation', { name: 'Tools' }).getByRole('button', { name: 'Select' }).focus();
+  await expect
+    .poll(
+      () =>
+        ui.browser.evaluate(() => {
+          const strip = document.querySelector('esbozo-editor nav[aria-label="Tools"]');
+          return strip === null ? 0 : Number(getComputedStyle(strip).opacity);
+        }),
+      { timeout: 5000 },
+    )
+    .toBe(1);
+  const strip = (await shot(ui)).darkBounds({ x: 2232, y: 380, width: 400, height: 680 }, 0.6);
+  if (strip === null) {
+    throw new Error('no rail ink right of the diagram');
+  }
+  expect(strip.height, 'the right dock stands the strip up').toBeGreaterThan(strip.width * 2);
+
+  // A move in a read-only Scene writes nothing at all.
+  expect(await savedFiles(ui), 'a move writes nothing').toEqual(files);
 });
