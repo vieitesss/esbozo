@@ -738,6 +738,17 @@ test('a short leg at a head still runs into its triangle', async () => {
   }
 });
 
+test('a leg a head can cover shows no ink beside its apex', async () => {
+  const arrows = coveredLegMatrix();
+  const svg = await renderOne(turnedScene(arrows.map((one) => one.element)));
+
+  const groups = inkGroups(svg);
+  assert.equal(groups.length, arrows.length, 'one group of ink per arrow');
+  for (const [index, one] of arrows.entries()) {
+    assertTipIsClear(one, groups[index]!);
+  }
+});
+
 test('a start head leaves the dash phase it cut at the far end of every run', async () => {
   const shafts = phaseMatrix();
   const headed = await renderOne(turnedScene(shafts.map((one) => one.element)));
@@ -1649,6 +1660,107 @@ function assertShaftTouches(one: ShortCase, group: string): void {
       );
     });
   assert.ok(touching, `${one.id}: the shaft’s ink touches the ${one.at} head`);
+}
+
+/**
+ * Legs long enough for a head to cover the whole width of the stroke under its
+ * triangle: the cover rule decides where the shaft ends, not the attachment one.
+ */
+const COVERED_LEGS = [11, 14, 20] as const;
+
+/** The turn a covered leg takes under its head, in degrees: the shape a blob showed on. */
+const COVERED_TURN = 60;
+
+/** How far from a head's apex the tip is read for ink beside it, in Scene units. */
+const TIP_SPAN = 4;
+
+/** Room one arrow of the covered-leg matrix has to itself: its turned tail and a head. */
+const COVERED_CELL = 240;
+
+/** How many arrows one row of the covered-leg matrix holds. */
+const COVERED_COLUMNS = 6;
+
+/** What varies from one arrow of the covered-leg matrix to the next. */
+interface CoveredOptions {
+  readonly leg: number;
+  readonly width: string;
+  readonly at: 'start' | 'end';
+  readonly corners: 'round' | 'sharp';
+}
+
+/** Every covered leg, at every width, on either end, sharp and round, roughened. */
+function coveredLegMatrix(): ShortCase[] {
+  const cases: ShortCase[] = [];
+  for (const leg of COVERED_LEGS) {
+    for (const width of ['thin', 'bold', 'extra']) {
+      for (const at of ['start', 'end'] as const) {
+        for (const corners of ['round', 'sharp'] as const) {
+          cases.push(coveredLegCase(cases.length, { leg, width, at, corners }));
+        }
+      }
+    }
+  }
+  return cases;
+}
+
+/** One arrow of the covered-leg matrix: a long leg that turns, with a head on its end. */
+function coveredLegCase(index: number, options: CoveredOptions): ShortCase {
+  const id = `covered-${index}`;
+  const x = (index % COVERED_COLUMNS) * COVERED_CELL + 80;
+  const y = Math.floor(index / COVERED_COLUMNS) * COVERED_CELL + 140;
+  const turn = (COVERED_TURN * Math.PI) / 180;
+  const bend = { x: x - options.leg, y };
+  const tail = { x: bend.x - 120 * Math.cos(turn), y: bend.y - 120 * Math.sin(turn) };
+  const points =
+    options.at === 'end'
+      ? [tail, bend, { x, y }]
+      : [{ x, y }, bend, tail];
+  return {
+    id,
+    at: options.at,
+    element: {
+      id,
+      type: 'arrow',
+      points,
+      corners: options.corners,
+      stroke: { width: options.width, style: 'solid' },
+      roughness: 2,
+      heads:
+        options.at === 'start'
+          ? { start: 'arrow', end: 'none' }
+          : { start: 'none', end: 'arrow' },
+    },
+  };
+}
+
+/**
+ * One arrow of the covered-leg matrix, checked against what a person sees: a
+ * head's own reach from its apex is the head's alone, so no ink of the shaft
+ * shows there beside the triangle. Ink under the triangle is the head's cover.
+ */
+function assertTipIsClear(one: ShortCase, group: string): void {
+  const head = pathsOf(group).find((tag) => attributeIn(tag, 'fill') !== 'none');
+  assert.ok(head !== undefined, `${one.id}: the arrow draws its head`);
+  const corners = flatPoints(head);
+  assert.equal(corners.length, 3, `${one.id}: the head fills a triangle`);
+  const tip = one.element.points[one.at === 'start' ? 0 : one.element.points.length - 1]!;
+  const apex = nearestOf(corners, tip).at;
+  for (const tag of pathsOf(group).filter((tag) => attributeIn(tag, 'fill') === 'none')) {
+    const radius = attributeOf(tag, 'stroke-width') / 2;
+    for (const run of inkRuns(tag)) {
+      for (const sample of run) {
+        if (far(sample, apex) > TIP_SPAN) {
+          continue;
+        }
+        for (const ink of inkAround(sample, radius)) {
+          assert.ok(
+            covers(corners, ink),
+            `${one.id}: the shaft inks (${ink.x.toFixed(2)}, ${ink.y.toFixed(2)}) beside the ${one.at} head’s apex`,
+          );
+        }
+      }
+    }
+  }
 }
 
 /** Room one dashed shaft of the phase matrix has to itself: its 280 units and a Label. */
