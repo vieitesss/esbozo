@@ -9,7 +9,7 @@
  */
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import { openEditor, browseFolder, drag, settle } from './helpers.ts';
+import { openEditor, browseFolder, drag, savedScene, settle } from './helpers.ts';
 import type { Ui } from './helpers.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
@@ -345,15 +345,20 @@ test('a resize keeps the rail’s offset from the middle, pulls it inside, and g
   expect(squeezed.top).toBeLessThan(16);
   expect(Math.abs(squeezed.centreX - 1720)).toBeLessThan(4);
 
-  // A window narrower than the strip: no place keeps it in, so the left inset wins
-  // and the far edge clips it. It is the size it was, not smaller: the rail never
-  // shrinks, wraps or turns by itself (O3).
+  // A window narrower than the strip's own 246 px outline: no place keeps it in,
+  // so the left inset wins and the far edge clips it. What the window shows is the
+  // strip's whole width from that inset to the edge — 200 − 15, so its ink runs on
+  // to the edge — not a narrower strip: the rail never shrinks, wraps or turns by
+  // itself (O3).
   await browser.setViewport({ width: 200, height: 500 });
   await settle(ui);
   const narrow = await railPlace(ui, { x: 0, y: 0, width: 200, height: 240 });
   expect(narrow.centreX - narrow.width / 2).toBeGreaterThan(2);
   expect(narrow.centreX - narrow.width / 2).toBeLessThan(16);
   expect(Math.abs(narrow.height - before.height)).toBeLessThan(3);
+  expect(200 - (narrow.centreX + narrow.width / 2), 'the strip runs on to the far edge').toBeLessThan(
+    4,
+  );
 
   // Growing the window back puts the rail back where the measurement had it: the
   // offset was kept through both resizes, not overwritten by the clamped place.
@@ -431,14 +436,28 @@ test('a new box, an edit, undo, a pan, a zoom, a selection and the Style menu al
   await screen.getByRole('button', 'Rectangle').click();
   await drag(ui, { x: 400, y: 300 }, { x: 600, y: 450 });
   await held('penning a new box');
+  const drawn = await savedScene(ui, 'bare.json');
 
-  // Moving the box it drew is an edit, and an edit is not an opening.
+  // Moving the box it drew is an edit, and an edit is not an opening. The file the
+  // editor saved says the box moved, so a checkpoint that only measured the rail
+  // cannot pass with the drag left out.
   await drag(ui, { x: 500, y: 375 }, { x: 540, y: 405 });
   await held('moving a box');
+  const moved = await savedScene(ui, 'bare.json');
+  expect(moved.elements[0]?.x ?? 0, 'the drag moved the box across').toBeGreaterThan(
+    drawn.elements[0]?.x ?? 0,
+  );
+  expect(moved.elements[0]?.y ?? 0, 'the drag moved the box down').toBeGreaterThan(
+    drawn.elements[0]?.y ?? 0,
+  );
 
-  // Undo takes the move back; an undo opens nothing either (I3).
+  // Undo takes the move back; an undo opens nothing either (I3), and the file says
+  // the box is back where it was drawn.
   await browser.keyboard.press('Meta+z');
   await held('undo');
+  expect((await savedScene(ui, 'bare.json')).elements, 'the undo put the box back').toEqual(
+    drawn.elements,
+  );
 
   // A pan carries the page under a rail that floats over the paper.
   await drag(ui, { x: 300, y: 600 }, { x: 320, y: 630 }, 'middle');
