@@ -22,11 +22,10 @@ import {
 import type { Ui } from './helpers.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
+import { SCENE_SOURCE, MIXED_SOURCE } from './editor-shared.ts';
 import { removeTempFolders } from '../test/temp.ts';
 
-/** The folders this file made, removed however its tests ended. */
 afterAll(removeTempFolders);
-import { SCENE_SOURCE, MIXED_SOURCE } from './editor-shared.ts';
 
 const SNAPPED_SOURCE = JSON.stringify(SNAPPED_SCENE, null, 2);
 

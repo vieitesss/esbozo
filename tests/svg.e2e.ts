@@ -32,7 +32,6 @@ import { shot } from './pixels.ts';
 import type { Rect, Shot } from './pixels.ts';
 import { removeTempFolders } from '../test/temp.ts';
 
-/** The folders this file made, removed however its tests ended. */
 afterAll(removeTempFolders);
 
 /**

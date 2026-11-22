@@ -9,11 +9,10 @@ import { MIXED, clickScene, expectSvgMatchesCli, openEditor, savedScene } from '
 import type { Ui } from './helpers.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
+import { SCENE_SOURCE, MIXED_SOURCE, control } from './editor-shared.ts';
 import { removeTempFolders } from '../test/temp.ts';
 
-/** The folders this file made, removed however its tests ended. */
 afterAll(removeTempFolders);
-import { SCENE_SOURCE, MIXED_SOURCE, control } from './editor-shared.ts';
 
 /** None of these controls is offered: the buttons themselves are absent. */
 async function expectNoControl(ui: Ui, names: readonly string[]): Promise<void> {

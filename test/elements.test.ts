@@ -20,7 +20,6 @@ import type { Run } from './cli.ts';
 import { INK, MUTED, PAPER, assertOnlyThemeColours, isThemeColour } from './palette.ts';
 import { removeTempFolders } from './temp.ts';
 
-/** The folders this file made, removed however its tests ended. */
 after(removeTempFolders);
 
 const KITCHEN_SINK = fileURLToPath(new URL('./fixtures/every-element.json', import.meta.url));

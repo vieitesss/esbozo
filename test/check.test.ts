@@ -17,7 +17,6 @@ import { ez, sceneFolder } from './cli.ts';
 import { writeFont } from './fonts.ts';
 import { removeTempFolders } from './temp.ts';
 
-/** The folders this file made, removed however its tests ended. */
 after(removeTempFolders);
 
 const KALAM = fileURLToPath(new URL('../fonts/Kalam-Regular.ttf', import.meta.url));

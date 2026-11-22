@@ -17,7 +17,6 @@ import { loadProjectModules } from './modules.ts';
 import type { Scene } from '../src/scene.ts';
 import { removeTempFolders } from './temp.ts';
 
-/** The folders this file made, removed however its tests ended. */
 after(removeTempFolders);
 
 const { parseScene, serialiseScene, renderScene, elementBounds, createLayout, parseFontFile, KALAM } =

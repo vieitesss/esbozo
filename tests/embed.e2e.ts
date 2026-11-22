@@ -36,7 +36,6 @@ import { ez, tempFolder } from '../test/cli.ts';
 import { fontBytes } from '../test/fonts.ts';
 import { removeTempFolders } from '../test/temp.ts';
 
-/** The folders this file made, removed however its tests ended. */
 afterAll(removeTempFolders);
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));

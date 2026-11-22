@@ -14,7 +14,6 @@ import { ez, sceneFolder, tempFolder } from './cli.ts';
 import { FONT, assertOnlyThemeColours, inkPercent, isThemeColour } from './palette.ts';
 import { removeTempFolders } from './temp.ts';
 
-/** The folders this file made, removed however its tests ended. */
 after(removeTempFolders);
 
 interface SceneElement {

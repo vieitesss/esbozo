@@ -20,7 +20,6 @@ import type { Rect } from './pixels.ts';
 import { startServe, tempFolder } from '../test/cli.ts';
 import { removeTempFolders } from '../test/temp.ts';
 
-/** The folders this file made, removed however its tests ended. */
 afterAll(removeTempFolders);
 
 const SCENE_SOURCE = JSON.stringify(SCENE, null, 2);

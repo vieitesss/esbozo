@@ -26,7 +26,6 @@ import { decodePng, difference } from './pixels.ts';
 import { SCENE_SOURCE, MIXED_SOURCE, command, palette } from './editor-shared.ts';
 import { removeTempFolders } from '../test/temp.ts';
 
-/** The folders this file made, removed however its tests ended. */
 afterAll(removeTempFolders);
 
 const TEXT_SOURCE = JSON.stringify(TEXT_SCENE, null, 2);

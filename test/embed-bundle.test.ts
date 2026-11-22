@@ -24,7 +24,6 @@ import { transform } from 'esbuild';
 import { ez, tempFolder } from './cli.ts';
 import { removeTempFolders } from './temp.ts';
 
-/** The folders this file made, removed however its tests ended. */
 after(removeTempFolders);
 
 const run = promisify(execFile);

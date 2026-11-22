@@ -26,7 +26,6 @@ import {
 import { BESIDE_SOURCE, MIXED_SOURCE, SCENE_SOURCE } from './labels-shared.ts';
 import { removeTempFolders } from '../test/temp.ts';
 
-/** The folders this file made, removed however its tests ended. */
 afterAll(removeTempFolders);
 
 const OVERFLOW_SOURCE = JSON.stringify(OVERFLOW_SCENE, null, 2);
