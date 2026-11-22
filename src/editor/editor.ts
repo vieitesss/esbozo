@@ -33,8 +33,8 @@ import { nextRoughness, roughnessLabel, styled } from './style.js';
 import type { StyleKey } from './style.js';
 import { canPickFolder } from './files.js';
 import { servedFolder } from './server-folder.js';
-import { boxOf, fittedView, landingOffset, moved, railFrame, zoomedAt } from './geometry.js';
-import type { View } from './geometry.js';
+import { boxOf, clampedDock, fittedView, landingOffset, moved, railFrame, zoomedAt } from './geometry.js';
+import type { Point, View } from './geometry.js';
 import { History } from './history.js';
 import { railArt } from './rail.js';
 import { SHELL } from './shell.js';
@@ -71,6 +71,11 @@ let instances = 0;
 class EsbozoEditorElement extends HTMLElement {
   /** The page's font, the Scenes folder and the writes: every answer that comes late. */
   #connection!: Connection;
+  /**
+   * Where the rail was last measured, as an offset from the editor's middle and
+   * before any clamp: a resize carries it and growing back restores it (D3, I7).
+   */
+  #railDockOffset: Point | null = null;
   /** True once the editor's listeners are on the page. */
   #wired = false;
   /**
@@ -456,6 +461,8 @@ class EsbozoEditorElement extends HTMLElement {
   #forget(): void {
     this.#gestures.drop();
     this.#endEdits();
+    // No Scene in the hand is no frame to hang the rail on either.
+    this.#railDockOffset = null;
     // No Scene to hold in the hand either: the pan and the word it named go
     // with the Scene the page let go of.
     this.#gestures.endSpacePan();
@@ -1019,12 +1026,29 @@ class EsbozoEditorElement extends HTMLElement {
       height: this.#rail.offsetHeight + RAIL_OUTLINE * 2,
       overhang: RAIL_OUTLINE,
     };
-    const { dock } = railFrame(
-      this.#scene,
-      this.#page.viewport.view,
-      this.#page.viewport.size(),
-      outline,
-      this.#connection.layout,
+    const viewport = this.#page.viewport;
+    const size = viewport.size();
+    const { dock } = railFrame(this.#scene, viewport.view, size, outline, this.#connection.layout);
+    this.#railDockOffset = { x: dock.x - size.width / 2, y: dock.y - size.height / 2 };
+    this.#hangRail();
+  }
+
+  /**
+   * The rail at the dock last measured, carried along with the editor's middle as
+   * the window changes and pulled inside when the carry would take it out. The
+   * offset itself is kept as measured, so a window grown back puts the rail back
+   * where the frame had it (I7).
+   */
+  #hangRail(): void {
+    const kept = this.#railDockOffset;
+    if (kept === null) {
+      return;
+    }
+    const size = this.#page.viewport.size();
+    const dock = clampedDock(
+      { x: size.width / 2 + kept.x, y: size.height / 2 + kept.y },
+      { width: this.#rail.offsetWidth, height: this.#rail.offsetHeight, overhang: RAIL_OUTLINE },
+      size,
     );
     this.#rail.style.setProperty('--rail-left', `${dock.x}px`);
     this.#rail.style.setProperty('--rail-top', `${dock.y}px`);
@@ -1162,6 +1186,10 @@ class EsbozoEditorElement extends HTMLElement {
 
   #onResize = (): void => {
     this.#drawRailArt();
+    // The window changed shape, so the rail keeps its offset from the middle of
+    // what the editor draws in, and is pulled inside when that offset no longer
+    // fits (D3, I7).
+    this.#hangRail();
     // The window changed, so the room the note leaves has too.
     this.#refresh();
   };
@@ -1195,6 +1223,9 @@ class EsbozoEditorElement extends HTMLElement {
   /** Fit the page the Renderer draws into the window, the view an open Scene starts in. */
   #zoomToFit(): void {
     this.#changedView(fittedView(this.#scene, this.#page.viewport.size(), this.#connection.layout));
+    // A fit draws the page one way only, whatever view it replaces, so this is
+    // where the rail's frame is measured again (D3, criterion 5).
+    this.#placeRail();
   }
 
   /** One pixel per Scene unit, around the middle of the window: the plain view. */

@@ -9,7 +9,7 @@
  */
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import { openEditor, settle } from './helpers.ts';
+import { openEditor, browseFolder, drag, savedScene, settle } from './helpers.ts';
 import type { Ui } from './helpers.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
@@ -47,9 +47,63 @@ const TINY_SOURCE = JSON.stringify(
   2,
 );
 
+/** A diagram wider than any window's fitted margin, so the fitted zoom follows the window. */
+const WIDE_SOURCE = JSON.stringify(
+  {
+    version: 1,
+    title: 'Wide',
+    defaults: { roughness: 0 },
+    elements: [
+      { id: 'wide', type: 'rectangle', x: 0, y: 0, width: 2400, height: 700, fill: { kind: 'solid', grey: 6 } },
+    ],
+  },
+  null,
+  2,
+);
+
+/** A diagram taller than any window's fitted margin, so its frame's top moves a long way. */
+const TALL_SOURCE = JSON.stringify(
+  {
+    version: 1,
+    title: 'Tall',
+    defaults: { roughness: 0 },
+    elements: [
+      { id: 'tall', type: 'rectangle', x: 0, y: 0, width: 400, height: 3000, fill: { kind: 'solid', grey: 6 } },
+    ],
+  },
+  null,
+  2,
+);
+
 /** The tool rail, as the accessibility tree offers it. */
 function rail(ui: Ui) {
   return ui.screen.getByRole('navigation', { name: 'Tools' });
+}
+
+/** Where the page hung the rail: the strip's middle, its top edge and its size. */
+interface Place {
+  centreX: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * The strip's ink inside a band, as a place. The look turns the strip about its
+ * middle, so a couple of pixels either way is the tilt and not the place; a band
+ * keeps every other mark on the page out of the measure.
+ */
+async function railPlace(ui: Ui, band: Rect): Promise<Place> {
+  const ink = await railInk(ui, band);
+  return { centreX: ink.x + ink.width / 2, top: ink.y, width: ink.width, height: ink.height };
+}
+
+/** A place an action must not have changed, within the tilt's own slack. */
+function expectHeld(before: Place, after: Place, action: string): void {
+  expect(Math.abs(after.centreX - before.centreX), `${action} left the rail's middle`).toBeLessThan(3);
+  expect(Math.abs(after.top - before.top), `${action} left the rail's top`).toBeLessThan(3);
+  expect(Math.abs(after.width - before.width), `${action} left the rail's width`).toBeLessThan(3);
+  expect(Math.abs(after.height - before.height), `${action} left the rail's height`).toBeLessThan(3);
 }
 
 /**
@@ -139,6 +193,25 @@ test('an empty Scene hangs the rail above a centred 960×600 frame, 20 px down a
 
   // Centred on the frame, which is centred on the editor: a strip turned about
   // its own middle keeps that middle where it was.
+  expect(Math.abs(ink.x + ink.width / 2 - 1280 / 2), 'the strip is centred').toBeLessThan(4);
+});
+
+test('an empty Scene opened at 1280×760 keeps the frame’s gap, so the rail hangs about 1 px down', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui, { width: 1280, height: 760 });
+
+  // The same 960×600 frame, its top side 80 px down in this window: the 16 px gap
+  // and the 63 px outline leave the strip's box at 8 px and its outline at 1. A
+  // dock pulled to the 15 px inset would sit the box at 15 and the outline at 8,
+  // cutting the gap to 9 px, which is what this window shows of a clamp that
+  // moves a rail already inside the editor.
+  const ink = await railInk(ui, { x: 400, y: 0, width: 480, height: 240 });
+  expect(ink.y, 'the measured dock holds the frame’s gap').toBeLessThan(5);
+  expect(ink.width, 'the strip is the whole strip').toBeGreaterThan(ink.height * 2);
   expect(Math.abs(ink.x + ink.width / 2 - 1280 / 2), 'the strip is centred').toBeLessThan(4);
 });
 
@@ -243,4 +316,209 @@ test('the rail is measured at its full ink, not at the tiles a fade shows first'
   const ink = await railInk(ui, { x: 400, y: 0, width: 480, height: 140 });
   expect(ink.y, 'the reading is the outline, not the tiles below it').toBeGreaterThan(2);
   expect(ink.y, 'the reading is the outline, not the tiles below it').toBeLessThan(18);
+});
+
+test('a resize keeps the rail’s offset from the middle, pulls it inside, and growing back restores it', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui, { width: 3440, height: 1440 });
+  const band: Rect = { x: 1320, y: 0, width: 800, height: 480 };
+  const before = await railPlace(ui, band);
+
+  // The empty Scene's frame is the 960×600 minimum about the editor's middle, so
+  // the strip's outline top is 341 px down: 720 − 300 − 16 − 63 + 7. Its middle is
+  // the window's own, at 1720.
+  expect(before.top).toBeGreaterThan(330);
+  expect(before.top).toBeLessThan(352);
+  expect(Math.abs(before.centreX - 1720)).toBeLessThan(4);
+
+  // A short window: the 372 px the strip sat above the middle is now outside the
+  // editor's box, so the strip stops 15 px inside its top edge, its outline 8 px
+  // down. Sideways nothing was measured away from the middle, so it stays there.
+  await browser.setViewport({ width: 3440, height: 500 });
+  await settle(ui);
+  const squeezed = await railPlace(ui, { x: 1320, y: 0, width: 800, height: 240 });
+  expect(squeezed.top).toBeGreaterThan(2);
+  expect(squeezed.top).toBeLessThan(16);
+  expect(Math.abs(squeezed.centreX - 1720)).toBeLessThan(4);
+
+  // A window narrower than the strip's own 246 px outline: no place keeps it in,
+  // so the left inset wins and the far edge clips it. What the window shows is the
+  // strip's whole width from that inset to the edge — 200 − 15, so its ink runs on
+  // to the edge — not a narrower strip: the rail never shrinks, wraps or turns by
+  // itself (O3).
+  await browser.setViewport({ width: 200, height: 500 });
+  await settle(ui);
+  const narrow = await railPlace(ui, { x: 0, y: 0, width: 200, height: 240 });
+  expect(narrow.centreX - narrow.width / 2).toBeGreaterThan(2);
+  expect(narrow.centreX - narrow.width / 2).toBeLessThan(16);
+  expect(Math.abs(narrow.height - before.height)).toBeLessThan(3);
+  expect(200 - (narrow.centreX + narrow.width / 2), 'the strip runs on to the far edge').toBeLessThan(
+    4,
+  );
+
+  // Growing the window back puts the rail back where the measurement had it: the
+  // offset was kept through both resizes, not overwritten by the clamped place.
+  await browser.setViewport({ width: 3440, height: 1440 });
+  await settle(ui);
+  expectHeld(before, await railPlace(ui, band), 'growing the window back');
+});
+
+test('Zoom to fit measures the frame again, so a rail a resize carried off it goes back on', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await browser.setViewport({ width: 3440, height: 1440 });
+  await openEditor(ui, { A: { 'wide.json': WIDE_SOURCE } }, 'wide.json');
+  await settle(ui);
+
+  // The 2400×700 diagram is shown 1:1: its top side is 370 px down, so the strip's
+  // outline hangs 291 px down, one gap above it.
+  const opened = await railPlace(ui, { x: 1320, y: 0, width: 800, height: 362 });
+  expect(opened.top).toBeGreaterThan(280);
+  expect(opened.top).toBeLessThan(310);
+
+  // A window that fits the same diagram at 0.46. The resize carries the rail's
+  // 422 px offset with the middle, which puts the strip at 78 px — not on the
+  // frame the fitted view leaves, which is what a fit has to measure again.
+  const band: Rect = { x: 400, y: 0, width: 480, height: 260 };
+  await browser.setViewport({ width: 1280, height: 1000 });
+  await settle(ui);
+  const carried = await railPlace(ui, band);
+  expect(carried.top).toBeGreaterThan(60);
+  expect(carried.top).toBeLessThan(82);
+
+  // A pan and a zoom draw the page somewhere else and leave the rail where it
+  // was: neither measures the frame (D3).
+  await drag(ui, { x: 400, y: 600 }, { x: 420, y: 630 }, 'middle');
+  await browser.mouse.move(640, 400);
+  await browser.mouse.wheel(0, 240);
+  await settle(ui);
+  expectHeld(carried, await railPlace(ui, band), 'a pan and a zoom');
+
+  // Zoom to fit draws the page one way only, whatever view it replaces, so this is
+  // where the frame is measured again: the diagram's fitted box is 600 px tall, so
+  // the strip's outline is 121 px down. Had nothing measured, it would stay at 71.
+  await browser.keyboard.press('Meta+0');
+  await settle(ui);
+  const fitted = await railPlace(ui, band);
+  expect(fitted.top).toBeGreaterThan(110);
+  expect(fitted.top).toBeLessThan(132);
+  expect(Math.abs(fitted.centreX - 1280 / 2), 'the strip is centred').toBeLessThan(4);
+});
+
+test('a new box, an edit, undo, a pan, a zoom, a selection and the Style menu all leave the rail', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+  const band: Rect = { x: 400, y: 0, width: 480, height: 240 };
+  const opened = await railPlace(ui, band);
+  // The empty Scene hangs the strip above the 960×600 minimum frame, 21 px down.
+  expect(opened.top).toBeGreaterThan(10);
+  expect(opened.top).toBeLessThan(28);
+
+  /** One action, and the strip's ink where it already was. */
+  const held = async (action: string): Promise<void> => {
+    await settle(ui);
+    expectHeld(opened, await railPlace(ui, band), action);
+  };
+
+  // A new box is a new Element, a new selection and a docked note for it: the
+  // strip still stays where the Scene opened it (D3, D4, criterion 5).
+  await screen.getByRole('button', 'Rectangle').click();
+  await drag(ui, { x: 400, y: 300 }, { x: 600, y: 450 });
+  await held('penning a new box');
+  const drawn = await savedScene(ui, 'bare.json');
+
+  // Moving the box it drew is an edit, and an edit is not an opening. The file the
+  // editor saved says the box moved, so a checkpoint that only measured the rail
+  // cannot pass with the drag left out.
+  await drag(ui, { x: 500, y: 375 }, { x: 540, y: 405 });
+  await held('moving a box');
+  const moved = await savedScene(ui, 'bare.json');
+  expect(moved.elements[0]?.x ?? 0, 'the drag moved the box across').toBeGreaterThan(
+    drawn.elements[0]?.x ?? 0,
+  );
+  expect(moved.elements[0]?.y ?? 0, 'the drag moved the box down').toBeGreaterThan(
+    drawn.elements[0]?.y ?? 0,
+  );
+
+  // Undo takes the move back; an undo opens nothing either (I3), and the file says
+  // the box is back where it was drawn.
+  await browser.keyboard.press('Meta+z');
+  await held('undo');
+  expect((await savedScene(ui, 'bare.json')).elements, 'the undo put the box back').toEqual(
+    drawn.elements,
+  );
+
+  // A pan carries the page under a rail that floats over the paper.
+  await drag(ui, { x: 300, y: 600 }, { x: 320, y: 630 }, 'middle');
+  await held('a pan');
+
+  // A zoom draws the page bigger, and the rail is the page's chrome, not its ink.
+  await browser.mouse.move(640, 400);
+  await browser.mouse.wheel(0, -240);
+  await held('a zoom');
+
+  // Dropping the selection closes the note, which is no measurement either.
+  await browser.keyboard.press('Escape');
+  await expect(screen.getByRole('dialog', 'Style')).toBeHidden();
+  await held('dropping the selection');
+
+  // Selecting the box is what opens the Style menu (D4): the menu makes room for
+  // itself in the view, and the rail does not follow the view.
+  const select = async (): Promise<void> => {
+    await browser.mouse.move(450, 400);
+    await browser.mouse.down();
+    await browser.mouse.up();
+  };
+  await select();
+  await expect(screen.getByRole('dialog', 'Style')).toBeVisible();
+  await held('selecting');
+
+  // The same menu, opened a second time: the strip has not moved by a pixel.
+  await browser.keyboard.press('Escape');
+  await expect(screen.getByRole('dialog', 'Style')).toBeHidden();
+  await select();
+  await expect(screen.getByRole('dialog', 'Style')).toBeVisible();
+  await held('opening the Style menu');
+});
+
+test('opening another Scene measures the frame again instead of keeping the last dock', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await browser.setViewport({ width: 3440, height: 1440 });
+  await openEditor(
+    ui,
+    { A: { 'bare.json': BARE_SOURCE, 'tall.json': TALL_SOURCE } },
+    'bare.json',
+  );
+  await settle(ui);
+
+  // The empty Scene's 960×600 minimum frame hangs the strip 341 px down.
+  const bare = await railPlace(ui, { x: 1320, y: 0, width: 800, height: 480 });
+  expect(bare.top).toBeGreaterThan(330);
+  expect(bare.top).toBeLessThan(352);
+
+  // Another Scene in the same window: the 400×3000 diagram fits 633 px tall, so
+  // its frame's top side is 87 px down and the strip hangs at 8. Measured again,
+  // not carried from the Scene the page opened first.
+  await browseFolder(ui, 'A');
+  await screen.getByRole('button', 'tall.json').click();
+  await settle(ui);
+  const tall = await railPlace(ui, { x: 1320, y: 0, width: 800, height: 240 });
+  expect(tall.top).toBeGreaterThan(0);
+  expect(tall.top).toBeLessThan(20);
+  expect(Math.abs(tall.centreX - 1720), 'the strip is centred on the new frame').toBeLessThan(4);
 });

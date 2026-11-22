@@ -24,6 +24,7 @@ const {
   elementAt,
   caretLine,
   railFrame,
+  clampedDock,
   createLayout,
   parseFontFile,
   KALAM,
@@ -283,6 +284,57 @@ test('the rail frames the diagram, at least 960×600, and hangs the top dock abo
   const short = railFrame(parsed({ version: 1, elements: [] }), still, { width: 1280, height: 300 }, OUTLINE, LAYOUT);
   assert.deepEqual(short.frame, { x: 160, y: 0, width: 960, height: 300 });
   assert.equal(short.dock.y, 15);
+});
+
+test('a dock is left where its outline fits the editor, and pulled inside where it does not', () => {
+  // The strip as the sheet draws it: seven 30 px tiles, six 1 px gaps and 8 px of
+  // padding either side — 232×49 — with its pencilled outline hanging 7 px
+  // outside it on every side.
+  const strip = { width: 232, height: 49, overhang: 7 };
+  const window = { width: 1280, height: 800 };
+
+  // A dock the editor holds is left exactly where it was measured, even where the
+  // 15 px inset would move it: nothing of its outline crosses an edge.
+  assert.deepEqual(clampedDock({ x: 640, y: 348 }, strip, window), { x: 640, y: 348 });
+
+  // 1280×760 measures the frame's dock at 8, its outline at 1: the gap the frame
+  // left is kept, not cut to 9 px by a dock pulled down to the inset.
+  assert.deepEqual(clampedDock({ x: 640, y: 8 }, strip, { width: 1280, height: 760 }), {
+    x: 640,
+    y: 8,
+  });
+
+  // A 248 px wide editor holds the 246 px outline centred on its middle, at 124.
+  assert.deepEqual(clampedDock({ x: 124, y: 100 }, strip, { width: 248, height: 800 }), {
+    x: 124,
+    y: 100,
+  });
+
+  // A dock carried outside the box is pulled to the inset, measured to the strip's
+  // own box and not its middle or its top: 15 px in from the edge it crossed, as
+  // the top-edge fallback does.
+  assert.deepEqual(clampedDock({ x: 640, y: -122 }, strip, { width: 1280, height: 500 }), {
+    x: 640,
+    y: 15,
+  });
+  assert.deepEqual(clampedDock({ x: 1200, y: 100 }, strip, window), { x: 1280 - 15 - 116, y: 100 });
+  assert.deepEqual(clampedDock({ x: 100, y: 100 }, strip, window), { x: 15 + 116, y: 100 });
+  assert.deepEqual(clampedDock({ x: 640, y: 900 }, strip, window), { x: 640, y: 800 - 15 - 49 });
+
+  // Where the inset would push the outline past the far edge but the outline
+  // itself fits, the outline is what fits: a 250 px wide editor holds it centred
+  // at 2..248, which 15 px in from either edge does not.
+  assert.deepEqual(clampedDock({ x: 130, y: 100 }, strip, { width: 250, height: 800 }), {
+    x: 9 + 116,
+    y: 100,
+  });
+
+  // An editor smaller than the outline has no place that holds it inside: the low
+  // inset wins and the outline is clipped by the far edge, never shrunk to fit.
+  assert.deepEqual(clampedDock({ x: 130, y: 100 }, strip, { width: 200, height: 60 }), {
+    x: 15 + 116,
+    y: 15,
+  });
 });
 
 /** The y of every point a path names, in the order it names them. */
