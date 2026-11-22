@@ -280,13 +280,14 @@ export class Gestures {
   /**
    * End a Space pan: the key came up, or the page lost the focus that held it.
    * A pan the pointer is still in the middle of ends here too, so a move after
-   * the event cannot carry the view any further.
+   * the event cannot carry the view any further. The pointer stays the board's
+   * until the button comes up, which is where every gesture lets it go: only a
+   * release the board gets can answer for the pan, and its default with it.
    */
   endSpacePan(): void {
     const wasPanning = this.panning;
     if (this.#drag?.kind === 'pan') {
       this.#drag = null;
-      this.#releasePointer();
     }
     if (this.#spaceDown) {
       this.#spaceDown = false;
@@ -674,6 +675,12 @@ export class Gestures {
     // The pointer comes up for this gesture or for one already ended: either way
     // it is the browser's again.
     this.#releasePointer();
+    // Chromium pastes the primary selection when the middle button comes up, into
+    // whatever holds the focus — the words being typed included. A middle release
+    // the board gets is a pan's, even one a Space press already ended.
+    if (event.button === 1) {
+      event.preventDefault();
+    }
     if (drag === null) {
       return;
     }
