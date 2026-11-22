@@ -17,6 +17,7 @@ import {
   expectSvgMatchesCli,
   settle,
   openEditor,
+  savedFiles,
   savedScene,
 } from './helpers.ts';
 import type { Ui } from './helpers.ts';
@@ -137,6 +138,141 @@ test('a gesture the browser takes away leaves none of its preview on the page', 
   await browser.mouse.up();
   const after = await savedScene(ui, 'block.json');
   expect({ x: after.elements[0]?.x, y: after.elements[0]?.y }).toEqual({ x: 40, y: 40 });
+});
+
+test('Escape drops a move in flight, and the release that follows saves nothing', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'block.json': BLOCK_SOURCE } }, 'block.json');
+  const alone = await savedScene(ui, 'block.json');
+
+  // Half a drag, the pointer still down: the box is where the pointer carried
+  // it, and the Scene has not moved.
+  await carryBlock(ui);
+  expect((await shot(ui)).meanLuminance(MOVED_BLOCK)).toBeLessThan(0.2);
+
+  // Escape is the person saying no, and it answers at once: the preview goes
+  // back to the place the Scene holds while the button is still down.
+  await browser.keyboard.press('Escape');
+  await settle(ui);
+  const dropped = await shot(ui);
+  expect(dropped.meanLuminance(HELD_BLOCK)).toBeLessThan(0.2);
+  expect(dropped.meanLuminance(MOVED_BLOCK)).toBeGreaterThan(0.85);
+
+  // The release that follows settles nothing: the file is the file, and the box
+  // is still selected, so nothing was picked or opened by that release.
+  await browser.mouse.up();
+  await settle(ui);
+  expect(await savedScene(ui, 'block.json')).toEqual(alone);
+  await expect(screen.getByRole('dialog', 'Style')).toBeVisible();
+
+  // A fresh drag afterwards still lands, and the single step it earned is the
+  // first undo: the drag Escape dropped recorded no step of its own.
+  await carryBlock(ui);
+  await browser.mouse.up();
+  await settle(ui);
+  const moved = await savedScene(ui, 'block.json');
+  expect({ x: moved.elements[0]?.x, y: moved.elements[0]?.y }).toEqual({ x: 100, y: 160 });
+  await browser.keyboard.press('Meta+z');
+  const undone = await savedScene(ui, 'block.json');
+  expect({ x: undone.elements[0]?.x, y: undone.elements[0]?.y }).toEqual({ x: 40, y: 40 });
+
+  // Escape with no drag keeps the behaviour it had: the selection goes and the
+  // file is left alone.
+  const quiet = await savedFiles(ui);
+  await browser.keyboard.press('Escape');
+  await expect(screen.getByRole('dialog', 'Style')).toBeHidden();
+  expect(await savedFiles(ui)).toEqual(quiet);
+});
+
+test('Escape drops a resize in flight, and the release that follows saves nothing', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': MIXED_SOURCE } }, 'scene.json');
+  await clickScene(ui, { x: 120, y: 110 }, [], MIXED);
+  const alone = await savedScene(ui);
+
+  // Room only an ellipse stretched to the pointer's corner covers: the Scene's
+  // own oval stops short of it, and so does the selection's outline.
+  const stretched: Rect = { x: 640, y: 345, width: 30, height: 30 };
+  const bare = (await shot(ui)).darkCount(stretched, 0.6);
+
+  await drag(ui, at({ x: 180, y: 160 }, MIXED), at({ x: 250, y: 220 }, MIXED), 'left', async () => {
+    expect((await shot(ui)).darkCount(stretched, 0.6)).toBeGreaterThan(bare);
+
+    // Escape answers before the release: the oval is the Scene's own again.
+    await browser.keyboard.press('Escape');
+    await settle(ui);
+    expect((await shot(ui)).darkCount(stretched, 0.6)).toBe(bare);
+  });
+  await settle(ui);
+
+  // Nothing of the dropped resize reached the file, and the oval kept its
+  // selection.
+  expect(await savedScene(ui)).toEqual(alone);
+  await expect(screen.getByRole('dialog', 'Style')).toBeVisible();
+
+  // A fresh resize afterwards lands normally, as one step: one undo is the
+  // Scene's own size again.
+  await drag(ui, at({ x: 180, y: 160 }, MIXED), at({ x: 210, y: 180 }, MIXED));
+  const resized = await savedScene(ui);
+  const oval = resized.elements.find((element) => element.id === 'oval');
+  expect({ width: oval?.width, height: oval?.height }).toEqual({ width: 150, height: 120 });
+  await browser.keyboard.press('Meta+z');
+  const undone = await savedScene(ui);
+  const back = undone.elements.find((element) => element.id === 'oval');
+  expect({ width: back?.width, height: back?.height }).toEqual({ width: 120, height: 100 });
+});
+
+test('Escape drops an end drag in flight, and the release that follows saves nothing', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': MIXED_SOURCE } }, 'scene.json');
+  await clickScene(ui, { x: 200, y: 280 }, [], MIXED);
+  const alone = await savedScene(ui);
+
+  // A shaft carried to the pointer's own height crosses this patch of paper;
+  // the Scene's arrow passes under it, and the selection's outline above it.
+  const swept: Rect = { x: 640, y: 370, width: 40, height: 25 };
+  const bare = (await shot(ui)).darkCount(swept, 0.6);
+
+  await drag(ui, at({ x: 340, y: 330 }, MIXED), at({ x: 340, y: 130 }, MIXED), 'left', async () => {
+    expect((await shot(ui)).darkCount(swept, 0.6)).toBeGreaterThan(bare);
+
+    // Escape answers before the release: the end is back where the Scene
+    // holds it.
+    await browser.keyboard.press('Escape');
+    await settle(ui);
+    expect((await shot(ui)).darkCount(swept, 0.6)).toBe(bare);
+  });
+  await settle(ui);
+
+  expect(await savedScene(ui)).toEqual(alone);
+  await expect(screen.getByRole('dialog', 'Style')).toBeVisible();
+
+  // A fresh end drag afterwards lands normally, as one step: one undo is the
+  // Scene's own shaft again.
+  await drag(ui, at({ x: 340, y: 330 }, MIXED), at({ x: 340, y: 130 }, MIXED));
+  const dragged = await savedScene(ui);
+  expect(dragged.elements[2]?.points).toEqual([
+    { x: 60, y: 230 },
+    { x: 340, y: 130 },
+  ]);
+  await browser.keyboard.press('Meta+z');
+  const undone = await savedScene(ui);
+  expect(undone.elements[2]?.points).toEqual([
+    { x: 60, y: 230 },
+    { x: 340, y: 330 },
+  ]);
 });
 
 test('every Element type moves, and only a box-like one gets resize handles', async ({ app, browser, screen }) => {
