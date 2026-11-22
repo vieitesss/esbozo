@@ -46,6 +46,7 @@ import {
   withBend,
   withEnd,
   withInsertedBend,
+  withoutBend,
 } from './snap.js';
 import type { End } from './snap.js';
 import type { Typing } from './typing.js';
@@ -184,6 +185,12 @@ interface Press {
    * from one, and two of them in a row are two of those, never a double-click.
    */
   readonly shift: boolean;
+  /**
+   * The bend point the press took by its handle, and the shaft it is a point of.
+   * Two presses on that one handle remove the point, and a press that has it
+   * never opens the words it stands on.
+   */
+  readonly bend?: { readonly id: string; readonly index: number };
 }
 
 /**
@@ -492,6 +499,16 @@ export class Gestures {
         bend < element.points.length - 1
       ) {
         const stored = element.points[bend]!;
+        // A bend handle is a mark on the shaft, and a press on it is a click
+        // there: two of them on one handle are a double-click that takes the
+        // point, and a single one is each of the two clicks it is half of.
+        this.#press = {
+          id,
+          at: viewport.screenPoint(event),
+          time: event.timeStamp,
+          shift: event.shiftKey,
+          bend: { id, index: bend },
+        };
         this.#drag = {
           kind: 'bend',
           id,
@@ -766,10 +783,19 @@ export class Gestures {
       this.#lastClick = click;
       if (first !== null && this.#isDoubleClick(first, click)) {
         this.#lastClick = null;
+        // A press that took a bend handle asked for that point, not for the
+        // words the handle stands on: the pair removes the point or settles
+        // nothing, and never opens a Label.
+        const bend = first.bend;
         const opening =
-          first.id === null
+          bend !== undefined || first.id === null
             ? undefined
             : this.#host.scene().elements.find((element) => element.id === first.id);
+        if (bend !== undefined && click.bend?.id === bend.id && click.bend.index === bend.index) {
+          this.#drag = null;
+          this.#removeBend(bend);
+          return;
+        }
         if (opening !== undefined) {
           event.preventDefault();
           this.#drag = null;
@@ -1130,6 +1156,29 @@ export class Gestures {
   }
 
   /**
+   * Two presses on one bend handle remove the point they hold: one history step
+   * of the whole Scene, and the shaft stays selected. A removal the Scene has no
+   * shaft for — two points whose ends both Snap to one Element — changes nothing
+   * and writes nothing.
+   */
+  #removeBend(bend: NonNullable<Press['bend']>): void {
+    const scene = this.#host.scene();
+    const element = scene.elements.find((candidate) => candidate.id === bend.id);
+    const removed =
+      element !== undefined && isShaft(element) ? withoutBend(element, bend.index) : null;
+    if (removed === null) {
+      this.#host.refresh();
+      return;
+    }
+    this.#host.applyScene({
+      ...scene,
+      elements: scene.elements.map((candidate) =>
+        candidate.id === bend.id ? removed : candidate,
+      ),
+    });
+  }
+
+  /**
    * A press inside the words being typed. One press puts the caret at the glyph
    * under the pointer; a second one in the same place selects the word there;
    * and dragging the pointer carries the other end of the selection with it.
@@ -1239,10 +1288,20 @@ export class Gestures {
   /**
    * Whether a press is the second half of a double-click: near the first in
    * time and place, and no Shift on either, because a press that adds to a
-   * selection is about the selection and not about the word under it.
+   * selection is about the selection and not about the word under it. A press
+   * that took a bend handle pairs with a press on that same handle and with
+   * nothing else: a click on the shaft is no half of the pair that removes a
+   * point, and stays a click of its own until one lands on the handle.
    */
   #isDoubleClick(first: Press, second: Press): boolean {
+    const bend = first.bend;
+    const taken = second.bend;
+    const oneBend =
+      bend === undefined
+        ? taken === undefined
+        : taken !== undefined && taken.id === bend.id && taken.index === bend.index;
     return (
+      oneBend &&
       !first.shift &&
       !second.shift &&
       second.time - first.time <= DOUBLE_CLICK_MS &&

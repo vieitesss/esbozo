@@ -492,6 +492,113 @@ const SNAPPED_ON = { x: 275, y: 181 };
 const SNAPPED_BEND = { x: 350, y: 200 };
 
 /**
+ * An arrow with words on its first leg, on a box that holds the page still: the
+ * words are ink a double-click would open, and they stand clear of the bend
+ * handle the presses below take.
+ */
+const ON_BEND_SCENE = {
+  version: 1,
+  title: 'Words on a bend',
+  defaults: { roughness: 0 },
+  elements: [
+    { id: 'page', type: 'rectangle', x: 0, y: 0, width: 800, height: 560 },
+    {
+      id: 'bent',
+      type: 'arrow',
+      points: [
+        { x: 200, y: 400 },
+        { x: 400, y: 300, corner: 'sharp' },
+        { x: 600, y: 400 },
+      ],
+      heads: { start: 'none', end: 'none' },
+      label: 'bend words',
+      labelAt: { t: 0.3, offset: 0 },
+    },
+  ],
+};
+const ON_BEND_SOURCE = JSON.stringify(ON_BEND_SCENE, null, 2);
+
+/** On the arrow's first leg, before the words: where a press selects it. */
+const ON_BEND_ON = { x: 240, y: 380 };
+
+/** The bend whose handle the pair takes, clear of the words. */
+const ON_BEND_BEND = { x: 400, y: 300 };
+
+/**
+ * An arrow whose two bends stand six pixels apart, on a box that holds the page
+ * still: the handle drawn first answers a press at its own place, and the point
+ * that takes its index stands four pixels away, where a click after the pair
+ * still lands on a handle.
+ */
+const NEAR_SCENE = {
+  version: 1,
+  title: 'Two near bends',
+  defaults: { roughness: 0 },
+  elements: [
+    { id: 'page', type: 'rectangle', x: 0, y: 0, width: 800, height: 560 },
+    {
+      id: 'bent',
+      type: 'arrow',
+      points: [
+        { x: 200, y: 300 },
+        { x: 400, y: 300, corner: 'sharp' },
+        { x: 406, y: 300, corner: 'sharp' },
+        { x: 600, y: 300 },
+      ],
+      heads: { start: 'none', end: 'none' },
+    },
+  ],
+};
+const NEAR_SOURCE = JSON.stringify(NEAR_SCENE, null, 2);
+
+/** On the shaft's ink, clear of both handles: where a press selects it. */
+const NEAR_ON = { x: 250, y: 300 };
+
+/** The place of the bend the pair takes: the handle of the point before the last. */
+const NEAR_FIRST = { x: 400, y: 300 };
+
+/** Four pixels from it, on the handle of the bend that took its index. */
+const NEAR_NEXT = { x: 404, y: 300 };
+
+/**
+ * An arrow that leaves a box and comes back to it through one bend: the Scene
+ * has such a loop, and its two-point self-loop is the one it does not.
+ */
+const LOOP_SCENE = {
+  version: 1,
+  title: 'A loop',
+  defaults: { roughness: 0 },
+  elements: [
+    { id: 'page', type: 'rectangle', x: 0, y: 0, width: 800, height: 560 },
+    { id: 'a', type: 'rectangle', x: 300, y: 400, width: 200, height: 100 },
+    {
+      id: 'bent',
+      type: 'arrow',
+      points: [
+        { x: 400, y: 450, snap: 'a' },
+        { x: 400, y: 200, corner: 'sharp' },
+        { x: 450, y: 450, snap: 'a' },
+      ],
+      heads: { start: 'none', end: 'none' },
+    },
+  ],
+};
+const LOOP_SOURCE = JSON.stringify(LOOP_SCENE, null, 2);
+
+/** On the arrow's left leg, above box `a`: where a press selects it. */
+const LOOP_ON = { x: 375, y: 300 };
+
+/** The bend between the two Snapped ends, where its handle sits. */
+const LOOP_BEND = { x: 400, y: 200 };
+
+/** The points of `LOOP_SCENE` as the file holds them, and as it must still hold them. */
+const LOOP_POINTS: SavedPoint[] = [
+  { x: 400, y: 450, snap: 'a' },
+  { x: 400, y: 200, corner: 'sharp' },
+  { x: 450, y: 450, snap: 'a' },
+];
+
+/**
  * The Scene files the `bends.json` fixture folder holds, by the name a person opens.
  * `A` is the folder every helper in this suite reads back.
  */
@@ -510,6 +617,9 @@ const SCENES = {
     'snap-dot.json': SNAPPED_DOT_SOURCE,
     'tilted.json': TILTED_SOURCE,
     'short.json': SHORT_SOURCE,
+    'on-bend.json': ON_BEND_SOURCE,
+    'near.json': NEAR_SOURCE,
+    'loop.json': LOOP_SOURCE,
   },
 };
 
@@ -1271,5 +1381,348 @@ describe('a bend point handle', () => {
     expect(painted.darkCount(stroke, 0.6)).toBeGreaterThan(0);
     const corner = pixelAt(at(ROUND_MARK, SHAPES), 4, -4);
     expect(painted.darkCount(corner, 0.6)).toBe(0);
+  });
+});
+
+/**
+ * Two clicks on one bend handle remove that point: the editor's own
+ * double-click, so the point dies under the second click of a pair and under no
+ * other press. What is left is the shaft the pair aimed at, whole points and
+ * all, and the Scene's own rule that a two-point shaft cannot loop back to one
+ * Element is what a removal may not write.
+ */
+describe('a double-click on a bend handle', () => {
+  test('removes a sharp bend and saves the two points around it', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    await doubleClickScene(ui, SHARP_BEND, SHARP);
+
+    await expectPoints(ui, [
+      { x: 50, y: 50 },
+      { x: 550, y: 50 },
+    ]);
+  });
+
+  test('removes a middle bend and keeps the one after it', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'shapes.json');
+
+    await clickScene(ui, SHAPES_ON, [], SHAPES);
+    await settle(ui);
+    await doubleClickScene(ui, SHARP_MARK, SHAPES);
+
+    // The round bend's place, its corner and the ends either side of it are the
+    // Scene's own: only the point pressed is gone.
+    await expectPoints(
+      ui,
+      [
+        { x: 150, y: 300 },
+        { x: 500, y: 180, corner: 'round' },
+        { x: 650, y: 300 },
+      ],
+      'shapes.json',
+    );
+  });
+
+  test('removes the last bend and keeps both Snaps and the one before it', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'snapped.json');
+
+    await clickScene(ui, SNAPPED_ON, [], SNAPPED);
+    await settle(ui);
+    await doubleClickScene(ui, { x: 550, y: 300 }, SNAPPED);
+
+    await expectPoints(
+      ui,
+      [
+        { x: 150, y: 150, snap: 'a' },
+        { x: 350, y: 200, corner: 'sharp' },
+        { x: 650, y: 350, snap: 'b' },
+      ],
+      'snapped.json',
+    );
+  });
+
+  test('removes a round bend of a line at another zoom, leaving two points', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'line.json');
+
+    await clickScene(ui, LINE_BEND, [], LINE);
+    await browser.keyboard.press('Meta+=');
+    await expect(zoomReadout(ui)).toHaveText('120%');
+    // The readout is the page's own text, and the handles are a frame behind
+    // it: the frame that paints them at 120% is the one the pair must land on.
+    await settle(ui);
+
+    await doubleClickScene(ui, LINE_BEND, LINE_ZOOMED);
+
+    await expectPoints(
+      ui,
+      [
+        { x: 150, y: 300 },
+        { x: 600, y: 300 },
+      ],
+      'line.json',
+    );
+  });
+
+  test('a removal that would leave a two-point loop writes nothing', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'loop.json');
+
+    await clickScene(ui, LOOP_ON, [], SHAPES);
+    await settle(ui);
+    const before = await savedSource(ui, 'loop.json');
+    await doubleClickScene(ui, LOOP_BEND, SHAPES);
+    await settle(ui);
+
+    // Both ends of the two points left would Snap to box `a`, and the Scene has
+    // no such arrow: the file is the one the pair found, bytes and all.
+    expect(await savedSource(ui, 'loop.json')).toBe(before);
+    await expectPoints(ui, LOOP_POINTS, 'loop.json');
+  });
+
+  test('a double-click that starts on an unselected shaft deletes nothing', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    // No handle is painted on an unselected shaft, so the first press takes the
+    // ink and only selects the arrow; the frame that paints the handle the
+    // selection earned has come when the second press lands on it.
+    const before = await savedSource(ui);
+    await clickScene(ui, SHARP_BEND, [], SHARP);
+    await settle(ui);
+    await clickScene(ui, SHARP_BEND, [], SHARP);
+    await settle(ui);
+
+    expect(await savedSource(ui)).toBe(before);
+    await expectPoints(ui, SHARP_POINTS);
+    // The two presses are not a pair, so the arrow's words never open on them.
+    await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveCount(0);
+  });
+
+  test('a click on the shaft and a quick double-click on the handle removes the point', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    // The selection click lands where the bend is, on the ink of a shaft that
+    // paints no handle yet; the frame after it paints the handle, and the pair
+    // follows inside the same half second. The click took no handle, so it
+    // pairs with nothing and opens nothing: the pair after it is two presses on
+    // the one handle.
+    await clickScene(ui, SHARP_BEND, [], SHARP);
+    await settle(ui);
+    await doubleClickScene(ui, SHARP_BEND, SHARP);
+
+    await expectPoints(ui, [
+      { x: 50, y: 50 },
+      { x: 550, y: 50 },
+    ]);
+    await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveCount(0);
+  });
+
+  test('a click on the handle deletes nothing', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    const before = await savedSource(ui);
+    await clickScene(ui, SHARP_BEND, [], SHARP);
+    await settle(ui);
+
+    expect(await savedSource(ui)).toBe(before);
+    await expectPoints(ui, SHARP_POINTS);
+  });
+
+  test('two slow clicks delete nothing', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    const before = await savedSource(ui);
+    // A wait that outlasts the editor's own half second: the two presses are a
+    // click and a click, and the point they land on stays.
+    await clickScene(ui, SHARP_BEND, [], SHARP);
+    await sleep(600);
+    await clickScene(ui, SHARP_BEND, [], SHARP);
+    await settle(ui);
+
+    expect(await savedSource(ui)).toBe(before);
+    await expectPoints(ui, SHARP_POINTS);
+  });
+
+  test('two Shift clicks delete nothing', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    const before = await savedSource(ui);
+    // A Shift press is about the selection, never half of a double-click: the
+    // key is held across both, so the presses are one pair by place and clock.
+    await browser.keyboard.down('Shift');
+    await clickScene(ui, SHARP_BEND, [], SHARP);
+    await clickScene(ui, SHARP_BEND, [], SHARP);
+    await browser.keyboard.up('Shift');
+    await settle(ui);
+
+    expect(await savedSource(ui)).toBe(before);
+    await expectPoints(ui, SHARP_POINTS);
+  });
+
+  test('a drag of the handle and the click after it delete nothing', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    await drag(ui, at(SHARP_BEND, SHARP), at({ x: 340, y: 270 }, SHARP));
+    await expectPoints(ui, DRAGGED_POINTS);
+
+    // A press that carried the pointer is a drag, and the click that follows it
+    // starts a sequence of its own: the handle is not pressed twice.
+    await clickScene(ui, { x: 340, y: 270 }, [], SHARP);
+    await settle(ui);
+
+    await expectPoints(ui, DRAGGED_POINTS);
+  });
+
+  test('the arrow’s words never open on the pair that removes a point', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'on-bend.json');
+
+    await clickScene(ui, ON_BEND_ON, [], SHAPES);
+    await settle(ui);
+    // The note is docked beside the selection, and the arrow the pair edits
+    // carries words of its own.
+    await expect(screen.getByRole('dialog', 'Style')).toBeVisible();
+    await doubleClickScene(ui, ON_BEND_BEND, SHAPES);
+
+    await expectPoints(
+      ui,
+      [
+        { x: 200, y: 400 },
+        { x: 600, y: 400 },
+      ],
+      'on-bend.json',
+    );
+    // The pair is the point's: the arrow's words are not what was clicked.
+    await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveCount(0);
+  });
+
+  test('a third quick click takes no second point', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'near.json');
+
+    await clickScene(ui, NEAR_ON, [], SHAPES);
+    await settle(ui);
+    await doubleClickScene(ui, NEAR_FIRST, SHAPES);
+    // The frame the pair's own write asks for paints the handle of the bend
+    // that took the removed point's index, four pixels from where the pointer
+    // is: the click that lands on it is still the pair's own half second, and
+    // the pair is over, so it is the first click of a new one and takes nothing.
+    await settle(ui);
+    await clickScene(ui, NEAR_NEXT, [], SHAPES);
+
+    await expectPoints(
+      ui,
+      [
+        { x: 200, y: 300 },
+        { x: 406, y: 300, corner: 'sharp' },
+        { x: 600, y: 300 },
+      ],
+      'near.json',
+    );
+  });
+
+  test('a page that may only read deletes nothing', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+
+    // An edit asks the folder to write, and the folder answers `403`: this page
+    // may only read from now on. The arrow is in hand the ten pixels the Shift
+    // nudge carried it, though no byte of that move ever landed.
+    await holdWrites(ui, 'bends.json');
+    await browser.keyboard.press('Shift+ArrowRight');
+    await refuseWrite(ui, 'this folder is served read-only');
+    await expect(screen.getByText('read-only')).toBeVisible();
+    const bend = { x: SHARP_BEND.x + 10, y: SHARP_BEND.y };
+
+    const before = await savedSource(ui);
+    await doubleClickScene(ui, bend, SHARP);
+    await settle(ui);
+
+    expect(await savedSource(ui)).toBe(before);
+    await expectPoints(ui, SHARP_POINTS);
+    // The point the pair pressed is still there to press: the square its handle
+    // paints on the corner is the one a page that may only read still draws.
+    const corner = pixelAt(at(bend, SHARP), 4, -4);
+    expect((await shot(ui)).darkCount(corner, 0.6)).toBeGreaterThan(0);
+    await allowWrites(ui);
+  });
+
+  test('one undo returns the point whole, and redo removes it again', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    await doubleClickScene(ui, SHARP_BEND, SHARP);
+    await expectPoints(ui, [
+      { x: 50, y: 50 },
+      { x: 550, y: 50 },
+    ]);
+
+    // One step, so one undo is the whole point back, `corner` and all.
+    await browser.keyboard.press('Meta+z');
+    await expectPoints(ui, SHARP_POINTS);
+    await browser.keyboard.press('Shift+Meta+z');
+    await expectPoints(ui, [
+      { x: 50, y: 50 },
+      { x: 550, y: 50 },
+    ]);
   });
 });
