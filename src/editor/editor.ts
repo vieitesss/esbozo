@@ -18,7 +18,7 @@ import { actionById, actionFor } from './actions.js';
 import type { ActionHost, ActionState, ToolId } from './actions.js';
 import { exportPng } from './export.js';
 import { Gestures } from './gestures.js';
-import { shaftIn, withoutBend } from './bend-point.js';
+import { mayRemove, shaftIn, withoutBend } from './bend-point.js';
 import type { Bend } from './bend-point.js';
 import { clipboardApi, copySelection, copyTo, cutSelection, pasteClipboard } from './clipboard.js';
 import type { ClipboardHost } from './clipboard.js';
@@ -232,7 +232,6 @@ class EsbozoEditorElement extends HTMLElement {
       inside: this,
       canvas: this.#canvas,
       canOpen: () => this.#connection.writable() && this.#typing.text() === null,
-      removable: (bend) => this.#pointGoes(bend),
       shaft: (id) => shaftIn(this.#scene, id),
       selectBend: (bend) => {
         this.#bend = bend;
@@ -714,15 +713,6 @@ class EsbozoEditorElement extends HTMLElement {
   }
 
   /**
-   * Whether this point may go: the rule `#removeBend` keeps, asked before the row
-   * offers it, so a point a self-loop must keep reads as disabled.
-   */
-  #pointGoes(bend: Bend): boolean {
-    const element = this.#scene.elements.find((candidate) => candidate.id === bend.id);
-    return element !== undefined && isShaft(element) && withoutBend(element, bend.index) !== null;
-  }
-
-  /**
    * Remove the one bend point a press holds: the removal the key, the palette and
    * the double-click share. Every other point keeps its place, its `corner` and
    * its Snap, and a removal that would leave a two-point self-loop removes
@@ -732,13 +722,14 @@ class EsbozoEditorElement extends HTMLElement {
   #removeBend(bend: Bend): void {
     const scene = this.#scene;
     const element = scene.elements.find((candidate) => candidate.id === bend.id);
-    const removed =
-      element !== undefined && isShaft(element) ? withoutBend(element, bend.index) : null;
-    if (removed === null) {
+    // The one removal rule, asked here as the point menu asks it: a point the
+    // menu shows as disabled is exactly a point this cannot remove.
+    if (element === undefined || !isShaft(element) || !mayRemove(element, bend.index)) {
       this.#refresh();
       return;
     }
     this.#bend = null;
+    const removed = withoutBend(element, bend.index);
     this.#applyScene({
       ...scene,
       elements: scene.elements.map((candidate) =>

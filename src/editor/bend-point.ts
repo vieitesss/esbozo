@@ -1,7 +1,7 @@
 /**
  * The bend point: the point of a Shaft between its ends, the edits that move,
- * pull out and remove one, the marks a lone Shaft shows to reach one, and the
- * one reader of the press that lands on one.
+ * pull out and remove one, the one rule that decides a removal, the marks a lone
+ * Shaft shows to reach one, and the one reader of the press that lands on one.
  *
  * A Shaft is the drawn path of an arrow or line between its two ends, and the
  * points it turns by in between are bend points: a person drags one by its
@@ -103,24 +103,30 @@ export function withInsertedBend(
 }
 
 /**
- * The arrow or line with the bend at `index` gone: every other point keeps its
- * place, its `corner` and its Snap, and so does the Element its corners. A
- * removal that would leave a two-point shaft with both ends Snapped to one
- * Element removes nothing, because the Scene has no such shaft: two ends on one
- * outline have no direction to aim along, and the point between them is what
+ * Whether the bend at `index` may go: the one rule a removal keeps, asked by the
+ * editor before it removes a point and by the point menu before it offers the
+ * row, so a point the menu shows as disabled is exactly a point the key cannot
+ * remove. A removal that would leave a two-point shaft with both ends Snapped to
+ * one Element takes nothing, because the Scene has no such shaft: two ends on
+ * one outline have no direction to aim along, and the point between them is what
  * gave it one.
  */
-export function withoutBend(
-  element: ArrowOrLineElement,
-  index: number,
-): ArrowOrLineElement | null {
-  const points = [...element.points];
+export function mayRemove(shaft: ArrowOrLineElement, index: number): boolean {
+  const points = [...shaft.points];
   points.splice(index, 1);
   const start = points[0]!;
   const end = points[points.length - 1]!;
-  if (points.length === 2 && start.snap !== undefined && start.snap === end.snap) {
-    return null;
-  }
+  return !(points.length === 2 && start.snap !== undefined && start.snap === end.snap);
+}
+
+/**
+ * The shaft with the bend at `index` gone: every other point keeps its place, its
+ * `corner` and its Snap, and so does the Element its corners. Only a point
+ * `mayRemove` allows goes, so the caller asks that first.
+ */
+export function withoutBend(element: ArrowOrLineElement, index: number): ArrowOrLineElement {
+  const points = [...element.points];
+  points.splice(index, 1);
   return { ...element, points: points as ArrowOrLineElement['points'] };
 }
 
