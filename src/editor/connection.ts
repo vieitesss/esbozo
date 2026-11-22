@@ -137,6 +137,12 @@ export class Connection {
    * or missing, never speaks for the Scene a connection is opening.
    */
   #fontRequest = 0;
+  /**
+   * Which request to open a Scene is the current one. It is a number of its own,
+   * because two opens share a connection: a read that answers for an open a
+   * later one superseded is dropped, whatever its connection.
+   */
+  #openRequest = 0;
   /** The Scene this connection opened, once one is open: where its writes go. */
   #target: SaveTarget | null = null;
   /** True once a save was refused with `403`: this page may not write any more. */
@@ -269,31 +275,35 @@ export class Connection {
    * it by name, which makes it a Scene there and then. A Scene that will not
    * load leaves nothing writable, so a failed open is never a write.
    *
-   * A read is bound to the connection that asked for it: an answer for a Scene
-   * the page has moved away from is dropped, not drawn.
+   * A read is bound to the connection that asked for it and to the open that
+   * asked: an answer for a Scene the page has moved away from, or for one a
+   * later open has superseded, is dropped, not drawn.
    */
   async open(name: string, options: { create?: boolean } = {}, bound = this.#token): Promise<void> {
+    // Every open supersedes the ones before it on this connection: only the
+    // newest one may show a Scene, move the target or speak in the status line.
+    const request = ++this.#openRequest;
     const folder = this.#browsed;
     if (folder === null) {
       this.#host.status('failed', 'open a folder first');
       return;
     }
     await this.#saveQueue;
-    if (bound !== this.#token) {
+    if (!this.#current(bound, request)) {
       return;
     }
     let source: string | null;
     try {
       source = await folder.read(name);
     } catch (error) {
-      if (bound !== this.#token) {
+      if (!this.#current(bound, request)) {
         return;
       }
       this.#target = null;
       this.#host.status('failed', `cannot read ${name}: ${(error as Error).message}`);
       return;
     }
-    if (bound !== this.#token) {
+    if (!this.#current(bound, request)) {
       return;
     }
     if (source === null) {
@@ -377,6 +387,14 @@ export class Connection {
     // Labels break with the measurement: what was drawn with the old one is not
     // the same drawing any more.
     this.#host.measure();
+  }
+
+  /**
+   * Whether an answer still speaks for this page: the connection it was asked on
+   * is the one in hand, and no open has superseded the one that asked.
+   */
+  #current(bound: number, request: number): boolean {
+    return bound === this.#token && request === this.#openRequest;
   }
 
   /** The page's font, with a source that will not answer reported as the problem it is. */
