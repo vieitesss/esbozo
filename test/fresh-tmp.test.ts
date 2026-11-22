@@ -40,11 +40,18 @@ function guard(code: string): Run {
 
 test('a command that leaves a temporary folder behind fails the run, and the folder is named', () => {
   const run = guard(
-    `require('node:fs').mkdirSync(require('node:path').join(process.env.TMPDIR, 'esbozo-x'))`,
+    `const fs = require('node:fs');const at = (name) => fs.mkdirSync(require('node:path').join(process.env.TMPDIR, name));['esbozo-x', 'esbozo', 'esbozo_x'].forEach(at)`,
   );
 
   assert.equal(run.code, 1, 'a leftover folder fails the run even though the command passed');
-  assert.match(run.stderr, /esbozo-x/, 'the name left behind is printed');
+  assert.deepEqual(
+    run.stderr
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith('esbozo')),
+    ['esbozo', 'esbozo-x', 'esbozo_x'],
+    'every name left behind is printed',
+  );
   assert.equal(existsSync(run.folder), false, 'and the folder it was in is removed anyway');
 });
 

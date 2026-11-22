@@ -24,11 +24,17 @@ import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { constants, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-/** The names `test/temp.ts` makes, so the only entries this run is judged on. */
-const OURS = 'esbozo-';
+/**
+ * The names `test/temp.ts` makes, so the only entries this run is judged on.
+ * The whole word: `esbozo`, `esbozo-x` and `esbozo_x` are all ours.
+ */
+const OURS = 'esbozo';
 
-/** This run's own folder, which the command is handed as `TMPDIR`. */
-const GUARD = 'esbozo-guard-';
+/**
+ * This run's own folder, which the command is handed as `TMPDIR`. Short, because
+ * a Unix socket under it has 104 bytes of path on macOS to fit in.
+ */
+const GUARD = 'esbozo-g-';
 
 const USAGE = 'Usage: node scripts/fresh-tmp.mjs <command> [arguments...]';
 
