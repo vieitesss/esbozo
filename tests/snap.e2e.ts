@@ -25,6 +25,7 @@ import {
   SNAPPED,
   SNAPPED_SCENE,
   at,
+  cliCheckBytes,
   clickScene,
   drag,
   dragBy,
@@ -33,7 +34,7 @@ import {
   savedScene,
   settle,
 } from './helpers.ts';
-import type { Point, Ui } from './helpers.ts';
+import type { Point, SavedScene, Ui, View } from './helpers.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
 
@@ -41,12 +42,135 @@ const SNAP_SOURCE = JSON.stringify(SNAP_SCENE, null, 2);
 const SNAPPED_SOURCE = JSON.stringify(SNAPPED_SCENE, null, 2);
 const HYPHEN_SOURCE = JSON.stringify(HYPHEN_SCENE, null, 2);
 const CROSSING_SOURCE = JSON.stringify(CROSSING_SCENE, null, 2);
+
+/**
+ * A bent arrow between two boxes: three points, both ends Snapped and the bend
+ * between them written `sharp`. Roughness 0, so the ends it draws at are the
+ * ones the numbers below say: `a`'s outline puts the start at (100,90), `b`'s
+ * the end at (500,90), and the bend sits at (300,250) whichever way it is read.
+ */
+const BENT_SCENE = {
+  version: 1,
+  title: 'Bent',
+  defaults: { roughness: 0 },
+  elements: [
+    { id: 'a', type: 'rectangle', x: 0, y: 0, width: 100, height: 100 },
+    { id: 'b', type: 'rectangle', x: 500, y: 0, width: 100, height: 100 },
+    {
+      id: 'c',
+      type: 'arrow',
+      points: [
+        { x: 50, y: 50, snap: 'a' },
+        { x: 300, y: 250, corner: 'sharp' },
+        { x: 550, y: 50, snap: 'b' },
+      ],
+      heads: { start: 'none', end: 'arrow' },
+    },
+  ],
+};
+const BENT_SOURCE = JSON.stringify(BENT_SCENE, null, 2);
+
+/** The view `BENT_SCENE` lands in, worked out the same way as `VIEW`. */
+const BENT: View = { zoom: 1, panX: 340, panY: 275 };
+
+/** Where `c` starts: the point of `a`'s outline its first point is drawn on. */
+const BENT_START = { x: 100, y: 90 };
+
+/** Where `c` finishes: the point of `b`'s outline its last point is drawn on. */
+const BENT_END = { x: 500, y: 90 };
+
+/** A point on `c`'s first run, on no box: where a press on the shaft lands. */
+const BENT_ON = { x: 200, y: 170 };
+
+/**
+ * A loop: an arrow that leaves an ellipse and comes back to it, both ends
+ * Snapped to the same Element, which only a shaft of three points can do. The
+ * ends spread either side of the one bend, on the circle the ellipse draws.
+ */
+const LOOP_SCENE = {
+  version: 1,
+  title: 'Loop',
+  defaults: { roughness: 0 },
+  elements: [
+    { id: 'oval', type: 'ellipse', x: 300, y: 40, width: 120, height: 120 },
+    {
+      id: 'back',
+      type: 'arrow',
+      points: [
+        { x: 360, y: 140, snap: 'oval' },
+        { x: 360, y: 320, corner: 'sharp' },
+        { x: 360, y: 60, snap: 'oval' },
+      ],
+      heads: { start: 'none', end: 'arrow' },
+    },
+  ],
+};
+const LOOP_SOURCE = JSON.stringify(LOOP_SCENE, null, 2);
+
+/** The view `LOOP_SCENE` lands in, worked out the same way as `VIEW`. */
+const LOOP: View = { zoom: 1, panX: 280, panY: 220 };
+
+/** Where the loop's second end draws: one of the two outline points it spreads to. */
+const LOOP_END = { x: 402, y: 142 };
+
+/** A point on the loop's reach down to the bend, on no Element: where a press selects it. */
+const LOOP_ON = { x: 339, y: 231 };
+
+/**
+ * A bent arrow on its own, its ends free: the shaft a copy is made of without
+ * the Snap a fragment cannot carry. Its own corners are `round` while the bend
+ * is written `sharp`, so the corner that survives a copy is the point's own and
+ * not the Element's.
+ */
+const BENT_FREE_SCENE = {
+  version: 1,
+  title: 'Bent free',
+  defaults: { roughness: 0 },
+  elements: [
+    { id: 'a', type: 'rectangle', x: 0, y: 0, width: 100, height: 100 },
+    {
+      id: 'c',
+      type: 'arrow',
+      corners: 'round',
+      points: [
+        { x: 50, y: 50 },
+        { x: 300, y: 250, corner: 'sharp' },
+        { x: 550, y: 50 },
+      ],
+      heads: { start: 'none', end: 'arrow' },
+    },
+  ],
+};
+const BENT_FREE_SOURCE = JSON.stringify(BENT_FREE_SCENE, null, 2);
+
+/** The view `BENT_FREE_SCENE` lands in, worked out the same way as `VIEW`. */
+const BENT_FREE: View = { zoom: 1, panX: 365, panY: 275 };
+
+/** A point on the free arrow's first run, on no box: where a press selects it. */
+const BENT_FREE_ON = { x: 175, y: 150 };
+
+/**
+ * The saved Scene, and `ez check`'s word that the file it was saved as parses:
+ * a Snap naming a target that is not in the Scene, or a `corner` on an end, is
+ * a Scene the editor can write and cannot read back.
+ */
+async function savedAndChecked(ui: Ui, name: string): Promise<SavedScene> {
+  const scene = await savedScene(ui, name);
+  const checked = await cliCheckBytes((await savedFiles(ui))[name] ?? '');
+  expect(checked.code, checked.reported).toBe(0);
+  return scene;
+}
+
+/** The Scene files the `snap.json` fixture folder holds, by the name a person opens. */
 const SCENES = {
   A: {
     'snap.json': SNAP_SOURCE,
     'snapped.json': SNAPPED_SOURCE,
     'hyphen.json': HYPHEN_SOURCE,
     'crossing.json': CROSSING_SOURCE,
+    'bent.json': BENT_SOURCE,
+    'bentfree.json': BENT_FREE_SOURCE,
+    'loop.json': LOOP_SOURCE,
   },
 };
 
@@ -591,5 +715,169 @@ describe('two targets that cross', () => {
     expect(end !== undefined && reaches(end, { x: 60, y: 50 }), `the shaft ends at 60,50`).toBe(
       true,
     );
+  });
+});
+
+/**
+ * A shaft of three points: two ends and one bend between them. The schema, the
+ * Renderer and the geometry draw it; every edit the editor makes reads `points`
+ * as two, so each of them has to keep the bend it walks past — and the file it
+ * saves has to be one the editor can read back.
+ */
+describe('a bent shaft keeps its bend', () => {
+  test('the note names both ends, not the bend between them', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'bent.json');
+    await clickScene(ui, BENT_ON, [], BENT);
+
+    await expect(screen.getByRole('button', { name: 'Detach: start' })).toBeVisible();
+    await expect(screen.getByRole('button', { name: 'Detach: end' })).toBeVisible();
+  });
+
+  test('moving the shaft frees both ends and keeps the bend', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'bent.json');
+    await clickScene(ui, BENT_ON, [], BENT);
+    await dragBy(ui, BENT_ON, 0, -40, BENT);
+
+    const scene = await savedAndChecked(ui, 'bent.json');
+    expect(scene.elements[2]?.points).toEqual([
+      { x: 100, y: 50 },
+      { x: 300, y: 210, corner: 'sharp' },
+      { x: 500, y: 50 },
+    ]);
+  });
+
+  test('dragging the start keeps the bend and the end', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'bent.json');
+    await clickScene(ui, BENT_ON, [], BENT);
+    await dragBy(ui, BENT_START, -30, 40, BENT);
+
+    const scene = await savedAndChecked(ui, 'bent.json');
+    expect(scene.elements[2]?.points).toEqual([
+      { x: 70, y: 130 },
+      { x: 300, y: 250, corner: 'sharp' },
+      { x: 550, y: 50, snap: 'b' },
+    ]);
+  });
+
+  test('dragging the end keeps the bend and the start', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'bent.json');
+    await clickScene(ui, BENT_ON, [], BENT);
+    await dragBy(ui, BENT_END, 20, 40, BENT);
+
+    const scene = await savedAndChecked(ui, 'bent.json');
+    expect(scene.elements[2]?.points).toEqual([
+      { x: 50, y: 50, snap: 'a' },
+      { x: 300, y: 250, corner: 'sharp' },
+      { x: 520, y: 130 },
+    ]);
+  });
+
+  test('Detach start frees the first point where it draws', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'bent.json');
+    await clickScene(ui, BENT_ON, [], BENT);
+    await screen.getByRole('button', { name: 'Detach: start' }).click();
+
+    const scene = await savedAndChecked(ui, 'bent.json');
+    expect(scene.elements[2]?.points).toEqual([
+      { x: 100, y: 90 },
+      { x: 300, y: 250, corner: 'sharp' },
+      { x: 550, y: 50, snap: 'b' },
+    ]);
+  });
+
+  test('Detach end frees the last point, not the bend', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'bent.json');
+    await clickScene(ui, BENT_ON, [], BENT);
+    await screen.getByRole('button', { name: 'Detach: end' }).click();
+
+    const scene = await savedAndChecked(ui, 'bent.json');
+    expect(scene.elements[2]?.points).toEqual([
+      { x: 50, y: 50, snap: 'a' },
+      { x: 300, y: 250, corner: 'sharp' },
+      { x: 500, y: 90 },
+    ]);
+  });
+
+  test('Duplicate copies every point, the bend included', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'bentfree.json');
+    await clickScene(ui, BENT_FREE_ON, [], BENT_FREE);
+    await browser.keyboard.press('Meta+d');
+
+    const scene = await savedAndChecked(ui, 'bentfree.json');
+    expect(scene.elements.map((element) => element.id)).toEqual(['a', 'c', 'arrow-1']);
+    expect(scene.elements[2]?.points).toEqual([
+      { x: 66, y: 66 },
+      { x: 316, y: 266, corner: 'sharp' },
+      { x: 566, y: 66 },
+    ]);
+  });
+
+  test('deleting the start\'s target frees that end and keeps the bend', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'bent.json');
+    await clickScene(ui, { x: 40, y: 40 }, [], BENT);
+    await browser.keyboard.press('Delete');
+
+    const scene = await savedAndChecked(ui, 'bent.json');
+    expect(scene.elements.map((element) => element.id)).toEqual(['b', 'c']);
+    expect(scene.elements[1]?.points).toEqual([
+      { x: 100, y: 90 },
+      { x: 300, y: 250, corner: 'sharp' },
+      { x: 550, y: 50, snap: 'b' },
+    ]);
+  });
+
+  test('deleting the end\'s target frees that end and keeps the bend', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'bent.json');
+    await clickScene(ui, { x: 520, y: 20 }, [], BENT);
+    await browser.keyboard.press('Delete');
+
+    const scene = await savedAndChecked(ui, 'bent.json');
+    expect(scene.elements.map((element) => element.id)).toEqual(['a', 'c']);
+    expect(scene.elements[1]?.points).toEqual([
+      { x: 50, y: 50, snap: 'a' },
+      { x: 300, y: 250, corner: 'sharp' },
+      { x: 500, y: 90 },
+    ]);
+  });
+});
+
+describe('the two ends of a loop', () => {
+  test('an end dragged back onto the Element it leaves attaches again', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'loop.json');
+    await clickScene(ui, LOOP_ON, [], LOOP);
+
+    // The end is carried a little and dropped inside the ellipse the other end
+    // already leaves, which a shaft of three points may do: only a two-point
+    // shaft is barred from attaching both ends to one Element.
+    await dragBy(ui, LOOP_END, -40, -20, LOOP);
+
+    const scene = await savedAndChecked(ui, 'loop.json');
+    expect(scene.elements[1]?.points).toEqual([
+      { x: 360, y: 140, snap: 'oval' },
+      { x: 360, y: 320, corner: 'sharp' },
+      { x: 362, y: 122, snap: 'oval' },
+    ]);
   });
 });
