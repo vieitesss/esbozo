@@ -1,22 +1,24 @@
 /**
- * `pnpm e2e:linux [e2e arguments]`: the browser suite in the Ubuntu image CI
- * runs it on.
+ * `pnpm e2e:linux [e2e arguments]`: the browser suite in an Ubuntu image like
+ * the one CI runs it on.
  *
  * A failure that shows only in CI is a Linux Chromium's, not this Mac's, so the
  * fix is proved where it broke. The image is `docker/e2e.Dockerfile`, built
- * once and tagged with a hash of that file and the Node and pnpm versions CI
- * resolves from `package.json`, so a second run reuses it and a change to any of
- * the three builds a new one instead of silently testing the old.
+ * once and tagged with a hash of every input it is built from: that file, the
+ * files it copies in, and the Node and pnpm versions. A second run reuses it,
+ * and a change to any of them builds a new one instead of silently testing the
+ * old.
  *
  * The worktree is mounted at `/src` and copied over the image's dependencies at
  * run time (see `scripts/e2e-linux-container.sh`): a source change costs a copy,
- * never a rebuild, and the host's macOS `node_modules` never crosses in.
+ * never a rebuild, and the host's macOS `node_modules` is masked out of the
+ * mount, so it never crosses in.
  *
- * The arguments go to `e2e run`, so `tests/<file>.e2e.ts:<line>`, `--grep` and
- * `--last-failed` work as they do locally; with none it runs what `pnpm e2e`
- * runs. The container is removed on every exit path, Ctrl-C included, and the
- * run ends with the suite's own exit code, so a failure reaches the shell that
- * asked for it.
+ * The arguments go to `e2e run`, so `tests/<file>.e2e.ts:<line>` and `--grep`
+ * work as they do locally; with none it runs what `pnpm e2e` runs. The
+ * container is removed on every exit path, Ctrl-C included, and the run ends
+ * with the suite's own exit code, so a failure reaches the shell that asked for
+ * it.
  */
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -27,17 +29,17 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const DOCKERFILE = join(ROOT, 'docker/e2e.Dockerfile');
+const NODE_VERSION_FILE = join(ROOT, '.node-version');
 
-/** The shape of a range in `engines.node` this script can read: a floor, or one version. */
-const FLOOR = /^>=\s*v?(\d+)\.(\d+)\.(\d+)$/;
-const EXACT = /^=?v?(\d+)\.(\d+)\.(\d+)$/;
+/** A `major.minor.patch` version, the only shape the image can install by name. */
+const VERSION = /^v?(\d+)\.(\d+)\.(\d+)$/;
 
 /** Every environment variable a run may want: the suite's own switches, and the agent key. */
 const PASSED = /^(?:ESBOZO_|OPENCODE_API_KEY$)/;
 
 const pkg = JSON.parse(await readFile(join(ROOT, 'package.json'), 'utf8'));
 const pnpmVersion = pnpmOf(pkg.packageManager);
-const nodeVersion = await nodeVersionFor(pkg.engines?.node ?? '');
+const nodeVersion = await nodeVersionCI();
 const image = await imageFor(nodeVersion, pnpmVersion);
 
 await dockerOrStop();
@@ -136,58 +138,23 @@ function pnpmOf(packageManager) {
 }
 
 /**
- * The Node release CI's `actions/setup-node` resolves from `engines.node`.
- *
- * CI installs the newest release that satisfies the range, and this repository's
- * range is a floor, so the newest release is the answer; a range this script
- * cannot read that way stops here rather than guessing at a major. The index is
- * nodejs.org's own list, newest first.
- *
- * `ESBOZO_E2E_NODE` pins one version for a run that has to match something else.
+ * The Node release CI installs, read from `.node-version`, the one file CI's
+ * `actions/setup-node` reads too. Sharing the file is the point: the `engines`
+ * floor in `package.json` still says what the project needs, and this number
+ * pins what is proved, so both place cannot drift into two different Nodes.
  */
-async function nodeVersionFor(range) {
-  const pinned = String(process.env.ESBOZO_E2E_NODE ?? '').trim();
-  if (pinned !== '') return pinned;
-
-  let index;
+async function nodeVersionCI() {
+  let said;
   try {
-    const response = await fetch('https://nodejs.org/dist/index.json');
-    index = await response.json();
+    said = (await readFile(NODE_VERSION_FILE, 'utf8')).trim();
   } catch (error) {
-    fail(
-      `could not read https://nodejs.org/dist/index.json to resolve Node "${range}": ${error.message}\n` +
-        'Set ESBOZO_E2E_NODE to a version to build the image without it.',
-    );
+    fail(`cannot read .node-version, the Node version CI installs: ${error.message}`);
   }
-
-  const floor = FLOOR.exec(String(range).trim());
-  const exact = floor === null ? EXACT.exec(String(range).trim()) : null;
-  if (floor === null && exact === null) {
-    fail(
-      `package.json engines.node is "${range}": pnpm e2e:linux resolves a floor (">=x.y.z") or one version.\n` +
-        'Set ESBOZO_E2E_NODE to the version the image should carry.',
-    );
+  const version = VERSION.exec(said);
+  if (version === null) {
+    fail(`.node-version reads "${said}": it must hold one major.minor.patch version, as CI's setup-node reads it`);
   }
-
-  const wanted = (floor ?? exact).slice(1, 4).map(Number);
-  for (const release of index) {
-    const version = String(release?.version ?? '').replace(/^v/, '');
-    // A pre-release is not something CI installs for a version range.
-    if (version === '' || version.includes('-')) continue;
-    if (floor !== null && atLeast(version, wanted)) return version;
-    if (exact !== null && version === wanted.join('.')) return version;
-  }
-  fail(`no Node release on nodejs.org satisfies package.json engines.node "${range}"`);
-}
-
-/** Whether a `major.minor.patch` version is at or above a floor of the same shape. */
-function atLeast(version, floor) {
-  const parts = version.split('.').map(Number);
-  for (let index = 0; index < 3; index += 1) {
-    if (parts[index] > floor[index]) return true;
-    if (parts[index] < floor[index]) return false;
-  }
-  return true;
+  return version.slice(1, 4).join('.');
 }
 
 /**

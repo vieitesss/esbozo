@@ -1,16 +1,17 @@
 # syntax=docker/dockerfile:1
 
-# The Linux the browser suite runs on in CI: Ubuntu, the Node and pnpm CI
-# resolves from `package.json`, and Chromium with the system libraries it needs.
+# The Linux the browser suite is proved on: Ubuntu, the Node `.node-version`
+# pins for CI, and Chromium with the system libraries it needs.
 #
-# `pnpm e2e:linux` builds this image, tags it with a hash of this file and those
-# two versions, and reuses the tag while all three hold still. The source is not
-# in the image: the worktree is mounted at `/src` and copied over the
+# `pnpm e2e:linux` builds this image, tags it with a hash of everything here that
+# goes into it, and reuses the tag while all of that holds still. The source is
+# not in the image: the worktree is mounted at `/src` and copied over the
 # dependencies at run time (`scripts/e2e-linux-container.sh`), so a source change
-# costs a copy, and the host's macOS `node_modules` never enters the container.
+# costs a copy, and the host's macOS `node_modules` is masked out of the mount.
 #
 # `NODE_VERSION` and `PNPM_VERSION` have no defaults on purpose: a default here
-# is a second place to bump, and the two numbers live in `package.json`.
+# is a second place to bump, and the two numbers live in `.node-version` and
+# `package.json`.
 
 FROM ubuntu:24.04
 
