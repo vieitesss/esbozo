@@ -35,7 +35,7 @@ import type { Box, Handle, Point, Pointer, View } from './geometry.js';
 import type { ToolId } from './actions.js';
 import { drawn, drawnAtClick, freshId, idsOf, isClick } from './elements.js';
 import type { ElementTool } from './elements.js';
-import type { Page } from './page.js';
+import type { Page, Shown } from './page.js';
 import {
   attachedTo,
   endPoint,
@@ -299,29 +299,33 @@ export class Gestures {
   }
 
   /**
-   * The Elements the gesture in flight shows the page, or null when it shows the
-   * Scene as it is. The release settles this same projection, so a drag can
-   * never show one thing and save another.
+   * What the page shows while a gesture is in flight, or null when no gesture is
+   * in the way: the Scene as it is, under the words a session may be holding.
+   * The three answers are a drag that shows its own Elements, a drag that shows
+   * the Scene as it is and settles the page, and no drag at all — a sweep or a
+   * Text press shows the committed words, never the words under them.
    */
-  shownByDrag(): SceneElement[] | null {
+  shownByDrag(): Shown | null {
     const drag = this.#drag;
     if (drag === null) {
       return null;
     }
     const elements = this.#host.scene().elements;
     if (drag.kind === 'draw') {
-      return [...elements, drag.preview];
+      return { settled: false, elements: [...elements, drag.preview] };
+    }
+    // A pan and a caret drag carry the page under the words rather than changing
+    // what it holds, so the session's own preview stays drawn.
+    if (drag.kind === 'pan' || drag.kind === 'words') {
+      return null;
     }
     const shown = asShownDrag(drag);
-    if (shown === null) {
-      return null;
-    }
     // A Label the pointer has not carried stands where the Scene holds it, and a
-    // press that placed nothing shows that Scene too.
-    if (shown.kind === 'label' && !shown.moved) {
-      return null;
+    // press that has placed nothing shows that Scene too.
+    if (shown === null || (shown.kind === 'label' && !shown.moved)) {
+      return { settled: true, elements };
     }
-    return shownElements(elements, shown);
+    return { settled: false, elements: shownElements(elements, shown) };
   }
 
   /** Whether a Space press is holding the page in the hand, so the pencil stands down. */
@@ -925,7 +929,8 @@ export class Gestures {
     }
     if (drag.kind === 'move' || drag.kind === 'resize') {
       // The gesture is over: what the page showed becomes the Scene, as one step.
-      const elements = this.shownByDrag() ?? this.#host.scene().elements;
+      const shown = this.shownByDrag();
+      const elements = shown === null ? this.#host.scene().elements : [...shown.elements];
       this.#drag = null;
       // The whole gesture is one history step, and the note may make room for
       // where the selection ended up.

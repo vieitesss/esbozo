@@ -628,11 +628,11 @@ class EsbozoEditorElement extends HTMLElement {
    * render.
    */
   #shown(): Shown {
-    // The gesture says what it shows: null is the Scene as it is, under the
-    // words a session may be holding half-written.
+    // The gesture says what it shows when one is in the way: no gesture at all
+    // leaves the Scene under the words a session may be holding half-written.
     const shown = this.#gestures.shownByDrag();
     if (shown !== null) {
-      return { settled: false, elements: shown };
+      return shown;
     }
     // A page with a session open draws the words it holds half-written, so it is
     // not settled even when the Scene's Elements are the ones it shows.
