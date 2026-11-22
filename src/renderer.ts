@@ -789,14 +789,14 @@ function arrowOrLineSvg(
   const shaft = generator.path(shaftData(path), lineOptions(element));
   const gap = labelGap(path, words, width);
   const heads = headsOf(element, path);
-  const bases = headBasesOf(heads);
+  const faces = headFacesOf(heads, width / 2);
   const passes = strokePasses(shaft).map((ops) => passPieces(ops));
   const runs: { d: string; from: number }[] = [];
-  if (gap === null && bases.start === null) {
+  if (gap === null && faces.start === null) {
     // Nothing cut this shaft: no Label, and no head takes ink off the end it
     // starts at, so both passes are the one path they were drawn as.
     const drawn = passes
-      .map((pieces) => shaftBehindHeads(pieces, bases))
+      .map((pieces) => shaftBehindHeads(pieces, faces))
       .map((cut) => piecePath(generator, cut.pieces))
       .filter((one) => one !== '');
     if (drawn.length > 0) {
@@ -804,12 +804,15 @@ function arrowOrLineSvg(
     }
   } else {
     for (const pieces of passes) {
-      for (const stop of gap === null ? [{ pieces, start: 0 }] : cutAtGap(pieces, gap)) {
-        const cut = shaftBehindHeads(stop.pieces, bases);
-        if (cut.pieces.length > 0) {
+      // The heads are cut first: a head only ever takes ink off an end of the
+      // whole shaft, and a Label cuts a gap between its two ends.
+      const headed = shaftBehindHeads(pieces, faces);
+      const stops = gap === null ? [{ pieces: headed.pieces, start: 0 }] : cutAtGap(headed.pieces, gap);
+      for (const stop of stops) {
+        if (stop.pieces.length > 0) {
           // A head takes ink out of the start of the whole shaft as well, so the
           // phase it took off carries into the dashes that are left.
-          runs.push({ d: piecePath(generator, cut.pieces), from: stop.start + cut.removed });
+          runs.push({ d: piecePath(generator, stop.pieces), from: stop.start + headed.removed });
         }
       }
     }
@@ -1073,43 +1076,55 @@ function headPaths(
 }
 
 /**
- * The plane an arrow head's base sits on. No ink of the shaft may reach past it,
- * so the head's triangle is the last ink of its arrow.
+ * The triangle an arrow head fills, and the stroke it has to cover: a shaft ends
+ * where its ink is hidden under it, so the head is the last ink of its arrow.
  */
-interface BasePlane {
-  /** The middle of the head's base: the widest the head's ink gets behind its tip. */
-  readonly middle: Point;
-  /** One unit away from the tip, towards the base: which way is behind the head. */
+interface HeadFace {
+  /** The tip of the head: where the arrow's own end is. */
+  readonly apex: Point;
+  /** One unit from the tip towards the base: which way is behind the head. */
   readonly away: Point;
+  /** How far the base sits behind the tip: the farthest the head reaches. */
+  readonly reach: number;
+  /** Half the base's width, over the reach: how fast the triangle widens behind the tip. */
+  readonly lean: number;
+  /** Half a stroke: the ink the triangle has to cover around the shaft's own line. */
+  readonly radius: number;
 }
 
-/** The planes an arrow's heads sit on, with null for an end that has none. */
-interface HeadBases {
-  readonly start: BasePlane | null;
-  readonly end: BasePlane | null;
+/** The triangles an arrow's heads fill, with null for an end that has none. */
+interface HeadFaces {
+  readonly start: HeadFace | null;
+  readonly end: HeadFace | null;
 }
 
 /**
- * Halvings that find where a shaft crosses a head's base. Past a millionth of a
- * pixel the drawing's own rounding to a hundredth takes over.
+ * How far apart the shaft is read while the walk under a head looks for the edge
+ * of its cover, in Scene units.
+ */
+const HEAD_STEP = 0.25;
+
+/**
+ * Halvings that find where a shaft leaves the cover of a head's triangle. Past a
+ * millionth of a pixel the drawing's own rounding to a hundredth takes over.
  */
 const HEAD_CROSSING_STEPS = 24;
 
-/** The base plane of every head an arrow or line draws, for its shaft to stop behind. */
-function headBasesOf(heads: readonly PlacedHead[]): HeadBases {
-  const bases: { start: BasePlane | null; end: BasePlane | null } = { start: null, end: null };
+/** The triangle of every head an arrow or line draws, for its shaft to end under. */
+function headFacesOf(heads: readonly PlacedHead[], radius: number): HeadFaces {
+  const faces: { start: HeadFace | null; end: HeadFace | null } = { start: null, end: null };
   for (const head of heads) {
-    bases[head.at] = headBaseOf(head.ink);
+    faces[head.at] = headFaceOf(head.ink, radius);
   }
-  return bases;
+  return faces;
 }
 
 /**
- * The plane a head's triangle begins at, or null for a head that draws no
- * triangle: a dot and a bar are wider than the stroke where they sit, so a shaft
- * that reaches the tip under one of them shows nowhere beside it.
+ * The triangle a head fills, or null for a head that fills none: a dot and a bar
+ * are wider than the stroke where they sit, so a shaft that reaches the tip under
+ * one of them shows nowhere beside it.
  */
-function headBaseOf(ink: HeadInk): BasePlane | null {
+function headFaceOf(ink: HeadInk, radius: number): HeadFace | null {
   if (ink.kind !== 'arrow') {
     return null;
   }
@@ -1119,7 +1134,13 @@ function headBaseOf(ink: HeadInk): BasePlane | null {
   if (reach === 0) {
     return null;
   }
-  return { middle, away: { x: (middle.x - apex.x) / reach, y: (middle.y - apex.y) / reach } };
+  return {
+    apex,
+    away: { x: (middle.x - apex.x) / reach, y: (middle.y - apex.y) / reach },
+    reach,
+    lean: Math.hypot(left.x - right.x, left.y - right.y) / 2 / reach,
+    radius,
+  };
 }
 
 /** A shaft with the ink of a head taken out of it, and what that took off its start. */
@@ -1135,8 +1156,7 @@ interface HeadCut {
 
 /**
  * A roughened shaft with the ink its arrow heads cover taken out of it: each
- * head's triangle is the last ink of its arrow, so the shaft stops behind the
- * head's base.
+ * head's triangle is the last ink of its arrow, so the shaft ends under it.
  *
  * A shaft drawn to the tip showed half a stroke of its own width beside the tip,
  * where the triangle is narrower than the stroke. The pieces are cut, rather
@@ -1144,60 +1164,120 @@ interface HeadCut {
  * head is the one the shaft was drawn with: a shorter path would roughen the
  * whole of it another way.
  */
-function shaftBehindHeads(pieces: readonly ShaftPiece[], bases: HeadBases): HeadCut {
-  const start = bases.start === null ? { pieces, removed: 0 } : behindBase(pieces, bases.start, 'start');
-  const end = bases.end === null ? start : behindBase(start.pieces, bases.end, 'end');
+function shaftBehindHeads(pieces: readonly ShaftPiece[], faces: HeadFaces): HeadCut {
+  const start = faces.start === null ? { pieces, removed: 0 } : behindHead(pieces, faces.start, 'start');
+  const end = faces.end === null ? start : behindHead(start.pieces, faces.end, 'end');
   return { pieces: end.pieces, removed: start.removed };
 }
 
 /**
- * The pieces of a shaft that stop behind one head's base, walked in from the
- * head's end: every piece the head covers comes out whole, and the piece the
- * base plane crosses is halved until that crossing is found and split there.
+ * The pieces of a shaft that end under one head's triangle, walked in from the
+ * head's own end: the ink that pokes out beside the tip comes off, then the ink
+ * the triangle hides, and the walk stops at the first place past that cover
+ * where the stroke is beside the head again. Only that one stretch goes, and
+ * never more of it than the head reaches, so ink farther along the shaft — a leg
+ * that turns under the head, or a run a Label cut off — is left where it was.
  */
-function behindBase(
+function behindHead(
   pieces: readonly ShaftPiece[],
-  base: BasePlane,
+  face: HeadFace,
   at: 'start' | 'end',
 ): HeadCut {
   const inward = at === 'end' ? [...pieces].reverse() : [...pieces];
-  const far = (piece: ShaftPiece): Point => (at === 'end' ? piece.from : piece.to);
-  const crossing = inward.findIndex((piece) => pastBase(base, far(piece)) >= 0);
-  if (crossing < 0) {
-    return { pieces: [], removed: 0 };
+  const total = inward.reduce((sum, piece) => sum + piece.length, 0);
+  const covered = Math.min(coveredFrom(inward, face, at), total);
+  let walked = covered;
+  let index = 0;
+  while (index < inward.length && walked >= inward[index]!.length) {
+    walked -= inward[index]!.length;
+    index += 1;
   }
-  const piece = inward[crossing]!;
-  const cut = halvedAt(piece, crossingAt(piece, base, at));
+  const piece = inward[index];
+  if (piece === undefined) {
+    return { pieces: [], removed: at === 'start' ? covered : 0 };
+  }
+  const fraction = at === 'end' ? 1 - walked / piece.length : walked / piece.length;
+  const cut = halvedAt(piece, fraction);
   const kept =
     at === 'end'
-      ? [cut.before, ...inward.slice(crossing + 1)]
-      : [cut.after, ...inward.slice(crossing + 1)];
-  // What the head took off the whole shaft is what a dash has to carry on past.
-  const covered = inward.slice(0, crossing).reduce((sum, whole) => sum + whole.length, 0);
-  return {
-    pieces: at === 'end' ? kept.reverse() : kept,
-    removed: at === 'start' ? covered + cut.before.length : 0,
-  };
+      ? [cut.before, ...inward.slice(index + 1)].reverse()
+      : [cut.after, ...inward.slice(index + 1)];
+  return { pieces: kept.filter((one) => one.length > 0), removed: at === 'start' ? covered : 0 };
 }
 
-/** How far behind a head's base a point lies, in Scene units: positive is the shaft's own side. */
-function pastBase(plane: BasePlane, point: Point): number {
-  return (point.x - plane.middle.x) * plane.away.x + (point.y - plane.middle.y) * plane.away.y;
-}
-
-/** Where one piece of a shaft crosses a head's base, walking in from the end the head sits at. */
-function crossingAt(piece: ShaftPiece, base: BasePlane, at: 'start' | 'end'): number {
-  let front = at === 'end' ? 1 : 0;
-  let behind = at === 'end' ? 0 : 1;
-  for (let step = 0; step < HEAD_CROSSING_STEPS; step += 1) {
-    const middle = (front + behind) / 2;
-    if (pastBase(base, halvedAt(piece, middle).at) >= 0) {
-      behind = middle;
+/**
+ * How far in from one end of a shaft, along its own ink, a head's triangle covers
+ * it: the stretch from that end where a stroke drawn around the shaft is hidden,
+ * the ink that pokes out beside the tip before the cover begins included. It
+ * never walks farther in than the head reaches, so a leg that turns under the
+ * head costs that head its own length of shaft and no more.
+ */
+function coveredFrom(inward: readonly ShaftPiece[], face: HeadFace, at: 'start' | 'end'): number {
+  const total = inward.reduce((sum, piece) => sum + piece.length, 0);
+  const limit = Math.min(face.reach, total);
+  const under = (arc: number): boolean => underHead(face, pointWalked(inward, arc, at));
+  let entered = false;
+  let covered = 0;
+  let arc = 0;
+  while (arc < limit) {
+    const next = Math.min(arc + HEAD_STEP, limit);
+    if (under(next)) {
+      entered = true;
+      covered = next;
+    } else if (entered) {
+      // The ink leaves the triangle again: the shaft shows beside the head from
+      // here on, so the cover ends where it left.
+      return edgeOfCover(under, arc, next);
     } else {
-      front = middle;
+      covered = next;
+    }
+    arc = next;
+  }
+  return covered;
+}
+
+/** Where a walk that is under a head's triangle at `inside` leaves it by `outside`. */
+function edgeOfCover(under: (arc: number) => boolean, inside: number, outside: number): number {
+  let covered = inside;
+  let bare = outside;
+  for (let step = 0; step < HEAD_CROSSING_STEPS; step += 1) {
+    const middle = (covered + bare) / 2;
+    if (under(middle)) {
+      covered = middle;
+    } else {
+      bare = middle;
     }
   }
-  return behind;
+  return covered;
+}
+
+/** Where an arc length walked in from one end of a shaft lands. */
+function pointWalked(pieces: readonly ShaftPiece[], arc: number, at: 'start' | 'end'): Point {
+  let walked = arc;
+  for (const piece of pieces) {
+    if (piece.length > 0 && walked <= piece.length) {
+      return halvedAt(piece, at === 'end' ? 1 - walked / piece.length : walked / piece.length).at;
+    }
+    walked -= piece.length;
+  }
+  const last = pieces[pieces.length - 1];
+  return last === undefined ? { x: 0, y: 0 } : at === 'end' ? last.from : last.to;
+}
+
+/**
+ * Whether a head's triangle hides a stroke drawn around one point of the shaft,
+ * its round cap included: the ink fits between the triangle's two long edges and
+ * stays in front of its base.
+ */
+function underHead(face: HeadFace, centre: Point): boolean {
+  const dx = centre.x - face.apex.x;
+  const dy = centre.y - face.apex.y;
+  const behind = dx * face.away.x + dy * face.away.y;
+  const beside = Math.abs(dy * face.away.x - dx * face.away.y);
+  if (behind > face.reach - face.radius) {
+    return false;
+  }
+  return behind * face.lean - beside >= face.radius * Math.hypot(1, face.lean);
 }
 
 /**
