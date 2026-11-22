@@ -106,6 +106,23 @@ export function withBend(
 }
 
 /**
+ * The arrow or line with a new bend inserted at `index`, stored where the dot
+ * stood: whole-pixel like every other coordinate, no `corner` of its own so it
+ * turns by the Element's, and no Snap — a point pulled out of a shaft's ink is
+ * a bend and only a bend, even over an Element an end would attach to. The ends
+ * either side of it, and every other point, are the Scene's own.
+ */
+export function withInsertedBend(
+  element: ArrowOrLineElement,
+  index: number,
+  point: Point,
+): ArrowOrLineElement {
+  const points = [...element.points];
+  points.splice(index, 0, { x: Math.round(point.x), y: Math.round(point.y) });
+  return { ...element, points: points as ArrowOrLineElement['points'] };
+}
+
+/**
  * The arrow or line with one end stored where the pointer put it: attached to
  * `target`, or free when that is null. The stored point is kept whole-pixel
  * like every other coordinate in a Scene.

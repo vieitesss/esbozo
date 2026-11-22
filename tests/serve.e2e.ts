@@ -16,7 +16,7 @@ import { test } from '@e2e-dev/web';
 import { afterAll, expect } from 'e2e';
 import { cliRender, dragBy, MIXED, MIXED_SCENE, SCENE, clickScene, doubleClickScene, settle } from './helpers.ts';
 import { shot } from './pixels.ts';
-import type { Rect } from './pixels.ts';
+import type { Rect, Shot } from './pixels.ts';
 import { startServe, tempFolder } from '../test/cli.ts';
 import { removeTempFolders } from '../test/temp.ts';
 
@@ -81,6 +81,59 @@ interface SavedScene {
 
 function elementX(scene: SavedScene, id: string): number | undefined {
   return scene.elements.find((element) => element.id === id)?.x;
+}
+
+/**
+ * A flat arrow on a box that holds the page still, well clear of the note the
+ * selection docks on the right: halfway along its ink is Scene (200,300), which
+ * is where a page that may write draws the dot a press pulls a bend out of.
+ */
+const FLAT_SHAFT_SCENE = {
+  version: 1,
+  title: 'Flat shaft',
+  defaults: { roughness: 0 },
+  elements: [
+    { id: 'page', type: 'rectangle', x: 0, y: 0, width: 800, height: 560 },
+    {
+      id: 'shaft',
+      type: 'arrow',
+      points: [
+        { x: 100, y: 300 },
+        { x: 300, y: 300 },
+      ],
+      heads: { start: 'none', end: 'none' },
+    },
+  ],
+};
+const FLAT_SHAFT_SOURCE = JSON.stringify(FLAT_SHAFT_SCENE, null, 2);
+
+/** The view the 800×560 box of `FLAT_SHAFT_SCENE` lands in: fitted 1:1 and centred. */
+const FLAT_SHAFT = { zoom: 1, panX: 240, panY: 120 };
+
+/** On the shaft's first half, past its own end: where a press selects it. */
+const FLAT_SHAFT_ON = { x: 150, y: 300 };
+
+/**
+ * The band of the page the flat shaft's ink runs in, and nothing else: the page
+ * box's own edges and the page's chrome are outside it, so the ink measured here
+ * is the shaft's.
+ */
+const FLAT_SHAFT_BAND: Rect = { x: 280, y: 400, width: 380, height: 40 };
+
+/** Where the shaft's middle is on the page now, read from the ink the page paints. */
+function shaftMiddle(painted: Shot): { x: number; y: number } {
+  // Only the shaft's ink is that dark: the handles, the dashed box about them
+  // and the dot are lighter, so the line they are measured from is this one.
+  const bounds = painted.darkBounds(FLAT_SHAFT_BAND, 0.2);
+  if (bounds === null) {
+    throw new Error('the page paints no shaft to measure');
+  }
+  return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+}
+
+/** The pixel two above a shaft's middle: its dot's ink when it is drawn, and paper when it is not. */
+function dotInkAt(middle: { x: number; y: number }): Rect {
+  return { x: Math.round(middle.x), y: Math.round(middle.y) - 2, width: 1, height: 1 };
 }
 
 /** A fresh folder that holds exactly the files it is given. */
@@ -299,6 +352,51 @@ test('a folder served read-only says so and refuses every save', async ({ app, b
     await expect(screen.getByText('read-only')).toBeVisible();
   } finally {
     await server.stop();
+  }
+});
+
+test('a folder served read-only draws no dot on the shaft a press selects', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  const folder = await folderWith({ 'flat.json': FLAT_SHAFT_SOURCE });
+
+  // The same shaft in a folder that may be written: the mark halfway along it
+  // is ink two pixels above the ink it is halfway along.
+  const writable = await startServe(folder);
+  try {
+    await app.open(`${writable.url}/editor.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    // The Grid's own dots are ink too: with the Grid off, the pixel above the
+    // shaft's middle is its dot's ink or paper.
+    await browser.keyboard.press('g');
+    await clickScene(ui, FLAT_SHAFT_ON, [], FLAT_SHAFT);
+    await settle(ui);
+    const painted = await shot(ui);
+    expect(painted.darkCount(dotInkAt(shaftMiddle(painted)), 0.85)).toBe(1);
+  } finally {
+    await writable.stop();
+  }
+
+  // The same shaft served read-only: the press still selects it — a page that
+  // may only read is an editor — but the shaft it selected carries no mark a
+  // press could not take.
+  const readOnly = await startServe(folder, ['--read-only']);
+  try {
+    await app.open(`${readOnly.url}/editor.html`);
+    await expect(screen.getByText('read-only')).toBeVisible();
+    await browser.keyboard.press('g');
+    await clickScene(ui, FLAT_SHAFT_ON, [], FLAT_SHAFT);
+    await settle(ui);
+    await expect(screen.getByRole('dialog', 'Style')).toBeVisible();
+    const painted = await shot(ui);
+    expect(painted.darkCount(dotInkAt(shaftMiddle(painted)), 0.85)).toBe(0);
+    // Nothing was written, and the file is the one the folder was made with.
+    expect(await readFile(join(folder, 'flat.json'), 'utf8')).toBe(FLAT_SHAFT_SOURCE);
+  } finally {
+    await readOnly.stop();
   }
 });
 

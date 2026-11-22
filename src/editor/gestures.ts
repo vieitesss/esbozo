@@ -4,12 +4,13 @@
  *
  * A press takes the pointer, and what it may become is decided once, on the
  * press: a pan (Space or the middle button), a draw with the armed tool, a
- * resize or a dragged end off a handle, a Label carried off its words, a move, a
- * sweep, or nothing but a click. The moves reshape a *preview*; only the release
- * settles it into the Scene, as one history step and one write. So half a
- * gesture is never a Scene, and an exit that is not a release — `pointercancel`,
- * a window blur, a hidden page, a Scene switch, write access that ends — drops
- * the preview and leaves the Scene exactly as it was.
+ * resize or a dragged end off a handle, a bend pulled out of a segment's dot, a
+ * Label carried off its words, a move, a sweep, or nothing but a click. The moves
+ * reshape a *preview*; only the release settles it into the Scene, as one
+ * history step and one write. So half a gesture is never a Scene, and an exit
+ * that is not a release — `pointercancel`, a window blur, a hidden page, a Scene
+ * switch, write access that ends — drops the preview and leaves the Scene
+ * exactly as it was.
  *
  * The click is the other half of the machine. A press that never left the
  * click's own slop is a click, two of them in a row and close enough together
@@ -24,11 +25,11 @@
  * field. Nothing here draws or measures; it decides, and hands the decision to
  * the editor.
  */
-import { elementsById, drawnShaft, outlineBox } from '../renderer.js';
+import { elementsById, drawnShaft, outlineBox, shaftInk } from '../renderer.js';
 import { canonicalElement, isOutlined } from '../scene.js';
-import type { Element as SceneElement, Scene } from '../scene.js';
+import type { ArrowOrLineElement, Element as SceneElement, Scene } from '../scene.js';
 import type { Layout } from '../layout.js';
-import { labelAtFor } from '../geometry.js';
+import { labelAtFor, shaftDots } from '../geometry.js';
 import { boxBetween, elementsInBox, moved, pickAt, resized, resizedBox } from './geometry.js';
 import type { Box, Handle, Point, Pointer, View } from './geometry.js';
 import type { ToolId } from './actions.js';
@@ -44,6 +45,7 @@ import {
   targetAt,
   withBend,
   withEnd,
+  withInsertedBend,
 } from './snap.js';
 import type { End } from './snap.js';
 import type { Typing } from './typing.js';
@@ -110,8 +112,13 @@ export type Drag =
       id: string;
       /** The point the handle stands on: a bend between the ends, never an end. */
       index: number;
+      /**
+       * Whether the press pulled this point out of a segment's dot: it is not in
+       * the Scene yet, and a press that carries nothing leaves it out.
+       */
+      inserted: boolean;
       from: Point;
-      /** The bend as the Scene stores it: where the pointer grabbed it. */
+      /** The bend as the Scene stores it: where the pointer grabbed it, or where the dot stood. */
       origin: Point;
       /** Whether the handle has moved at all during the gesture. */
       moved: boolean;
@@ -489,6 +496,7 @@ export class Gestures {
           kind: 'bend',
           id,
           index: bend,
+          inserted: false,
           from: viewport.scenePoint(event),
           origin: { x: stored.x, y: stored.y },
           moved: false,
@@ -507,6 +515,11 @@ export class Gestures {
         };
         return;
       }
+    }
+
+    const dot = editing ? (target?.closest('[data-dot]') ?? null) : null;
+    if (dot !== null && this.#pullBend(dot, event)) {
+      return;
     }
 
     const point = viewport.scenePoint(event);
@@ -687,15 +700,15 @@ export class Gestures {
       return;
     }
     if (drag.kind === 'bend') {
-      const element = this.#host.scene().elements.find((candidate) => candidate.id === drag.id);
-      if (element === undefined || !isShaft(element)) {
+      const base = this.#bendBase(drag);
+      if (base === undefined) {
         return;
       }
       // A bend never Snaps and never carries an end: it is the one point the
       // pointer holds, rounded to whole pixels where the Scene rounds every
       // number, and every other field of the Element stays the Scene's.
       drag.moved = drag.moved || dx !== 0 || dy !== 0;
-      drag.shown = withBend(element, drag.index, {
+      drag.shown = withBend(base, drag.index, {
         x: drag.origin.x + dx,
         y: drag.origin.y + dy,
       });
@@ -899,6 +912,52 @@ export class Gestures {
   };
 
   /**
+   * A press on a segment's dot pulls a new bend point out of the shaft: the
+   * point starts where the dot stood, and the pointer carries it from there as
+   * it carries a bend handle. The dot stands on the ink, so the press is also a
+   * click on the shaft there — it keeps the press a double-click reads, and a
+   * press that carries nothing inserts nothing.
+   */
+  #pullBend(dot: Element, event: PointerEvent): boolean {
+    const { viewport } = this.#host.page;
+    const id = dot.getAttribute('data-element') ?? '';
+    const index = Number(dot.getAttribute('data-point'));
+    const element = this.#host.scene().elements.find((candidate) => candidate.id === id);
+    if (
+      element === undefined ||
+      !isShaft(element) ||
+      !Number.isInteger(index) ||
+      index < 1 ||
+      index > element.points.length - 1
+    ) {
+      return false;
+    }
+    const byId = elementsById(this.#host.scene().elements);
+    const pulled = shaftDots(shaftInk(element, byId).path).find((one) => one.index === index);
+    if (pulled === undefined) {
+      return false;
+    }
+    this.#press = {
+      id,
+      at: viewport.screenPoint(event),
+      time: event.timeStamp,
+      shift: event.shiftKey,
+    };
+    this.#drag = {
+      kind: 'bend',
+      id,
+      index,
+      inserted: true,
+      from: viewport.scenePoint(event),
+      origin: { x: pulled.at.x, y: pulled.at.y },
+      moved: false,
+      shown: element,
+    };
+    this.#host.refresh();
+    return true;
+  }
+
+  /**
    * A press on an Element: it becomes the selection, or Shift adds it to the
    * selection or takes it back out. A press on what is already selected keeps
    * the selection the gesture will carry.
@@ -1041,8 +1100,8 @@ export class Gestures {
    * nothing, while a drag that comes back to its start is still one step.
    */
   #settleBend(drag: Extract<Drag, { kind: 'bend' }>, at: Point): void {
-    const element = this.#host.scene().elements.find((candidate) => candidate.id === drag.id);
-    if (!drag.moved || element === undefined || !isShaft(element)) {
+    const base = this.#bendBase(drag);
+    if (!drag.moved || base === undefined) {
       this.#host.refresh();
       return;
     }
@@ -1052,9 +1111,22 @@ export class Gestures {
       elements: this.#host
         .scene()
         .elements.map((candidate) =>
-          candidate.id === drag.id ? withBend(element, drag.index, to) : candidate,
+          candidate.id === drag.id ? withBend(base, drag.index, to) : candidate,
         ),
     });
+  }
+
+  /**
+   * The Element a bend drag is editing: the Scene's own, or — when the press
+   * pulled the point out of a dot — that Element with the new point in place
+   * where the dot stood.
+   */
+  #bendBase(drag: Extract<Drag, { kind: 'bend' }>): ArrowOrLineElement | undefined {
+    const element = this.#host.scene().elements.find((candidate) => candidate.id === drag.id);
+    if (element === undefined || !isShaft(element)) {
+      return undefined;
+    }
+    return drag.inserted ? withInsertedBend(element, drag.index, drag.origin) : element;
   }
 
   /**

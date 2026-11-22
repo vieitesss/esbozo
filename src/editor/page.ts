@@ -25,11 +25,11 @@
  * the editor's to say, through `PageHost`. Nothing here reads the Scene's own
  * state or decides what an edit is.
  */
-import { drawnShaft, elementsById, outlineBox, shaftLabel, wordsInkBounds } from '../renderer.js';
+import { elementsById, outlineBox, shaftInk, shaftLabel, wordsInkBounds } from '../renderer.js';
 import { isOutlined } from '../scene.js';
 import type { Corner, Element as SceneElement, Scene } from '../scene.js';
 import type { Block, Layout, LineGlyphs } from '../layout.js';
-import { cornerOf } from '../geometry.js';
+import { cornerOf, shaftDots } from '../geometry.js';
 import { HANDLES, boxBetween, boxOf, clearedView, handlePoint, unionOf } from './geometry.js';
 import type { Box, Point } from './geometry.js';
 import type { Drag } from './gestures.js';
@@ -47,6 +47,14 @@ import type { ViewportParts } from './viewport.js';
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const SELECTION_PADDING = 5;
 const HANDLE_SIZE = 8;
+/**
+ * The diameter of a segment's halfway dot, in screen pixels: smaller than a
+ * handle, so a dot reads as somewhere to pull a bend out of rather than as a
+ * point the shaft already has.
+ */
+const DOT_SIZE = 6;
+/** How close a dot's middle may come to a handle's before the dot is left off, in screen pixels. */
+const DOT_CLEARANCE = (HANDLE_SIZE + DOT_SIZE) / 2;
 /** How far a Snap target's highlight stands off the target's outline, in screen pixels. */
 const SNAP_GROW = 4;
 /** How far the mark on a selected Label's words stands off the box they paint, in screen pixels. */
@@ -85,6 +93,8 @@ interface PageHost {
   selected(): readonly string[];
   /** The gesture in flight, as the drawing and the overlay read it. */
   drag(): Drag | null;
+  /** True when this page may change the Scene at all: a page that may only read marks no ink a press could pull out. */
+  writable(): boolean;
   /** The preview Element and the field whose caret the page draws. */
   readonly typing: Pick<Typing, 'editingId' | 'words'>;
 }
@@ -684,7 +694,8 @@ export class Page {
   /**
    * The drag targets of a lone selection: eight around a box's outline, the two
    * ends of an arrow or line where they draw — a Snapped end rides its target's
-   * outline, so its handle is there too — and one on every bend between them.
+   * outline, so its handle is there too — one on every bend between them, and a
+   * smaller dot halfway along every segment of the ink.
    */
   #drawHandles(overlay: SVGGElement, id: string): void {
     const element = this.#shownElement(id);
@@ -699,10 +710,10 @@ export class Page {
       }
     } else if (isShaft(element)) {
       const byId = this.#painted?.byId ?? elementsById(this.#host.scene().elements);
-      const [start, end] = drawnShaft(element, byId);
+      const path = shaftInk(element, byId).path;
       handles.push(
-        { at: this.viewport.pagePoint(start), kind: 'handle', name: 'start' },
-        { at: this.viewport.pagePoint(end), kind: 'handle', name: 'end' },
+        { at: this.viewport.pagePoint(path.start), kind: 'handle', name: 'start' },
+        { at: this.viewport.pagePoint(path.end), kind: 'handle', name: 'end' },
       );
       for (let index = 1; index < element.points.length - 1; index += 1) {
         const point = element.points[index]!;
@@ -712,6 +723,20 @@ export class Page {
           index,
           corner: cornerOf(point, element.corners),
         });
+      }
+      // A dot stands on the ink between the handles, and a press on a handle is
+      // a press on the point it holds: a dot that would land on one is left off
+      // rather than drawn where a press could never take it.
+      // A page that may only read draws none at all: a mark that promises a
+      // bend out of the ink is a promise only a page that can change the Scene
+      // keeps.
+      if (this.#host.writable()) {
+        for (const dot of shaftDots(path)) {
+          const at = this.viewport.pagePoint(dot.at);
+          if (handles.every((handle) => distance(handle.at, at) >= DOT_CLEARANCE)) {
+            this.#appendDot(overlay, at, dot.index, id);
+          }
+        }
       }
     }
     for (const handle of handles) {
@@ -759,6 +784,23 @@ export class Page {
   }
 
   /**
+   * One segment's dot: a small translucent disc, at the size and in the pixels
+   * every other handle is, so a zoom changes neither its size nor its colours.
+   * A press on it pulls a new bend point out of the shaft at the index it keeps.
+   */
+  #appendDot(parent: SVGGElement, at: Point, index: number, id: string): void {
+    const node = document.createElementNS(SVG_NS, 'circle');
+    node.setAttribute('cx', String(at.x));
+    node.setAttribute('cy', String(at.y));
+    node.setAttribute('r', String(DOT_SIZE / 2));
+    node.setAttribute('class', 'handle-dot');
+    node.setAttribute('data-dot', 'bend');
+    node.setAttribute('data-point', String(index));
+    node.setAttribute('data-element', id);
+    parent.append(node);
+  }
+
+  /**
    * A lone shaft's Label, marked as something a press can carry. The selection's
    * own outline is the Element's, and its hands resize it; the words are taken
    * on their own, by a press on them, so the selection says which box that is.
@@ -795,6 +837,11 @@ export class Page {
     parent.append(node);
     return node;
   }
+}
+
+/** How far apart two places on the page are, in screen pixels. */
+function distance(one: Point, other: Point): number {
+  return Math.hypot(one.x - other.x, one.y - other.y);
 }
 
 /**
