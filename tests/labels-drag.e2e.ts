@@ -109,6 +109,13 @@ const ON_THE_LINE: Record<'inside' | 'left' | 'right', Rect> = {
  */
 const ON_THE_LINE_WORDS: Rect = { x: 271, y: 186, width: 57, height: 26 };
 
+/**
+ * A strip two units in from the end of that gap, in the Scene's units: the shaft
+ * is drawn over it while the words say `moving`, and it is gap once they say
+ * `moving on`, whose ink reaches four units nearer the middle of the shaft.
+ */
+const GROWN: Rect = { x: 259, y: 198, width: 2, height: 4 };
+
 /** A box drawn in the Scene's units, as the page it is shown on draws it. */
 function onPage(box: Rect, view: View): Rect {
   return {
@@ -250,6 +257,20 @@ describe('labels drag', () => {
     expect(reopened.darkCount(onPage(ON_THE_LINE.inside, OPENED), DARK)).toBe(0);
     expect(reopened.darkCount(onPage(ON_THE_LINE.left, OPENED), DARK)).toBeGreaterThan(0);
     expect(reopened.darkCount(onPage(ON_THE_LINE.right, OPENED), DARK)).toBeGreaterThan(0);
+
+    // One more word, typed onto the row the words already lie on: the gap follows
+    // them as they grow, before the Escape that saves the wider words. The strip
+    // two units in from where their gap ended held the shaft's own ink while the
+    // words were `moving`; with `moving on` it is gap, bare of everything.
+    expect(reopened.darkCount(onPage(GROWN, OPENED), DARK)).toBeGreaterThan(0);
+    await doubleClickScene(ui, { x: 300, y: 200 }, OPENED);
+    const typing = screen.getByRole('textbox', { name: 'Label' });
+    await expect(typing).toHaveValue('moving');
+    await typing.pressSequentially(' on');
+    await settle(ui);
+    expect((await shot(ui)).darkCount(onPage(GROWN, OPENED), DARK)).toBe(0);
+    await typing.press('Escape');
+    expect((await savedScene(ui, 'labelled.json')).elements[0]?.label).toBe('moving on');
 
     // Pressing the words where they now lie takes them again, and not the shaft
     // under them: the line's own points are the ones it always had.
