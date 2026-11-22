@@ -29,6 +29,7 @@ import {
   holdWrites,
   openEditor,
   refuseWrite,
+  releaseWrite,
   savedFiles,
   savedScene,
   settle,
@@ -1914,6 +1915,13 @@ describe('a selected bend point', () => {
  * the Scene. A point the Scene cannot remove — the last bend of a self-loop —
  * stays, and nothing is written.
  */
+/** How many writes the stubbed folder is holding: one ask per Scene change the editor saved. */
+async function heldWrites(ui: Ui): Promise<number> {
+  return ui.browser.evaluate(
+    () => (window as unknown as { __esbozoGates?: unknown[] }).__esbozoGates?.length ?? 0,
+  );
+}
+
 describe('a key on a selected bend point', () => {
   test('Backspace removes the selected sharp point and keeps every other point', async ({
     app,
@@ -1927,7 +1935,12 @@ describe('a key on a selected bend point', () => {
     await clickScene(ui, SNAPPED_BEND, [], SNAPPED);
     await settle(ui);
 
+    await holdWrites(ui, 'snapped.json');
     await browser.keyboard.press('Backspace');
+    // One point is one history step and one write: the folder is asked once.
+    await expect.poll(() => heldWrites(ui)).toBe(1);
+    await releaseWrite(ui);
+    await allowWrites(ui);
     await expectPoints(
       ui,
       [
@@ -2066,5 +2079,254 @@ describe('a key on a selected bend point', () => {
       { x: 50, y: 50 },
       { x: 550, y: 50 },
     ]);
+  });
+});
+
+/**
+ * The point belongs to the press that picked it, and to nothing else. A press
+ * that is not a pan lets it go, and so do Escape, a change of the selection or
+ * of the tool, a removal and an undo; a pan and a zoom keep it. No index is
+ * looked up again after the Scene moves, so a point that went cannot be named by
+ * the one that takes its place.
+ */
+describe('a bend point the selection lets go of', () => {
+  test('a press on the shaft lets the point go, and the key takes the shaft', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    await clickScene(ui, SHARP_BEND, [], SHARP);
+    await settle(ui);
+
+    // On the arrow's ink, clear of the handle and of both dots: the arrow is
+    // already selected, so this press changes the selection and picks nothing.
+    await clickScene(ui, { x: 100, y: 90 }, [], SHARP);
+    await settle(ui);
+    await browser.keyboard.press('Backspace');
+
+    await expectPoints(ui, []);
+  });
+
+  test('a pan and a zoom keep the point', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    await clickScene(ui, SHARP_BEND, [], SHARP);
+    await settle(ui);
+
+    await drag(ui, { x: 900, y: 600 }, { x: 860, y: 580 }, 'middle');
+    await browser.keyboard.press('Meta+=');
+    await settle(ui);
+    await browser.keyboard.press('Backspace');
+
+    // The point the press picked is still the one the key takes: the arrow stays,
+    // without it.
+    await expectPoints(ui, [
+      { x: 50, y: 50 },
+      { x: 550, y: 50 },
+    ]);
+  });
+
+  test('Escape lets the point go', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    // A nudge writes the file, so the bytes below say whether anything moved.
+    await browser.keyboard.press('Shift+ArrowRight');
+    await savedScene(ui, 'bends.json');
+    const before = await savedSource(ui);
+    await clickScene(ui, { x: SHARP_BEND.x + 10, y: SHARP_BEND.y }, [], SHARP);
+    await settle(ui);
+    await browser.keyboard.press('Escape');
+    await settle(ui);
+
+    // Escape left nothing selected, and the point went with the selection: the
+    // key has nothing to take.
+    await browser.keyboard.press('Backspace');
+    await settle(ui);
+    expect(await savedSource(ui)).toBe(before);
+  });
+
+  test('a change of the selection lets the point go', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'snapped.json');
+    await clickScene(ui, SNAPPED_ON, [], SNAPPED);
+    await settle(ui);
+    await clickScene(ui, SNAPPED_BEND, [], SNAPPED);
+    await settle(ui);
+
+    // Box `a`, then the arrow again: the selection changed twice, and a point of
+    // the arrow went with the first change.
+    await clickScene(ui, { x: 130, y: 180 }, [], SNAPPED);
+    await settle(ui);
+    await clickScene(ui, SNAPPED_ON, [], SNAPPED);
+    await settle(ui);
+    await browser.keyboard.press('Backspace');
+
+    // The arrow is what went: no point of it was still held.
+    await expectPoints(ui, [], 'snapped.json');
+  });
+
+  test('a change of the tool lets the point go', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    await clickScene(ui, SHARP_BEND, [], SHARP);
+    await settle(ui);
+
+    await browser.keyboard.press('r');
+    await browser.keyboard.press('v');
+    await settle(ui);
+    // Nothing is selected any more, and no point is held: the key writes nothing,
+    // so the file holds the bytes it was seeded with.
+    expect(await savedSource(ui)).toBe(SHARP_SOURCE);
+    await browser.keyboard.press('Backspace');
+    await settle(ui);
+    expect(await savedSource(ui)).toBe(SHARP_SOURCE);
+  });
+
+  test('an undo lets the point go, and its index names nothing', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    await clickScene(ui, SHARP_BEND, [], SHARP);
+    await settle(ui);
+    await browser.keyboard.press('Backspace');
+    await expectPoints(ui, [
+      { x: 50, y: 50 },
+      { x: 550, y: 50 },
+    ]);
+
+    // The point comes back whole, and the selection holds none of it: the next
+    // key takes the shaft, rather than the point its old index would name now.
+    await browser.keyboard.press('Meta+z');
+    await expectPoints(ui, SHARP_POINTS);
+    await browser.keyboard.press('Backspace');
+    await expectPoints(ui, []);
+  });
+
+  test('a double-click that removed a point leaves none of it held', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'near.json');
+    await clickScene(ui, NEAR_ON, [], SHAPES);
+    await settle(ui);
+    await doubleClickScene(ui, NEAR_FIRST, SHAPES);
+    await settle(ui);
+
+    // The pair took the point and holds nothing: the key takes the whole arrow.
+    await browser.keyboard.press('Backspace');
+    await expectPoints(ui, [], 'near.json');
+  });
+
+  test('another Scene holds no point of the last one, even under the same id', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    await clickScene(ui, SHARP_BEND, [], SHARP);
+    await settle(ui);
+
+    // The next Scene has a shaft with the same id and a bend at the same index:
+    // the point of the last one is no part of it.
+    await screen.getByRole('button', /Open folder/).click();
+    await screen.getByRole('button', 'shapes.json').click();
+    await settle(ui);
+    await browser.keyboard.press('Backspace');
+    await settle(ui);
+    expect(await savedSource(ui, 'shapes.json')).toBe(SHAPES_SOURCE);
+  });
+
+  test('with no point picked, the keys delete the shaft as they did', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    await browser.keyboard.press('Backspace');
+    await expectPoints(ui, []);
+  });
+
+  test('the keys edit the words while they are typed', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'on-bend.json');
+    await clickScene(ui, ON_BEND_ON, [], SHAPES);
+    await settle(ui);
+    await clickScene(ui, ON_BEND_BEND, [], SHAPES);
+    await settle(ui);
+
+    // Enter on the lone selection opens the arrow's words, so the field holds
+    // the keys; a point the selection still holds is not the keys' to take.
+    await browser.keyboard.press('Enter');
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await expect(label).toHaveValue('bend words');
+    await label.press('Backspace');
+    await expect(label).toHaveValue('bend word');
+    await label.press('Escape');
+
+    const scene = await savedScene(ui, 'on-bend.json');
+    expect(scene.elements.find((element) => element.id === 'bent')?.label).toBe('bend word');
+    await expectPoints(
+      ui,
+      [
+        { x: 200, y: 400 },
+        { x: 400, y: 300, corner: 'sharp' },
+        { x: 600, y: 400 },
+      ],
+      'on-bend.json',
+    );
+  });
+
+  test('a page that may only read picks no point and deletes nothing', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+
+    // An edit asks the folder to write, and the folder answers `403`.
+    await holdWrites(ui, 'bends.json');
+    await browser.keyboard.press('Shift+ArrowRight');
+    await refuseWrite(ui, 'this folder is served read-only');
+    await expect(screen.getByText('read-only')).toBeVisible();
+    const bend = { x: SHARP_BEND.x + 10, y: SHARP_BEND.y };
+    const before = await savedSource(ui);
+
+    await clickScene(ui, bend, [], SHARP);
+    await settle(ui);
+    // The mark is the paper it was drawn on: a page that may only read picks no
+    // point, whatever a press lands on.
+    expect((await shot(ui)).meanLuminance(handleFill(at(bend, SHARP)))).toBeGreaterThan(0.85);
+
+    await browser.keyboard.press('Backspace');
+    await settle(ui);
+    expect(await savedSource(ui)).toBe(before);
+    await expectPoints(ui, SHARP_POINTS);
+    await allowWrites(ui);
   });
 });
