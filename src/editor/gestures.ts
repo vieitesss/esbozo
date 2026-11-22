@@ -1288,10 +1288,20 @@ export class Gestures {
   /**
    * Whether a press is the second half of a double-click: near the first in
    * time and place, and no Shift on either, because a press that adds to a
-   * selection is about the selection and not about the word under it.
+   * selection is about the selection and not about the word under it. A press
+   * that took a bend handle pairs with a press on that same handle and with
+   * nothing else: a click on the shaft is no half of the pair that removes a
+   * point, and stays a click of its own until one lands on the handle.
    */
   #isDoubleClick(first: Press, second: Press): boolean {
+    const bend = first.bend;
+    const taken = second.bend;
+    const oneBend =
+      bend === undefined
+        ? taken === undefined
+        : taken !== undefined && taken.id === bend.id && taken.index === bend.index;
     return (
+      oneBend &&
       !first.shift &&
       !second.shift &&
       second.time - first.time <= DOUBLE_CLICK_MS &&

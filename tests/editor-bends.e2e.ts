@@ -1465,6 +1465,9 @@ describe('a double-click on a bend handle', () => {
     await clickScene(ui, LINE_BEND, [], LINE);
     await browser.keyboard.press('Meta+=');
     await expect(zoomReadout(ui)).toHaveText('120%');
+    // The readout is the page's own text, and the handles are a frame behind
+    // it: the frame that paints them at 120% is the one the pair must land on.
+    await settle(ui);
 
     await doubleClickScene(ui, LINE_BEND, LINE_ZOOMED);
 
@@ -1517,6 +1520,32 @@ describe('a double-click on a bend handle', () => {
 
     expect(await savedSource(ui)).toBe(before);
     await expectPoints(ui, SHARP_POINTS);
+    // The two presses are not a pair, so the arrow's words never open on them.
+    await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveCount(0);
+  });
+
+  test('a click on the shaft and a quick double-click on the handle removes the point', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    // The selection click lands where the bend is, on the ink of a shaft that
+    // paints no handle yet; the frame after it paints the handle, and the pair
+    // follows inside the same half second. The click took no handle, so it
+    // pairs with nothing and opens nothing: the pair after it is two presses on
+    // the one handle.
+    await clickScene(ui, SHARP_BEND, [], SHARP);
+    await settle(ui);
+    await doubleClickScene(ui, SHARP_BEND, SHARP);
+
+    await expectPoints(ui, [
+      { x: 50, y: 50 },
+      { x: 550, y: 50 },
+    ]);
+    await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveCount(0);
   });
 
   test('a click on the handle deletes nothing', async ({ app, browser, screen }) => {
