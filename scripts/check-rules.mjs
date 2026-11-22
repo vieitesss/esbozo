@@ -42,9 +42,11 @@ const SELF = /^(?:scripts\/check-rules\.mjs|test\/check-rules\.test\.ts)$/;
 /**
  * The two comments this script takes, each for one rule and nothing else: a
  * markup regex may parse the SVG a save wrote, because that file is public
- * output, and a test may measure the host page's own words, because the element
- * is everything it may ask and those words are outside it. The wording is exact
- * on purpose — a string that happens to hold `check-rules:` excuses nothing.
+ * output, and a test may measure a box of the host page's own chrome, because
+ * that page is not the element and its layout is nobody's seam. The host-page
+ * comment forgives a rect read alone — the structure of a page is never its
+ * words — and both are exact on purpose: a string that happens to hold
+ * `check-rules:` excuses nothing.
  *
  * They are honour-system: the script sees a pattern and a nearby comment, never
  * the SVG that pattern is handed, so it cannot tell a written file from the
@@ -53,6 +55,9 @@ const SELF = /^(?:scripts\/check-rules\.mjs|test\/check-rules\.test\.ts)$/;
  */
 const EXCUSE = '// check-rules: markup of a written SVG file, not the page';
 const HOST_EXCUSE = "// check-rules: rect of the host page's own words, outside <esbozo-editor>";
+
+/** The one read the host-page comment forgives: a box of the host's own chrome. */
+const HOST_READ = 'getBoundingClientRect';
 
 /**
  * The tag names the page draws its Scene with, and the one HTML tag a test
@@ -210,7 +215,8 @@ function testSeams(file) {
 
     if (ts.isPropertyAccessExpression(node) && DOM_READS.has(node.name.text)) {
       const at = node.name.getStart(source);
-      if (!excused(at, HOST_EXCUSE)) {
+      const hostBox = node.name.text === HOST_READ && excused(at, HOST_EXCUSE);
+      if (!hostBox) {
         report(at, `dom read "${node.name.text}": assert on what the page shows, not on its structure or its rect`);
       }
       return;

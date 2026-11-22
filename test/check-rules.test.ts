@@ -645,6 +645,20 @@ test('each comment forgives its own rule, and not the other', async () => {
   assert.match(markup, /^tests\/editor\.e2e\.ts:2: markup in a regex: drive the page, do not read the SVG it wrote$/);
 });
 
+test('the host-page comment forgives the rect of its words, and no other read', async () => {
+  const line = await finding({
+    'tests/embed.e2e.ts': [
+      "const markup = // check-rules: rect of the host page's own words, outside <esbozo-editor>",
+      '  element.innerHTML;',
+    ].join('\n'),
+  });
+
+  assert.match(
+    line,
+    /^tests\/embed\.e2e\.ts:2: dom read "innerHTML": assert on what the page shows, not on its structure or its rect$/,
+  );
+});
+
 test('what a node says and how it is styled is not structure, and stays quiet', async () => {
   await quiet({
     'tests/editor.e2e.ts': [
