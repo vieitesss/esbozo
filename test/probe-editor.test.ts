@@ -141,6 +141,8 @@ function killGroup(pid: number | undefined): void {
  * states a run sits in, so the signal is never racing the line the run would
  * print next. The probe receives it as a person's Ctrl+C reaches it; pnpm is not
  * the one killed, so its own death cannot race the cleanup the test is about.
+ * The pid it goes to is the node that runs the helper, never the shell pnpm
+ * wraps it in: a shell holds a signal sent to it instead of passing it on.
  *
  * `input` is what the run is handed instead of a probe file: the probe module a
  * piped source is written from, and the `TMPDIR` the run's scratch lives in. The
@@ -181,7 +183,7 @@ async function helper(
     };
     /** Sends the signal once the run has reached the point it is waiting at. */
     const atInterruptPoint = async (all: readonly Proc[], started: Set<number>): Promise<void> => {
-      const running = all.find((proc) => started.has(proc.pid) && proc.command.includes('probe-editor.mjs'));
+      const running = all.find((proc) => started.has(proc.pid) && isProbe(proc.command));
       probe ??= running?.pid;
       if (!seen && input !== undefined && all.some((proc) => started.has(proc.pid) && isBrowser(proc.command))) {
         seen = true;
@@ -272,6 +274,18 @@ function descendants(all: readonly Proc[], root: number): Set<number> {
     }
   }
   return found;
+}
+
+/**
+ * Whether a command is the node process that runs the helper, rather than a
+ * shell that only has the helper's path in its words: `pnpm probe` is a script,
+ * so on Linux the run is `sh -c "node scripts/probe-editor.mjs"` with a shell
+ * pid of its own, and a signal sent to that shell is held, not passed on, while
+ * the node it started runs on. The pid that has to hear the signal is the one
+ * that holds the run's handler.
+ */
+function isProbe(command: string): boolean {
+  return command.includes('probe-editor.mjs') && /^(?:\S*\/)?node$/.test(command.split(' ')[0] ?? '');
 }
 
 /**
@@ -408,7 +422,11 @@ test('a folder whose editor.html is a directory is no built page: nothing boots'
  * when the signal lands, and cannot leave setup on its own, so where the signal
  * lands does not depend on how fast the machine reads the process list.
  */
-const SETUP_BLOCKING_PROBE = `await new Promise(() => {});
+const SETUP_BLOCKING_PROBE = `// A timer holds the loop open: a module that awaits forever with nothing left
+// to do is one node exits on its own, and then a run that never saw the signal
+// would still end, look clean, and pass for the wrong reason.
+setInterval(() => {}, 1_000);
+await new Promise(() => {});
 
 export default async () => null;
 `;
