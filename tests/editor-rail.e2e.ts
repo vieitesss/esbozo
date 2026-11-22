@@ -9,7 +9,7 @@
  */
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import { openEditor, settle } from './helpers.ts';
+import { openEditor, drag, settle } from './helpers.ts';
 import type { Ui } from './helpers.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
@@ -42,6 +42,20 @@ const TINY_SOURCE = JSON.stringify(
     title: 'Tiny',
     defaults: { roughness: 0 },
     elements: [{ id: 'tiny', type: 'rectangle', x: 40, y: 40, width: 40, height: 40, fill: { kind: 'solid', grey: 6 } }],
+  },
+  null,
+  2,
+);
+
+/** A diagram wider than any window's fitted margin, so the fitted zoom follows the window. */
+const WIDE_SOURCE = JSON.stringify(
+  {
+    version: 1,
+    title: 'Wide',
+    defaults: { roughness: 0 },
+    elements: [
+      { id: 'wide', type: 'rectangle', x: 0, y: 0, width: 2400, height: 700, fill: { kind: 'solid', grey: 6 } },
+    ],
   },
   null,
   2,
@@ -313,4 +327,49 @@ test('a resize keeps the rail’s offset from the middle, pulls it inside, and g
   await browser.setViewport({ width: 3440, height: 1440 });
   await settle(ui);
   expectHeld(before, await railPlace(ui, band), 'growing the window back');
+});
+
+test('Zoom to fit measures the frame again, so a rail a resize carried off it goes back on', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await browser.setViewport({ width: 3440, height: 1440 });
+  await openEditor(ui, { A: { 'wide.json': WIDE_SOURCE } }, 'wide.json');
+  await settle(ui);
+
+  // The 2400×700 diagram is shown 1:1: its top side is 370 px down, so the strip's
+  // outline hangs 291 px down, one gap above it.
+  const opened = await railPlace(ui, { x: 1320, y: 0, width: 800, height: 362 });
+  expect(opened.top).toBeGreaterThan(280);
+  expect(opened.top).toBeLessThan(310);
+
+  // A window that fits the same diagram at 0.46. The resize carries the rail's
+  // 422 px offset with the middle, which puts the strip at 78 px — not on the
+  // frame the fitted view leaves, which is what a fit has to measure again.
+  const band: Rect = { x: 400, y: 0, width: 480, height: 260 };
+  await browser.setViewport({ width: 1280, height: 1000 });
+  await settle(ui);
+  const carried = await railPlace(ui, band);
+  expect(carried.top).toBeGreaterThan(60);
+  expect(carried.top).toBeLessThan(82);
+
+  // A pan and a zoom draw the page somewhere else and leave the rail where it
+  // was: neither measures the frame (D3).
+  await drag(ui, { x: 400, y: 600 }, { x: 420, y: 630 }, 'middle');
+  await browser.mouse.move(640, 400);
+  await browser.mouse.wheel(0, 240);
+  await settle(ui);
+  expectHeld(carried, await railPlace(ui, band), 'a pan and a zoom');
+
+  // Zoom to fit draws the page one way only, whatever view it replaces, so this is
+  // where the frame is measured again: the diagram's fitted box is 600 px tall, so
+  // the strip's outline is 121 px down. Had nothing measured, it would stay at 71.
+  await browser.keyboard.press('Meta+0');
+  await settle(ui);
+  const fitted = await railPlace(ui, band);
+  expect(fitted.top).toBeGreaterThan(110);
+  expect(fitted.top).toBeLessThan(132);
+  expect(Math.abs(fitted.centreX - 1280 / 2), 'the strip is centred').toBeLessThan(4);
 });

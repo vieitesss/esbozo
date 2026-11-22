@@ -1223,6 +1223,9 @@ class EsbozoEditorElement extends HTMLElement {
   /** Fit the page the Renderer draws into the window, the view an open Scene starts in. */
   #zoomToFit(): void {
     this.#changedView(fittedView(this.#scene, this.#page.viewport.size(), this.#connection.layout));
+    // A fit draws the page one way only, whatever view it replaces, so this is
+    // where the rail's frame is measured again (D3, criterion 5).
+    this.#placeRail();
   }
 
   /** One pixel per Scene unit, around the middle of the window: the plain view. */
