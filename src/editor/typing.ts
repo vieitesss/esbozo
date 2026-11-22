@@ -4,16 +4,17 @@
  *
  * The page draws the words as they will save. The session holds the field, the
  * Element shown in the preview, and the step between typed and drawn words.
- * A click away or a blur commits valid words as one undo step and one write.
- * Escape, a lost connection and a Scene switch discard the preview.
+ * A click away, a blur or an Escape commits valid words as one undo step and
+ * one write: Escape discards the words only when the page refuses them. A lost
+ * connection and a Scene switch discard the preview.
  */
 import type { Layout } from '../layout.js';
 import { hasXmlInvalidChars, parseScene, serialiseScene } from '../scene.js';
 import type { Element as SceneElement, Scene, TextElement } from '../scene.js';
 import { freshId, idsOf, newText, without } from './elements.js';
 import type { Point } from './geometry.js';
+import type { Page } from './page.js';
 import { TextSession } from './text-session.js';
-import type { LineKey, TextSessionState } from './text-session.js';
 import { keptWords, withWords, wordsOf, wordsShift } from './words.js';
 import type { WordsShift } from './words.js';
 
@@ -28,16 +29,7 @@ interface TypingWords {
 }
 
 /** The page the words are drawn on: the frame, the drawn lines, the room they need. */
-interface TypingPage {
-  /** Repaint the whole page, the words' own layer included. */
-  paint(): void;
-  /** Repaint the words' layer alone: a caret that moved asks for no Scene at all. */
-  paintWords(): void;
-  /** Where Up, Down, Home and End put the caret in the words being typed. */
-  wordsLine(key: LineKey, state: TextSessionState): number | null;
-  /** Keep the Element grown for its words clear of the note and the rail above it. */
-  clearOfNote(): void;
-}
+type TypingPage = Pick<Page, 'paint' | 'paintWords' | 'wordsLine' | 'clearOfNote'>;
 
 /**
  * What the words ask of the editor, and the one place a session becomes a
@@ -47,8 +39,11 @@ interface TypingPage {
 interface TypingHost {
   /** Where the field is put: the editor, above the canvas. */
   readonly field: HTMLElement;
-  /** The page the words are drawn on. */
-  readonly page: TypingPage;
+  /**
+   * The page the words are drawn on. The words come first — the page and the
+   * pointer both read them — so the page is asked for, not held.
+   */
+  page(): TypingPage;
 
   /** The Scene in hand, and the measurement its Labels break with. */
   scene(): Scene;
@@ -161,12 +156,12 @@ export class Typing {
       name: 'Text',
       words: '',
       typed: (words) => this.#showTyped(words),
-      moved: () => this.#host.page.paintWords(),
-      line: (key, state) => this.#host.page.wordsLine(key, state),
+      moved: () => this.#host.page().paintWords(),
+      line: (key, state) => this.#host.page().wordsLine(key, state),
       commit: (words) => this.#commitText(words),
       ended: () => this.end(),
     });
-    host.page.paint();
+    host.page().paint();
   }
 
   /**
@@ -195,8 +190,8 @@ export class Typing {
       name: element.type === 'text' ? 'Text' : 'Label',
       words,
       typed: (words) => this.#showWords(element, words),
-      moved: () => this.#host.page.paintWords(),
-      line: (key, state) => this.#host.page.wordsLine(key, state),
+      moved: () => this.#host.page().paintWords(),
+      line: (key, state) => this.#host.page().wordsLine(key, state),
       commit: (words) => this.#commitWords(element, words),
       ended: () => this.end(),
     });
@@ -221,14 +216,14 @@ export class Typing {
       this.#editing = withWords(element, kept, host.layout());
       this.#shift = wordsShift(words, kept);
       // The grown Element is what the note must not cover.
-      host.page.clearOfNote();
+      host.page().clearOfNote();
     } else if (this.#editing !== null) {
       // The page refuses these words and goes on drawing the ones it has: the
       // step is measured through them all the same, so a character the Scene
       // cannot hold is one more offset in the field and no glyph under the caret.
       this.#shift = wordsShift(words, wordsOf(this.#editing));
     }
-    host.page.paint();
+    host.page().paint();
   }
 
   /** The Text being typed, with the words it has so far. */
@@ -246,7 +241,7 @@ export class Typing {
       // the words on the page, so the caret stays on the glyph it was typed at.
       this.#shift = wordsShift(words, draft.content);
     }
-    this.#host.page.paint();
+    this.#host.page().paint();
   }
 
   /**
@@ -304,7 +299,7 @@ export class Typing {
     this.#host.forgetWordClick();
     this.#shift = wordsShift('', '');
     text?.discard();
-    this.#host.page.paint();
+    this.#host.page().paint();
   }
 
   /** The Scene these words would make, with this Element's words replaced. */
