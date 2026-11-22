@@ -582,7 +582,11 @@ const FRAME_MIN_HEIGHT = 600;
 /** The gap between the frame's top side and the rail's pencil outline: the note's own (I2). */
 const RAIL_GAP = 16;
 
-/** How far inside the editor's top edge the rail stops when the frame leaves no room above it (D2). */
+/**
+ * How far inside the editor's edges the rail stops: under the top edge when the
+ * frame leaves no room above it (D2), and away from every edge when a resize has
+ * carried it out of the editor's box (D3).
+ */
 const RAIL_INSET = 15;
 
 /**
@@ -617,6 +621,32 @@ export function railFrame(
       y: above < 0 ? RAIL_INSET : above + outline.overhang,
     },
   };
+}
+
+/**
+ * A dock pulled inside the editor's box: no side of the strip nearer an edge
+ * than the top edge's own inset, and a dock already inside left where it is.
+ *
+ * A resize carries the dock with the editor's middle, so a window smaller than
+ * the dock's distance from the middle asks for a place outside the editor. Where
+ * the editor is smaller than the strip itself there is no place that keeps it
+ * in, and the inset wins on the low side: the strip is clipped by the far edge
+ * rather than shrunk, wrapped or turned (O3).
+ */
+export function clampedDock(
+  dock: Point,
+  strip: { width: number; height: number },
+  viewport: { width: number; height: number },
+): Point {
+  return {
+    x: inside(dock.x - strip.width / 2, viewport.width, strip.width) + strip.width / 2,
+    y: inside(dock.y, viewport.height, strip.height),
+  };
+}
+
+/** One side of a box pulled to the inset, or to the low inset when even that does not fit. */
+function inside(start: number, extent: number, size: number): number {
+  return Math.max(RAIL_INSET, Math.min(start, extent - RAIL_INSET - size));
 }
 
 /** A box grown about its own centre to at least the frame's minimum size. */

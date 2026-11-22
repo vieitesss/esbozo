@@ -52,6 +52,32 @@ function rail(ui: Ui) {
   return ui.screen.getByRole('navigation', { name: 'Tools' });
 }
 
+/** Where the page hung the rail: the strip's middle, its top edge and its size. */
+interface Place {
+  centreX: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * The strip's ink inside a band, as a place. The look turns the strip about its
+ * middle, so a couple of pixels either way is the tilt and not the place; a band
+ * keeps every other mark on the page out of the measure.
+ */
+async function railPlace(ui: Ui, band: Rect): Promise<Place> {
+  const ink = await railInk(ui, band);
+  return { centreX: ink.x + ink.width / 2, top: ink.y, width: ink.width, height: ink.height };
+}
+
+/** A place an action must not have changed, within the tilt's own slack. */
+function expectHeld(before: Place, after: Place, action: string): void {
+  expect(Math.abs(after.centreX - before.centreX), `${action} left the rail's middle`).toBeLessThan(3);
+  expect(Math.abs(after.top - before.top), `${action} left the rail's top`).toBeLessThan(3);
+  expect(Math.abs(after.width - before.width), `${action} left the rail's width`).toBeLessThan(3);
+  expect(Math.abs(after.height - before.height), `${action} left the rail's height`).toBeLessThan(3);
+}
+
 /**
  * Where the strip's ink reaches inside a band, with a tile focused so the strip
  * is drawn at full ink: its outline is what the eye sees of where the rail is,
@@ -243,4 +269,48 @@ test('the rail is measured at its full ink, not at the tiles a fade shows first'
   const ink = await railInk(ui, { x: 400, y: 0, width: 480, height: 140 });
   expect(ink.y, 'the reading is the outline, not the tiles below it').toBeGreaterThan(2);
   expect(ink.y, 'the reading is the outline, not the tiles below it').toBeLessThan(18);
+});
+
+test('a resize keeps the rail’s offset from the middle, pulls it inside, and growing back restores it', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui, { width: 3440, height: 1440 });
+  const band: Rect = { x: 1320, y: 0, width: 800, height: 480 };
+  const before = await railPlace(ui, band);
+
+  // The empty Scene's frame is the 960×600 minimum about the editor's middle, so
+  // the strip's outline top is 341 px down: 720 − 300 − 16 − 63 + 7. Its middle is
+  // the window's own, at 1720.
+  expect(before.top).toBeGreaterThan(330);
+  expect(before.top).toBeLessThan(352);
+  expect(Math.abs(before.centreX - 1720)).toBeLessThan(4);
+
+  // A short window: the 372 px the strip sat above the middle is now outside the
+  // editor's box, so the strip stops 15 px inside its top edge, its outline 8 px
+  // down. Sideways nothing was measured away from the middle, so it stays there.
+  await browser.setViewport({ width: 3440, height: 500 });
+  await settle(ui);
+  const squeezed = await railPlace(ui, { x: 1320, y: 0, width: 800, height: 240 });
+  expect(squeezed.top).toBeGreaterThan(2);
+  expect(squeezed.top).toBeLessThan(16);
+  expect(Math.abs(squeezed.centreX - 1720)).toBeLessThan(4);
+
+  // A window narrower than the strip: no place keeps it in, so the left inset wins
+  // and the far edge clips it. It is the size it was, not smaller: the rail never
+  // shrinks, wraps or turns by itself (O3).
+  await browser.setViewport({ width: 200, height: 500 });
+  await settle(ui);
+  const narrow = await railPlace(ui, { x: 0, y: 0, width: 200, height: 240 });
+  expect(narrow.centreX - narrow.width / 2).toBeGreaterThan(2);
+  expect(narrow.centreX - narrow.width / 2).toBeLessThan(16);
+  expect(Math.abs(narrow.height - before.height)).toBeLessThan(3);
+
+  // Growing the window back puts the rail back where the measurement had it: the
+  // offset was kept through both resizes, not overwritten by the clamped place.
+  await browser.setViewport({ width: 3440, height: 1440 });
+  await settle(ui);
+  expectHeld(before, await railPlace(ui, band), 'growing the window back');
 });
