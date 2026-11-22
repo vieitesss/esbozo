@@ -86,15 +86,44 @@ const PAPER = { x: 640, y: 40 };
 const ON_INK = { x: 200, y: 260 };
 
 /**
- * How far the page is carried to put a bend past each edge: a menu that did not
- * make room for itself would hang off the window and lose its words. The dip
- * goes to the right edge, where its legs both run up and leave the row's words
- * alone; the peak goes to the bottom edge, where its legs both run down.
+ * A short arrow in the page's lower left, through one sharp bend. It is small and
+ * far enough left that a bend carried to the window's own edges leaves the arrow
+ * clear of the docked note, so neither the selection nor a pan makes the page
+ * move: the bend stays where the pan put it.
  */
-const TO_RIGHT = { x: 630, y: 160 };
-const TO_BOTTOM = { x: -420, y: 362 };
+const EDGE_SCENE = {
+  version: 1,
+  title: 'One short bend',
+  defaults: { roughness: 0 },
+  elements: [
+    PAGE,
+    {
+      id: 'bent',
+      type: 'arrow',
+      points: [
+        { x: 300, y: 440 },
+        { x: 450, y: 320, corner: 'sharp' },
+        { x: 600, y: 440 },
+      ],
+      heads: { start: 'none', end: 'none' },
+    },
+  ],
+};
+const EDGE_SOURCE = JSON.stringify(EDGE_SCENE, null, 2);
 
-/** The view each of those pans leaves the page in, and so where the peak draws. */
+/** On the short arrow's first leg, clear of the dot halfway along it. */
+const EDGE_ON = { x: 350, y: 400 };
+/** The short arrow's bend, where its handle sits in the view every page lands in. */
+const EDGE_BEND = { x: 450, y: 320 };
+
+/**
+ * How far the page is carried to put that bend past each edge: a menu that did
+ * not make room for itself would hang off the window and lose its words.
+ */
+const TO_RIGHT = { x: 580, y: 260 };
+const TO_BOTTOM = { x: -570, y: 92 };
+
+/** The view each of those pans leaves the page in, and so where the bend draws. */
 const RIGHT: View = { zoom: 1, panX: ZIG.panX + TO_RIGHT.x, panY: ZIG.panY + TO_RIGHT.y };
 const BOTTOM: View = {
   zoom: 1,
@@ -104,10 +133,10 @@ const BOTTOM: View = {
 
 /**
  * The row's words at each edge, in the pixels they have to keep whole: the panel
- * sits just inside the edge, and the bend's handle and ink stay out of them.
+ * sits inside the edge, and the box is measured inside the panel it draws.
  */
-const RIGHT_INK: Rect = { x: 1150, y: 704, width: 110, height: 30 };
-const BOTTOM_INK: Rect = { x: 690, y: 756, width: 130, height: 30 };
+const RIGHT_INK: Rect = { x: 1180, y: 706, width: 80, height: 26 };
+const BOTTOM_INK: Rect = { x: 710, y: 758, width: 80, height: 26 };
 
 /** The view one zoom-in step leaves the page in: ⌘= zooms around the window's middle. */
 const ZIG_ZOOMED: View = { zoom: 1.2, panX: 160, panY: 64 };
@@ -198,6 +227,7 @@ const SCENES = {
     'line.json': LINE_SOURCE,
     'loop.json': LOOP_SOURCE,
     'words.json': WORDS_SOURCE,
+    'edge.json': EDGE_SOURCE,
   },
 };
 
@@ -337,25 +367,28 @@ describe('the point menu', () => {
     screen,
   }) => {
     const ui = { app, browser, screen };
-    await open(ui);
-    await selectShaft(ui);
+    await open(ui, 'edge.json');
+    await selectShaft(ui, EDGE_ON);
 
-    // The peak away from every edge: the row's words, whole, with nothing making
+    // The bend away from every edge: the row's words, whole, with nothing making
     // room for them. This is the ink both edges have to show just the same.
-    await rightClick(ui, PEAK);
+    await rightClick(ui, EDGE_BEND);
     await expect(menu(ui)).toBeVisible();
     await settle(ui);
-    const whole = (await shot(ui)).darkBounds(rowInk(pagePoint(PEAK)), 0.6);
+    const whole = (await shot(ui)).darkBounds(
+      rowInk(pagePoint(EDGE_BEND)),
+      0.6,
+    );
     if (whole === null) {
       throw new Error('the menu painted no words over the paper');
     }
     await browser.keyboard.press('Escape');
     await expect(menu(ui)).toBeHidden();
 
-    // The same peak carried to the window's right edge: a menu that opened at
+    // The same bend carried to the window's right edge: a menu that opened at
     // the pointer would hang off the page, and the end of its words with it.
     await panBy(ui, { x: 60, y: 100 }, TO_RIGHT);
-    await rightClick(ui, DIP, RIGHT);
+    await rightClick(ui, EDGE_BEND, RIGHT);
     await expect(menu(ui)).toBeVisible();
     await settle(ui);
     const right = (await shot(ui)).darkBounds(RIGHT_INK, 0.6);
@@ -370,7 +403,7 @@ describe('the point menu', () => {
     // And carried to the bottom edge: the row is whole there too, and it is a row
     // a person can run, so Enter removes the point from it.
     await panBy(ui, { x: 700, y: 150 }, TO_BOTTOM);
-    await rightClick(ui, PEAK, BOTTOM);
+    await rightClick(ui, EDGE_BEND, BOTTOM);
     await expect(menu(ui)).toBeVisible();
     await settle(ui);
     const bottom = (await shot(ui)).darkBounds(BOTTOM_INK, 0.6);
@@ -382,10 +415,9 @@ describe('the point menu', () => {
 
     await browser.keyboard.press('Enter');
     await expect(menu(ui)).toBeHidden();
-    expect(pointsOf(await savedScene(ui, 'zig.json'))).toEqual([
-      ZIG_POINTS[0],
-      ZIG_POINTS[2],
-      ZIG_POINTS[3],
+    expect(pointsOf(await savedScene(ui, 'edge.json'))).toEqual([
+      { x: 300, y: 440 },
+      { x: 600, y: 440 },
     ]);
   });
 
