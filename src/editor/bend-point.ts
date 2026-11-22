@@ -17,7 +17,8 @@
  * is one — is written once.
  */
 import type { ArrowOrLineElement, Corner, Point, Scene } from '../scene.js';
-import { cornerOf } from '../geometry.js';
+import { cornerOf, shaftDots } from '../geometry.js';
+import type { ShaftPath } from '../geometry.js';
 import { isShaft } from './snap.js';
 
 /**
@@ -92,12 +93,49 @@ export function bendPoints(shaft: ArrowOrLineElement): BendPoint[] {
   );
 }
 
+/** A dot a lone Shaft shows: halfway along a segment of its ink, where a pull adds a bend point. */
+export interface MarkedDot {
+  /** The `points` index a pull there inserts at. */
+  readonly index: number;
+  /** Where it stands, in the Scene's own coordinates. */
+  readonly at: Point;
+}
+
 /**
  * The dots a lone Shaft shows, in the Scene's own coordinates: one halfway along
- * each segment of its drawn ink, naming the `points` index a pull there inserts
- * at.
+ * every segment of its drawn ink, and none at all on a page that may not change
+ * the Scene, because a mark that promises a bend out of the ink is a promise
+ * only a page that can change the Scene keeps. A dot that would land on a
+ * handle is left off rather than drawn where a press could never take it, so a
+ * dot's middle stays `clearance` away from the ends and from every bend point.
  */
-export { shaftDots as segmentDots } from '../geometry.js';
+export function bendDots(
+  shaft: ArrowOrLineElement,
+  ink: ShaftPath,
+  page: { readonly writable: boolean; readonly clearance: number },
+): MarkedDot[] {
+  if (!page.writable) {
+    return [];
+  }
+  const handles = [ink.start, ink.end, ...bendPoints(shaft).map((bend) => bend.at)];
+  return shaftDots(ink).filter((dot) =>
+    handles.every((handle) => apart(handle, dot.at) >= page.clearance),
+  );
+}
+
+/**
+ * Where the dot a press names stands, in the Scene's own coordinates: the middle
+ * of the segment the pull splits, which is where the point it pulls out starts.
+ * Null where the ink draws no such segment.
+ */
+export function dotAt(ink: ShaftPath, index: number): Point | null {
+  return shaftDots(ink).find((dot) => dot.index === index)?.at ?? null;
+}
+
+/** How far apart two places of the Scene are. */
+function apart(one: Point, other: Point): number {
+  return Math.hypot(one.x - other.x, one.y - other.y);
+}
 
 /**
  * Names a node as a bend point's handle: the `bend` handle a press reads back,

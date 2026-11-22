@@ -29,10 +29,10 @@ import { elementsById, drawnShaft, outlineBox, shaftInk } from '../renderer.js';
 import { canonicalElement, isOutlined } from '../scene.js';
 import type { ArrowOrLineElement, Element as SceneElement, Scene } from '../scene.js';
 import type { Layout } from '../layout.js';
-import { labelAtFor, shaftDots } from '../geometry.js';
+import { labelAtFor } from '../geometry.js';
 import { boxBetween, elementsInBox, moved, pickAt, resized, resizedBox } from './geometry.js';
 import type { Box, Handle, Point, Pointer, View } from './geometry.js';
-import { bendFromDot, bendFromHandle, sameBend, shaftIn } from './bend-point.js';
+import { bendFromDot, bendFromHandle, dotAt, sameBend, shaftIn } from './bend-point.js';
 import type { Bend, ShaftOf } from './bend-point.js';
 import type { ToolId } from './actions.js';
 import { drawn, drawnAtClick, freshId, idsOf, isClick } from './elements.js';
@@ -1007,10 +1007,8 @@ export class Gestures {
       return false;
     }
     const byId = elementsById(this.#host.scene().elements);
-    const pulled = shaftDots(shaftInk(pressed.shaft, byId).path).find(
-      (one) => one.index === pressed.bend.index,
-    );
-    if (pulled === undefined) {
+    const origin = dotAt(shaftInk(pressed.shaft, byId).path, pressed.bend.index);
+    if (origin === null) {
       return false;
     }
     this.#press = {
@@ -1026,7 +1024,7 @@ export class Gestures {
       inserted: true,
       shift: event.shiftKey,
       from: viewport.scenePoint(event),
-      origin: { x: pulled.at.x, y: pulled.at.y },
+      origin,
       moved: false,
       shown: pressed.shaft,
     };

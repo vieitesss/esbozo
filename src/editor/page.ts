@@ -32,7 +32,7 @@ import type { Block, Layout, LineGlyphs } from '../layout.js';
 import { HANDLES, boxBetween, boxOf, clearedView, handlePoint, unionOf } from './geometry.js';
 import type { Box, Point } from './geometry.js';
 import type { Drag } from './gestures.js';
-import { bendPoints, nameBendHandle, nameDot, sameBend, segmentDots } from './bend-point.js';
+import { bendDots, bendPoints, nameBendHandle, nameDot, sameBend } from './bend-point.js';
 import type { Bend, BendPoint } from './bend-point.js';
 import { PaintCache, paintedInk } from './paint.js';
 import type { Paint, SceneFiles } from './paint.js';
@@ -718,19 +718,11 @@ export class Page {
       for (const bend of bendPoints(element)) {
         handles.push({ ...bend, at: this.viewport.pagePoint(bend.at), kind: 'bend' });
       }
-      // A dot stands on the ink between the handles, and a press on a handle is
-      // a press on the point it holds: a dot that would land on one is left off
-      // rather than drawn where a press could never take it.
-      // A page that may only read draws none at all: a mark that promises a
-      // bend out of the ink is a promise only a page that can change the Scene
-      // keeps.
-      if (this.#host.writable()) {
-        for (const dot of segmentDots(path)) {
-          const at = this.viewport.pagePoint(dot.at);
-          if (handles.every((handle) => distance(handle.at, at) >= DOT_CLEARANCE)) {
-            this.#appendDot(overlay, at, dot.index, id);
-          }
-        }
+      for (const dot of bendDots(element, path, {
+        writable: this.#host.writable(),
+        clearance: DOT_CLEARANCE / this.viewport.view.zoom,
+      })) {
+        this.#appendDot(overlay, this.viewport.pagePoint(dot.at), dot.index, id);
       }
     }
     for (const handle of handles) {
@@ -849,11 +841,6 @@ export class Page {
     parent.append(node);
     return node;
   }
-}
-
-/** How far apart two places on the page are, in screen pixels. */
-function distance(one: Point, other: Point): number {
-  return Math.hypot(one.x - other.x, one.y - other.y);
 }
 
 /**
