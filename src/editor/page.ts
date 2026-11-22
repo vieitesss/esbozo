@@ -36,7 +36,7 @@ import { PaintCache, paintedInk } from './paint.js';
 import type { Paint, SceneFiles } from './paint.js';
 import { isShaft } from './snap.js';
 import { drawnBox, drawnGlyphs } from './drawn-glyphs.js';
-import type { TextSessionState } from './text-session.js';
+import type { LineKey, TextSessionState } from './text-session.js';
 import type { Typing } from './typing.js';
 import { clearWashes, drawWords, rect } from './words-layer.js';
 import { shownWords } from './words.js';
@@ -272,7 +272,7 @@ export class Page {
    * line the caret is on — which is the line's first or last boundary, at
    * whichever end the words begin and stop.
    */
-  wordsLine(key: 'up' | 'down' | 'home' | 'end', state: TextSessionState): number | null {
+  wordsLine(key: LineKey, state: TextSessionState): number | null {
     const shift = this.#host.typing.words()?.shift;
     const block = this.#block();
     if (shift === undefined || block === null) {

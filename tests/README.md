@@ -76,10 +76,11 @@ fails on a quiet laptop's neighbours is a flake, not a finding. The opted-in
 check takes five unthrottled and five throttled spins, interleaved, and compares
 their medians, so one stall cannot decide it.
 
-`editor-select.e2e.ts` measures the page's other wall clock the same way: a press
-the frame the page painted answers at once, and a press that has to pass every
-Element of a dense Scene before it reaches its own. The two are interleaved, five
-each, and compared by medians.
+`editor-select.e2e.ts` measures the page's other wall clock the same way: both
+presses answer from the boxes the frame painted, and they differ in how many
+Elements they pass — one asks a single box, the other walks past every Element
+of a dense Scene first. The two are interleaved, five each, and compared by
+medians.
 
 ```sh
 ESBOZO_TIMING=1 npx e2e run tests/editor-select.e2e.ts --grep 'reads the ink'

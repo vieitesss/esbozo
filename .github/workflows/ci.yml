@@ -1,7 +1,8 @@
 # The guardrail on every push and pull request: the same `pnpm check` a person
 # runs, then the model-free browser suites. No key is in this workflow, so
-# `pnpm e2e` is every suite in `package.json` that makes no model call;
-# `pnpm e2e:agent` is run by hand, where a key is.
+# `pnpm e2e` is every suite in `package.json` that makes no model call, except
+# `screenshots.e2e.ts`, which `pnpm e2e:shots` runs alone; `pnpm e2e:agent` is
+# run by hand, where a key is.
 name: check
 
 on:

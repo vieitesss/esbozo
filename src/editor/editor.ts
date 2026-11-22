@@ -211,8 +211,8 @@ class EsbozoEditorElement extends HTMLElement {
 
     // The words being typed are built first: the page draws them and the pointer
     // opens them, so both read what is already there. Committed words land
-    // through the same history and save path as other Scene edits. The page is
-    // built later, and is the one thing the words ask for instead of holding.
+    // through the same history and save path as other Scene edits. The page,
+    // Connection and Gestures are built later, and asked for when needed.
     this.#typing = new Typing({
       field: this,
       page: () => this.#page,
