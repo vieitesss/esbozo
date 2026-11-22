@@ -26,6 +26,7 @@ import {
   at,
   clickScene,
   doubleClickScene,
+  drag,
   dragBy,
   holdWrites,
   openEditor,
@@ -51,29 +52,79 @@ const HEAD_OVER_SOURCE = JSON.stringify(HEAD_OVER_SCENE, null, 2);
 const CHORD_SOURCE = JSON.stringify(CHORD_SCENE, null, 2);
 
 /**
- * The paper a saved shaft Label paints, in page pixels: the one rectangle the
- * SVG fills with paper, moved from Scene units by the view the page shows.
+ * Where a saved shaft Label draws its words, in page pixels: the `<text>` the
+ * save writes for them is where they are, moved from Scene units by the view the
+ * page shows. A shaft's Label is drawn about its own middle, so the anchor of
+ * the line is the middle of the words, and the page's ink about it is the words
+ * a person sees.
  */
-async function savedPaper(ui: Ui, name: string, view: View): Promise<Rect> {
+interface SavedWords {
+  /** The middle of the words, on the page. */
+  x: number;
+  /** The row the words sit on, on the page. */
+  baseline: number;
+  /** The words themselves, as the save wrote them. */
+  text: string;
+}
+
+async function savedWords(ui: Ui, name: string, view: View): Promise<SavedWords> {
   const svg = (await savedFiles(ui))[name];
   if (svg === undefined) {
     throw new Error(`${name} was not saved`);
   }
   // check-rules: markup of a written SVG file, not the page
-  const found = /<rect x="([-\d.]+)" y="([-\d.]+)" width="([-\d.]+)" height="([-\d.]+)" fill="var\(--paper, #fbf8f1\)"\/>/.exec(
-    svg,
-  );
+  const found = /<text x="([-\d.]+)" y="([-\d.]+)"[^>]*text-anchor="([a-z]+)"[^>]*>([^<]*)<\/text>/.exec(svg);
   if (found === null) {
-    throw new Error(`${name} paints no paper`);
+    throw new Error(`${name} draws no words`);
   }
-  const [x, y, width, height] = found.slice(1).map(Number) as [number, number, number, number];
+  const [x, y, anchor, text] = found.slice(1) as [string, string, string, string];
+  if (anchor !== 'middle') {
+    throw new Error(`${name} draws its words from "${anchor}", not about their middle`);
+  }
   return {
-    x: x * view.zoom + view.panX,
-    y: y * view.zoom + view.panY,
-    width: width * view.zoom,
-    height: height * view.zoom,
+    x: Number(x) * view.zoom + view.panX,
+    baseline: Number(y) * view.zoom + view.panY,
+    text,
   };
 }
+
+/**
+ * The gap the words cut when their middle is on their own shaft, in the Scene's
+ * own units: their ink runs from 274 to 325 across the shaft's row, 199 to 200,
+ * and the gap reaches five and a half units past that either way — the hang the
+ * words' box keeps for a glyph tail, and half the stroke that ends in it.
+ * `inside` is two units in from the gap's left end, and clear of the glyphs
+ * beside it; `left` and `right` are the same row beyond the gap, where the shaft
+ * has to be drawn still.
+ */
+const ON_THE_LINE: Record<'inside' | 'left' | 'right', Rect> = {
+  inside: { x: 271, y: 198, width: 2, height: 5 },
+  left: { x: 263, y: 198, width: 3, height: 5 },
+  right: { x: 334, y: 198, width: 3, height: 5 },
+};
+
+/**
+ * The words' own ink on the page, in the Scene's units: the window the gap
+ * leaves them, clear of the shaft's own runs either side of it.
+ */
+const ON_THE_LINE_WORDS: Rect = { x: 271, y: 186, width: 57, height: 26 };
+
+/** A box drawn in the Scene's units, as the page it is shown on draws it. */
+function onPage(box: Rect, view: View): Rect {
+  return {
+    x: box.x * view.zoom + view.panX,
+    y: box.y * view.zoom + view.panY,
+    width: box.width * view.zoom,
+    height: box.height * view.zoom,
+  };
+}
+
+/**
+ * The view the saved Scene opens in, once its words are on its shaft: the page
+ * fits the drawing it is given, and a drawing shorter than `LABELLED`'s — the
+ * same Scene with the words on their own side — fits a little lower.
+ */
+const OPENED: View = { zoom: 1, panX: 340, panY: 200 };
 
 describe('labels drag', () => {
   test('dragging a shaft Label places it where the pointer leaves it, and the Scene keeps that place', async ({
@@ -142,7 +193,7 @@ describe('labels drag', () => {
     expect(scene.elements[0]?.labelAt).toEqual({ t: 0.5, offset: 61 });
   });
 
-  test("a Label dragged onto the shaft is paper over the shaft's own ink", async ({
+  test('a Label dragged onto the shaft is cut out of it, and the page shows through the gap', async ({
     app,
     browser,
     screen,
@@ -151,33 +202,70 @@ describe('labels drag', () => {
     await openEditor(ui, { A: { 'labelled.json': LABELLED_SOURCE } }, 'labelled.json');
     const before = await shot(ui);
 
-    // 61px down puts the words' middle on the shaft: `offset: 0`. The paper the
-    // save writes is the paper the page paints, so the strip of it that no glyph
-    // reaches is where the shaft has to be gone.
-    await dragBy(ui, { x: 300, y: 139 }, 0, 61, LABELLED);
-    expect((await savedScene(ui, 'labelled.json')).elements[0]?.labelAt).toEqual({ t: 0.5, offset: 0 });
-    const paper = await savedPaper(ui, 'labelled.svg', LABELLED);
-    /** A strip of the shaft's own row, on the page, inside the paper's own span. */
-    const along = (from: number): Rect => ({ x: from, y: 436, width: 2, height: 5 });
+    // 61px down puts the words' middle on the shaft: `offset: 0`. The gap they
+    // cut takes the shaft out of their own row, and leaves the page through the
+    // strip of it that no glyph reaches.
+    const inside = onPage(ON_THE_LINE.inside, LABELLED);
+    const left = onPage(ON_THE_LINE.left, LABELLED);
+    const right = onPage(ON_THE_LINE.right, LABELLED);
+    expect(before.darkCount(inside, DARK)).toBeGreaterThan(0);
 
-    expect(before.darkCount(along(paper.x + 1), DARK)).toBeGreaterThan(0);
+    // Dragged with the button held, so the page shows the gap before the release
+    // saves the place: the words are drawn where the pointer left them, and the
+    // shaft under them is already cut for them.
+    const from = at({ x: 300, y: 139 }, LABELLED);
+    await drag(ui, from, { x: from.x, y: from.y + 61 }, 'left', async () => {
+      await settle(ui);
+      const carrying = await shot(ui);
+      expect(carrying.darkCount(inside, DARK)).toBe(0);
+      expect(carrying.darkCount(left, DARK)).toBeGreaterThan(0);
+      expect(carrying.darkCount(right, DARK)).toBeGreaterThan(0);
+    });
+    expect((await savedScene(ui, 'labelled.json')).elements[0]?.labelAt).toEqual({ t: 0.5, offset: 0 });
+
+    // The saved words are the words on the page, drawn about the middle the save
+    // wrote, and the page cut the shaft where they lie: nothing of it in the
+    // strip of the gap no glyph reaches, its own ink just past the gap either
+    // side. The selection's own ink goes before any of it is measured.
+    const words = await savedWords(ui, 'labelled.svg', LABELLED);
+    expect(words.text).toBe('moving');
     await browser.keyboard.press('Escape');
     const onLine = await shot(ui);
-    expect(onLine.darkCount(along(paper.x + 1), DARK)).toBe(0);
-    // The shaft still draws where the paper does not reach: the words cut a hole
-    // in it rather than covering the page.
-    expect(onLine.darkCount(along(paper.x - 4), DARK)).toBeGreaterThan(0);
-    expect(onLine.darkCount({ x: paper.x, y: paper.y, width: paper.width, height: paper.height }, DARK)).toBeGreaterThan(50);
+    const wordsInk = onPage(ON_THE_LINE_WORDS, LABELLED);
+    expect(onLine.darkCount(inside, DARK)).toBe(0);
+    expect(onLine.darkCount(left, DARK)).toBeGreaterThan(0);
+    expect(onLine.darkCount(right, DARK)).toBeGreaterThan(0);
+    const drawn = onLine.darkBounds(wordsInk, DARK);
+    expect(drawn).not.toBeNull();
+    expect(onLine.darkCount(wordsInk, DARK)).toBeGreaterThan(50);
+    expect(Math.abs((drawn as Rect).x + (drawn as Rect).width / 2 - words.x)).toBeLessThan(2);
+    expect((drawn as Rect).y).toBeLessThan(words.baseline);
+
+    // A page that opens the Scene the save wrote draws the same gap: the cut is
+    // the Scene's own, and not something the drag left on the page it drew. It
+    // fits the Scene it opens, so the view this one lands in is its own.
+    const saved = await savedFiles(ui);
+    await openEditor(ui, { A: saved }, 'labelled.json');
+    const reopened = await shot(ui);
+    expect(reopened.darkCount(onPage(ON_THE_LINE.inside, OPENED), DARK)).toBe(0);
+    expect(reopened.darkCount(onPage(ON_THE_LINE.left, OPENED), DARK)).toBeGreaterThan(0);
+    expect(reopened.darkCount(onPage(ON_THE_LINE.right, OPENED), DARK)).toBeGreaterThan(0);
 
     // Pressing the words where they now lie takes them again, and not the shaft
     // under them: the line's own points are the ones it always had.
-    await dragBy(ui, { x: 300, y: 200 }, 0, -61, LABELLED);
+    await dragBy(ui, { x: 300, y: 200 }, 0, -61, OPENED);
     const placed = await savedScene(ui, 'labelled.json');
     expect(placed.elements[0]?.labelAt).toEqual({ t: 0.5, offset: 61 });
     expect(placed.elements[0]?.points).toEqual([
       { x: 100, y: 200 },
       { x: 500, y: 200 },
     ]);
+
+    // And the shaft is whole again: the gap was where the words were, and they
+    // have gone back to the side they sat on.
+    await browser.keyboard.press('Escape');
+    const after = await shot(ui);
+    expect(after.darkCount(onPage(ON_THE_LINE.inside, OPENED), DARK)).toBeGreaterThan(0);
   });
 
   test('the words of a placed Label ride the shaft a Snapped Element moves', async ({
@@ -463,10 +551,12 @@ describe('labels drag', () => {
       { x: 230, y: 420 },
     ]);
 
-    // The words' paper, read off the Scene: it is where the ink has to be, and
-    // the selection's own outline is not part of either.
-    const placed = await savedPaper(ui, 'tilted.svg', TILTED);
-    expect(Math.abs(placed.x + placed.width / 2 - 650)).toBeLessThan(1.5);
+    // The words the save writes, read off the `<text>` it draws them as: they
+    // are drawn about their own middle, sixty pixels to the side of the upright
+    // shaft at page 710. The selection's own outline is no part of either.
+    const placed = await savedWords(ui, 'tilted.svg', TILTED);
+    expect(placed.text).toBe('tilted');
+    expect(Math.abs(placed.x - 650)).toBeLessThan(1.5);
 
     // Taken by their middle, so the hold the press took is no part of the move.
     await dragBy(ui, { x: 170, y: 260 }, -20, 0, TILTED);
@@ -482,18 +572,21 @@ describe('labels drag', () => {
       { x: 230, y: 420 },
     ]);
 
-    const carried = await savedPaper(ui, 'tilted.svg', TILTED);
-    expect(
-      Math.abs(carried.x + carried.width / 2 - (placed.x + placed.width / 2) + 20),
-    ).toBeLessThan(1.5);
-    // Nothing of the words went to the other side of the shaft.
-    expect(carried.x + carried.width).toBeLessThan(at({ x: 230, y: 260 }, TILTED).x);
+    const carried = await savedWords(ui, 'tilted.svg', TILTED);
+    expect(Math.abs(carried.x - placed.x + 20)).toBeLessThan(1.5);
 
-    // And the ink is in the paper the save wrote, where the page draws it: the
-    // words did not stay behind on the side they were taken from.
-    const drawn = (await shot(ui)).darkBounds(carried, DARK);
+    // Nothing of the words went to the other side of the shaft: the page between
+    // them and the upright at page 710 holds no ink at all. The selection's own
+    // ink goes first, so what is read is the Scene's.
+    await browser.keyboard.press('Escape');
+    const after = await shot(ui);
+    expect(after.darkCount({ x: 660, y: 378, width: 44, height: 18 }, DARK)).toBe(0);
+
+    // And the ink is where the save wrote the words: the words did not stay
+    // behind on the side they were taken from.
+    const drawn = after.darkBounds({ x: carried.x - 40, y: 372, width: 80, height: 30 }, DARK);
     expect(drawn).not.toBeNull();
-    expect(Math.abs(drawn!.x + drawn!.width / 2 - (carried.x + carried.width / 2))).toBeLessThan(6);
+    expect(Math.abs((drawn as Rect).x + (drawn as Rect).width / 2 - carried.x)).toBeLessThan(6);
   });
 
   test('a selected shaft marks its Label as something a press can carry, and only while it is selected', async ({
