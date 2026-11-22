@@ -803,6 +803,75 @@ describe('the point menu', () => {
     expect((await shot(ui)).meanLuminance(atHandle(PEAK))).toBeLessThan(0.6);
   });
 
+  test('Space runs no row, and Tab leaves Escape its key', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await selectShaft(ui);
+
+    // The menu opens on the removal, which is a button the browser's own Space
+    // would press. The menu holds the key instead: the point stays, nothing is
+    // written, and the menu is still open on it.
+    await rightClick(ui, PEAK);
+    await expect(deletePoint(ui)).toBeVisible();
+    await browser.keyboard.press('Space');
+    await expect(menu(ui)).toBeVisible();
+    expect(pointsOf(await savedScene(ui, 'zig.json'))).toEqual(ZIG_POINTS);
+
+    // And on the corner row: the keys move there, and Space still does nothing.
+    await browser.keyboard.press('ArrowUp');
+    await browser.keyboard.press('Space');
+    await expect(menu(ui)).toBeVisible();
+    expect(pointsOf(await savedScene(ui, 'zig.json'))).toEqual(ZIG_POINTS);
+
+    // Tab is no more a way out of the menu: the keys stay in it, so Escape still
+    // shuts it and leaves the point it was for selected.
+    await browser.keyboard.press('Tab');
+    await browser.keyboard.press('Escape');
+    await expect(menu(ui)).toBeHidden();
+    await settle(ui);
+    expect((await shot(ui)).meanLuminance(atHandle(PEAK))).toBeLessThan(0.6);
+
+    // The same in the other direction, on a fresh open.
+    await rightClick(ui, PEAK);
+    await expect(menu(ui)).toBeVisible();
+    await browser.keyboard.press('Shift+Tab');
+    await browser.keyboard.press('Escape');
+    await expect(menu(ui)).toBeHidden();
+    expect(pointsOf(await savedScene(ui, 'zig.json'))).toEqual(ZIG_POINTS);
+  });
+
+  test('a press on a row runs it, as Enter does', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'corners.json');
+    await selectShaft(ui);
+
+    // The corner row by the pointer is the switch Enter makes on it: the point's
+    // own corner is written, and the menu shuts on the way.
+    await rightClick(ui, PEAK);
+    await expect(cornerRow(ui, 'Sharp')).toBeVisible();
+    await cornerRow(ui, 'Sharp').click();
+    await expect(menu(ui)).toBeHidden();
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    expect(pointsOf(await savedScene(ui, 'corners.json'))).toEqual([
+      ROUND_POINTS[0],
+      { x: 250, y: 150, corner: 'sharp' },
+      ROUND_POINTS[2],
+      ROUND_POINTS[3],
+    ]);
+
+    // And the removal by the pointer, on the point the next press is for.
+    await rightClick(ui, PEAK);
+    await expect(deletePoint(ui)).toBeEnabled();
+    await deletePoint(ui).click();
+    await expect(menu(ui)).toBeHidden();
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    expect(pointsOf(await savedScene(ui, 'corners.json'))).toEqual([
+      ROUND_POINTS[0],
+      ROUND_POINTS[2],
+      ROUND_POINTS[3],
+    ]);
+  });
+
   test('a press outside shuts the menu and still does its own job', async ({
     app,
     browser,
