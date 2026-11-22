@@ -33,12 +33,23 @@ jobs:
           node-version-file: package.json
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Install the browser the suite launches
+        run: pnpm exec e2e-web install chromium --with-deps
+      # After the browser, not before it: `pnpm check` runs the node tests, and
+      # `test/probe-editor.test.ts` launches a browser of its own.
+      - run: pnpm check
+      - run: pnpm e2e
+      # After the browser checks, so a red commit verdict can never skip one of
+      # them, and before the evidence, which is read only once both have run.
+      #
       # The commit every commit is checked from, one rule per event. A red
       # `pnpm check` must not hide it: this run is where each commit's own
-      # verdict is read, so the step runs whether or not the tip was green.
+      # verdict is read, so the step runs whether or not the tip was green. A
+      # tag push carries no branch commit of its own, so it is left out here
+      # rather than on the step below, where a merge base could still go red.
       - name: Find the commit to walk from
         id: base
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/')) }}
         env:
           EVENT: ${{ github.event_name }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
@@ -64,16 +75,11 @@ jobs:
           if [[ "$base" =~ ^0+$ ]]; then base=''; fi
           echo "sha=$base" >> "$GITHUB_OUTPUT"
       # Static checks only — typecheck, lint, knip, check-rules — so it needs no
-      # browser and reads before the one step that downloads one.
+      # browser of its own. `!cancelled()` is what gives each commit its verdict
+      # even when `pnpm check` or `pnpm e2e` above already failed.
       - name: Check every commit on its own
         if: ${{ !cancelled() && steps.base.outputs.sha != '' }}
         run: pnpm check:steps "${{ steps.base.outputs.sha }}"
-      - name: Install the browser the suite launches
-        run: pnpm exec e2e-web install chromium --with-deps
-      # After the browser, not before it: `pnpm check` runs the node tests, and
-      # `test/probe-editor.test.ts` launches a browser of its own.
-      - run: pnpm check
-      - run: pnpm e2e
       # A test a retry passed is green for the run, and its first attempt's
       # error lives only in the report: nothing else in the log says it.
       - name: Read whether a retry passed a test
