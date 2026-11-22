@@ -16,6 +16,7 @@ import { test } from '@e2e-dev/web';
 import type { Browser } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import { imeCommit, imeCompose, livePage, throttleCpu } from './cdp.ts';
+import { TIMING, median } from './helpers.ts';
 
 /** A field, and a record of the events the browser itself delivers to it. */
 const FIELD_PAGE = `<!doctype html>
@@ -144,18 +145,8 @@ const spin = (browser: Browser): Promise<{ ms: number; total: number }> =>
 /** What the loop sums to, worked out on paper: 2_857_142 rounds of 0+…+6 = 21, then 0+…+5. */
 const SPIN_TOTAL = 59_999_997;
 
-/** Opt-in: a timing assertion is a wall-clock sample, and a shared runner's scheduler is not this page's. */
-const TIMING = process.env['ESBOZO_TIMING'] === '1';
 /** The same number of unthrottled and throttled spins, alternating, so a stall lands in both. */
 const SAMPLES = 5;
-
-/** The middle sample, so one stall cannot decide the comparison. */
-function median(samples: readonly number[]): number {
-  const sorted = [...samples].sort((left, right) => left - right);
-  const middle = sorted[Math.floor(sorted.length / 2)];
-  if (middle === undefined) throw new Error('median of no samples');
-  return middle;
-}
 
 test('the helper sends the CPU throttle and puts the CPU back', async ({ browser }) => {
   await browser.goto('/');

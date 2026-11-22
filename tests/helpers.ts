@@ -27,6 +27,21 @@ export interface Ui {
   readonly screen: Screen;
 }
 
+/**
+ * Opt-in: a timing assertion is a wall-clock sample, and a shared runner's
+ * scheduler is not the page's alone. Set `ESBOZO_TIMING=1` to measure; see
+ * `tests/README.md`.
+ */
+export const TIMING = process.env['ESBOZO_TIMING'] === '1';
+
+/** The middle sample of a comparison, so one stall cannot decide it. */
+export function median(samples: readonly number[]): number {
+  const sorted = [...samples].sort((left, right) => left - right);
+  const middle = sorted[Math.floor(sorted.length / 2)];
+  if (middle === undefined) throw new Error('median of no samples');
+  return middle;
+}
+
 /** A point on the page, or in the Scene's own coordinates. */
 export interface Point {
   x: number;

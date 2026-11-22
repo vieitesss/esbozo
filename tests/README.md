@@ -76,6 +76,15 @@ fails on a quiet laptop's neighbours is a flake, not a finding. The opted-in
 check takes five unthrottled and five throttled spins, interleaved, and compares
 their medians, so one stall cannot decide it.
 
+`editor-select.e2e.ts` measures the page's other wall clock the same way: a press
+the frame the page painted answers at once, and a press that has to pass every
+Element of a dense Scene before it reaches its own. The two are interleaved, five
+each, and compared by medians.
+
+```sh
+ESBOZO_TIMING=1 npx e2e run tests/editor-select.e2e.ts --grep 'reads the ink'
+```
+
 ## Why the agent suite is separate
 
 e2e's model steps are judgements of the live screen, so `agent.assert` and
