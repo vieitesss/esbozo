@@ -1,6 +1,6 @@
 /**
- * The bend point: the point of a Shaft between its ends, and the one reader of
- * the marks a press lands on to find one.
+ * The bend point: the point of a Shaft between its ends, the marks a lone Shaft
+ * shows to reach one, and the one reader of the press that lands on one.
  *
  * A Shaft is the drawn path of an arrow or line between its two ends, and the
  * points it turns by in between are bend points: a person drags one by its
@@ -10,11 +10,15 @@
  * name the point they stand for by `data-point` and the Shaft by
  * `data-element`.
  *
- * Everything that reads a press back from those marks asks this module, so the
- * one rule that makes a point a bend point — it lies between the ends, and an
- * end never is one — is written once.
+ * This module says which marks a lone Shaft shows, in the Scene's own
+ * coordinates, and names them: the page turns each into a node where the view
+ * puts it, and nothing else writes or reads those attributes. Everything that
+ * reads a press back from those marks asks this module too, so the one rule
+ * that makes a point a bend point — it lies between the ends, and an end never
+ * is one — is written once.
  */
-import type { ArrowOrLineElement, Scene } from '../scene.js';
+import type { ArrowOrLineElement, Corner, Point, Scene } from '../scene.js';
+import { cornerOf } from '../geometry.js';
 import { isShaft } from './snap.js';
 
 /**
@@ -41,6 +45,35 @@ export function shaftIn(scene: Scene, id: string): ArrowOrLineElement | null {
   const element = scene.elements.find((candidate) => candidate.id === id);
   return element !== undefined && isShaft(element) ? element : null;
 }
+
+/** A bend point a lone Shaft shows a handle for, in the Scene's own coordinates. */
+export interface BendPoint {
+  /** The `points` index it is stored at: the index the mark it becomes names. */
+  readonly index: number;
+  readonly at: Point;
+  /** The corner it turns by: its own, or the Shaft's where it writes none. */
+  readonly corner: Corner;
+}
+
+/**
+ * The bend points a lone Shaft shows a handle for, in drawing order: every point
+ * it turns by between its ends, and never an end.
+ */
+export function bendPoints(shaft: ArrowOrLineElement): BendPoint[] {
+  const bends: BendPoint[] = [];
+  for (let index = 1; index < shaft.points.length - 1; index += 1) {
+    const at = shaft.points[index]!;
+    bends.push({ index, at, corner: cornerOf(at, shaft.corners) });
+  }
+  return bends;
+}
+
+/**
+ * The dots a lone Shaft shows, in the Scene's own coordinates: one halfway along
+ * each segment of its drawn ink, naming the `points` index a pull there inserts
+ * at.
+ */
+export { shaftDots as segmentDots } from '../geometry.js';
 
 /**
  * The bend point a press on a handle names, or null where it landed anywhere

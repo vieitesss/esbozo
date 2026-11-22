@@ -29,10 +29,10 @@ import { elementsById, outlineBox, shaftInk, shaftLabel, wordsInkBounds } from '
 import { isOutlined } from '../scene.js';
 import type { Corner, Element as SceneElement, Scene } from '../scene.js';
 import type { Block, Layout, LineGlyphs } from '../layout.js';
-import { cornerOf, shaftDots } from '../geometry.js';
 import { HANDLES, boxBetween, boxOf, clearedView, handlePoint, unionOf } from './geometry.js';
 import type { Box, Point } from './geometry.js';
 import type { Drag } from './gestures.js';
+import { bendPoints, segmentDots } from './bend-point.js';
 import type { Bend } from './bend-point.js';
 import { PaintCache, paintedInk } from './paint.js';
 import type { Paint, SceneFiles } from './paint.js';
@@ -715,14 +715,8 @@ export class Page {
         { at: this.viewport.pagePoint(path.start), kind: 'handle', name: 'start' },
         { at: this.viewport.pagePoint(path.end), kind: 'handle', name: 'end' },
       );
-      for (let index = 1; index < element.points.length - 1; index += 1) {
-        const point = element.points[index]!;
-        handles.push({
-          at: this.viewport.pagePoint(point),
-          kind: 'bend',
-          index,
-          corner: cornerOf(point, element.corners),
-        });
+      for (const bend of bendPoints(element)) {
+        handles.push({ ...bend, at: this.viewport.pagePoint(bend.at), kind: 'bend' });
       }
       // A dot stands on the ink between the handles, and a press on a handle is
       // a press on the point it holds: a dot that would land on one is left off
@@ -731,7 +725,7 @@ export class Page {
       // bend out of the ink is a promise only a page that can change the Scene
       // keeps.
       if (this.#host.writable()) {
-        for (const dot of shaftDots(path)) {
+        for (const dot of segmentDots(path)) {
           const at = this.viewport.pagePoint(dot.at);
           if (handles.every((handle) => distance(handle.at, at) >= DOT_CLEARANCE)) {
             this.#appendDot(overlay, at, dot.index, id);
