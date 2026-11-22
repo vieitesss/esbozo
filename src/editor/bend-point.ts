@@ -33,6 +33,24 @@ export interface Bend {
 /** The Shaft a page mark names, as the caller holds it. */
 export type ShaftOf = (id: string) => ArrowOrLineElement | null;
 
+/**
+ * Whether two Bends name the same point: the same Shaft's same point, whichever
+ * gestures or frames hold them. A press that took no point names no point.
+ */
+export function sameBend(
+  one: Bend | null | undefined,
+  other: Bend | null | undefined,
+): boolean {
+  return (
+    one !== null &&
+    one !== undefined &&
+    other !== null &&
+    other !== undefined &&
+    one.id === other.id &&
+    one.index === other.index
+  );
+}
+
 /** A mark read back: the Shaft a press landed on, and the bend point it names. */
 export interface PressedBend {
   readonly shaft: ArrowOrLineElement;

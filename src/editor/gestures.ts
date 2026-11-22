@@ -32,7 +32,7 @@ import type { Layout } from '../layout.js';
 import { labelAtFor, shaftDots } from '../geometry.js';
 import { boxBetween, elementsInBox, moved, pickAt, resized, resizedBox } from './geometry.js';
 import type { Box, Handle, Point, Pointer, View } from './geometry.js';
-import { bendFromDot, bendFromHandle, shaftIn } from './bend-point.js';
+import { bendFromDot, bendFromHandle, sameBend, shaftIn } from './bend-point.js';
 import type { Bend, ShaftOf } from './bend-point.js';
 import type { ToolId } from './actions.js';
 import { drawn, drawnAtClick, freshId, idsOf, isClick } from './elements.js';
@@ -844,7 +844,7 @@ export class Gestures {
           bend !== undefined || first.id === null
             ? undefined
             : this.#host.scene().elements.find((element) => element.id === first.id);
-        if (bend !== undefined && click.bend?.id === bend.id && click.bend.index === bend.index) {
+        if (bend !== undefined && sameBend(click.bend, bend)) {
           this.#drag = null;
           this.#host.removeBend(bend);
           return;
@@ -1321,10 +1321,7 @@ export class Gestures {
   #isDoubleClick(first: Press, second: Press): boolean {
     const bend = first.bend;
     const taken = second.bend;
-    const oneBend =
-      bend === undefined
-        ? taken === undefined
-        : taken !== undefined && taken.id === bend.id && taken.index === bend.index;
+    const oneBend = bend === undefined ? taken === undefined : sameBend(taken, bend);
     return (
       oneBend &&
       !first.shift &&

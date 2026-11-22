@@ -32,7 +32,7 @@ import type { Block, Layout, LineGlyphs } from '../layout.js';
 import { HANDLES, boxBetween, boxOf, clearedView, handlePoint, unionOf } from './geometry.js';
 import type { Box, Point } from './geometry.js';
 import type { Drag } from './gestures.js';
-import { bendPoints, nameBendHandle, nameDot, segmentDots } from './bend-point.js';
+import { bendPoints, nameBendHandle, nameDot, sameBend, segmentDots } from './bend-point.js';
 import type { Bend, BendPoint } from './bend-point.js';
 import { PaintCache, paintedInk } from './paint.js';
 import type { Paint, SceneFiles } from './paint.js';
@@ -763,8 +763,7 @@ export class Page {
    * picked, filled with the selection's colour and nothing else about it changed.
    */
   #isBend(id: string, index: number): boolean {
-    const bend = this.#host.bend();
-    return bend !== null && bend.id === id && bend.index === index;
+    return sameBend(this.#host.bend(), { id, index });
   }
 
   /**
