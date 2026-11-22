@@ -1212,10 +1212,12 @@ function behindHead(
  * never walks farther in than the head reaches, so a leg that turns under the
  * head costs that head its own length of shaft and no more.
  *
- * Where the walk never finds the stroke wholly under the triangle, because the
- * ink turns out of it first, the cut stops where the ink still runs into the
- * triangle instead: a shaft that reaches its head beats a tip with no ink beside
- * it, and a shaft with no such place at all is not cut.
+ * Where the walk never finds the stroke wholly under the triangle, because either
+ * the ink turns out of it or the stroke never fits inside it, the cut stops where
+ * the ink last runs into the triangle instead: a shaft that reaches its head beats
+ * a tip with no ink beside it, and a shaft with no such place at all is not cut.
+ * Leaving the triangle does not end the walk, since a stroke that pokes out beside
+ * the narrow apex may still be wholly under the head a few units farther in.
  */
 function coveredFrom(inward: readonly ShaftPiece[], face: HeadFace, at: 'start' | 'end'): number {
   const total = inward.reduce((sum, piece) => sum + piece.length, 0);
@@ -1237,14 +1239,16 @@ function coveredFrom(inward: readonly ShaftPiece[], face: HeadFace, at: 'start' 
       return edgeOfCover(under, arc, next);
     } else if (into(next)) {
       reached = next;
-    } else {
-      // The ink turns out of the triangle before the stroke is ever wholly under
-      // it: stop where it still runs into the triangle, so the two stay joined.
-      return edgeOfCover(into, reached, next);
     }
     arc = next;
   }
-  return entered ? covered : reached;
+  if (entered) {
+    return covered;
+  }
+  // Never wholly under the head: keep the ink up to the last place it still runs
+  // into the triangle, and cut nothing when it never does.
+  const beyond = Math.min(reached + HEAD_STEP, limit);
+  return reached < beyond ? edgeOfCover(into, reached, beyond) : reached;
 }
 
 /** Where a walk that is under a head's triangle at `inside` leaves it by `outside`. */
