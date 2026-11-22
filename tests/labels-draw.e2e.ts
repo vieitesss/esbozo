@@ -32,7 +32,7 @@ import {
 } from './labels-shared.ts';
 import type { Ui, View } from './helpers.ts';
 import { shot } from './pixels.ts';
-import type { Rect } from './pixels.ts';
+import type { Rect, Shot } from './pixels.ts';
 
 const SPACED_SOURCE = JSON.stringify(SPACED_SCENE, null, 2);
 
@@ -272,12 +272,35 @@ describe('labels draw', () => {
     const ui = { app, browser, screen };
     await openEditor(ui, { A: { 'words.json': WORDS_SOURCE } }, 'words.json');
 
-    // The box is at page (548, 348); its words fit inside it, so the space
-    // between the two views is the ink of the same two lines, and the box the
-    // caret sits in is below it, out of the way.
-    const inside: Rect = { x: 556, y: 356, width: 184, height: 104 };
+    // The box is at page (540, 340) and holds two lines of words: these are
+    // both lines and none of the box's own outline. The caret stands at the end
+    // of the last line, at x 656, and the page draws it while the words are typed
+    // and not once they are saved, so the rows of the second line stop short of
+    // its column while the first line, above it, keeps the box's whole width.
+    const wordInk: Rect[] = [
+      { x: 548, y: 348, width: 184, height: 48 },
+      { x: 548, y: 396, width: 108, height: 56 },
+    ];
+
+    /** The ink of every region as one: where it sits, and how much of it there is. */
+    const inkCentre = (view: Shot): { x: number; y: number; count: number } => {
+      let count = 0;
+      let sumX = 0;
+      let sumY = 0;
+      for (const region of wordInk) {
+        const centre = view.darkCentre(region, DARK);
+        count += centre.count;
+        sumX += centre.x * centre.count;
+        sumY += centre.y * centre.count;
+      }
+      return { x: sumX / count, y: sumY / count, count };
+    };
+
+    /** The bands of words each region holds, one region at a time. */
+    const bandsOf = (view: Shot): number[] => wordInk.map((region) => view.bands(region, DARK));
+
     const drawn = await shot(ui);
-    const before = drawn.darkCentre(inside, DARK);
+    const before = inkCentre(drawn);
     expect(before.count).toBeGreaterThan(100);
 
     await doubleClickScene(ui, { x: 100, y: 80 }, WORDS);
@@ -292,10 +315,10 @@ describe('labels draw', () => {
     // The page is the words: same size, same lines, same place while they are
     // typed as after they are saved, because one Renderer draws both.
     for (const view of [typing, saved]) {
-      const centre = view.darkCentre(inside, DARK);
+      const centre = inkCentre(view);
       expect(Math.abs(centre.x - before.x)).toBeLessThan(2);
       expect(Math.abs(centre.y - before.y)).toBeLessThan(2);
-      expect(view.bands(inside, DARK)).toBe(drawn.bands(inside, DARK));
+      expect(bandsOf(view)).toEqual(bandsOf(drawn));
     }
   });
 
