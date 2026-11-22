@@ -290,6 +290,45 @@ describe('the tools', () => {
     expect((await savedFiles(ui))['scene.json']).toBe(SCENE_SOURCE);
   });
 
+  test('Escape drops a draw in flight, and the release that follows draws nothing', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    const bare = await ink(ui, SWEPT);
+
+    const from = at(PAPER);
+    const to = { x: from.x + SWEPT.width, y: from.y + SWEPT.height };
+    await browser.keyboard.press('r');
+    await browser.mouse.move(from.x, from.y);
+    await browser.mouse.down();
+    await browser.mouse.move(to.x, to.y);
+    await settle(ui);
+    expect(await ink(ui, SWEPT)).toBeGreaterThan(bare + 100);
+
+    // Escape answers before the release: the preview goes, and the paper it
+    // covered is paper again.
+    await browser.keyboard.press('Escape');
+    await settle(ui);
+    expect(await ink(ui, SWEPT)).toBe(bare);
+
+    // The release that follows draws nothing and selects nothing, so the file
+    // is the file and no note was opened over the Scene.
+    await browser.mouse.up();
+    await settle(ui);
+    expect((await savedFiles(ui))['scene.json']).toBe(SCENE_SOURCE);
+    await expect(screen.getByRole('dialog', 'Style')).toBeHidden();
+
+    // The tool is still in hand, and the next drag lands normally, as one step:
+    // one undo is the Scene without it.
+    await drag(ui, at(PAPER), to);
+    expect((await savedScene(ui)).elements.length).toBe(3);
+    await browser.keyboard.press('Meta+z');
+    expect((await savedScene(ui)).elements.length).toBe(2);
+  });
+
   test('Space pans with a tool in hand instead of placing an Element', async ({ app, browser, screen }) => {
     const ui = { app, browser, screen };
     await open(ui);
