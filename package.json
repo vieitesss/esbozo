@@ -31,6 +31,7 @@
     "e2e": "pnpm build && node scripts/fresh-tmp.mjs e2e run tests/editor-opens.e2e.ts tests/editor-files.e2e.ts tests/editor-select.e2e.ts tests/editor-bends.e2e.ts tests/editor-point-menu.e2e.ts tests/editor-move.e2e.ts tests/editor-pan-zoom.e2e.ts tests/editor-rail.e2e.ts tests/editor-page.e2e.ts tests/editor-style.e2e.ts tests/editor-status.e2e.ts tests/editor-arrange.e2e.ts tests/editor-palette.e2e.ts tests/editor-clipboard.e2e.ts tests/editor-export.e2e.ts tests/drawing.e2e.ts tests/labels-edit.e2e.ts tests/labels-draw.e2e.ts tests/labels-caret.e2e.ts tests/labels-ime.e2e.ts tests/labels-view.e2e.ts tests/labels-select.e2e.ts tests/labels-drag.e2e.ts tests/snap.e2e.ts tests/serve.e2e.ts tests/embed.e2e.ts tests/cdp.e2e.ts tests/svg.e2e.ts",
     "e2e:agent": "pnpm build && node scripts/fresh-tmp.mjs e2e run tests/visual.e2e.ts",
     "e2e:shots": "pnpm build && node scripts/fresh-tmp.mjs e2e run tests/screenshots.e2e.ts",
+    "e2e:linux": "node scripts/fresh-tmp.mjs node scripts/e2e-linux.mjs",
     "serve:editor": "pnpm build && node dist/cli.js serve dist --port 4319",
     "probe": "node scripts/probe-editor.mjs"
   },
