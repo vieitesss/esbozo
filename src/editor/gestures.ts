@@ -46,7 +46,6 @@ import {
   withBend,
   withEnd,
   withInsertedBend,
-  withoutBend,
 } from './snap.js';
 import type { End } from './snap.js';
 import type { Typing } from './typing.js';
@@ -128,6 +127,8 @@ export type Drag =
        * the Scene yet, and a press that carries nothing leaves it out.
        */
       inserted: boolean;
+      /** Whether the press held Shift: a Shift press is about the selection, so it picks no point. */
+      shift: boolean;
       from: Point;
       /** The bend as the Scene stores it: where the pointer grabbed it, or where the dot stood. */
       origin: Point;
@@ -226,6 +227,8 @@ interface GestureHost {
   select(ids: readonly string[]): void;
   /** The one bend point the selection holds, set by a press and let go by the next one. */
   selectBend(bend: Bend | null): void;
+  /** Remove the bend point a double-click holds, as one step: the editor's own removal. */
+  removeBend(bend: Bend): void;
   tool(): ToolId;
   setTool(tool: ToolId): void;
   /** True when this page may change the Scene at all. */
@@ -529,6 +532,7 @@ export class Gestures {
           id,
           index: bend,
           inserted: false,
+          shift: event.shiftKey,
           from: viewport.scenePoint(event),
           origin: { x: stored.x, y: stored.y },
           moved: false,
@@ -808,7 +812,7 @@ export class Gestures {
             : this.#host.scene().elements.find((element) => element.id === first.id);
         if (bend !== undefined && click.bend?.id === bend.id && click.bend.index === bend.index) {
           this.#drag = null;
-          this.#removeBend(bend);
+          this.#host.removeBend(bend);
           return;
         }
         if (opening !== undefined) {
@@ -989,6 +993,7 @@ export class Gestures {
       id,
       index,
       inserted: true,
+      shift: event.shiftKey,
       from: viewport.scenePoint(event),
       origin: { x: pulled.at.x, y: pulled.at.y },
       moved: false,
@@ -1139,12 +1144,12 @@ export class Gestures {
    * point: its corner, every other bend and both ends — Snaps included — stay
    * the Scene's. A press that did not move is a click on the handle and changes
    * nothing, while a drag that comes back to its start is still one step. Both
-   * pick the point they held, unless the press pulled it out of a dot: that one
-   * is the ink's, and the selection keeps none of it.
+   * pick the point they held, unless the press pulled it out of a dot — that one
+   * is the ink's — or held Shift, which is about the selection and never a pick.
    */
   #settleBend(drag: Extract<Drag, { kind: 'bend' }>, at: Point): void {
     const base = this.#bendBase(drag);
-    const picked = drag.inserted ? null : { id: drag.id, index: drag.index };
+    const picked = drag.inserted || drag.shift ? null : { id: drag.id, index: drag.index };
     if (!drag.moved || base === undefined) {
       this.#host.selectBend(picked);
       this.#host.refresh();
@@ -1173,29 +1178,6 @@ export class Gestures {
       return undefined;
     }
     return drag.inserted ? withInsertedBend(element, drag.index, drag.origin) : element;
-  }
-
-  /**
-   * Two presses on one bend handle remove the point they hold: one history step
-   * of the whole Scene, and the shaft stays selected. A removal the Scene has no
-   * shaft for — two points whose ends both Snap to one Element — changes nothing
-   * and writes nothing.
-   */
-  #removeBend(bend: NonNullable<Press['bend']>): void {
-    const scene = this.#host.scene();
-    const element = scene.elements.find((candidate) => candidate.id === bend.id);
-    const removed =
-      element !== undefined && isShaft(element) ? withoutBend(element, bend.index) : null;
-    if (removed === null) {
-      this.#host.refresh();
-      return;
-    }
-    this.#host.applyScene({
-      ...scene,
-      elements: scene.elements.map((candidate) =>
-        candidate.id === bend.id ? removed : candidate,
-      ),
-    });
   }
 
   /**

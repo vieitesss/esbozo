@@ -301,6 +301,7 @@ class EsbozoEditorElement extends HTMLElement {
       selectBend: (bend) => {
         this.#bend = bend;
       },
+      removeBend: (bend) => this.#removeBend(bend),
       tool: () => this.#tool,
       setTool: (tool) => this.#setTool(tool),
       writable: () => this.#connection.writable(),
@@ -698,11 +699,11 @@ class EsbozoEditorElement extends HTMLElement {
   }
 
   /**
-   * Remove the one bend point the selection holds, by the rule a double-click
-   * removes one: every other point keeps its place, its `corner` and its Snap,
-   * and a removal that would leave a two-point self-loop removes nothing at all —
-   * the shaft stays, the point stays and no byte is written. The shaft keeps the
-   * selection; the point does not.
+   * Remove the one bend point a press holds: the removal the key, the palette and
+   * the double-click share. Every other point keeps its place, its `corner` and
+   * its Snap, and a removal that would leave a two-point self-loop removes
+   * nothing at all — the shaft stays, the point stays and no byte is written. The
+   * shaft keeps the selection; the point does not.
    */
   #removeBend(bend: Bend): void {
     const scene = this.#scene;
@@ -790,9 +791,12 @@ class EsbozoEditorElement extends HTMLElement {
     if (active !== this || !this.#takesKeys(event.target) || this.#gestures.holdsScene()) {
       return;
     }
-    if (copyTo(event.clipboardData, this.#scene, this.#selectedElements())) {
+    const selected = this.#selectedElements();
+    if (copyTo(event.clipboardData, this.#scene, selected)) {
       event.preventDefault();
-      this.#deleteSelected();
+      // Cut removes exactly what it copied: the point a press holds is a place on
+      // the shaft, never an Element the clipboard carries off.
+      this.#remove(new Set(selected.map((element) => element.id)));
     }
   };
 
@@ -1023,10 +1027,6 @@ class EsbozoEditorElement extends HTMLElement {
     if (active !== this || !this.#takesKeys(event.target)) {
       return;
     }
-    // A key that is not the repeat of a held one begins a press of its own.
-    if (!event.repeat) {
-      this.#tookPoint = false;
-    }
     if (event.key === ' ' || event.code === 'Space') {
       this.#gestures.holdSpace();
       event.preventDefault();
@@ -1102,9 +1102,14 @@ class EsbozoEditorElement extends HTMLElement {
     if (action !== null) {
       event.preventDefault();
       // The press that took the point has done its work: its repeats run nothing,
-      // rather than walking on to the shaft the point is a part of.
-      if (action.id === 'delete' && event.repeat && this.#tookPoint) {
-        return;
+      // rather than walking on to the shaft the point is a part of. Only a new
+      // press of a delete key frees the shaft, so a key pressed inside the hold
+      // is not one.
+      if (action.id === 'delete') {
+        if (event.repeat && this.#tookPoint) {
+          return;
+        }
+        this.#tookPoint = false;
       }
       void action.run(this.#host);
       return;
