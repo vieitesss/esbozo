@@ -9,7 +9,7 @@
  */
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import { openEditor, drag, settle } from './helpers.ts';
+import { openEditor, browseFolder, drag, settle } from './helpers.ts';
 import type { Ui } from './helpers.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
@@ -55,6 +55,20 @@ const WIDE_SOURCE = JSON.stringify(
     defaults: { roughness: 0 },
     elements: [
       { id: 'wide', type: 'rectangle', x: 0, y: 0, width: 2400, height: 700, fill: { kind: 'solid', grey: 6 } },
+    ],
+  },
+  null,
+  2,
+);
+
+/** A diagram taller than any window's fitted margin, so its frame's top moves a long way. */
+const TALL_SOURCE = JSON.stringify(
+  {
+    version: 1,
+    title: 'Tall',
+    defaults: { roughness: 0 },
+    elements: [
+      { id: 'tall', type: 'rectangle', x: 0, y: 0, width: 400, height: 3000, fill: { kind: 'solid', grey: 6 } },
     ],
   },
   null,
@@ -372,4 +386,101 @@ test('Zoom to fit measures the frame again, so a rail a resize carried off it go
   expect(fitted.top).toBeGreaterThan(110);
   expect(fitted.top).toBeLessThan(132);
   expect(Math.abs(fitted.centreX - 1280 / 2), 'the strip is centred').toBeLessThan(4);
+});
+
+test('a new box, an edit, undo, a pan, a zoom, a selection and the Style menu all leave the rail', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+  const band: Rect = { x: 400, y: 0, width: 480, height: 240 };
+  const opened = await railPlace(ui, band);
+  // The empty Scene hangs the strip above the 960×600 minimum frame, 21 px down.
+  expect(opened.top).toBeGreaterThan(10);
+  expect(opened.top).toBeLessThan(28);
+
+  /** One action, and the strip's ink where it already was. */
+  const held = async (action: string): Promise<void> => {
+    await settle(ui);
+    expectHeld(opened, await railPlace(ui, band), action);
+  };
+
+  // A new box is a new Element, a new selection and a docked note for it: the
+  // strip still stays where the Scene opened it (D3, D4, criterion 5).
+  await screen.getByRole('button', 'Rectangle').click();
+  await drag(ui, { x: 400, y: 300 }, { x: 600, y: 450 });
+  await held('penning a new box');
+
+  // Moving the box it drew is an edit, and an edit is not an opening.
+  await drag(ui, { x: 500, y: 375 }, { x: 540, y: 405 });
+  await held('moving a box');
+
+  // Undo takes the move back; an undo opens nothing either (I3).
+  await browser.keyboard.press('Meta+z');
+  await held('undo');
+
+  // A pan carries the page under a rail that floats over the paper.
+  await drag(ui, { x: 300, y: 600 }, { x: 320, y: 630 }, 'middle');
+  await held('a pan');
+
+  // A zoom draws the page bigger, and the rail is the page's chrome, not its ink.
+  await browser.mouse.move(640, 400);
+  await browser.mouse.wheel(0, -240);
+  await held('a zoom');
+
+  // Dropping the selection closes the note, which is no measurement either.
+  await browser.keyboard.press('Escape');
+  await expect(screen.getByRole('dialog', 'Style')).toBeHidden();
+  await held('dropping the selection');
+
+  // Selecting the box is what opens the Style menu (D4): the menu makes room for
+  // itself in the view, and the rail does not follow the view.
+  const select = async (): Promise<void> => {
+    await browser.mouse.move(450, 400);
+    await browser.mouse.down();
+    await browser.mouse.up();
+  };
+  await select();
+  await expect(screen.getByRole('dialog', 'Style')).toBeVisible();
+  await held('selecting');
+
+  // The same menu, opened a second time: the strip has not moved by a pixel.
+  await browser.keyboard.press('Escape');
+  await expect(screen.getByRole('dialog', 'Style')).toBeHidden();
+  await select();
+  await expect(screen.getByRole('dialog', 'Style')).toBeVisible();
+  await held('opening the Style menu');
+});
+
+test('opening another Scene measures the frame again instead of keeping the last dock', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await browser.setViewport({ width: 3440, height: 1440 });
+  await openEditor(
+    ui,
+    { A: { 'bare.json': BARE_SOURCE, 'tall.json': TALL_SOURCE } },
+    'bare.json',
+  );
+  await settle(ui);
+
+  // The empty Scene's 960×600 minimum frame hangs the strip 341 px down.
+  const bare = await railPlace(ui, { x: 1320, y: 0, width: 800, height: 480 });
+  expect(bare.top).toBeGreaterThan(330);
+  expect(bare.top).toBeLessThan(352);
+
+  // Another Scene in the same window: the 400×3000 diagram fits 633 px tall, so
+  // its frame's top side is 87 px down and the strip hangs at 8. Measured again,
+  // not carried from the Scene the page opened first.
+  await browseFolder(ui, 'A');
+  await screen.getByRole('button', 'tall.json').click();
+  await settle(ui);
+  const tall = await railPlace(ui, { x: 1320, y: 0, width: 800, height: 240 });
+  expect(tall.top).toBeGreaterThan(0);
+  expect(tall.top).toBeLessThan(20);
+  expect(Math.abs(tall.centreX - 1720), 'the strip is centred on the new frame').toBeLessThan(4);
 });
