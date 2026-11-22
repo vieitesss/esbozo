@@ -74,8 +74,10 @@ export class PointMenu {
     // where it has to fit: the pointer's place is clamped into that box, so a
     // press at the window's own corner still shows the whole row.
     const box = inside.getBoundingClientRect();
-    root.style.left = `${placed(at.x - box.left, box.width, root.offsetWidth)}px`;
-    root.style.top = `${placed(at.y - box.top, box.height, root.offsetHeight)}px`;
+    const place = (want: number, room: number, size: number) =>
+      Math.round(Math.max(INSET, Math.min(want, room - size - INSET)));
+    root.style.left = `${place(at.x - box.left, box.width, root.offsetWidth)}px`;
+    root.style.top = `${place(at.y - box.top, box.height, root.offsetHeight)}px`;
     root.focus({ preventScroll: true });
   }
 
@@ -147,11 +149,9 @@ export class PointMenu {
   };
 
   #onClick = (event: Event): void => {
-    const row = (event.target as Element | null)?.closest('[role="menuitem"]');
-    if (row === null || row !== this.#row) {
-      return;
+    if ((event.target as Element | null)?.closest('[role="menuitem"]') === this.#row) {
+      this.#run();
     }
-    this.#run();
   };
 
   /** Run the row on the point the menu was opened on, and shut it first. */
@@ -163,9 +163,4 @@ export class PointMenu {
     this.close();
     this.#options.remove(bend);
   }
-}
-
-/** Where a box of `size` starts so that it starts at `want` and stays inside the editor. */
-function placed(want: number, room: number, size: number): number {
-  return Math.round(Math.max(INSET, Math.min(want, room - size - INSET)));
 }
