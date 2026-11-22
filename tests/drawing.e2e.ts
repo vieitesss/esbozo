@@ -644,11 +644,11 @@ describe('copy and paste', () => {
 
     // `b` is the styled one: a solid grey fill and a dashed stroke.
     await clickScene(ui, { x: 250, y: 110 });
-    await browser.keyboard.press('Meta+c');
+    await browser.keyboard.press('ControlOrMeta+c');
 
     await browseFolder(ui, 'A');
     await screen.getByRole('button', 'other.json').click();
-    await browser.keyboard.press('Meta+v');
+    await browser.keyboard.press('ControlOrMeta+v');
 
     const scene = await savedScene(ui, 'other.json');
     expect(scene.elements.length).toBe(1);
@@ -692,7 +692,7 @@ describe('copy and paste', () => {
       return true;
     }, JSON.stringify(fragment));
 
-    await browser.keyboard.press('Meta+v');
+    await browser.keyboard.press('ControlOrMeta+v');
     const scene = await savedScene(ui);
     const added = scene.elements.slice(2);
     expect(added.map((element) => element.type)).toEqual(['rectangle', 'arrow']);
@@ -739,7 +739,7 @@ describe('copy and paste', () => {
       return true;
     }, JSON.stringify(fragment));
 
-    await browser.keyboard.press('Meta+v');
+    await browser.keyboard.press('ControlOrMeta+v');
     const scene = await savedScene(ui);
     expect(scene.elements[2]?.points).toEqual([
       { x: 396, y: 416 },
@@ -755,7 +755,7 @@ describe('copy and paste', () => {
       await navigator.clipboard.writeText('just some notes, not a Scene');
       return true;
     });
-    await browser.keyboard.press('Meta+v');
+    await browser.keyboard.press('ControlOrMeta+v');
 
     expect((await savedFiles(ui))['scene.json']).toBe(SCENE_SOURCE);
   });
@@ -782,7 +782,7 @@ describe('copy and paste', () => {
         await navigator.clipboard.writeText(payload);
         return true;
       }, JSON.stringify(fragment));
-      await browser.keyboard.press('Meta+v');
+      await browser.keyboard.press('ControlOrMeta+v');
     }
 
     expect((await savedFiles(ui))['scene.json']).toBe(SCENE_SOURCE);
@@ -805,7 +805,7 @@ describe('copy and paste', () => {
       return true;
     }, JSON.stringify(fragment));
 
-    await browser.keyboard.press('Meta+v');
+    await browser.keyboard.press('ControlOrMeta+v');
     const scene = await savedScene(ui);
     const added = scene.elements.slice(2);
     expect(added.map((element) => element.type)).toEqual(['rectangle', 'ellipse']);
@@ -836,10 +836,10 @@ describe('copy and paste', () => {
 
     // The copy goes into an empty Scene, whose own ids start from nothing: the
     // paste must not hand the copy the id it arrived with.
-    await browser.keyboard.press('Meta+c');
+    await browser.keyboard.press('ControlOrMeta+c');
     await browseFolder(ui, 'A');
     await screen.getByRole('button', 'to.json').click();
-    await browser.keyboard.press('Meta+v');
+    await browser.keyboard.press('ControlOrMeta+v');
 
     const pasted = await savedScene(ui, 'to.json');
     expect(pasted.elements.length).toBe(1);
@@ -870,7 +870,7 @@ describe('copy and paste', () => {
       return true;
     }, JSON.stringify(fragment));
 
-    await browser.keyboard.press('Meta+v');
+    await browser.keyboard.press('ControlOrMeta+v');
     const scene = await savedScene(ui, 'empty.json');
     expect(scene.elements.length).toBe(1);
     expect({ x: scene.elements[0]?.x, y: scene.elements[0]?.y }).toEqual({ x: 152, y: 100 });
@@ -896,7 +896,7 @@ describe('copy and paste', () => {
       return true;
     }, JSON.stringify(fragment));
 
-    await browser.keyboard.press('Meta+v');
+    await browser.keyboard.press('ControlOrMeta+v');
     const scene = await savedScene(ui, 'empty.json');
     expect(scene.elements.length).toBe(1);
     expect({ x: scene.elements[0]?.x, y: scene.elements[0]?.y }).toEqual({ x: 110, y: 90 });
@@ -914,10 +914,10 @@ describe('copy and paste', () => {
     // becomes has to parse on its own: a fragment with a Snap to a missing
     // target is not a Scene.
     await clickScene(ui, { x: 230, y: 80 }, [], SNAPPED);
-    await browser.keyboard.press('Meta+c');
+    await browser.keyboard.press('ControlOrMeta+c');
     await browseFolder(ui, 'A');
     await screen.getByRole('button', 'other.json').click();
-    await browser.keyboard.press('Meta+v');
+    await browser.keyboard.press('ControlOrMeta+v');
 
     const scene = await savedScene(ui, 'other.json');
     expect(scene.elements.length).toBe(1);
@@ -952,7 +952,7 @@ describe('copy and paste', () => {
     await open(ui);
 
     await clickScene(ui, { x: 100, y: 80 });
-    await browser.keyboard.press('Meta+c');
+    await browser.keyboard.press('ControlOrMeta+c');
 
     // A second tab, with its own folder stub, and a paste typed into it.
     await browser.newTab();
@@ -966,7 +966,7 @@ describe('copy and paste', () => {
     }, { B: { 'tab.json': JSON.stringify({ version: 1, title: 'Tab', defaults: {}, elements: [] }) } });
     await screen.getByRole('button', /Open folder/).click();
     await screen.getByRole('button', 'tab.json').click();
-    await browser.keyboard.press('Meta+v');
+    await browser.keyboard.press('ControlOrMeta+v');
 
     const pasted = await savedScene(ui, 'tab.json', 'B');
     expect(pasted.elements.map((element) => [element.type, element.x, element.y])).toEqual([

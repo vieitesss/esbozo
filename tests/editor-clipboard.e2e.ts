@@ -36,16 +36,16 @@ test('Copy, Cut and Paste say to use the keys where the page has no clipboard', 
   await browser.keyboard.type('copy');
   await expect(command(ui, 'Copy · ⌘C')).toBeDisabled();
   await expect(command(ui, 'Copy · ⌘C')).toContainText('use ⌘C / ⌘V');
-  await browser.keyboard.press('Meta+a');
+  await browser.keyboard.press('ControlOrMeta+a');
   await browser.keyboard.type('paste');
   await expect(command(ui, 'Paste · ⌘V')).toBeDisabled();
   await expect(command(ui, 'Paste · ⌘V')).toContainText('use ⌘C / ⌘V');
   await browser.keyboard.press('Escape');
 
   // The keys are the browser's own clipboard events, so they still work.
-  await browser.keyboard.press('Meta+x');
+  await browser.keyboard.press('ControlOrMeta+x');
   await expect.poll(async () => (await savedScene(ui)).elements.length).toBe(1);
-  await browser.keyboard.press('Meta+v');
+  await browser.keyboard.press('ControlOrMeta+v');
   await expect.poll(async () => (await savedScene(ui)).elements.length).toBe(2);
 });
 
