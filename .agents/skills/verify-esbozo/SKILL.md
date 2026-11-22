@@ -5,7 +5,7 @@ description: Verify esbozo editor UI, rendered ink, CLI output, and real browser
 
 # Verify esbozo
 
-Drive the real esbozo web editor (`<esbozo-editor>`) and `ez` CLI against a fresh build, inspect the rendered ink at 1x and high zoom, and keep the proof. Read [features/README.md](features/README.md) before driving a mapped feature, then follow that feature's file.
+Drive the real esbozo web editor (`<esbozo-editor>`) and `ez` CLI against a fresh build, inspect the rendered ink at 1x and 800% zoom, and keep the proof. Read [features/README.md](features/README.md) before driving a mapped feature, then follow that feature's file.
 
 ## Launch
 
@@ -43,13 +43,19 @@ node dist/cli.js serve "$RUN_DIR" --port 0 >"$RUN_DIR/serve.log" 2>&1 &
 SERVE_PID=$!
 ```
 
-Wait until `$RUN_DIR/serve.log` prints the startup line:
+Wait until `$RUN_DIR/serve.log` prints the startup line, then export the slashless origin:
 
 ```text
 serving /abs/path/... on http://127.0.0.1:<port>/ (build <sha>, <iso-utc>)
 ```
 
-Read the bound URL from that line. Pass `--read-only` to verify read-only mode. For a fixed local port (`4319`) during interactive checks, run `pnpm serve:editor` (`node dist/cli.js serve dist --port 4319`). Two `ez serve --port 0` instances with separate `$RUN_DIR` folders run side by side without conflict.
+```sh
+while ! grep -q 'http://127\.0\.0\.1:' "$RUN_DIR/serve.log"; do sleep 0.1; done
+export SERVE_URL="$(sed -n 's|.*\(http://127\.0\.0\.1:[0-9]*\).*|\1|p' "$RUN_DIR/serve.log" | head -n 1)"
+export RUN_DIR
+```
+
+Strip the trailing slash from the printed URL so `"${SERVE_URL}/api/health"` never sends `//api/health`, which returns HTTP 404. Pass `--read-only` to verify read-only mode. For a fixed local port (`4319`) during interactive checks, run `pnpm serve:editor` (`node dist/cli.js serve dist --port 4319`). Two `ez serve --port 0` instances with separate `$RUN_DIR` folders run side by side without conflict.
 
 ## Doctor
 
@@ -60,6 +66,8 @@ ls -l dist/cli.js dist/editor.html
 curl -fsS "${SERVE_URL}/api/health"
 curl -fsS "${SERVE_URL}/api/scenes"
 ```
+
+On older commits that predate `/api/health` (such as `d2d280c`), `/api/health` returns HTTP 404. Fall back to `curl -fsS "${SERVE_URL}/api/scenes"` and confirm the folder name and Scene list match `$RUN_DIR`.
 
 Confirm three facts before driving:
 
@@ -106,20 +114,20 @@ Linux container e2e runs (`pnpm e2e:linux`) are tracked in issue #45 and are not
 
 ## Evidence
 
-Save every proof file under `.e2e/results/verify/<run>/` (already gitignored). Name files by feature, commit or state, and zoom level, for example `.e2e/results/verify/issue-27/before-d2d280c-1x.png` and `.e2e/results/verify/issue-27/after-5418292-4x.png`.
+Save every proof file under `.e2e/results/verify/<run>/` (already gitignored). Name files by feature, commit or state, and zoom level, for example `.e2e/results/verify/issue-27/before-d2d280c-1x.png` and `.e2e/results/verify/issue-27/after-5418292-800pct.png`.
 
 Proof standards:
 
 - Drive the real user path (pointer, keyboard, rail buttons, command palette, or `ez` CLI), never internal setters.
 - Capture both the action result on screen and any side effect on disk (the saved `.esbozo` or `.json` file, generated `.svg`, and `node dist/cli.js check <file>` exit code).
-- Inspect rendered ink at 1x and at high zoom (wheel zoom with repeated `page.mouse.wheel(0, -400)` or `Meta+=`, plus a tight crop around the changed Element).
+- Inspect rendered ink at 1x and at 800% zoom (four `page.mouse.wheel(0, -400)` calls or `Meta+=`, plus a tight crop around the changed Element).
 - Crop directly in Playwright with `await page.screenshot({ path, clip: { x, y, width, height } })`, or crop an existing PNG on macOS with `sips -c <height> <width> --cropOffset <top> <left> <in.png> --out <out.png>`.
 
 Check the rendered ink the way a person does:
 
-1. **Border hit area.** Click along the drawn stroke of an unfilled Element, including where roughness pushes ink outside the stored box, at 1x and zoomed in. Confirm the Element selects, and confirm a click on bare paper clear of the ink selects nothing.
-2. **Arrow tip and head.** Zoom in on the end of a drawn or Snapped arrow. Confirm the shaft meets the arrowhead cleanly with no overshoot past the tip.
-3. **Label clearance.** Inspect Labels on boxes and on arrow shafts at 1x and high zoom. Confirm the words clear the shaft and head, and confirm an arrow Label has no opaque background box behind it.
+1. **Border hit area.** Click along the drawn stroke of an unfilled Element, including where roughness pushes ink outside the stored box, at 1x and 800% zoom. Confirm the Element selects, and confirm a click on bare paper clear of the ink selects nothing.
+2. **Arrow tip and head.** Zoom in to 800% on the end of a drawn or Snapped arrow. Confirm the shaft meets the arrowhead cleanly with no overshoot past the tip.
+3. **Label clearance.** Inspect Labels on boxes and on arrow shafts at 1x and 800% zoom. Confirm the words clear the shaft and head, and confirm an arrow Label has no opaque background box behind it.
 
 ## Cleanup
 

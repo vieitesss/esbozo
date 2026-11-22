@@ -19,12 +19,27 @@ Editing a Label lets a user double-click a box or arrow shaft (or press `Enter` 
 Preconditions:
 
 - `pnpm build` succeeded.
-- `$RUN_DIR` holds a Scene with a rectangle and an arrow clear of the rail and status line.
-- `ez serve "$RUN_DIR" --port 0` is running and Doctor passed on `SERVE_URL`.
+- `$RUN_DIR` holds `labels.esbozo` with a rectangle and an arrow clear of the rail and status line:
 
-- **Edit a box Label.** Double-click the rectangle, locate `page.getByRole('textbox', { name: 'Label' })`, type `Orders`, and press `Escape`. The saved Scene on disk records `"label": "Orders"` on the rectangle and `node dist/cli.js check` exits `0`.
-- **Edit an arrow Label.** Double-click the midpoint of the arrow shaft, type `sends` into the `Label` textbox, and press `Escape`. The saved Scene records `"label": "sends"` without changing the arrow's `points`.
-- **Inspect arrow Label ink at 1x and high zoom.** Capture `.e2e/results/verify/<run>/label-1x.png`. Zoom in on the arrow Label with four `page.mouse.wheel(0, -400)` calls and capture a cropped `.e2e/results/verify/<run>/label-4x.png`. The words clear the shaft and arrowhead, and the canvas or Grid behind the words shows no opaque background rectangle.
+```sh
+cat >"$RUN_DIR/labels.esbozo" <<'EOF'
+{
+  "version": 1,
+  "title": "Labels",
+  "defaults": { "roughness": 1 },
+  "elements": [
+    { "id": "box", "type": "rectangle", "x": 40, "y": 40, "width": 120, "height": 80 },
+    { "id": "link", "type": "arrow", "points": [{ "x": 180, "y": 80 }, { "x": 360, "y": 80 }] }
+  ]
+}
+EOF
+```
+
+- `ez serve "$RUN_DIR" --port 0` is running with a slashless `SERVE_URL` and Doctor passed.
+
+- **Edit a box Label.** Double-click `box`, locate `page.getByRole('textbox', { name: 'Label' })`, type `Orders`, and press `Escape`. The saved `$RUN_DIR/labels.esbozo` records `"label": "Orders"` on `box` and `node dist/cli.js check "$RUN_DIR/labels.esbozo"` exits `0`.
+- **Edit an arrow Label.** Double-click the midpoint of `link`'s shaft, type `sends` into the `Label` textbox, and press `Escape`. The saved `$RUN_DIR/labels.esbozo` records `"label": "sends"` without changing the arrow's `points`.
+- **Inspect arrow Label ink at 1x and 800% zoom.** Capture `.e2e/results/verify/<run>/label-1x.png`. Zoom in on the arrow Label with four `page.mouse.wheel(0, -400)` calls (800% zoom) and capture a cropped `.e2e/results/verify/<run>/label-800pct.png`. The words clear the shaft and arrowhead, and the canvas or Grid behind the words shows no opaque background rectangle.
 - **Drive real IME composition.** Reopen the `Label` textbox, open `const session = await cdp()`, send `await session.send('Input.imeSetComposition', { text: '日本語', selectionStart: 3, selectionEnd: 3 })`, confirm the preedit appears without premature commit, then send `await session.send('Input.insertText', { text: '日本語' })` and press `Escape`. The saved Scene holds `"日本語"` once, not twice.
 - **Regression check.** Run `npx e2e run tests/labels-edit.e2e.ts` and `npx e2e run tests/labels-ime.e2e.ts`. Both pass.
 

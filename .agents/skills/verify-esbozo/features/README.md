@@ -6,8 +6,8 @@ This directory is the maintained source for verifying user-facing behavior in es
 
 - Run `pnpm build` in the target checkout before launching `pnpm probe` or `ez serve`.
 - Create a disposable folder with the `esbozo-` prefix (`mktemp -d "${TMPDIR:-/tmp}/esbozo-verify-XXXXXX"`) for any real-folder `ez serve` run.
-- Start `node dist/cli.js serve "$RUN_DIR" --port 0` and read the bound loopback URL from its startup line.
-- Run the Doctor check (`GET /api/health` and `GET /api/scenes`) and require the expected build commit and disposable folder name.
+- Start `node dist/cli.js serve "$RUN_DIR" --port 0` and export the slashless loopback origin (`http://127.0.0.1:<port>`) from its startup line.
+- Run the Doctor check (`GET /api/health` and `GET /api/scenes`, or `GET /api/scenes` alone on older commits without `/api/health`) and require the expected build commit and disposable folder name.
 - Never drive an `ez serve` instance started by another run or worktree.
 
 ## Driving conventions
@@ -21,7 +21,7 @@ This directory is the maintained source for verifying user-facing behavior in es
 ## Proof and skip reporting
 
 - Capture both the action and the resulting state, not only the final screen.
-- Visual proof includes a 1x screenshot and a cropped high-zoom screenshot of the touched area.
+- Visual proof includes a 1x screenshot and a cropped 800% zoom screenshot (four `page.mouse.wheel(0, -400)` calls) of the touched area.
 - Persistence proof reads the saved `.esbozo` or `.json` file from `$RUN_DIR` and checks `node dist/cli.js check <file>` exits `0`.
 - Record the feature ID, entry point, and commit hash with every artifact.
 - Report any unreachable path with the attempted command and unmet precondition. Do not mark a skipped entry point as verified through another path.
@@ -39,7 +39,7 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 ## Features
 
-- [Select by border](./select-by-border.md) covers clicking drawn Element borders at 1x and high zoom, plus bare-paper misses.
-- [Draw an arrow](./draw-arrow.md) covers tool rail and shortcut drawing, Snap attachment, and arrow tip alignment at high zoom.
+- [Select by border](./select-by-border.md) covers clicking drawn Element borders at 1x and 800% zoom, plus bare-paper misses.
+- [Draw an arrow](./draw-arrow.md) covers tool rail and shortcut drawing, Snap attachment, and arrow tip alignment at 800% zoom.
 - [Edit a Label](./edit-label.md) covers box and arrow Label editing, arrow Label clearance with no background, and real IME input.
 - [Export](./export.md) covers light and dark PNG export from the command palette, SVG save output, and CLI parity (`ez png`, `ez render`).

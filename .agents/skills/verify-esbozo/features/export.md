@@ -12,7 +12,7 @@ Export lets a user download a light or dark PNG of the open Scene from the comma
 
 - Press `q` (with focus outside an editable field) to open the `Commands` dialog.
 - Choose `Export PNG (light)` or `Export PNG (dark)` from the command list.
-- Alternatively, run `node dist/cli.js png <scene> --theme light|dark` or `node dist/cli.js render <scene>` in a terminal.
+- Alternatively, run `node dist/cli.js png scene.esbozo --theme light` (or `--theme dark`) or `node dist/cli.js render scene.esbozo` in a terminal.
 
 ## Driving it with pnpm probe
 
