@@ -727,6 +727,48 @@ test('a head’s cut takes ink from its own end, and no more than the head reach
   }
 });
 
+test('a short leg at a head still runs into its triangle', async () => {
+  const arrows = shortLegMatrix();
+  const headed = await renderOne(turnedScene(arrows.map((one) => one.element)));
+  const bare = await renderOne(turnedScene(arrows.map((one) => one.bare)));
+
+  const groups = inkGroups(headed);
+  const bareGroups = inkGroups(bare);
+  assert.equal(groups.length, arrows.length, 'one group of ink per arrow');
+  assert.equal(bareGroups.length, arrows.length, 'and one per arrow drawn with no head');
+  for (const [index, one] of arrows.entries()) {
+    assertCutIsLocal(one, groups[index]!, bareGroups[index]!);
+  }
+});
+
+test('a start head leaves the dash phase it cut at the far end of every run', async () => {
+  const shafts = phaseMatrix();
+  const headed = await renderOne(turnedScene(shafts.map((one) => one.element)));
+  const bare = await renderOne(turnedScene(shafts.map((one) => one.bare)));
+
+  const groups = inkGroups(headed);
+  const bareGroups = inkGroups(bare);
+  assert.equal(groups.length, shafts.length, 'one group of ink per arrow');
+  assert.equal(bareGroups.length, shafts.length, 'and one per arrow drawn with no head');
+  for (const [index, one] of shafts.entries()) {
+    const runs = dashPhases(groups[index]!);
+    const plain = dashPhases(bareGroups[index]!);
+    assert.equal(runs.length, plain.length, `${one.id}: the same runs of shaft ink`);
+    for (const [runIndex, run] of runs.entries()) {
+      const own = plain[runIndex]!;
+      assert.ok(
+        far(own.end, run.end) <= INK_STEP_SLACK,
+        `${one.id}: run ${runIndex} ends at (${run.end.x}, ${run.end.y}), not at (${own.end.x}, ${own.end.y})`,
+      );
+      const moved = Math.abs(own.phase - run.phase);
+      assert.ok(
+        moved <= INK_STEP_SLACK,
+        `${one.id}: run ${runIndex} reaches dash phase ${run.phase.toFixed(2)}, its headless own ${own.phase.toFixed(2)}, ${moved.toFixed(2)} away`,
+      );
+    }
+  }
+});
+
 test('the same Scene renders the same bytes twice', async () => {
   const scene = lineScene([0, 100], [400, 100], { t: 0.5, offset: 0 });
 
@@ -1517,4 +1559,149 @@ function runBeyond(run: readonly At[], arc: number, at: 'start' | 'end'): number
     walked += step;
   }
   return beyond;
+}
+
+/**
+ * Legs shorter than the head that covers them: the leg turns away before a
+ * stroke's whole width is ever under the triangle, so the cut has to stop where
+ * the ink still runs into the triangle rather than take the head's whole reach.
+ */
+const SHORT_LEGS = [1, 3, 5, 8] as const;
+
+/** Room one arrow of the short-leg matrix has to itself: a turned 120-unit leg and a head. */
+const SHORT_CELL = 200;
+
+/** How many arrows one row of the short-leg matrix holds. */
+const SHORT_COLUMNS = 8;
+
+/** What varies from one arrow of the short-leg matrix to the next. */
+interface ShortOptions {
+  readonly leg: number;
+  readonly width: string;
+  readonly at: 'start' | 'end';
+  readonly corners: 'round' | 'sharp';
+  readonly roughness: number;
+}
+
+/** Every short leg, at every width, on either end, sharp and round, flat and rough. */
+function shortLegMatrix(): TurnedCase[] {
+  const cases: TurnedCase[] = [];
+  for (const leg of SHORT_LEGS) {
+    for (const width of ['thin', 'bold', 'extra']) {
+      for (const at of ['start', 'end'] as const) {
+        for (const corners of ['round', 'sharp'] as const) {
+          for (const roughness of [0, 2]) {
+            cases.push(shortLegCase(cases.length, { leg, width, at, corners, roughness }));
+          }
+        }
+      }
+    }
+  }
+  return cases;
+}
+
+/** One arrow of the short-leg matrix: a leg that turns under a head, and the same arrow headless. */
+function shortLegCase(index: number, options: ShortOptions): TurnedCase {
+  const id = `short-${index}`;
+  const x = (index % SHORT_COLUMNS) * SHORT_CELL + 60;
+  const y = Math.floor(index / SHORT_COLUMNS) * SHORT_CELL + 60;
+  const bend = { x: x - options.leg, y };
+  const tail = { x: bend.x, y: bend.y + 120 };
+  const points = options.at === 'end' ? [tail, bend, { x, y }] : [{ x, y }, bend, tail];
+  const shared = {
+    id,
+    type: 'arrow' as const,
+    points,
+    corners: options.corners,
+    stroke: { width: options.width, style: 'solid' },
+    roughness: options.roughness,
+  };
+  return {
+    id,
+    at: options.at,
+    element: {
+      ...shared,
+      heads:
+        options.at === 'start'
+          ? { start: 'arrow', end: 'none' }
+          : { start: 'none', end: 'arrow' },
+    },
+    bare: { ...shared, heads: { start: 'none', end: 'none' } },
+  };
+}
+
+/** Room one dashed shaft of the phase matrix has to itself: its 280 units and a Label. */
+const PHASE_CELL = 420;
+
+/** How many dashed shafts one row of the phase matrix holds. */
+const PHASE_COLUMNS = 4;
+
+/** What varies from one dashed shaft with a start head to the next. */
+interface PhaseOptions {
+  readonly width: string;
+  readonly rise: number;
+  readonly roughness: number;
+  readonly label: boolean;
+}
+
+/**
+ * The phase matrix: a dashed shaft with a head on its start — curved by its round
+ * corners and roughened — beside the same shaft with no head at all, which is
+ * the dash pattern its head must leave alone.
+ */
+function phaseMatrix(): TurnedCase[] {
+  const cases: TurnedCase[] = [];
+  for (const width of ['thin', 'bold', 'extra']) {
+    for (const rise of [40, 160]) {
+      for (const roughness of [0, 2]) {
+        for (const label of [false, true]) {
+          cases.push(phaseCase(cases.length, { width, rise, roughness, label }));
+        }
+      }
+    }
+  }
+  return cases;
+}
+
+/** One dashed shaft of the phase matrix, laid out so no two shafts overlap. */
+function phaseCase(index: number, options: PhaseOptions): TurnedCase {
+  const id = `phase-${index}`;
+  const x = (index % PHASE_COLUMNS) * PHASE_CELL + 60;
+  const y = Math.floor(index / PHASE_COLUMNS) * PHASE_CELL + 80;
+  const shared = {
+    id,
+    type: 'arrow' as const,
+    corners: 'round' as const,
+    roughness: options.roughness,
+    stroke: { width: options.width, style: 'dashed' },
+    points: [
+      { x, y },
+      { x: x + 40, y: y + options.rise },
+      { x: x + 280, y },
+    ],
+    ...(options.label ? { label: 'words', labelAt: { t: 0.5, offset: 0 } } : {}),
+  };
+  return {
+    id,
+    at: 'start',
+    element: { ...shared, heads: { start: 'arrow', end: 'none' } },
+    bare: { ...shared, heads: { start: 'none', end: 'none' } },
+  };
+}
+
+/**
+ * Every run of a dashed drawing, and the dash phase it reaches at its far end:
+ * the offset the run starts at plus the arc of ink it draws. A headless shaft
+ * writes both of its passes as one path, so the runs are the path's subpaths.
+ */
+function dashPhases(group: string): { end: At; phase: number }[] {
+  return pathsOf(group)
+    .filter((tag) => attributeIn(tag, 'fill') === 'none')
+    .flatMap((tag) => {
+      const offset = attributeOf(tag, 'stroke-dashoffset');
+      return inkRuns(tag).map((run) => ({
+        end: run[run.length - 1]!,
+        phase: offset + runLength(run),
+      }));
+    });
 }
