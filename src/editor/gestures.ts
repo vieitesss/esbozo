@@ -20,10 +20,9 @@
  * sequence — and a press on the note is answered here too, because docking the
  * note can put it under the very click that is opening words.
  *
- * Where the words are on the page is not the pointer's business: `wordsOffset`,
- * `wordsNearest` and `typedOffset` are asked of the page, which laid the glyphs
- * out. Nothing here draws or measures; it decides, and hands the decision to the
- * editor.
+ * The page supplies glyph positions; the typing session maps them back to the
+ * field. Nothing here draws or measures; it decides, and hands the decision to
+ * the editor.
  */
 import { elementsById, drawnShaft, outlineBox } from '../renderer.js';
 import { canonicalElement, isOutlined } from '../scene.js';
@@ -38,7 +37,7 @@ import type { ElementTool } from './elements.js';
 import type { Page } from './page.js';
 import { attachedTo, endPoint, isShaft, otherEnd, released, targetAt, withEnd } from './snap.js';
 import type { End } from './snap.js';
-import type { TextSession } from './text-session.js';
+import type { Typing } from './typing.js';
 import { wordAt } from './words.js';
 
 /** How far off the ink a click still picks an arrow or line, in screen pixels. */
@@ -185,13 +184,8 @@ interface GestureHost {
   /** True when this page may change the Scene at all. */
   writable(): boolean;
 
-  /** The words being typed, while a session is open. */
-  text(): TextSession | null;
-  /** An offset among the drawn glyphs, read back into the field's own words. */
-  typedOffset(drawn: number): number;
-  /** Open the words an Element holds, or place a new Text at a point. */
-  openWords(element: SceneElement): void;
-  openTextInput(at: Point): void;
+  /** Open the field, or read and move its selection while it is open. */
+  readonly typing: Pick<Typing, 'text' | 'typedOffset' | 'openWords' | 'openTextInput'>;
 
   /** A Scene change lands, as one history step and one write. */
   applyScene(next: Scene, options?: { amend?: boolean; select?: readonly string[] }): void;
@@ -371,7 +365,7 @@ export class Gestures {
     // A press the note answered itself never reaches here, so anything that does
     // is a new gesture: no click is owed to the press that opened the words.
     this.#cancelledClick = false;
-    const text = this.#host.text();
+    const text = this.#host.typing.text();
     // Any button, not the left one only: a middle or a right press takes the
     // focus off the field just the same, and Chromium confirms a preedit into it
     // as it goes. A press on the canvas is the board's own (a pan keeps the
@@ -391,7 +385,7 @@ export class Gestures {
     if (event.button !== 0 && event.button !== 1) {
       return;
     }
-    const text = this.#host.text();
+    const text = this.#host.typing.text();
     if (text !== null && event.button === 0) {
       // A press inside the words being typed moves their caret: it is the
       // words', not the canvas's, and the page keeps the focus in the field.
@@ -579,7 +573,7 @@ export class Gestures {
       // selection stays where the press put it, and the pointer may leave them.
       const offset = page.wordsNearest(point);
       if (offset !== null) {
-        const to = this.#host.typedOffset(offset);
+        const to = this.#host.typing.typedOffset(offset);
         // A gesture that selected something is a drag, however little the
         // pointer moved: two pixels across a glyph boundary is a letter taken,
         // and the click that follows it starts a new sequence instead of
@@ -587,7 +581,7 @@ export class Gestures {
         if (to !== drag.from) {
           this.#wordsClick = null;
         }
-        this.#host.text()?.select(drag.from, to);
+        this.#host.typing.text()?.select(drag.from, to);
       }
       return;
     }
@@ -701,7 +695,7 @@ export class Gestures {
         if (opening !== undefined) {
           event.preventDefault();
           this.#drag = null;
-          this.#host.openWords(opening);
+          this.#host.typing.openWords(opening);
           return;
         }
       }
@@ -709,7 +703,7 @@ export class Gestures {
 
     if (drag.kind === 'text') {
       this.#drag = null;
-      this.#host.openTextInput(drag.at);
+      this.#host.typing.openTextInput(drag.at);
       return;
     }
     if (drag.kind === 'words') {
@@ -811,7 +805,7 @@ export class Gestures {
     // the note consumes it instead of running it: a person who opened a Label by
     // double-clicking over a Style row has not also asked for that Style.
     this.#cancelledClick = true;
-    this.#host.openWords(opening);
+    this.#host.typing.openWords(opening);
   };
 
   /**
@@ -971,7 +965,7 @@ export class Gestures {
    * and dragging the pointer carries the other end of the selection with it.
    */
   #pressWords(event: PointerEvent, offset: number): void {
-    const text = this.#host.text();
+    const text = this.#host.typing.text();
     if (text === null) {
       return;
     }
@@ -985,7 +979,7 @@ export class Gestures {
     // Shift makes a press the extension of a selection, so it is never half of
     // a double-click: no sequence is owed to it, and none survives it.
     this.#wordsClick = press.shift ? null : press;
-    const at = this.#host.typedOffset(offset);
+    const at = this.#host.typing.typedOffset(offset);
     if (previous !== null && this.#isDoubleClick(previous, press)) {
       this.#wordsClick = null;
       const word = wordAt(text.state().words, at);

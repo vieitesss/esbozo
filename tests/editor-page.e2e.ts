@@ -1,7 +1,4 @@
 /**
- * One of the editor suites, split by the area of the editor it drives:
- * `tests/editor-*.e2e.ts`.
- *
  * Seam 2: the page itself — the hand font it serves from its own folder, the
  * theme it follows, and the dark it starts in. The judgement is the pixels it
  * paints and the requests it makes, never the stylesheet it read.

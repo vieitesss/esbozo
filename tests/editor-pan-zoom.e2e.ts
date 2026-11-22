@@ -1,7 +1,4 @@
 /**
- * One of the editor suites, split by the area of the editor it drives:
- * `tests/editor-*.e2e.ts`.
- *
  * Seam 2: the view — Space and the wheel, a middle drag, the dot Grid, and the
  * docked note the view has to pan and zoom clear of. Asserted on where the ink
  * lands and on the Scene, which a pan must leave alone.
@@ -29,7 +26,7 @@ import {
 import type { Point, Ui } from './helpers.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
-import { SCENE_SOURCE, GRID, control } from './editor-shared.ts';
+import { SCENE_SOURCE, GRID, control, zoomReadout } from './editor-shared.ts';
 
 const EDGE_SOURCE = JSON.stringify(EDGE_SCENE, null, 2);
 
@@ -40,6 +37,10 @@ const SHAFT_SOURCE = JSON.stringify(SHAFT_SCENE, null, 2);
 
 /** Both Elements and the space between them, clear of the rail and the status. */
 const BOTH: Rect = { x: 400, y: 250, width: 700, height: 400 };
+
+async function zoomPercent(ui: Ui): Promise<number> {
+  return Number((await zoomReadout(ui).textContent())?.replace('%', ''));
+}
 
 test('Space pans and the wheel zooms without touching the Scene', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
@@ -285,16 +286,13 @@ test('a selection wider than the room beside the note zooms out to fit', async (
   await ui.browser.setViewport({ width: 1366, height: 768 });
   await openEditor(ui, { A: { 'wide.json': WIDE_SOURCE } }, 'wide.json');
 
-  const zoomLabel = ui.screen.getByText(/^\d+%$/);
-  await expect(zoomLabel).toHaveText('100%');
+  await expect(zoomReadout(ui)).toHaveText('100%');
 
   // A bar wider than everything left of the note: no pan can clear it, so the
   // view zooms out just far enough to show the whole bar beside the note.
   await clickScene(ui, { x: 200, y: 80 }, [], WIDE_1366);
   await expect(ui.screen.getByRole('dialog', 'Style')).toBeVisible();
-  await expect
-    .poll(async () => Number((await zoomLabel.textContent())?.replace('%', '')))
-    .toBeLessThan(100);
+  await expect.poll(() => zoomPercent(ui)).toBeLessThan(100);
 
   // The bar is still painted where the note leaves room, and a zoom is a view
   // change: the Scene on disk is byte for byte the one that was opened.
@@ -308,8 +306,7 @@ test('a fit and a zoom of the view keep the selection clear of the note', async 
   await ui.browser.setViewport({ width: 1366, height: 768 });
   await openEditor(ui, { A: { 'wide.json': WIDE_SOURCE } }, 'wide.json');
 
-  const zoomLabel = ui.screen.getByText(/^\d+%$/);
-  const zoom = async () => Number((await zoomLabel.textContent())?.replace('%', ''));
+  const zoom = () => zoomPercent(ui);
   /** Rows of the bar left of the note, where the view puts all of it when cleared. */
   const BESIDE: Rect = { x: 200, y: 355, width: 500, height: 60 };
 
@@ -359,14 +356,11 @@ test('a rectangle too wide for the note zooms out past the manual zoom floor', a
   await ui.browser.setViewport({ width: 1366, height: 768 });
   await openEditor(ui, { A: { 'long.json': LONG_SOURCE } }, 'long.json');
 
-  const zoomLabel = ui.screen.getByText(/^\d+%$/);
-  const zoom = async () => Number((await zoomLabel.textContent())?.replace('%', ''));
-
   // 15,000 units wide: the room left of the note fits it at about 6%, below the
   // 10% a person may zoom to by hand.
   await clickScene(ui, { x: 4000, y: 200 }, [], LONG_1366);
   await expect(ui.screen.getByRole('dialog', 'Style')).toBeVisible();
-  await expect.poll(zoom).toBeLessThan(10);
+  await expect.poll(() => zoomPercent(ui)).toBeLessThan(10);
 
   // The whole bar is on the page beside the note, and a zoom is not an edit.
   const BESIDE: Rect = { x: 150, y: 372, width: 700, height: 24 };
@@ -384,7 +378,7 @@ test('the docked note fits a 1366×768 window', async ({ app, browser, screen })
   await expect(ui.screen.getByRole('dialog', 'Style')).toBeVisible();
 
   // Every row is offered, the last one included, and the note needed no zoom to
-  // make room in this window. That its whole shape sits inside the window is a
+  // make room in this window. That the whole Element fits inside the window is a
   // judgement of the painted page, in `tests/visual.e2e.ts`.
   await expect(control(ui, 'Corners: sharp')).toBeVisible();
   await expect(control(ui, 'Order: front')).toBeVisible();

@@ -1,7 +1,4 @@
 /**
- * One of the editor suites, split by the area of the editor it drives:
- * `tests/editor-*.e2e.ts`.
- *
  * Seam 2: copy, cut and paste — a page that has no clipboard API, the browser's
  * own clipboard keys, and a cut whose paste must not land in another Scene.
  * Asserted on the Scene the editor saves and the words the status line shows.

@@ -2,18 +2,14 @@
  * The words being typed: one Text or Label session, from the press that opens
  * it to the one way it ends.
  *
- * The page draws the words as they will save, so the session never measures or
- * paints: it holds what is being typed — the field, the Element as it shows it,
- * the new Text before it is in the Scene, and the step between the field's words
- * and the drawn ones — and asks the host for the one thing that changes, a Scene
- * that lands as a step and a write. Nothing here is a Scene until the words are
- * committed: Escape, a click away, a blur, a lost connection and a Scene switch
- * all end the session and leave the Scene exactly as it was.
+ * The page draws the words as they will save. The session holds the field, the
+ * Element shown in the preview, and the step between typed and drawn words.
+ * A click away or a blur commits valid words as one undo step and one write.
+ * Escape, a lost connection and a Scene switch discard the preview.
  */
 import type { Layout } from '../layout.js';
 import { hasXmlInvalidChars, parseScene, serialiseScene } from '../scene.js';
 import type { Element as SceneElement, Scene, TextElement } from '../scene.js';
-import type { ToolId } from './actions.js';
 import { freshId, idsOf, newText, without } from './elements.js';
 import type { Point } from './geometry.js';
 import { TextSession } from './text-session.js';
@@ -22,11 +18,11 @@ import { keptWords, withWords, wordsOf, wordsShift } from './words.js';
 import type { WordsShift } from './words.js';
 
 /** The words being typed, as the page draws them. */
-export interface TypingWords {
+interface TypingWords {
   /** The Element the words belong to, as the page shows it. */
   readonly element: SceneElement;
   /** The field the words are typed into: the caret it reports is the one drawn. */
-  readonly text: TextSession;
+  readonly text: Pick<TextSession, 'state' | 'spot'>;
   /** The step between the field's words and the drawn ones. */
   readonly shift: WordsShift;
 }
@@ -45,10 +41,10 @@ interface TypingPage {
 
 /**
  * What the words ask of the editor, and the one place a session becomes a
- * change. The editor answers with what the page holds; nothing here keeps a
- * copy of the Scene, the selection or the field.
+ * change. The editor owns the Scene and selection; the session owns the field
+ * and the preview.
  */
-export interface TypingHost {
+interface TypingHost {
   /** Where the field is put: the editor, above the canvas. */
   readonly field: HTMLElement;
   /** The page the words are drawn on. */
@@ -60,16 +56,15 @@ export interface TypingHost {
   /** True when this page may change the Scene at all: the one gate on opening a session. */
   writable(): boolean;
 
-  /** The Select tool stands down while words are typed. */
-  setTool(tool: ToolId): void;
-  select(ids: readonly string[]): void;
-  /** The note follows the selection, and the view makes room for it. */
-  refresh(): void;
+  /** Disarm the drawing tool before the field opens. */
+  useSelectTool(): void;
+  /** Select the Element being edited and make room for its words before focusing the field. */
+  selectElement(id: string): void;
   /** The status line says why the Scene would not hold the words. */
   refused(problem: string): void;
 
   /** A Scene change lands, as one history step and one write. */
-  applyScene(next: Scene, options?: { select?: readonly string[] }): void;
+  applyScene(next: Scene, selected: readonly string[]): void;
   /** The words are closed, so the press that selected a word in them pairs with nothing. */
   forgetWordClick(): void;
 }
@@ -83,7 +78,7 @@ export class Typing {
    * keeps what was there until the words are committed, so Escape can leave it
    * alone and a half-typed Label is never a history step.
    */
-  #editing: { id: string; element: SceneElement } | null = null;
+  #editing: SceneElement | null = null;
   /**
    * The Text being typed for the first time, as it will land: it is drawn on the
    * page but it is not in the Scene until the words are committed.
@@ -106,14 +101,14 @@ export class Typing {
       return null;
     }
     return {
-      element: (this.#editing?.element ?? this.#draft)!,
+      element: (this.#editing ?? this.#draft)!,
       text: this.#text,
       shift: this.#shift,
     };
   }
 
   /** The field the words are typed into, while a session is open. */
-  text(): TextSession | null {
+  text(): Pick<TextSession, 'finish' | 'select' | 'state'> | null {
     return this.#text;
   }
 
@@ -142,7 +137,7 @@ export class Typing {
     const words =
       editing === null
         ? elements
-        : elements.map((element) => (element.id === editing.id ? editing.element : element));
+        : elements.map((element) => (element.id === editing.id ? editing : element));
     return draft === null ? words : [...words, draft];
   }
 
@@ -155,7 +150,7 @@ export class Typing {
     if (!host.writable()) {
       return;
     }
-    host.setTool('select');
+    host.useSelectTool();
     // The Text the words will make, drawn on the page as they arrive: the page
     // shows what saving would render, and the field is only the caret and the keys.
     const scene = host.scene();
@@ -186,22 +181,19 @@ export class Typing {
     if (!host.writable()) {
       return;
     }
-    host.setTool('select');
-    host.select([element.id]);
+    host.useSelectTool();
+    const words = wordsOf(element);
     // The page paints the Element with the room its words need from the first
     // frame, not from the first keystroke, so the words are in one place.
-    this.#editing = {
-      id: element.id,
-      element: withWords(element, wordsOf(element), host.layout()),
-    };
-    this.#shift = wordsShift(wordsOf(element), wordsOf(element));
+    this.#editing = withWords(element, words, host.layout());
+    this.#shift = wordsShift(words, words);
     // The note follows the selection, and the view makes room for it before the
     // field takes the focus: the words stay clear of the note under the caret.
-    host.refresh();
+    host.selectElement(element.id);
     this.#text = new TextSession({
       host: host.field,
       name: element.type === 'text' ? 'Text' : 'Label',
-      words: wordsOf(element),
+      words,
       typed: (words) => this.#showWords(element, words),
       moved: () => this.#host.page.paintWords(),
       line: (key, state) => this.#host.page.wordsLine(key, state),
@@ -226,7 +218,7 @@ export class Typing {
       // holds them — so the page goes on drawing exactly those, and the ink does
       // not move when the session ends.
       const kept = words === wordsOf(element) ? words : keptWords(words);
-      this.#editing = { id: element.id, element: withWords(element, kept, host.layout()) };
+      this.#editing = withWords(element, kept, host.layout());
       this.#shift = wordsShift(words, kept);
       // The grown Element is what the note must not cover.
       host.page.clearOfNote();
@@ -234,7 +226,7 @@ export class Typing {
       // The page refuses these words and goes on drawing the ones it has: the
       // step is measured through them all the same, so a character the Scene
       // cannot hold is one more offset in the field and no glyph under the caret.
-      this.#shift = wordsShift(words, wordsOf(this.#editing.element));
+      this.#shift = wordsShift(words, wordsOf(this.#editing));
     }
     host.page.paint();
   }
@@ -274,16 +266,10 @@ export class Typing {
     // A character XML cannot hold is refused as typed, before a trim can hide
     // it; everything else the Scene checks is the words it would keep.
     const words = hasXmlInvalidChars(raw) ? raw : keptWords(raw);
-    const problem = this.#problem(this.#wordsScene(element, words));
-    if (problem !== null) {
-      this.#host.refused(problem);
-      return false;
-    }
-    this.#land(
+    return this.#land(
       this.#wordsScene(element, words),
       words === '' && element.type === 'text' ? [] : [element.id],
     );
-    return true;
   }
 
   /**
@@ -301,13 +287,7 @@ export class Typing {
       return true;
     }
     const elements = [...this.#host.scene().elements, { ...draft, content: words }];
-    const problem = this.#problem(elements);
-    if (problem !== null) {
-      this.#host.refused(problem);
-      return false;
-    }
-    this.#land(elements, [draft.id]);
-    return true;
+    return this.#land(elements, [draft.id]);
   }
 
   /**
@@ -339,37 +319,16 @@ export class Typing {
   }
 
   /**
-   * The Scene's own verdict on a Scene holding these Elements: the Scene its
-   * parser reads back, or the first thing it cannot hold. Nothing is applied:
-   * the caller decides whether the edit lands.
+   * Land the Scene the parser reads back as one step and one write. If the Scene
+   * cannot hold the words, show its first problem without applying the edit.
    */
-  #verdict(elements: readonly SceneElement[]): { scene: Scene } | { problem: string } {
-    const parsed = parseScene(serialiseScene({ ...this.#host.scene(), elements: [...elements] }));
-    if (parsed.ok) {
-      return { scene: parsed.scene };
+  #land(elements: SceneElement[], selected: readonly string[]): boolean {
+    const parsed = parseScene(serialiseScene({ ...this.#host.scene(), elements }));
+    if (!parsed.ok) {
+      this.#host.refused(parsed.problems[0]?.message ?? 'the Scene cannot hold these words');
+      return false;
     }
-    const first = parsed.problems[0];
-    return { problem: first === undefined ? 'the Scene cannot hold these words' : first.message };
-  }
-
-  /** What the Scene says about these Elements: its first problem, or null when it can hold them. */
-  #problem(elements: readonly SceneElement[]): string | null {
-    const verdict = this.#verdict(elements);
-    return 'problem' in verdict ? verdict.problem : null;
-  }
-
-  /**
-   * The one way typed words land: the Scene's own verdict first, then one step
-   * and one write. A refusal says why in the status line and leaves the Scene
-   * exactly as it was, on the page and on disk.
-   */
-  #land(elements: readonly SceneElement[], selected: string[]): void {
-    const verdict = this.#verdict(elements);
-    if ('problem' in verdict) {
-      this.#host.refused(verdict.problem);
-      this.#host.page.paint();
-      return;
-    }
-    this.#host.applyScene(verdict.scene, { select: selected });
+    this.#host.applyScene(parsed.scene, selected);
+    return true;
   }
 }
