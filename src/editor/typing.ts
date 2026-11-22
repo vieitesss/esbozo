@@ -4,8 +4,9 @@
  *
  * The page draws the words as they will save. The session holds the field, the
  * Element shown in the preview, and the step between typed and drawn words.
- * A click away or a blur commits valid words as one undo step and one write.
- * Escape, a lost connection and a Scene switch discard the preview.
+ * A click away, a blur or an Escape commits valid words as one undo step and
+ * one write: Escape discards the words only when the page refuses them. A lost
+ * connection and a Scene switch discard the preview.
  */
 import type { Layout } from '../layout.js';
 import { hasXmlInvalidChars, parseScene, serialiseScene } from '../scene.js';
