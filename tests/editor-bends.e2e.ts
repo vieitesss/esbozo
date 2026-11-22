@@ -2320,3 +2320,146 @@ describe('a bend point the selection lets go of', () => {
     await allowWrites(ui);
   });
 });
+
+/**
+ * Three things a point beside the keys must not bend. A cut takes exactly the
+ * Elements it copied, which is not the one point of them a press picked; a Shift
+ * press is about the selection and picks no point; and a held key edits once,
+ * however many keys are pressed inside the hold, because none of them is a new
+ * press of the delete key.
+ */
+describe('a cut, a Shift press and a held key', () => {
+  /** The arrow selected, and its sharp bend the point the selection holds. */
+  async function picked(ui: Ui): Promise<void> {
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    await clickScene(ui, SHARP_BEND, [], SHARP);
+    await settle(ui);
+    // The square is filled with the selection's colour, so the press did pick it.
+    expect((await shot(ui)).meanLuminance(handleFill(at(SHARP_BEND, SHARP)))).toBeLessThan(0.85);
+  }
+
+  test('a cut by key deletes the shaft it copied, not the point it holds', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await picked(ui);
+
+    // The key's own cut event copies the arrow and deletes what it copied: the
+    // point is a place on the shaft, and not an Element the clipboard carries.
+    await browser.keyboard.press('ControlOrMeta+x');
+    await expectPoints(ui, []);
+  });
+
+  test('a cut from the palette deletes the shaft it copied', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await picked(ui);
+
+    await palette(ui);
+    await browser.keyboard.type('cut');
+    await command(ui, 'Cut · ⌘X').click();
+
+    await expectPoints(ui, []);
+  });
+
+  test('a Shift click on a bend handle picks no point, and the key takes the shaft', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+
+    // Shift is about the selection, so a press that holds it picks nothing: the
+    // square stays the paper inside its own stroke.
+    await clickScene(ui, SHARP_BEND, ['Shift'], SHARP);
+    await settle(ui);
+    expect((await shot(ui)).meanLuminance(handleFill(at(SHARP_BEND, SHARP)))).toBeGreaterThan(
+      0.85,
+    );
+
+    // No point is held, so the key goes on to the arrow behind it.
+    await browser.keyboard.press('Backspace');
+    await expectPoints(ui, []);
+  });
+
+  test('a Shift drag of a bend handle carries the point and picks none of it', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+
+    await browser.keyboard.down('Shift');
+    await drag(ui, at(SHARP_BEND, SHARP), at({ x: 340, y: 270 }, SHARP));
+    await browser.keyboard.up('Shift');
+    // The drag itself still moves the one point it holds.
+    await expectPoints(ui, DRAGGED_POINTS);
+    await settle(ui);
+    const landed = { x: 340, y: 270 };
+    expect((await shot(ui)).meanLuminance(handleFill(at(landed, SHARP)))).toBeGreaterThan(0.85);
+
+    await browser.keyboard.press('Backspace');
+    await expectPoints(ui, []);
+  });
+
+  test('a key pressed inside a held Backspace never frees the shaft', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await picked(ui);
+
+    // The folder holds the write the press queued, so the Scene the whole hold
+    // left is the one the editor calls saved.
+    await holdWrites(ui, 'bends.json');
+    await browser.keyboard.down('Backspace');
+    await browser.keyboard.down('Shift');
+    await browser.keyboard.up('Shift');
+    await browser.keyboard.down('Backspace');
+    await browser.keyboard.up('Backspace');
+    await releaseWrite(ui);
+    await allowWrites(ui);
+
+    // Only the newest write the hold queued says `saved`: a second one — the
+    // repeat walking on to the shaft — would land before this reads the file.
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    await expectPoints(ui, [
+      { x: 50, y: 50 },
+      { x: 550, y: 50 },
+    ]);
+  });
+
+  test('a key pressed inside a held Delete never frees the shaft', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await picked(ui);
+
+    await holdWrites(ui, 'bends.json');
+    await browser.keyboard.down('Delete');
+    await browser.keyboard.down('Shift');
+    await browser.keyboard.up('Shift');
+    await browser.keyboard.down('Delete');
+    await browser.keyboard.up('Delete');
+    await releaseWrite(ui);
+    await allowWrites(ui);
+
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    await expectPoints(ui, [
+      { x: 50, y: 50 },
+      { x: 550, y: 50 },
+    ]);
+  });
+});
