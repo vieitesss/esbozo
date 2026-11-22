@@ -66,6 +66,59 @@ export function shaftIn(scene: Scene, id: string): ArrowOrLineElement | null {
 }
 
 /**
+ * The one bend point the selection holds, and the lifetime it has. A press picks
+ * it; a change of the selection, a removal, another Scene and a page that may
+ * only read let it go; and the delete press that takes it is spent with the
+ * press, so a held key does not walk on from the point to the shaft behind it.
+ * Every one of those is decided here, so no index outlives the point it named.
+ */
+export class PickedBend {
+  #held: Bend | null = null;
+  /** Whether the delete press in hand already took the point it found. */
+  #spent = false;
+
+  /** The point the selection holds, or null where it holds none. */
+  get bend(): Bend | null {
+    return this.#held;
+  }
+
+  /** Pick the point a press took, or let go of the one picked before it. */
+  pick(bend: Bend | null): void {
+    this.#held = bend;
+  }
+
+  /**
+   * Let go of the point: the selection changed, the point went, the Scene
+   * switched, or the page may only read.
+   */
+  letGo(): void {
+    this.#held = null;
+  }
+
+  /**
+   * Whether this delete press runs: a held key whose point is already spent runs
+   * nothing, so it does not go on to the shaft the point is a part of. Only a new
+   * press of a delete key is one, so a key pressed inside the hold is not.
+   */
+  deleting(repeated: boolean): boolean {
+    if (repeated && this.#spent) {
+      return false;
+    }
+    this.#spent = false;
+    return true;
+  }
+
+  /**
+   * The point this delete press removes, spent with the press whether the point
+   * may go or not: the shaft behind it answers only to a press of its own.
+   */
+  take(): Bend | null {
+    this.#spent = this.#held !== null;
+    return this.#held;
+  }
+}
+
+/**
  * The arrow or line with the bend at `index` stored where the pointer put it:
  * whole-pixel like every other coordinate in a Scene, its own `corner` kept,
  * and no Snap. A Snap is an end's, so a bend dropped over an Element does not

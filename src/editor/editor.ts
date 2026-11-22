@@ -18,7 +18,7 @@ import { actionById, actionFor } from './actions.js';
 import type { ActionHost, ActionState, ToolId } from './actions.js';
 import { exportPng } from './export.js';
 import { Gestures } from './gestures.js';
-import { mayRemove, shaftIn, withoutBend } from './bend-point.js';
+import { mayRemove, PickedBend, shaftIn, withoutBend } from './bend-point.js';
 import type { Bend } from './bend-point.js';
 import { clipboardApi, copySelection, copyTo, cutSelection, pasteClipboard } from './clipboard.js';
 import type { ClipboardHost } from './clipboard.js';
@@ -85,18 +85,8 @@ class EsbozoEditorElement extends HTMLElement {
   #pngExport = true;
   #scene: Scene = emptyScene();
   #selected: string[] = [];
-  /**
-   * The one bend point the selection holds, or null. A press on a bend handle
-   * picks it and the delete action removes only it; a change of the selection, a
-   * removal and an edit let go of clear it, so no index outlives the point it
-   * named.
-   */
-  #bend: Bend | null = null;
-  /**
-   * Whether the key press in hand took the bend point: one press deletes once, so
-   * its auto-repeat does not go on from the point to the shaft behind it.
-   */
-  #tookPoint = false;
+  /** The one bend point the selection holds, and the presses that take it. */
+  #picked = new PickedBend();
   #tool: ToolId = 'select';
   #history = new History(serialiseScene(this.#scene));
   /** When the last nudge landed, so a burst of them folds into one undo step. */
@@ -234,7 +224,7 @@ class EsbozoEditorElement extends HTMLElement {
       canOpen: () => this.#connection.writable() && this.#typing.text() === null,
       shaft: (id) => shaftIn(this.#scene, id),
       selectBend: (bend) => {
-        this.#bend = bend;
+        this.#picked.pick(bend);
         this.#refresh();
       },
       remove: (bend) => this.#removeBend(bend),
@@ -284,7 +274,7 @@ class EsbozoEditorElement extends HTMLElement {
         scene: () => this.#scene,
         shown: () => this.#shown(),
         selected: () => this.#selected,
-        bend: () => this.#bend,
+        bend: () => this.#picked.bend,
         drag: () => this.#gestures.drag,
         writable: () => this.#connection.writable(),
         typing: this.#typing,
@@ -322,7 +312,7 @@ class EsbozoEditorElement extends HTMLElement {
         this.#selectElements(ids);
       },
       selectBend: (bend) => {
-        this.#bend = bend;
+        this.#picked.pick(bend);
       },
       removeBend: (bend) => this.#removeBend(bend),
       tool: () => this.#tool,
@@ -570,7 +560,7 @@ class EsbozoEditorElement extends HTMLElement {
     }
     // The point a press picked waits for the key that removes it: a page that may
     // only read, and another Scene, hold none of it.
-    this.#bend = null;
+    this.#picked.letGo();
     this.#pointMenu.close();
     if (this.#tool !== 'select') {
       this.#setTool('select');
@@ -622,7 +612,7 @@ class EsbozoEditorElement extends HTMLElement {
    */
   #selectElements(ids: readonly string[]): void {
     this.#selected = [...ids];
-    this.#bend = null;
+    this.#picked.letGo();
     // The menu was opened for the selection the press found: another one is
     // another point, or none at all.
     this.#pointMenu.close();
@@ -701,11 +691,8 @@ class EsbozoEditorElement extends HTMLElement {
    * selected Elements, as one step. A Snap to a deleted target is dropped.
    */
   #deleteSelected(): void {
-    const bend = this.#bend;
+    const bend = this.#picked.take();
     if (bend !== null) {
-      // The press that removes a point is spent with it, whether the point could
-      // go or not: the shaft behind it answers only to a press of its own.
-      this.#tookPoint = true;
       this.#removeBend(bend);
       return;
     }
@@ -728,7 +715,7 @@ class EsbozoEditorElement extends HTMLElement {
       this.#refresh();
       return;
     }
-    this.#bend = null;
+    this.#picked.letGo();
     const removed = withoutBend(element, bend.index);
     this.#applyScene({
       ...scene,
@@ -1137,15 +1124,10 @@ class EsbozoEditorElement extends HTMLElement {
     const action = actionFor(event);
     if (action !== null) {
       event.preventDefault();
-      // The press that took the point has done its work: its repeats run nothing,
-      // rather than walking on to the shaft the point is a part of. Only a new
-      // press of a delete key frees the shaft, so a key pressed inside the hold
-      // is not one.
-      if (action.id === 'delete') {
-        if (event.repeat && this.#tookPoint) {
-          return;
-        }
-        this.#tookPoint = false;
+      // A held delete key that already took its point runs nothing: only a new
+      // press frees the shaft.
+      if (action.id === 'delete' && !this.#picked.deleting(event.repeat)) {
+        return;
       }
       void action.run(this.#host);
       return;
