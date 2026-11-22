@@ -710,3 +710,58 @@ test('the four modules Node tests load today, and a module outside the Editor, a
     'test/placement.test.ts': "import type { Scene } from '../src/scene.ts';\n",
   });
 });
+
+// Rule 5: every e2e file runs in exactly one script.
+
+/** A package.json whose scripts are the given commands, and nothing else. */
+function scriptsJson(commands: Record<string, string>): string {
+  return `${JSON.stringify({ scripts: commands }, null, 2)}\n`;
+}
+
+test('an e2e file no script runs is a finding, and package.json is where it is fixed', async () => {
+  const line = await finding({
+    'package.json': scriptsJson({ e2e: 'e2e run tests/editor-opens.e2e.ts' }),
+    'tests/editor-opens.e2e.ts': 'export const opened = true;\n',
+    'tests/editor-bends.e2e.ts': 'export const bent = true;\n',
+  });
+
+  assert.match(
+    line,
+    /^package\.json:2: tests\/editor-bends\.e2e\.ts is in no e2e script: name it in e2e, e2e:agent or e2e:shots$/,
+  );
+});
+
+test('a script that names a file which is not there is a finding too', async () => {
+  const line = await finding({
+    'package.json': scriptsJson({ 'e2e:agent': 'e2e run tests/gone.e2e.ts' }),
+  });
+
+  assert.match(line, /^package\.json:3: the e2e:agent script names "tests\/gone\.e2e\.ts", which does not exist$/);
+});
+
+test('an e2e file two scripts run is a finding, because exactly one runs it', async () => {
+  const line = await finding({
+    'package.json': scriptsJson({
+      e2e: 'e2e run tests/visual.e2e.ts',
+      'e2e:shots': 'e2e run tests/visual.e2e.ts',
+    }),
+    'tests/visual.e2e.ts': 'export const seen = true;\n',
+  });
+
+  assert.match(
+    line,
+    /^package\.json:3: tests\/visual\.e2e\.ts is in more than one e2e script \(e2e, e2e:shots\): exactly one runs it$/,
+  );
+});
+
+test('a folder whose every e2e file its one script names is quiet', async () => {
+  await quiet({
+    'package.json': scriptsJson({
+      e2e: 'pnpm build && e2e run tests/editor-opens.e2e.ts tests/svg.e2e.ts',
+      'e2e:agent': 'e2e run tests/visual.e2e.ts',
+    }),
+    'tests/editor-opens.e2e.ts': 'export const opened = true;\n',
+    'tests/svg.e2e.ts': 'export const written = true;\n',
+    'tests/visual.e2e.ts': 'export const seen = true;\n',
+  });
+});

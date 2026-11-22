@@ -1,6 +1,6 @@
 # Browser tests
 
-Twenty-eight files, three scripts, each running a real page in Chromium through
+Three scripts, each running a real page in Chromium through
 e2e: most start the built editor, and `svg.e2e.ts` serves the SVG `ez render`
 wrote instead. Build first (`pnpm build`), or use the scripts, which build.
 
@@ -19,8 +19,9 @@ reads real files;
 the element and its attributes, beside a stub of the same save API;
 `svg.e2e.ts` opens the SVG `ez render` wrote as a page of its own, with no
 stylesheet anywhere, then as an `<img>` on a page that declares no theme
-either, and then inlined in a host page that declares its own theme. All
-twenty-six model-free files run under `pnpm e2e`.
+either, and then inlined in a host page that declares its own theme. Every
+`*.e2e.ts` file must appear in exactly one of the scripts below: `check-rules`
+holds the list, so a new file cannot sit unrun.
 
 | Script | Files | Model calls |
 | --- | --- | --- |
