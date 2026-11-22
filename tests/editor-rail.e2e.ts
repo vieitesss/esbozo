@@ -59,9 +59,54 @@ function rail(ui: Ui) {
  */
 async function railInk(ui: Ui, band: Rect): Promise<Rect> {
   await rail(ui).getByRole('button', 'Select').focus();
+  await fullInk(ui);
   const ink = async (): Promise<Rect | null> => (await shot(ui)).darkBounds(band, 0.6);
   await expect.poll(async () => (await ink()) !== null, { timeout: 5000 }).toBe(true);
   return (await ink())!;
+}
+
+/**
+ * The strip is drawn at the ink a person sees, its fade to full ink finished.
+ *
+ * A tile taking the focus fades the strip from 0.58 to 1 over 0.22 s, and a
+ * screenshot taken during that fade holds the tiles' ink while the thin pencil
+ * outline around them is still too pale to pass the ink threshold: the strip's
+ * top then reads 26 px where the outline paints 8 px. The opacity is the page's
+ * own answer to when the fade is over, so a starved machine waits as long as it
+ * takes; a stopwatch would be this machine's guess, and CI outlasted it.
+ */
+async function fullInk(ui: Ui): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        ui.browser.evaluate(() => {
+          const strip = document.querySelector('esbozo-editor nav[aria-label="Tools"]');
+          return strip === null ? 0 : Number(getComputedStyle(strip).opacity);
+        }),
+      { timeout: 5000 },
+    )
+    .toBe(1);
+}
+
+/**
+ * The strip's fade to full ink, slowed down so a run can catch it mid-fade.
+ *
+ * Focusing a tile fades the strip from 0.58 to 1 over 0.22 s (`editor.css`). A
+ * screenshot taken during that fade holds the tiles' ink while the pencil
+ * outline around them is still too pale to pass the ink threshold, so the same
+ * strip reads 26 px down instead of 8 px. Linux CI lost that race on main
+ * (issue #29b); this hands every machine the same race, and no run gets lucky.
+ */
+async function slowFade(ui: Ui, seconds: number): Promise<void> {
+  const slowed = await ui.browser.evaluate((duration) => {
+    const strip = document.querySelector('esbozo-editor nav[aria-label="Tools"]');
+    if (!(strip instanceof HTMLElement)) {
+      return false;
+    }
+    strip.style.setProperty('transition-duration', `${duration}s`);
+    return true;
+  }, seconds);
+  expect(slowed, 'the strip is the one this test slowed down').toBe(true);
 }
 
 /** An empty Scene, opened at the window a test set first. */
@@ -124,6 +169,7 @@ test('a diagram larger than the frame keeps the rail a gap above its own box, ce
   // is 370 px down. The strip is measured in a band that stops above that
   // stroke, and the box in one beside the strip's own reach.
   await rail(ui).getByRole('button', 'Select').focus();
+  await fullInk(ui);
   const stripBand: Rect = { x: 1400, y: 0, width: 640, height: 366 };
   await expect
     .poll(async () => (await shot(ui)).darkBounds(stripBand, 0.6) !== null, { timeout: 5000 })
@@ -179,4 +225,22 @@ test('a diagram with no room above it puts the rail 15 px inside the editor top 
   expect(ink.y, 'the strip stops just inside the editor top edge').toBeGreaterThan(2);
   expect(ink.y, 'the strip stops just inside the editor top edge').toBeLessThan(18);
   expect(Math.abs(ink.x + ink.width / 2 - 1280 / 2), 'the strip is centred').toBeLessThan(4);
+});
+
+test('the rail is measured at its full ink, not at the tiles a fade shows first', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await browser.setViewport({ width: 1280, height: 300 });
+  await openEditor(ui, { A: { 'big.json': BIG_SOURCE } }, 'big.json');
+  await settle(ui);
+
+  // Two seconds of fade: no screenshot can slip past it, and the reading is
+  // taken while the strip is still on its way to the ink a person sees.
+  await slowFade(ui, 2);
+  const ink = await railInk(ui, { x: 400, y: 0, width: 480, height: 140 });
+  expect(ink.y, 'the reading is the outline, not the tiles below it').toBeGreaterThan(2);
+  expect(ink.y, 'the reading is the outline, not the tiles below it').toBeLessThan(18);
 });
