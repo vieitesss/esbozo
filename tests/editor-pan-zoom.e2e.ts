@@ -456,10 +456,12 @@ test('the tool rail runs along the editor top edge, centred, with its tools in o
   // Horizontal, not the column it used to be: seven tiles wide, one tile tall.
   expect(ink.width).toBeGreaterThan(ink.height * 2);
 
-  // 15 px down from the editor's top edge, where the outline is drawn. The tilt
-  // leans the strip, so the outline reaches a couple of pixels higher.
-  expect(ink.y, 'the rail sits at the top edge').toBeGreaterThan(6);
-  expect(ink.y, 'the rail sits at the top edge').toBeLessThan(20);
+  // The strip hangs on the frame around the diagram: an empty Scene's 960×600
+  // frame has its top side 100 px down, so the 63 px outline clears it by the
+  // 16 px gap and its own top is about 20 px down. The tilt leans the strip, so
+  // the outline reaches a couple of pixels higher.
+  expect(ink.y, 'the rail hangs above the frame').toBeGreaterThan(10);
+  expect(ink.y, 'the rail hangs above the frame').toBeLessThan(28);
 
   // Centred: a strip turned about its own middle keeps that middle where it was.
   expect(Math.abs(ink.x + ink.width / 2 - 1280 / 2), 'the rail is centred horizontally').toBeLessThan(3);
@@ -515,10 +517,11 @@ test('a press on the rail draws and selects nothing, and the press below it reac
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
 
-  // The page is carried so that `a`'s top stroke lies 20 px down, under the
-  // strip: paper that a press would otherwise find, with the rail over it.
+  // The page is carried so that `a`'s top stroke lies 32 px down, in the strip's
+  // own top padding: paper that a press would otherwise find, with the rail over
+  // it, and its bottom stroke 80 px lower, clear of the strip's reach.
   await browser.keyboard.down('Space');
-  await drag(ui, { x: 600, y: 600 }, { x: 660, y: 280 });
+  await drag(ui, { x: 600, y: 600 }, { x: 660, y: 292 });
   await browser.keyboard.up('Space');
   await settle(ui);
 
@@ -527,7 +530,7 @@ test('a press on the rail draws and selects nothing, and the press below it reac
   await browser.keyboard.press('r');
   await settle(ui);
   const before = (await shot(ui)).darkCount({ x: 596, y: 84, width: 120, height: 60 }, 0.6);
-  await drag(ui, { x: 600, y: 20 }, { x: 700, y: 140 });
+  await drag(ui, { x: 600, y: 32 }, { x: 700, y: 140 });
   await settle(ui);
   expect((await shot(ui)).darkCount({ x: 596, y: 84, width: 120, height: 60 }, 0.6)).toBe(before);
   expect((await savedFiles(ui))['scene.json']).toBe(SCENE_SOURCE);
@@ -536,12 +539,12 @@ test('a press on the rail draws and selects nothing, and the press below it reac
   // though `a`'s top stroke is under it.
   await browser.keyboard.press('v');
   await settle(ui);
-  await drag(ui, { x: 640, y: 20 }, { x: 640, y: 20 }, 'left');
+  await drag(ui, { x: 640, y: 32 }, { x: 640, y: 32 }, 'left');
   await settle(ui);
   await expect(screen.getByRole('dialog', 'Style')).toBeHidden();
 
   // The same press a little lower, clear of the strip, reaches that stroke.
-  await drag(ui, { x: 640, y: 100 }, { x: 640, y: 100 }, 'left');
+  await drag(ui, { x: 640, y: 112 }, { x: 640, y: 112 }, 'left');
   await expect(screen.getByRole('dialog', 'Style')).toBeVisible();
 
   // Two presses on a stroke and a sweep with a pencil: neither edited the Scene.
