@@ -530,24 +530,9 @@ export class Gestures {
     const handle = editing ? (target?.closest('[data-handle]') ?? null) : null;
     if (handle !== null) {
       this.#press = null;
-      const id = handle.getAttribute('data-element') ?? '';
-      const which = handle.getAttribute('data-handle');
-      const element = this.#host.scene().elements.find((candidate) => candidate.id === id);
-      if (element !== undefined && isShaft(element) && (which === 'start' || which === 'end')) {
-        const [start, end] = drawnShaft(element, elementsById(this.#host.scene().elements));
-        const origin = which === 'start' ? start : end;
-        this.#drag = {
-          kind: 'end',
-          id,
-          which,
-          from: viewport.scenePoint(event),
-          origin,
-          target: null,
-          moved: false,
-          shown: element,
-        };
-        return;
-      }
+      // A bend handle is on the Shaft itself, so the press is asked about the
+      // bend before any Element is looked up: only an end or a resize handle
+      // needs the Element its `data-element` names.
       const pressed = bendFromHandle(handle, this.#shaft);
       if (pressed !== null) {
         const stored = pressed.shaft.points[pressed.bend.index]!;
@@ -574,6 +559,24 @@ export class Gestures {
         };
         return;
       }
+      const id = handle.getAttribute('data-element') ?? '';
+      const which = handle.getAttribute('data-handle');
+      const element = this.#host.scene().elements.find((candidate) => candidate.id === id);
+      if (element !== undefined && isShaft(element) && (which === 'start' || which === 'end')) {
+        const [start, end] = drawnShaft(element, elementsById(this.#host.scene().elements));
+        const origin = which === 'start' ? start : end;
+        this.#drag = {
+          kind: 'end',
+          id,
+          which,
+          from: viewport.scenePoint(event),
+          origin,
+          target: null,
+          moved: false,
+          shown: element,
+        };
+        return;
+      }
       if (element !== undefined && isOutlined(element)) {
         this.#drag = {
           kind: 'resize',
@@ -587,8 +590,7 @@ export class Gestures {
       }
     }
 
-    const dot = editing ? (target?.closest('[data-dot]') ?? null) : null;
-    if (dot !== null && this.#pullBend(dot, event)) {
+    if (editing && this.#pullBend(target, event)) {
       return;
     }
 
@@ -998,9 +1000,9 @@ export class Gestures {
    * click on the shaft there — it keeps the press a double-click reads, and a
    * press that carries nothing inserts nothing.
    */
-  #pullBend(dot: Element, event: PointerEvent): boolean {
+  #pullBend(target: EventTarget | null, event: PointerEvent): boolean {
     const { viewport } = this.#host.page;
-    const pressed = bendFromDot(dot, this.#shaft);
+    const pressed = bendFromDot(target, this.#shaft);
     if (pressed === null) {
       return false;
     }
