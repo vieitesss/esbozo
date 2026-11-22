@@ -762,6 +762,13 @@ export class Gestures {
       this.#host.applyScene(settled);
       return;
     }
+    // The pan ends here, and a middle release is where Chromium pastes the
+    // primary selection — into whatever holds the focus, the words being typed
+    // included. The pan is the editor's own, so its end is not the browser's to
+    // paste: cancelling this default is what keeps a pan from typing.
+    if (event.button === 1) {
+      event.preventDefault();
+    }
     this.#drag = null;
     this.#showPanDrag();
     this.#host.refresh();
