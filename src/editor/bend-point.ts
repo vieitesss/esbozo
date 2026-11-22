@@ -73,16 +73,23 @@ export interface BendPoint {
 }
 
 /**
+ * Whether a Shaft of `count` points bends at `index`: the points between its
+ * ends are bend points and the ends never are, and this is the one place that
+ * rule is written.
+ */
+function isBendPoint(count: number, index: number): boolean {
+  return Number.isInteger(index) && index >= 1 && index <= count - 2;
+}
+
+/**
  * The bend points a lone Shaft shows a handle for, in drawing order: every point
  * it turns by between its ends, and never an end.
  */
 export function bendPoints(shaft: ArrowOrLineElement): BendPoint[] {
-  const bends: BendPoint[] = [];
-  for (let index = 1; index < shaft.points.length - 1; index += 1) {
-    const at = shaft.points[index]!;
-    bends.push({ index, at, corner: cornerOf(at, shaft.corners) });
-  }
-  return bends;
+  const count = shaft.points.length;
+  return shaft.points.flatMap((at, index) =>
+    isBendPoint(count, index) ? [{ index, at, corner: cornerOf(at, shaft.corners) }] : [],
+  );
 }
 
 /**
@@ -151,9 +158,4 @@ function bendMarked(mark: Element | null, shaftOf: ShaftOf, pulled: boolean): Pr
   const index = point === null ? Number.NaN : Number(point);
   const count = shaft.points.length + (pulled ? 1 : 0);
   return isBendPoint(count, index) ? { shaft, bend: { id: shaft.id, index } } : null;
-}
-
-/** Whether `index` is a point of a Shaft of `count` points between its ends. */
-function isBendPoint(count: number, index: number): boolean {
-  return Number.isInteger(index) && index >= 1 && index <= count - 2;
 }
