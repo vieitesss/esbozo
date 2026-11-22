@@ -1,7 +1,9 @@
 # syntax=docker/dockerfile:1
 
-# The Linux the browser suite is proved on: Ubuntu, the Node `.node-version`
-# pins for CI, and Chromium with the system libraries it needs.
+# The Linux the browser suite is proved on: `ubuntu:26.04`, the release CI's
+# `ubuntu-latest` runs today, the Node `.node-version` pins for CI, and Chromium
+# with the system libraries it needs. The base is bumped by hand when CI's image
+# moves, so the two stay the same release.
 #
 # `pnpm e2e:linux` builds this image, tags it with a hash of everything here that
 # goes into it, and reuses the tag while all of that holds still. The source is
@@ -13,7 +15,7 @@
 # is a second place to bump, and the two numbers live in `.node-version` and
 # `package.json`.
 
-FROM ubuntu:24.04
+FROM ubuntu:26.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
