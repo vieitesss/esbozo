@@ -223,6 +223,34 @@ const BEND_HANDLE: Gesture = {
   },
 };
 
+/** Bare paper, and the band a sweep drawn from it encloses: both boxes, no arrow. */
+const BOXED = { from: at({ x: 10, y: 10 }, VIEW), to: at({ x: 320, y: 180 }, VIEW) };
+
+/**
+ * A sweep of both boxes, with the Select tool the page opens on. A sweep saves
+ * nothing of its own — what it lands is a selection — so the gesture is landed
+ * by the nudge that carries what it selected: both boxes take the nudge's step,
+ * which is the file's own proof that the band took them. A press on either box
+ * selects that one alone, so a nudge cannot pass for a press's work.
+ */
+const BOX_SELECT: Gesture = {
+  name: 'box select',
+  arm: noop,
+  press: (ui) => carry(ui, BOXED.from, BOXED.to),
+  again: async (ui) => {
+    await drag(ui, BOXED.from, BOXED.to);
+    await ui.browser.keyboard.press('Shift+ArrowRight');
+    await settle(ui);
+  },
+  proves: (scene) => {
+    const boxes = scene.elements.filter((element) => element.id === 'a' || element.id === 'b');
+    expect(boxes.map((element) => [element.id, element.x])).toEqual([
+      ['a', 50],
+      ['b', 210],
+    ]);
+  },
+};
+
 /**
  * The arrow's Label, taken by the words as they draw — their middle is Scene
  * (168,254): three quarters along the arrow's drawn path, 20px to the side of
@@ -418,6 +446,7 @@ for (const gesture of [
   RESIZE,
   END_HANDLE,
   BEND_HANDLE,
+  BOX_SELECT,
   LABEL_DRAG,
 ]) {
   describe(`the exits a cancelled ${gesture.name} survives`, () => {
