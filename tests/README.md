@@ -1,10 +1,14 @@
 # Browser tests
 
-Sixteen files, three scripts, each running a real page in Chromium through e2e:
-most start the built editor, and `svg.e2e.ts` serves the SVG `ez render` wrote
-instead. Build first (`pnpm build`), or use the scripts, which build.
+Twenty-six files, three scripts, each running a real page in Chromium through
+e2e: most start the built editor, and `svg.e2e.ts` serves the SVG `ez render`
+wrote instead. Build first (`pnpm build`), or use the scripts, which build.
 
-`editor.e2e.ts` serves the page statically and stubs the File System Access API;
+`editor-*.e2e.ts` serves the page statically and stubs the File System Access
+API, one file per area of the editor it drives — files, select, move, pan-zoom,
+page, style, status, arrange, palette, clipboard, export — so an inner loop
+re-runs the area it iterates on, with what those files share in
+`editor-shared.ts`;
 `labels-*.e2e.ts` places, draws, drags, selects and edits Labels and Texts in
 place on the same page, one file per thing a person sees — edit, draw, caret,
 ime, view, select, drag — so an inner loop re-runs the area it iterates on,
@@ -16,11 +20,11 @@ the element and its attributes, beside a stub of the same save API;
 `svg.e2e.ts` opens the SVG `ez render` wrote as a page of its own, with no
 stylesheet anywhere, then as an `<img>` on a page that declares no theme
 either, and then inlined in a host page that declares its own theme. All
-fourteen model-free files run under `pnpm e2e`.
+twenty-four model-free files run under `pnpm e2e`.
 
 | Script | Files | Model calls |
 | --- | --- | --- |
-| `pnpm e2e` | `editor.e2e.ts`, `drawing.e2e.ts`, `labels-*.e2e.ts`, `snap.e2e.ts`, `serve.e2e.ts`, `embed.e2e.ts`, `cdp.e2e.ts`, `svg.e2e.ts` | none |
+| `pnpm e2e` | `editor-*.e2e.ts`, `drawing.e2e.ts`, `labels-*.e2e.ts`, `snap.e2e.ts`, `serve.e2e.ts`, `embed.e2e.ts`, `cdp.e2e.ts`, `svg.e2e.ts` | none |
 | `pnpm e2e:agent` | `visual.e2e.ts` | one per `agent.assert` / `agent.waitFor`, every run |
 | `pnpm e2e:shots` | `screenshots.e2e.ts` | none; skipped unless `ESBOZO_SHOTS` names a folder |
 

@@ -3,7 +3,8 @@
  *
  * The page is opened from a server this test starts, so there is no stubbed
  * file system anywhere: the Scenes are real files, and every assertion reads
- * them from disk. The static-page suite (`editor.e2e.ts`) keeps its own static
+ * them from disk. The static-page suites (`tests/editor-*.e2e.ts`) keep their
+ * own static
  * server, because its folder picker is the File System Access API, which needs a
  * handle the page itself supplies.
  *

@@ -1,7 +1,8 @@
 /**
  * Seam 2: drawing, shortcuts, undo, duplicate and copy/paste in the editor.
  *
- * Same rules as `tests/editor.e2e.ts`: a person's input only — the rail, the
+ * Same rules as the editor suites (`tests/editor-*.e2e.ts`): a person's input
+ * only — the rail, the
  * pointer, the keys and the system clipboard — and the assertion is the Scene
  * the editor saves. No test here reads the DOM, an editor field or a class name,
  * so a refactor that keeps the behaviour cannot break one. No test here uses the
