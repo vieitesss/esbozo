@@ -29,6 +29,7 @@ import {
   SCENE,
   VIEW,
   at,
+  clickScene,
   drag,
   holdWrites,
   openEditor,
@@ -92,8 +93,11 @@ interface Gesture {
 
 /** A Rectangle drawn on the bare paper right of both boxes. */
 const DRAWN = { from: at({ x: 320, y: 200 }, VIEW), to: at({ x: 420, y: 280 }, VIEW) };
+/** `a`, pressed in the middle and carried to the same offset every time. */
+const MOVED = { from: at({ x: 100, y: 80 }, VIEW), to: at({ x: 160, y: 140 }, VIEW) };
 
 const rect = (ui: Ui) => ui.screen.getByRole('button', { name: 'Rectangle' });
+const selectA = (ui: Ui) => clickScene(ui, { x: 100, y: 80 }, [], VIEW);
 
 const DRAW: Gesture = {
   name: 'draw',
@@ -113,6 +117,20 @@ const DRAW: Gesture = {
       width: drawn?.width,
       height: drawn?.height,
     }).toEqual({ type: 'rectangle', x: 320, y: 200, width: 100, height: 80 });
+  },
+};
+
+const MOVE: Gesture = {
+  name: 'move',
+  arm: selectA,
+  press: (ui) => carry(ui, MOVED.from, MOVED.to),
+  again: async (ui) => {
+    await selectA(ui);
+    await drag(ui, MOVED.from, MOVED.to);
+  },
+  proves: (scene) => {
+    const box = scene.elements.find((element) => element.id === 'a');
+    expect({ x: box?.x, y: box?.y }).toEqual({ x: 100, y: 100 });
   },
 };
 
@@ -277,7 +295,7 @@ const EXITS: readonly Exit[] = [
   },
 ];
 
-for (const gesture of [DRAW]) {
+for (const gesture of [DRAW, MOVE]) {
   describe(`a ${gesture.name} the page loses`, () => {
     for (const exit of EXITS) {
       test(`ends on ${exit.name}, and the next press starts fresh`, async ({ app, browser, screen }) => {
