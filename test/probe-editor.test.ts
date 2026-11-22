@@ -14,7 +14,7 @@
  */
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test, type TestContext } from 'node:test';
@@ -314,6 +314,40 @@ test('a probe that exits by itself leaves no temporary module', async (t) => {
     left.filter((name) => name.startsWith('esbozo-probe-')),
     [],
     `the probe left its module behind: ${left}`,
+  );
+});
+
+/**
+ * A probe that makes its own folder read-only before it answers: the run's last
+ * act is to give that folder back, and it cannot.
+ */
+const BLOCKING_PROBE = `import { chmodSync } from 'node:fs';
+
+export default async () => {
+  chmodSync(new URL('.', import.meta.url), 0o500);
+  return 'finished';
+};
+`;
+
+test('a cleanup that fails is printed and exits non-zero, and the rest is still given back', async (t) => {
+  const folder = await mkdtemp(join(tmpdir(), 'esbozo-probe-blocked-'));
+  t.after(async () => {
+    // The probe took the write bit off its own folder: the test puts back what
+    // it took before it can remove what the run could not.
+    for (const name of await readdir(folder)) await chmod(join(folder, name), 0o700);
+    await rm(folder, { recursive: true, force: true });
+  });
+  const run = await helper([], { source: BLOCKING_PROBE, folder });
+
+  // What the probe returned is still printed: the answer came before cleanup.
+  assert.equal(JSON.parse(run.stdout), 'finished');
+  assert.notEqual(run.code, 0, 'a run that could not give its folder back exited as a finished run');
+  assert.match(run.stderr, /cleanup failed/, 'the disposal that threw was never printed');
+  assert.notEqual(run.browsers.length, 0, 'the run started no Chromium the test could see');
+  assert.deepEqual(
+    await stillRunning(run.browsers),
+    [],
+    `one failing disposal kept the browser ${run.browsers} open`,
   );
 });
 
