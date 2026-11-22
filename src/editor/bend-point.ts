@@ -68,13 +68,13 @@ export function shaftIn(scene: Scene, id: string): ArrowOrLineElement | null {
 /**
  * The one bend point the selection holds, and the lifetime it has. A press picks
  * it; a change of the selection, a removal, another Scene and a page that may
- * only read let it go; and the delete press that takes it is spent with the
- * press, so a held key does not walk on from the point to the shaft behind it.
- * Every one of those is decided here, so no index outlives the point it named.
+ * only read let it go; and the delete press that spends it leaves a held key
+ * nothing to do, so the key does not walk on from the point to the shaft behind
+ * it. Every one of those is decided here, so no index outlives the point it named.
  */
 export class PickedBend {
   #held: Bend | null = null;
-  /** Whether the delete press in hand already took the point it found. */
+  /** Whether the delete press in hand already spent the point it found. */
   #spent = false;
 
   /** The point the selection holds, or null where it holds none. */
@@ -96,11 +96,11 @@ export class PickedBend {
   }
 
   /**
-   * Whether this delete press runs: a held key whose point is already spent runs
+   * Whether this delete press runs: a held key whose press is already spent runs
    * nothing, so it does not go on to the shaft the point is a part of. Only a new
    * press of a delete key is one, so a key pressed inside the hold is not.
    */
-  deleting(repeated: boolean): boolean {
+  pressDelete(repeated: boolean): boolean {
     if (repeated && this.#spent) {
       return false;
     }
@@ -109,12 +109,12 @@ export class PickedBend {
   }
 
   /**
-   * The point this delete press removes, spent with the press whether the point
-   * may go or not: the shaft behind it answers only to a press of its own. A
-   * press that finds no point spends nothing, so a held key stays spent even
-   * when a palette Delete runs inside its hold.
+   * The point this delete press removes, spending the press whether the point may
+   * go or not: the shaft behind it answers only to a press of its own. A press
+   * that finds no point spends nothing, so a held key stays spent even when a
+   * palette Delete runs inside its hold.
    */
-  take(): Bend | null {
+  spend(): Bend | null {
     if (this.#held !== null) {
       this.#spent = true;
     }

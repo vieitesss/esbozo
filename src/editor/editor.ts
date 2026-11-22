@@ -691,7 +691,7 @@ class EsbozoEditorElement extends HTMLElement {
    * selected Elements, as one step. A Snap to a deleted target is dropped.
    */
   #deleteSelected(): void {
-    const bend = this.#picked.take();
+    const bend = this.#picked.spend();
     if (bend !== null) {
       this.#removeBend(bend);
       return;
@@ -1124,9 +1124,9 @@ class EsbozoEditorElement extends HTMLElement {
     const action = actionFor(event);
     if (action !== null) {
       event.preventDefault();
-      // A held delete key that already took its point runs nothing: only a new
-      // press frees the shaft.
-      if (action.id === 'delete' && !this.#picked.deleting(event.repeat)) {
+      // A held delete key whose press already spent its point runs nothing: only
+      // a new press frees the shaft.
+      if (action.id === 'delete' && !this.#picked.pressDelete(event.repeat)) {
         return;
       }
       void action.run(this.#host);
