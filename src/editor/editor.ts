@@ -8,16 +8,10 @@
  * `{ folder, name }` destination.
  */
 import { elementBounds, elementsById } from '../renderer.js';
-import {
-  emptyScene,
-  hasXmlInvalidChars,
-  parseFragment,
-  parseScene,
-  serialiseScene,
-} from '../scene.js';
-import type { Element as SceneElement, Scene, TextElement } from '../scene.js';
+import { emptyScene, parseFragment, parseScene, serialiseScene } from '../scene.js';
+import type { Element as SceneElement, Scene } from '../scene.js';
 import { PRIMARY_SCENE_EXTENSION, sceneFileNameFor, sceneStem } from '../paths.js';
-import { copies, freshId, idsOf, newText, without } from './elements.js';
+import { copies, idsOf, without } from './elements.js';
 import { arranged, movableCount } from './arrange.js';
 import type { ArrangeAct } from './arrange.js';
 import { actionById, actionFor } from './actions.js';
@@ -37,15 +31,13 @@ import type { StyleKey } from './style.js';
 import { canPickFolder } from './files.js';
 import { servedFolder } from './server-folder.js';
 import { boxOf, fittedView, landingOffset, moved, zoomedAt } from './geometry.js';
-import type { Point, View } from './geometry.js';
+import type { View } from './geometry.js';
 import { History } from './history.js';
 import { railArt } from './rail.js';
 import { SHELL } from './shell.js';
 import { freedEnd, isShaft, released } from './snap.js';
 import type { End } from './snap.js';
-import { TextSession } from './text-session.js';
-import { keptWords, withWords, wordsOf, wordsShift } from './words.js';
-import type { WordsShift } from './words.js';
+import { Typing } from './typing.js';
 import { sceneFile } from './paint.js';
 
 const NUDGE = 1;
@@ -99,25 +91,8 @@ class EsbozoEditorElement extends HTMLElement {
   #canvas!: SVGSVGElement;
   #rail!: HTMLElement;
   #railArt!: SVGSVGElement;
-  /** The in-place input a Text or a Label is typed into, while it is open. */
-  #text: TextSession | null = null;
-  /**
-   * The Element the open in-place editor is editing, as it shows it: the Scene
-   * keeps what was there until the words are committed, so Escape can leave it
-   * alone and a half-typed Label is never a history step.
-   */
-  #editing: { id: string; element: SceneElement } | null = null;
-  /**
-   * The Text being typed for the first time, as it will land: it is drawn on the
-   * page but it is not in the Scene until the words are committed.
-   */
-  #draft: TextElement | null = null;
-  /**
-   * The step between the field's words and the drawn ones, made whenever the page
-   * accepts a preview: a caret is mapped through the very words its Block was
-   * drawn from, and input the page refused maps through the last it accepted.
-   */
-  #shift: WordsShift = wordsShift('', '');
+  /** The words being typed: the field, the Element it grows and the step to its glyphs. */
+  #typing!: Typing;
   #note!: HTMLElement;
   #files!: HTMLUListElement;
   #newScene!: HTMLFormElement;
@@ -252,15 +227,8 @@ class EsbozoEditorElement extends HTMLElement {
         shown: () => this.#shown(),
         selected: () => this.#selected,
         drag: () => this.#gestures.drag,
-        editingId: () => this.#editing?.id ?? null,
-        typing: () =>
-          this.#text === null
-            ? null
-            : {
-                element: (this.#editing?.element ?? this.#draft)!,
-                text: this.#text,
-                shift: this.#shift,
-              },
+        editingId: () => this.#typing.editingId(),
+        typing: () => this.#typing.words(),
       },
     );
     this.#page.viewport.showGrid(this.#grid);
@@ -298,13 +266,37 @@ class EsbozoEditorElement extends HTMLElement {
       tool: () => this.#tool,
       setTool: (tool) => this.#setTool(tool),
       writable: () => this.#connection.writable(),
-      text: () => this.#text,
-      typedOffset: (drawn) => this.#typedOffset(drawn),
-      openWords: (element) => this.#openWords(element),
-      openTextInput: (at) => this.#openTextInput(at),
+      text: () => this.#typing.text(),
+      typedOffset: (drawn) => this.#typing.typedOffset(drawn),
+      openWords: (element) => this.#typing.openWords(element),
+      openTextInput: (at) => this.#typing.openTextInput(at),
       applyScene: (next, options) => this.#applyScene(next, options),
       refresh: () => this.#refresh(),
       showPanning: () => this.#showPill(),
+    });
+
+    // The words being typed are the editor's last state machine of its own: it
+    // is fed by the pointer and read by the page, and it changes the Scene only
+    // through the one step this editor lands.
+    this.#typing = new Typing({
+      field: this,
+      page: {
+        paint: () => this.#page.paint(),
+        paintWords: () => this.#page.paintWords(),
+        wordsLine: (key, state) => this.#page.wordsLine(key, state),
+        clearOfNote: () => this.#page.clearOfNote(this.#menu, this.#rail),
+      },
+      scene: () => this.#scene,
+      layout: () => this.#connection.layout,
+      writable: () => this.#connection.writable(),
+      setTool: (tool) => this.#setTool(tool),
+      select: (ids) => {
+        this.#selected = [...ids];
+      },
+      refresh: () => this.#refresh(),
+      refused: (problem) => this.#setSaved('failed', problem),
+      applyScene: (next, options) => this.#applyScene(next, options),
+      forgetWordClick: () => this.#gestures.forgetWordClick(),
     });
 
     if (this.#ownsKeysWhenFocused) {
@@ -528,7 +520,7 @@ class EsbozoEditorElement extends HTMLElement {
    * page loses the Scene it is holding (see the callers below).
    */
   #endEdits(): void {
-    this.#endText();
+    this.#typing.end();
     // Write access can end in the middle of a gesture, as a folder that answers a
     // queued save with a 403 does. Half a gesture is not a Scene any more: it is
     // dropped with the preview it painted, rather than left on a page that may
@@ -588,24 +580,16 @@ class EsbozoEditorElement extends HTMLElement {
    */
   #shown(): Shown {
     const drag = this.#gestures.drag;
-    const editing = this.#editing;
-    const draft = this.#draft;
     // A drag that only moves the pointer inside the words is still the same
     // page: a pan moves the page, and so does carrying the caret through the
     // words being typed, whose preview must stay drawn under the pointer.
     if (drag === null || drag.kind === 'pan' || drag.kind === 'words') {
-      const words =
-        editing === null
-          ? this.#scene.elements
-          : this.#scene.elements.map((element) =>
-              element.id === editing.id ? editing.element : element,
-            );
-      if (draft !== null) {
-        return { settled: false, elements: [...words, draft] };
-      }
       // A page with a session open draws the words it holds half-written, so it
       // is not settled even when the Scene's Elements are the ones it shows.
-      return { settled: editing === null, elements: words };
+      const words = this.#typing.preview(this.#scene.elements);
+      return words === null
+        ? { settled: true, elements: this.#scene.elements }
+        : { settled: false, elements: words };
     }
     if (drag.kind === 'draw') {
       return { settled: false, elements: [...this.#scene.elements, drag.preview] };
@@ -723,7 +707,7 @@ class EsbozoEditorElement extends HTMLElement {
    * inside it.
    */
   #takesKeys(target: EventTarget | null): boolean {
-    if (this.#typing(target)) {
+    if (this.#inField(target)) {
       return false;
     }
     return !this.#ownsKeysWhenFocused || this.#focused;
@@ -782,7 +766,7 @@ class EsbozoEditorElement extends HTMLElement {
   }
 
   /** Whether a key or a clipboard event belongs to a field a person is typing in. */
-  #typing(target: EventTarget | null): boolean {
+  #inField(target: EventTarget | null): boolean {
     const element = target as HTMLElement | null;
     return (
       element !== null &&
@@ -959,230 +943,6 @@ class EsbozoEditorElement extends HTMLElement {
     }
   }
 
-  /** A Text is placed: the words are typed where the Text will sit. */
-  #openTextInput(at: Point): void {
-    // A page that may not write has nowhere to put a Text, however the gesture
-    // that placed it began: the refusal may have landed while the button was
-    // still down. One gate, asked at the moment the field would open.
-    if (!this.#connection.writable()) {
-      return;
-    }
-    this.#setTool('select');
-    // The Text the words will make, drawn on the page as they arrive: the page
-    // shows what saving would render, and the field is only the caret and the keys.
-    this.#draft = newText(at, '', freshId('text', idsOf(this.#scene.elements)), this.#scene.defaults);
-    this.#shift = wordsShift('', '');
-    this.#text = new TextSession({
-      host: this,
-      name: 'Text',
-      words: '',
-      typed: (words) => this.#showTyped(words),
-      moved: () => this.#page.paintWords(),
-      line: (key, state) => this.#page.wordsLine(key, state),
-      commit: (words) => this.#commitText(words),
-      ended: () => this.#endText(),
-    });
-    this.#page.paint();
-  }
-
-  /**
-   * Open the in-place editor on an Element's words. The page draws them at once,
-   * where they will save, and the caret sits on those glyphs; nothing of the
-   * Scene changes until the words are committed.
-   */
-  #openWords(element: SceneElement): void {
-    // A page with nowhere to save the words opens none, by either way in: one
-    // gate, on the one question every Scene change asks.
-    if (!this.#connection.writable()) {
-      return;
-    }
-    this.#setTool('select');
-    this.#selected = [element.id];
-    // The page paints the Element with the room its words need from the first
-    // frame, not from the first keystroke, so the words are in one place.
-    this.#editing = {
-      id: element.id,
-      element: withWords(element, wordsOf(element), this.#connection.layout),
-    };
-    this.#shift = wordsShift(wordsOf(element), wordsOf(element));
-    // The note follows the selection, and the view makes room for it before the
-    // field takes the focus: the words stay clear of the note under the caret.
-    this.#refresh();
-    this.#text = new TextSession({
-      host: this,
-      name: element.type === 'text' ? 'Text' : 'Label',
-      words: wordsOf(element),
-      typed: (words) => this.#showWords(element, words),
-      moved: () => this.#page.paintWords(),
-      line: (key, state) => this.#page.wordsLine(key, state),
-      commit: (words) => this.#commitWords(element, words),
-      ended: () => this.#endText(),
-    });
-  }
-
-  /**
-   * What the page shows while a Label or a Text is typed: the Element grown so
-   * its words fit, with those words, drawn by the Renderer like any other. It is
-   * a preview, not the Scene: only the commit makes it a change.
-   */
-  #showWords(element: SceneElement, words: string): void {
-    // Words the Scene cannot hold are never drawn: the page keeps the last it
-    // could, and the words that were typed are refused when they are committed.
-    if (!hasXmlInvalidChars(words)) {
-      // The Scene keeps the words without their outer blank lines, and the page
-      // shows that: what is drawn while typing is what the commit will save.
-      // Words nobody changed are no edit at all — the Element keeps them as it
-      // holds them — so the page goes on drawing exactly those, and the ink does
-      // not move when the session ends.
-      const kept = words === wordsOf(element) ? words : keptWords(words);
-      this.#editing = { id: element.id, element: withWords(element, kept, this.#connection.layout) };
-      this.#shift = wordsShift(words, kept);
-      // The grown Element is what the note must not cover.
-      this.#page.clearOfNote(this.#menu, this.#rail);
-    } else if (this.#editing !== null) {
-      // The page refuses these words and goes on drawing the ones it has: the
-      // step is measured through them all the same, so a character the Scene
-      // cannot hold is one more offset in the field and no glyph under the caret.
-      this.#shift = wordsShift(words, wordsOf(this.#editing.element));
-    }
-    this.#page.paint();
-  }
-
-  /** The Text being typed, with the words it has so far. */
-  #showTyped(words: string): void {
-    const draft = this.#draft;
-    if (draft === null) {
-      return;
-    }
-    if (!hasXmlInvalidChars(words)) {
-      const kept = keptWords(words);
-      this.#draft = { ...draft, content: kept };
-      this.#shift = wordsShift(words, kept);
-    } else {
-      // Refused words are no edit: the step through them is still the step to
-      // the words on the page, so the caret stays on the glyph it was typed at.
-      this.#shift = wordsShift(words, draft.content);
-    }
-    this.#page.paint();
-  }
-
-
-  /** An offset among the drawn glyphs, read back into the field's own words. */
-  #typedOffset(drawn: number): number {
-    return this.#shift.typed(drawn);
-  }
-
-  /**
-   * Commit the words typed in place: one undo step for the whole session, the
-   * Element's growth included. Words nobody changed are not an edit and write
-   * nothing; an emptied Label stops being one, and an emptied Text goes; words a
-   * Scene could not hold are refused in the status line, and the field keeps them
-   * so the person can fix them.
-   */
-  #commitWords(element: SceneElement, raw: string): boolean {
-    // The comparison is the raw value against the words the Element held before
-    // anything is trimmed: words nobody touched are the same words, whatever
-    // spaces the author wrote them with.
-    if (raw === wordsOf(element)) {
-      return true;
-    }
-    // A character XML cannot hold is refused as typed, before a trim can hide
-    // it; everything else the Scene checks is the words it would keep.
-    const words = hasXmlInvalidChars(raw) ? raw : keptWords(raw);
-    const problem = this.#problem(this.#wordsScene(element, words));
-    if (problem !== null) {
-      this.#setSaved('failed', problem);
-      return false;
-    }
-    this.#land(this.#wordsScene(element, words), words === '' && element.type === 'text' ? [] : [element.id]);
-    return true;
-  }
-
-  /**
-   * Commit a new Text's words: a Text with words in them, or nothing. A control
-   * character a person typed is refused rather than trimmed away, and words that
-   * are only whitespace are no words, so they make no Text and are no problem.
-   */
-  #commitText(raw: string): boolean {
-    const draft = this.#draft;
-    if (draft === null) {
-      return true;
-    }
-    const words = hasXmlInvalidChars(raw) ? raw : keptWords(raw);
-    if (words === '') {
-      return true;
-    }
-    const problem = this.#problem([...this.#scene.elements, { ...draft, content: words }]);
-    if (problem !== null) {
-      this.#setSaved('failed', problem);
-      return false;
-    }
-    this.#land([...this.#scene.elements, { ...draft, content: words }], [draft.id]);
-    return true;
-  }
-
-  /**
-   * The one way a text session ends: the field goes, and so do the words it drew
-   * on the page. A commit, an Escape, a click away, a blur, a lost connection and
-   * a page that takes the editor off its DOM all end here, so no path can leave
-   * half a session behind for the next press to trip over.
-   */
-  #endText(): void {
-    const text = this.#text;
-    this.#text = null;
-    this.#editing = null;
-    this.#draft = null;
-    this.#gestures.forgetWordClick();
-    this.#shift = wordsShift('', '');
-    text?.discard();
-    this.#page.paint();
-  }
-
-  /** The Scene these words would make, with this Element's words replaced. */
-  #wordsScene(element: SceneElement, words: string): SceneElement[] {
-    if (words === '' && element.type === 'text') {
-      return without(this.#scene.elements, new Set([element.id]));
-    }
-    return this.#scene.elements.map((candidate) =>
-      candidate.id === element.id ? withWords(candidate, words, this.#connection.layout) : candidate,
-    );
-  }
-
-  /**
-   * The Scene's own verdict on a Scene holding these Elements: the Scene its
-   * parser reads back, or the first thing it cannot hold. Nothing is applied:
-   * the caller decides whether the edit lands.
-   */
-  #verdict(elements: readonly SceneElement[]): { scene: Scene } | { problem: string } {
-    const parsed = parseScene(serialiseScene({ ...this.#scene, elements: [...elements] }));
-    if (parsed.ok) {
-      return { scene: parsed.scene };
-    }
-    const first = parsed.problems[0];
-    return { problem: first === undefined ? 'the Scene cannot hold these words' : first.message };
-  }
-
-  /** What the Scene says about these Elements: its first problem, or null when it can hold them. */
-  #problem(elements: readonly SceneElement[]): string | null {
-    const verdict = this.#verdict(elements);
-    return 'problem' in verdict ? verdict.problem : null;
-  }
-
-  /**
-   * The one way typed words land: the Scene's own verdict first, then one step
-   * and one write. A refusal says why in the status line and leaves the Scene
-   * exactly as it was, on the page and on disk.
-   */
-  #land(elements: readonly SceneElement[], selected: string[]): void {
-    const verdict = this.#verdict(elements);
-    if ('problem' in verdict) {
-      this.#setSaved('failed', verdict.problem);
-      this.#page.paint();
-      return;
-    }
-    this.#applyScene(verdict.scene, { select: selected });
-  }
-
   // ----------------------------------------------------------------- keyboard
 
   #onKeyDown = (event: KeyboardEvent): void => {
@@ -1245,7 +1005,7 @@ class EsbozoEditorElement extends HTMLElement {
       const only = selected.length === 1 ? selected[0] : undefined;
       if (only !== undefined) {
         event.preventDefault();
-        this.#openWords(only);
+        this.#typing.openWords(only);
         return;
       }
     }

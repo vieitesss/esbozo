@@ -36,8 +36,8 @@ import { PaintCache, paintedInk } from './paint.js';
 import type { Paint, SceneFiles } from './paint.js';
 import { isShaft } from './snap.js';
 import { drawnBox, drawnGlyphs } from './drawn-glyphs.js';
-import type { TextSession, TextSessionState } from './text-session.js';
-import type { WordsShift } from './words.js';
+import type { TextSessionState } from './text-session.js';
+import type { TypingWords } from './typing.js';
 import { clearWashes, drawWords, rect } from './words-layer.js';
 import { shownWords } from './words.js';
 import { Viewport } from './viewport.js';
@@ -54,16 +54,6 @@ const LABEL_CUE_GAP = 2;
 const WORDS_TOLERANCE = 8;
 /** Breathing room between the Style menu and the selection it must not cover. */
 const MENU_GAP = 16;
-
-/** The words being typed, as the page draws them. */
-interface Typing {
-  /** The Element the words belong to, as the page shows it. */
-  readonly element: SceneElement;
-  /** The field the words are typed into: the caret it reports is the one drawn. */
-  readonly text: TextSession;
-  /** The step between the field's words and the drawn ones. */
-  readonly shift: WordsShift;
-}
 
 /**
  * The Elements the page draws, and whether they are still a preview: a settled
@@ -89,7 +79,7 @@ interface PageHost {
   /** The Element of the Scene whose words are being typed, or null for a new Text. */
   editingId(): string | null;
   /** The words being typed, when a session is open. */
-  typing(): Typing | null;
+  typing(): TypingWords | null;
 }
 
 /** The nodes a frame draws into. */
