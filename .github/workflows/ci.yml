@@ -3,6 +3,15 @@
 # `pnpm e2e` is every suite in `package.json` that makes no model call, except
 # `screenshots.e2e.ts`, which `pnpm e2e:shots` runs alone; `pnpm e2e:agent` is
 # run by hand, where a key is.
+#
+# Two things it also does, both about a red run nobody can look at afterwards.
+# It keeps its own evidence: a run that failed, and a run that only ended green
+# because a retry passed, uploads `.e2e/` with the replay cache left out, so the
+# error of the attempt that failed is still readable once the runner is gone.
+# And it checks every commit, not only the tip: `pnpm check:steps` gives each
+# commit the static half of `pnpm check` on its own, because a commit that is
+# green only with the next one on top is not the green step `AGENTS.md` calls
+# for.
 name: check
 
 on:
@@ -14,13 +23,72 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # `pnpm check:steps` walks commits, so it needs the one it starts from
+          # and every commit between that one and the tip.
+          fetch-depth: 0
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version-file: package.json
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      # The commit every commit is checked from, one rule per event. A red
+      # `pnpm check` must not hide it: this run is where each commit's own
+      # verdict is read, so the step runs whether or not the tip was green.
+      - name: Find the commit to walk from
+        id: base
+        if: ${{ !cancelled() }}
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          REF: ${{ github.ref }}
+        run: |
+          case "$EVENT" in
+            # What the pull request would land on.
+            pull_request) base="$PR_BASE" ;;
+            push)
+              if [ "$REF" = refs/heads/main ]; then
+                # Main's tip before this push, so only what was pushed is walked.
+                base="$PUSH_BEFORE"
+              else
+                # Where this branch left main, so a branch that is behind main
+                # still walks the commits it added instead of exiting 2.
+                base="$(git merge-base origin/main HEAD)"
+              fi
+              ;;
+            *) base='' ;;
+          esac
+          # All zeros is the push that created the ref: nothing came before it.
+          if [[ "$base" =~ ^0+$ ]]; then base=''; fi
+          echo "sha=$base" >> "$GITHUB_OUTPUT"
+      - name: Check every commit on its own
+        if: ${{ !cancelled() && steps.base.outputs.sha != '' }}
+        run: pnpm check:steps "${{ steps.base.outputs.sha }}"
       - name: Install the browser the suite launches
         run: pnpm exec e2e-web install chromium --with-deps
-      - run: pnpm check
       - run: pnpm e2e
+      # A test a retry passed is green for the run, and its first attempt's
+      # error lives only in the report: nothing else in the log says it.
+      - name: Read whether a retry passed a test
+        id: e2e
+        if: ${{ !cancelled() }}
+        run: |
+          flaky=0
+          if [ -f .e2e/report.json ]; then
+            flaky="$(node -p "JSON.parse(require('node:fs').readFileSync('.e2e/report.json', 'utf8')).summary.flaky")"
+          fi
+          echo "flaky=$flaky" >> "$GITHUB_OUTPUT"
+      - name: Keep the run's evidence
+        if: ${{ failure() || steps.e2e.outputs.flaky != '0' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-evidence
+          path: |
+            .e2e/
+            !.e2e/cache/
+          # A red run is read within the week; the cache is not evidence.
+          retention-days: 7
+          if-no-files-found: ignore
