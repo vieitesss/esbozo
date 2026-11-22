@@ -59,6 +59,16 @@ const DOUBLE_CLICK_MS = 500;
 const DOUBLE_CLICK_SLOP = 4;
 
 /**
+ * One bend point of a shaft, as the selection holds it: the arrow or line it is
+ * a point of, and which point of it. A point is never held by its index alone,
+ * because a Scene that loses one point renumbers the ones after it.
+ */
+export interface Bend {
+  readonly id: string;
+  readonly index: number;
+}
+
+/**
  * Whether a pointer is still within the click's own slop of where it landed: the
  * line between a click and a drag, and the only threshold a gesture reads.
  */
@@ -190,7 +200,7 @@ interface Press {
    * Two presses on that one handle remove the point, and a press that has it
    * never opens the words it stands on.
    */
-  readonly bend?: { readonly id: string; readonly index: number };
+  readonly bend?: Bend;
 }
 
 /**
@@ -214,6 +224,8 @@ interface GestureHost {
 
   selected(): readonly string[];
   select(ids: readonly string[]): void;
+  /** The one bend point the selection holds, set by a press and let go by the next one. */
+  selectBend(bend: Bend | null): void;
   tool(): ToolId;
   setTool(tool: ToolId): void;
   /** True when this page may change the Scene at all. */
@@ -460,6 +472,9 @@ export class Gestures {
       this.#showPanDrag();
       return;
     }
+    // A press that is not a pan lets go of the point the press before it picked:
+    // the point belongs to one press, and only a pan keeps it in the hand.
+    this.#host.selectBend(null);
     const tool = this.#host.tool();
     if (tool !== 'select') {
       this.#press = null;
@@ -1123,15 +1138,20 @@ export class Gestures {
    * A released bend handle settles where the release put it, and only that
    * point: its corner, every other bend and both ends — Snaps included — stay
    * the Scene's. A press that did not move is a click on the handle and changes
-   * nothing, while a drag that comes back to its start is still one step.
+   * nothing, while a drag that comes back to its start is still one step. Both
+   * pick the point they held, unless the press pulled it out of a dot: that one
+   * is the ink's, and the selection keeps none of it.
    */
   #settleBend(drag: Extract<Drag, { kind: 'bend' }>, at: Point): void {
     const base = this.#bendBase(drag);
+    const picked = drag.inserted ? null : { id: drag.id, index: drag.index };
     if (!drag.moved || base === undefined) {
+      this.#host.selectBend(picked);
       this.#host.refresh();
       return;
     }
     const to = { x: drag.origin.x + at.x - drag.from.x, y: drag.origin.y + at.y - drag.from.y };
+    this.#host.selectBend(picked);
     this.#host.applyScene({
       ...this.#host.scene(),
       elements: this.#host

@@ -18,6 +18,7 @@ import { actionById, actionFor } from './actions.js';
 import type { ActionHost, ActionState, ToolId } from './actions.js';
 import { exportPng } from './export.js';
 import { Gestures, shownElements } from './gestures.js';
+import type { Bend } from './gestures.js';
 import { clipboardApi, copySelection, copyTo, cutSelection, pasteClipboard } from './clipboard.js';
 import type { ClipboardHost } from './clipboard.js';
 import { Connection } from './connection.js';
@@ -76,6 +77,13 @@ class EsbozoEditorElement extends HTMLElement {
   #pngExport = true;
   #scene: Scene = emptyScene();
   #selected: string[] = [];
+  /**
+   * The one bend point the selection holds, or null. A press on a bend handle
+   * picks it and the delete action removes only it; a change of the selection, a
+   * removal and an edit let go of clear it, so no index outlives the point it
+   * named.
+   */
+  #bend: Bend | null = null;
   #tool: ToolId = 'select';
   #history = new History(serialiseScene(this.#scene));
   /** When the last nudge landed, so a burst of them folds into one undo step. */
@@ -221,7 +229,7 @@ class EsbozoEditorElement extends HTMLElement {
       writable: () => this.#connection.writable(),
       useSelectTool: () => this.#setTool('select'),
       selectElement: (id) => {
-        this.#selected = [id];
+        this.#selectElements([id]);
         this.#refresh();
       },
       refused: (problem) => this.#setSaved('failed', problem),
@@ -248,6 +256,7 @@ class EsbozoEditorElement extends HTMLElement {
         scene: () => this.#scene,
         shown: () => this.#shown(),
         selected: () => this.#selected,
+        bend: () => this.#bend,
         drag: () => this.#gestures.drag,
         writable: () => this.#connection.writable(),
         typing: this.#typing,
@@ -282,7 +291,10 @@ class EsbozoEditorElement extends HTMLElement {
       page: this.#page,
       selected: () => this.#selected,
       select: (ids) => {
-        this.#selected = [...ids];
+        this.#selectElements(ids);
+      },
+      selectBend: (bend) => {
+        this.#bend = bend;
       },
       tool: () => this.#tool,
       setTool: (tool) => this.#setTool(tool),
@@ -429,7 +441,7 @@ class EsbozoEditorElement extends HTMLElement {
     // with the Scene the page let go of.
     this.#gestures.endSpacePan();
     this.#replaceScene(emptyScene());
-    this.#selected = [];
+    this.#selectElements([]);
     this.#history.reset(serialiseScene(this.#scene));
     this.#menu.hidden = true;
     this.#note.hidden = true;
@@ -526,6 +538,9 @@ class EsbozoEditorElement extends HTMLElement {
     if (this.#gestures.holdsScene()) {
       this.#gestures.cancel();
     }
+    // The point a press picked waits for the key that removes it: a page that may
+    // only read, and another Scene, hold none of it.
+    this.#bend = null;
     if (this.#tool !== 'select') {
       this.#setTool('select');
     }
@@ -547,7 +562,7 @@ class EsbozoEditorElement extends HTMLElement {
 
   #load(scene: Scene, target: SaveTarget): void {
     this.#replaceScene(scene);
-    this.#selected = [];
+    this.#selectElements([]);
     this.#history.reset(serialiseScene(scene));
     this.#menuFor = null;
     this.#page.viewport.view = fittedView(scene, this.#page.viewport.size(), this.#connection.layout);
@@ -566,6 +581,16 @@ class EsbozoEditorElement extends HTMLElement {
   #selectedElements(): SceneElement[] {
     const selected = new Set(this.#selected);
     return this.#shown().elements.filter((element) => selected.has(element.id));
+  }
+
+  /**
+   * The one owner of the selection: the Elements it holds, and the bend point it
+   * may hold with one of them. A change of the selection lets the point go, so a
+   * point outlives no selection and its index outlives no point.
+   */
+  #selectElements(ids: readonly string[]): void {
+    this.#selected = [...ids];
+    this.#bend = null;
   }
 
   /**
@@ -639,8 +664,8 @@ class EsbozoEditorElement extends HTMLElement {
       return;
     }
     this.#scene = parsed.scene;
-    this.#selected = this.#selected.filter((id) =>
-      this.#scene.elements.some((element) => element.id === id),
+    this.#selectElements(
+      this.#selected.filter((id) => this.#scene.elements.some((element) => element.id === id)),
     );
     this.#nudgedAt = 0;
     // An undone edit may have changed a default or a Snap, so the status bar and
@@ -814,7 +839,7 @@ class EsbozoEditorElement extends HTMLElement {
     }
     if (tool !== 'select') {
       // Handles and a dashed selection box under the pencil only get in the way.
-      this.#selected = [];
+      this.#selectElements([]);
     }
     this.#page.paint();
   }
@@ -845,7 +870,7 @@ class EsbozoEditorElement extends HTMLElement {
       this.#scene = next;
     }
     if (select !== undefined) {
-      this.#selected = [...select];
+      this.#selectElements(select);
     }
     // The note follows the Scene, room and all: a Snap row that ended where it
     // began is not left behind, and a change that moved the selection wakes the
@@ -1004,7 +1029,7 @@ class EsbozoEditorElement extends HTMLElement {
     }
     if (event.key === 'Escape') {
       this.#note.hidden = true;
-      this.#selected = [];
+      this.#selectElements([]);
       this.#setTool('select');
       this.#refresh();
       return;

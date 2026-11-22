@@ -416,6 +416,15 @@ function pixelAt(handle: Point, dx: number, dy: number): Rect {
 }
 
 /**
+ * The fill inside a handle: the pixels around its middle, clear of the stroke
+ * that runs around an eight-pixel mark. What a selected point paints there is
+ * the selection's colour, and an unselected one the paper.
+ */
+function handleFill(handle: Point): Rect {
+  return { x: handle.x - 1, y: handle.y - 1, width: 2, height: 2 };
+}
+
+/**
  * A line through one bend, on a box that holds the page still: the Element's
  * own corner is `round` and the point writes none, so the bend it draws is the
  * Element's and a drag has to keep that.
@@ -1724,5 +1733,175 @@ describe('a double-click on a bend handle', () => {
       { x: 50, y: 50 },
       { x: 550, y: 50 },
     ]);
+  });
+});
+
+/**
+ * A press on a bend handle picks the point it holds: the handle fills with the
+ * selection's colour, keeps its shape and its size, and the shaft it is a point
+ * of stays selected. The point is one press's, so a pan or a zoom keeps it and
+ * the next press lets it go; a drag the person cancels, and a press on a dot,
+ * pick nothing at all.
+ */
+describe('a selected bend point', () => {
+  test('a click on a sharp bend fills its square, and the arrow keeps the selection', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'shapes.json');
+    await clickScene(ui, SHAPES_ON, [], SHAPES);
+    await settle(ui);
+
+    const mark = at(SHARP_MARK, SHAPES);
+    // Unselected, the handle is the paper inside its own stroke.
+    expect((await shot(ui)).meanLuminance(handleFill(mark))).toBeGreaterThan(0.85);
+    await clickScene(ui, SHARP_MARK, [], SHAPES);
+    await settle(ui);
+
+    // Selected, the same square is filled with the selection's blue: the light
+    // theme's `--sel` is 0.35 on this page, its paper 0.97 and its ink 0.10.
+    const painted = await shot(ui);
+    expect(painted.meanLuminance(handleFill(mark))).toBeGreaterThan(0.2);
+    expect(painted.meanLuminance(handleFill(mark))).toBeLessThan(0.5);
+    // A square still: its corner reaches where a circle of eight pixels cannot.
+    expect(painted.darkCount(pixelAt(mark, 4, -4), 0.6)).toBeGreaterThan(0);
+    await expect(screen.getByRole('dialog', 'Style')).toBeVisible();
+  });
+
+  test('a drag of a round bend selects the point where it lands, at another zoom', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'line.json');
+
+    await clickScene(ui, LINE_BEND, [], LINE);
+    await browser.keyboard.press('Meta+=');
+    await expect(zoomReadout(ui)).toHaveText('120%');
+    await settle(ui);
+
+    await drag(ui, at(LINE_BEND, LINE_ZOOMED), at({ x: 390, y: 220 }, LINE_ZOOMED));
+    await expectPoints(
+      ui,
+      [
+        { x: 150, y: 300 },
+        { x: 390, y: 220 },
+        { x: 600, y: 300 },
+      ],
+      'line.json',
+    );
+
+    // The point the release left is the one the press picked, at a zoom the
+    // handle keeps its eight pixels through.
+    const mark = at({ x: 390, y: 220 }, LINE_ZOOMED);
+    const painted = await shot(ui);
+    expect(painted.meanLuminance(handleFill(mark))).toBeGreaterThan(0.2);
+    expect(painted.meanLuminance(handleFill(mark))).toBeLessThan(0.5);
+    // A circle still: its stroke crosses the diagonal and its corner is bare.
+    expect(painted.darkCount(pixelAt(mark, 3, -3), 0.6)).toBeGreaterThan(0);
+    expect(painted.darkCount(pixelAt(mark, 4, -4), 0.6)).toBe(0);
+    await expect(screen.getByRole('dialog', 'Style')).toBeVisible();
+  });
+
+  test('a press on another handle moves the one point the selection holds', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'shapes.json');
+    await clickScene(ui, SHAPES_ON, [], SHAPES);
+    await settle(ui);
+    await clickScene(ui, SHARP_MARK, [], SHAPES);
+    await settle(ui);
+    await clickScene(ui, ROUND_MARK, [], SHAPES);
+    await settle(ui);
+
+    const painted = await shot(ui);
+    expect(painted.meanLuminance(handleFill(at(ROUND_MARK, SHAPES)))).toBeLessThan(0.5);
+    // The point before it is the paper again: one point, never two.
+    expect(painted.meanLuminance(handleFill(at(SHARP_MARK, SHAPES)))).toBeGreaterThan(0.85);
+  });
+
+  test('a round bend is filled in the dark theme too, and marked by a circle', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'line.json');
+    // The page's own switch, which the served page starts on light.
+    await screen.getByRole('button', { name: 'Dark' }).click();
+    await clickScene(ui, LINE_BEND, [], LINE);
+    await browser.keyboard.press('Meta+=');
+    await expect(zoomReadout(ui)).toHaveText('120%');
+    await settle(ui);
+
+    const mark = at(LINE_BEND, LINE_ZOOMED);
+    // The dark theme's paper is 0.09, and the handle is drawn on it.
+    expect((await shot(ui)).meanLuminance(handleFill(mark))).toBeLessThan(0.3);
+    await clickScene(ui, LINE_BEND, [], LINE_ZOOMED);
+    await settle(ui);
+
+    // `--sel` is 0.67 in the dark theme: the fill is the selection's, not the
+    // ink's 0.90 or the paper's 0.09. The corner stays bare, so it is a circle.
+    const painted = await shot(ui);
+    expect(painted.meanLuminance(handleFill(mark))).toBeGreaterThan(0.5);
+    expect(painted.meanLuminance(handleFill(mark))).toBeLessThan(0.8);
+    expect(painted.meanLuminance(pixelAt(mark, 4, -4))).toBeLessThan(0.3);
+  });
+
+  test('a press on a dot picks no point, and the key behind it deletes the shaft', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    // The first press selects the arrow, and the frame after it paints a dot on
+    // the segment the press did not land on.
+    const dot = { x: 425, y: 150 };
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    const before = await savedSource(ui);
+    await clickScene(ui, dot, [], SHARP);
+    await settle(ui);
+    expect(await savedSource(ui)).toBe(before);
+
+    // A press on a dot pulls a point out of the ink or does nothing: it picks no
+    // point, so the key goes on to the arrow and the whole shaft goes.
+    await browser.keyboard.press('Backspace');
+    await settle(ui);
+
+    expect(await savedSource(ui)).toContain('"elements": []');
+    await expectPoints(ui, []);
+  });
+
+  test('a cancelled drag picks no point, and the key behind it deletes the shaft', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    const before = await savedSource(ui);
+
+    const from = at(SHARP_BEND, SHARP);
+    await drag(ui, from, { x: from.x + 40, y: from.y + 20 }, 'left', async () => {
+      await browser.keyboard.press('Escape');
+    });
+    await settle(ui);
+    expect(await savedSource(ui)).toBe(before);
+
+    // Half a drag is not a press: it picked nothing, so the key takes the shaft.
+    await browser.keyboard.press('Backspace');
+    await settle(ui);
+    await expectPoints(ui, []);
   });
 });

@@ -32,7 +32,7 @@ import type { Block, Layout, LineGlyphs } from '../layout.js';
 import { cornerOf, shaftDots } from '../geometry.js';
 import { HANDLES, boxBetween, boxOf, clearedView, handlePoint, unionOf } from './geometry.js';
 import type { Box, Point } from './geometry.js';
-import type { Drag } from './gestures.js';
+import type { Bend, Drag } from './gestures.js';
 import { PaintCache, paintedInk } from './paint.js';
 import type { Paint, SceneFiles } from './paint.js';
 import { isShaft } from './snap.js';
@@ -91,6 +91,8 @@ interface PageHost {
   shown(): Shown;
   /** The selection the overlay marks. */
   selected(): readonly string[];
+  /** The one bend point that selection holds, and no other. */
+  bend(): Bend | null;
   /** The gesture in flight, as the drawing and the overlay read it. */
   drag(): Drag | null;
   /** True when this page may change the Scene at all: a page that may only read marks no ink a press could pull out. */
@@ -742,7 +744,12 @@ export class Page {
     for (const handle of handles) {
       const node =
         handle.kind === 'bend'
-          ? this.#appendBend(overlay, handle.at, handle.corner)
+          ? this.#appendBend(
+              overlay,
+              handle.at,
+              handle.corner,
+              this.#isBend(id, handle.index),
+            )
           : this.#appendRect(overlay, {
               x: handle.at.x - HANDLE_SIZE / 2,
               y: handle.at.y - HANDLE_SIZE / 2,
@@ -759,18 +766,33 @@ export class Page {
   }
 
   /**
+   * Whether this is the one bend point the selection holds: the mark a person
+   * picked, filled with the selection's colour and nothing else about it changed.
+   */
+  #isBend(id: string, index: number): boolean {
+    const bend = this.#host.bend();
+    return bend !== null && bend.id === id && bend.index === index;
+  }
+
+  /**
    * One bend point's handle: a square where the point turns `sharp`, a circle
    * where it turns `round`, at the size and in the pixels every other handle
    * is, so a zoom changes neither its size nor its colours.
    */
-  #appendBend(parent: SVGGElement, at: Point, corner: Corner): SVGCircleElement | SVGRectElement {
+  #appendBend(
+    parent: SVGGElement,
+    at: Point,
+    corner: Corner,
+    picked: boolean,
+  ): SVGCircleElement | SVGRectElement {
     const radius = HANDLE_SIZE / 2;
+    const className = picked ? 'handle handle-bend selected' : 'handle handle-bend';
     if (corner === 'round') {
       const node = document.createElementNS(SVG_NS, 'circle');
       node.setAttribute('cx', String(at.x));
       node.setAttribute('cy', String(at.y));
       node.setAttribute('r', String(radius));
-      node.setAttribute('class', 'handle handle-bend');
+      node.setAttribute('class', className);
       parent.append(node);
       return node;
     }
@@ -779,7 +801,7 @@ export class Page {
       y: at.y - radius,
       width: HANDLE_SIZE,
       height: HANDLE_SIZE,
-      class: 'handle handle-bend',
+      class: className,
     });
   }
 
