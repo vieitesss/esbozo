@@ -595,6 +595,7 @@ class EsbozoEditorElement extends HTMLElement {
       drag.kind === 'move' ||
       drag.kind === 'resize' ||
       drag.kind === 'end' ||
+      drag.kind === 'bend' ||
       (drag.kind === 'label' && drag.moved)
     ) {
       return { settled: false, elements: shownElements(this.#scene.elements, drag) };

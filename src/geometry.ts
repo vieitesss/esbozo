@@ -624,6 +624,15 @@ interface ShaftPoint {
 }
 
 /**
+ * The corner one point turns by: its own `corner`, or the Element's when it
+ * writes none. One owner for that rule, so what a bend is drawn by and what its
+ * handle looks like cannot disagree.
+ */
+export function cornerOf(point: Point | undefined, corners: Corner): Corner {
+  return point?.corner ?? corners;
+}
+
+/**
  * The points to draw through, each with the corner it turns by, in drawing
  * order: a repeated point adds no ink and no direction, so it is dropped, and a
  * point that writes no corner takes the Element's.
@@ -638,7 +647,7 @@ function gathered(
     if (samePoint(points[points.length - 1]?.at, point)) {
       continue;
     }
-    points.push({ at: { x: point.x, y: point.y }, corner: scene[index]?.corner ?? corners });
+    points.push({ at: { x: point.x, y: point.y }, corner: cornerOf(scene[index], corners) });
   }
   return points;
 }

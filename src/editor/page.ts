@@ -27,8 +27,9 @@
  */
 import { drawnShaft, elementsById, outlineBox, shaftLabel, wordsInkBounds } from '../renderer.js';
 import { isOutlined } from '../scene.js';
-import type { Element as SceneElement, Scene } from '../scene.js';
+import type { Corner, Element as SceneElement, Scene } from '../scene.js';
 import type { Block, Layout, LineGlyphs } from '../layout.js';
+import { cornerOf } from '../geometry.js';
 import { HANDLES, boxBetween, boxOf, clearedView, handlePoint, unionOf } from './geometry.js';
 import type { Box, Point } from './geometry.js';
 import type { Drag } from './gestures.js';
@@ -54,6 +55,14 @@ const LABEL_CUE_GAP = 2;
 const WORDS_TOLERANCE = 8;
 /** Breathing room between the Style menu and the selection it must not cover. */
 const MENU_GAP = 16;
+
+/**
+ * One drag target of a lone selection: a named handle on an outline or a shaft's
+ * end, or a bend standing on a point between the ends.
+ */
+type HandleMark =
+  | { readonly at: Point; readonly kind: 'handle'; readonly name: string }
+  | { readonly at: Point; readonly kind: 'bend'; readonly index: number; readonly corner: Corner };
 
 /**
  * The Elements the page draws, and whether they are still a preview: a settled
@@ -673,40 +682,80 @@ export class Page {
   }
 
   /**
-   * The drag targets of a lone selection: eight around a box's outline, or the
-   * two ends of an arrow or line, where they draw — a Snapped end rides its
-   * target's outline, so its handle is there too.
+   * The drag targets of a lone selection: eight around a box's outline, the two
+   * ends of an arrow or line where they draw — a Snapped end rides its target's
+   * outline, so its handle is there too — and one on every bend between them.
    */
   #drawHandles(overlay: SVGGElement, id: string): void {
     const element = this.#shownElement(id);
     if (element === undefined) {
       return;
     }
-    const handles: Array<{ at: Point; name: string }> = [];
+    const handles: HandleMark[] = [];
     if (isOutlined(element)) {
       const outline = this.viewport.pageBox(outlineBox(element));
       for (const handle of HANDLES) {
-        handles.push({ at: handlePoint(outline, handle), name: handle });
+        handles.push({ at: handlePoint(outline, handle), kind: 'handle', name: handle });
       }
     } else if (isShaft(element)) {
       const byId = this.#painted?.byId ?? elementsById(this.#host.scene().elements);
       const [start, end] = drawnShaft(element, byId);
       handles.push(
-        { at: this.viewport.pagePoint(start), name: 'start' },
-        { at: this.viewport.pagePoint(end), name: 'end' },
+        { at: this.viewport.pagePoint(start), kind: 'handle', name: 'start' },
+        { at: this.viewport.pagePoint(end), kind: 'handle', name: 'end' },
       );
+      for (let index = 1; index < element.points.length - 1; index += 1) {
+        const point = element.points[index]!;
+        handles.push({
+          at: this.viewport.pagePoint(point),
+          kind: 'bend',
+          index,
+          corner: cornerOf(point, element.corners),
+        });
+      }
     }
     for (const handle of handles) {
-      const node = this.#appendRect(overlay, {
-        x: handle.at.x - HANDLE_SIZE / 2,
-        y: handle.at.y - HANDLE_SIZE / 2,
-        width: HANDLE_SIZE,
-        height: HANDLE_SIZE,
-        class: `handle handle-${handle.name}`,
-      });
-      node.setAttribute('data-handle', handle.name);
+      const node =
+        handle.kind === 'bend'
+          ? this.#appendBend(overlay, handle.at, handle.corner)
+          : this.#appendRect(overlay, {
+              x: handle.at.x - HANDLE_SIZE / 2,
+              y: handle.at.y - HANDLE_SIZE / 2,
+              width: HANDLE_SIZE,
+              height: HANDLE_SIZE,
+              class: `handle handle-${handle.name}`,
+            });
+      node.setAttribute('data-handle', handle.kind === 'bend' ? 'bend' : handle.name);
+      if (handle.kind === 'bend') {
+        node.setAttribute('data-point', String(handle.index));
+      }
       node.setAttribute('data-element', id);
     }
+  }
+
+  /**
+   * One bend point's handle: a square where the point turns `sharp`, a circle
+   * where it turns `round`, at the size and in the pixels every other handle
+   * is, so a zoom changes neither its size nor its colours.
+   */
+  #appendBend(parent: SVGGElement, at: Point, corner: Corner): SVGCircleElement | SVGRectElement {
+    const radius = HANDLE_SIZE / 2;
+    if (corner === 'round') {
+      const node = document.createElementNS(SVG_NS, 'circle');
+      node.setAttribute('cx', String(at.x));
+      node.setAttribute('cy', String(at.y));
+      node.setAttribute('r', String(radius));
+      node.setAttribute('class', 'handle handle-bend');
+      parent.append(node);
+      return node;
+    }
+    return this.#appendRect(parent, {
+      x: at.x - radius,
+      y: at.y - radius,
+      width: HANDLE_SIZE,
+      height: HANDLE_SIZE,
+      class: 'handle handle-bend',
+    });
   }
 
   /**
