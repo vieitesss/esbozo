@@ -566,7 +566,7 @@ export interface Clearance {
   selection: Box | null;
   /** The docked note's box on the page, in screen units. */
   note: Box;
-  /** The leftmost the selection may sit on the page, in screen units: past the tools. */
+  /** The leftmost the selection may sit on the page, in screen units: the editor's own left edge, with its gap. */
   left: number;
   /** Breathing room between the selection and the note. */
   gap: number;
@@ -578,7 +578,7 @@ export interface Clearance {
  * One rectangle policy, run when the selection, what it holds, or the window
  * changes: when the selection's box on screen and the note's box share any
  * area, the view pans left just far enough to clear the note by `gap`, and the
- * selection's left edge still clears the tools. When panning cannot do it,
+ * selection's left edge still clears what `left` allows. When panning cannot do it,
  * because the selection is wider than the room the note leaves, the view zooms
  * out just far enough for the whole selection to sit in that room, keeping its
  * middle where it was vertically. That zoom is the clearance's own, so it may go

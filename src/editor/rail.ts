@@ -1,5 +1,6 @@
 /**
- * The tool rail: the hand-drawn strip on the left with the tools on it.
+ * The tool rail: the hand-drawn strip along the editor's top edge with the tools
+ * on it.
  *
  * One static list, in rail order, from `actions.ts`, so a button, the key that
  * picks it and the palette's row for it can never disagree. Each button names

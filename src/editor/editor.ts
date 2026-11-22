@@ -271,7 +271,6 @@ class EsbozoEditorElement extends HTMLElement {
         zoom: this.querySelector('.zoom')!,
         painted: this.querySelector('.painted')!,
         note: this.#menu,
-        rail: this.#rail,
       },
       {
         layout: () => this.#connection.layout,

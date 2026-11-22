@@ -1,7 +1,8 @@
 /**
- * Seam 2: the view — Space and the wheel, a middle drag, the dot Grid, and the
- * docked note the view has to pan and zoom clear of. Asserted on where the ink
- * lands and on the Scene, which a pan must leave alone.
+ * Seam 2: the view — Space and the wheel, a middle drag, the dot Grid, the tool
+ * rail the page hangs the view's own chrome on, and the docked note the view has
+ * to pan and zoom clear of. Asserted on where the ink lands and on the Scene,
+ * which a pan must leave alone.
  */
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
@@ -383,4 +384,194 @@ test('the docked note fits a 1366×768 window', async ({ app, browser, screen })
   await expect(control(ui, 'Corners: sharp')).toBeVisible();
   await expect(control(ui, 'Order: front')).toBeVisible();
   await expect(ui.screen.getByText(/^\d+%$/)).toHaveText('100%');
+});
+
+// -------------------------------------------------------------- the tool rail
+
+/** An empty Scene: bare paper, so a press that landed has ink of its own to show for it. */
+const BARE_SOURCE = JSON.stringify({ version: 1, title: 'Empty', defaults: {}, elements: [] }, null, 2);
+
+/** The rail's seven tools, in the order the rail shows them. */
+const TILES = ['Select', 'Rectangle', 'Ellipse', 'Diamond', 'Arrow', 'Line', 'Text'];
+
+/** The key that picks each tool, in the same order. */
+const KEYS: Array<[string, string]> = [
+  ['v', 'Select'],
+  ['r', 'Rectangle'],
+  ['e', 'Ellipse'],
+  ['d', 'Diamond'],
+  ['a', 'Arrow'],
+  ['s', 'Line'],
+  ['t', 'Text'],
+];
+
+/** The tool rail, as the accessibility tree offers it. */
+function rail(ui: Ui) {
+  return ui.screen.getByRole('navigation', { name: 'Tools' });
+}
+
+/**
+ * The band the strip hangs in, right of the status that sits in the page's top
+ * corners: with the Grid off and an empty Scene, the only ink there is the
+ * strip's own.
+ */
+const TOP_BAND: Rect = { x: 300, y: 0, width: 980, height: 200 };
+
+/**
+ * The strip's right half while the page is untouched: no tile there is filled
+ * with the ink a tool in hand wears, so faint ink is the only ink these pixels
+ * can hold. Measured before the strip is looked at, it is a region, not a box.
+ */
+const RIGHT_HALF: Rect = { x: 644, y: 0, width: 136, height: 90 };
+
+/**
+ * Where the strip's ink reaches, with a tile focused so the strip is at full ink:
+ * its outline is what the eye sees of where the rail is, and its tilt included.
+ */
+async function railInk(ui: Ui): Promise<Rect> {
+  const bare = async (): Promise<Rect | null> => (await shot(ui)).darkBounds(TOP_BAND, 0.6);
+  // The strip comes up from 58% to full ink, its transition and all.
+  await rail(ui).getByRole('button', 'Select').focus();
+  await expect.poll(async () => (await bare()) !== null, { timeout: 5000 }).toBe(true);
+  return (await bare())!;
+}
+
+/** An empty Scene with the dot Grid off: bare paper, and the strip's ink alone up top. */
+async function openBare(ui: Ui): Promise<void> {
+  await openEditor(ui, { A: { 'bare.json': BARE_SOURCE } }, 'bare.json');
+  await ui.browser.keyboard.press('g');
+  await settle(ui);
+}
+
+test('the tool rail runs along the editor top edge, centred, with its tools in order', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+
+  const ink = await railInk(ui);
+
+  // Horizontal, not the column it used to be: seven tiles wide, one tile tall.
+  expect(ink.width).toBeGreaterThan(ink.height * 2);
+
+  // 15 px down from the editor's top edge, where the outline is drawn. The tilt
+  // leans the strip, so the outline reaches a couple of pixels higher.
+  expect(ink.y, 'the rail sits at the top edge').toBeGreaterThan(6);
+  expect(ink.y, 'the rail sits at the top edge').toBeLessThan(20);
+
+  // Centred: a strip turned about its own middle keeps that middle where it was.
+  expect(Math.abs(ink.x + ink.width / 2 - 1280 / 2), 'the rail is centred horizontally').toBeLessThan(3);
+  expect(ink.x, 'the rail is centred horizontally').toBeGreaterThan(1280 / 2 - 140);
+  expect(ink.x + ink.width, 'the rail is centred horizontally').toBeLessThan(1280 / 2 + 140);
+
+  // Seven tiles, in the rail's order: the accessibility tree lists them left to
+  // right, which is the order the horizontal strip shows them in.
+  const tiles = await rail(ui).getByRole('button').all();
+  expect(tiles.length).toBe(TILES.length);
+  const names = await Promise.all(tiles.map((tile) => tile.getAttribute('aria-label')));
+  expect(names).toEqual(TILES);
+});
+
+test('the rail is faint until it is looked at, and its outline surrounds all seven tools', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+
+  // Faint, the strip's washes and glyphs are lighter than the ink a person reads
+  // as drawn: the right half of it holds no dark pixel at all.
+  const faint = (await shot(ui)).darkCount(RIGHT_HALF, 0.6);
+  expect(faint, 'the rail is faint until it is looked at').toBe(0);
+
+  // A tile focused brings the whole strip up to full ink, transition and all.
+  const ink = await railInk(ui);
+  await expect
+    .poll(async () => (await shot(ui)).darkCount(RIGHT_HALF, 0.6), { timeout: 5000 })
+    .toBeGreaterThan(100);
+
+  // The pencil outline is a closed strip: ink on each of its four mid-edges, in
+  // the padding around the tiles so no glyph of a tool can answer for it.
+  const picture = await shot(ui);
+  const surround: Array<[string, Rect]> = [
+    ['top', { x: ink.x + 40, y: ink.y - 4, width: ink.width - 80, height: 10 }],
+    ['bottom', { x: ink.x + 40, y: ink.y + ink.height - 5, width: ink.width - 80, height: 9 }],
+    ['left', { x: ink.x - 4, y: ink.y + 10, width: 10, height: ink.height - 20 }],
+    ['right', { x: ink.x + ink.width - 6, y: ink.y + 10, width: 10, height: ink.height - 20 }],
+  ];
+  for (const [side, band] of surround) {
+    expect(picture.darkCount(band, 0.6), `the outline is drawn along the ${side} edge`).toBeGreaterThan(0);
+  }
+});
+
+test('a press on the rail draws and selects nothing, and the press below it reaches the canvas', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+  // The page is carried so that `a`'s top stroke lies 20 px down, under the
+  // strip: paper that a press would otherwise find, with the rail over it.
+  await browser.keyboard.down('Space');
+  await drag(ui, { x: 600, y: 600 }, { x: 660, y: 280 });
+  await browser.keyboard.up('Space');
+  await settle(ui);
+
+  // A pencil armed makes the strip's own answer visible: a sweep across it draws
+  // nothing at all, and the Scene is the one the editor opened.
+  await browser.keyboard.press('r');
+  await settle(ui);
+  const before = (await shot(ui)).darkCount({ x: 596, y: 84, width: 120, height: 60 }, 0.6);
+  await drag(ui, { x: 600, y: 20 }, { x: 700, y: 140 });
+  await settle(ui);
+  expect((await shot(ui)).darkCount({ x: 596, y: 84, width: 120, height: 60 }, 0.6)).toBe(before);
+  expect((await savedFiles(ui))['scene.json']).toBe(SCENE_SOURCE);
+
+  // Select in hand, the press on the strip's own padding selects nothing,
+  // though `a`'s top stroke is under it.
+  await browser.keyboard.press('v');
+  await settle(ui);
+  await drag(ui, { x: 640, y: 20 }, { x: 640, y: 20 }, 'left');
+  await settle(ui);
+  await expect(screen.getByRole('dialog', 'Style')).toBeHidden();
+
+  // The same press a little lower, clear of the strip, reaches that stroke.
+  await drag(ui, { x: 640, y: 100 }, { x: 640, y: 100 }, 'left');
+  await expect(screen.getByRole('dialog', 'Style')).toBeVisible();
+
+  // Two presses on a stroke and a sweep with a pencil: neither edited the Scene.
+  expect((await savedFiles(ui))['scene.json']).toBe(SCENE_SOURCE);
+});
+
+test('V R E D A S T and 1–7 pick the rail tools with the rail at the top', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+
+  // Each letter and each digit marks the one tile the rail names for that tool,
+  // so the keys and the rail read one list in one order.
+  for (const [key, tool] of KEYS) {
+    await browser.keyboard.press(key);
+    await expect(screen.getByRole('button', { name: tool }), `${key} picks ${tool}`).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  }
+  for (const [index, tool] of TILES.entries()) {
+    await browser.keyboard.press(String(index + 1));
+    await expect(screen.getByRole('button', { name: tool }), `${index + 1} picks ${tool}`).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  }
+
+  // And a tool picked by its key still draws on the paper the strip leaves free.
+  await browser.keyboard.press('4');
+  await drag(ui, { x: 560, y: 200 }, { x: 660, y: 280 });
+  const scene = await savedScene(ui, 'bare.json');
+  expect(scene.elements.map((element) => element.type)).toEqual(['diamond']);
 });

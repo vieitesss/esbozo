@@ -135,9 +135,10 @@ test('the palette stays shut while a Text is being typed', async ({ app, browser
  * The first Element's ink, where the page draws it once the host page below has
  * given the editor a box and the drawing was fitted to it, and again once the
  * middle drag below has carried it by (−20, −60): the second Element sits past
- * this box to the right, and is never measured.
+ * this box to the right, and is never measured. It starts below the tool rail,
+ * which rides at the top edge of the editor's own box.
  */
-const FIRST = { x: 460, y: 450, width: 180, height: 340 };
+const FIRST = { x: 460, y: 490, width: 180, height: 300 };
 
 /** Which of the page's two focus stops holds the focus: the search field or the canvas. */
 function focusOf(ui: Ui): Promise<'canvas' | 'search' | 'other'> {
