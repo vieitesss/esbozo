@@ -325,16 +325,16 @@ test('the Shortcuts sheet keeps its left border on the narrowest page', async ({
   await expect(ui.screen.getByRole('dialog', 'Shortcuts')).toBeVisible();
   await settle(ui);
 
-  // Where the page holds the sheet, so the strip below covers its left edge and
-  // the paper beside it, and nothing of the words inside it.
-  const box = await ui.browser.evaluate(() => {
-    const sheet = document.querySelector('esbozo-editor .shortcuts')?.getBoundingClientRect();
-    return { left: sheet?.left ?? 0, top: sheet?.top ?? 0, height: sheet?.height ?? 0 };
-  });
-  // A sheet that runs off the left of the page has no left edge drawn: the strip
-  // is bare there, while a sheet that fits carries its border down its height.
-  const edge: Rect = { x: box.left, y: box.top + 8, width: 3, height: box.height - 16 };
-  expect((await shot(ui)).darkCount(edge, 0.9)).toBeGreaterThan(box.height / 2);
+  // Where the sheet's left border must be, on the fixed 320 x 640 page: at that
+  // width `max-width` in editor.css leaves the sheet 8px of page on its left, and
+  // its -0.6deg tilt brings that edge to x 7 at the top and x 9 at the bottom, so
+  // the strip takes x 7-9 down the middle of the sheet, clear of the words inside
+  // it and of the page's Grid and tool rail.
+  const edge: Rect = { x: 7, y: 440, width: 3, height: 130 };
+  // The 1px border is the darkest thing in that strip, and a sheet that runs off
+  // the left of the page leaves nothing drawn down it: bare paper reads 0.89 and
+  // lighter, the drawn edge 0.85 and darker, row after row.
+  expect((await shot(ui)).darkCount(edge, 0.86)).toBeGreaterThan(edge.height);
 });
 
 test('a press on the page shuts the Shortcuts sheet and lands where it was aimed', async ({
