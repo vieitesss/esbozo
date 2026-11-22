@@ -67,8 +67,8 @@ const FOLDERS: Folders = { A: { 'scene.json': SCENE_SOURCE, 'second.json': SECON
 
 /**
  * The view the arrowed Scene lands in, worked out as `helpers.ts` works `VIEW`
- * out: opening a Scene fits it, so the arrow's 140px of height moves the pan
- * down by half of it and leaves the zoom at 1.
+ * out: opening a Scene fits it, so the arrow's 140px of extra height takes the
+ * pan from 300 to the fitted 231 and leaves the zoom at 1.
  */
 const VIEW: View = { zoom: 1, panX: 470, panY: 231 };
 
@@ -197,6 +197,23 @@ const END_HANDLE: Gesture = {
   proves: (scene) => {
     const end = scene.elements.find((element) => element.id === 'bent')?.points?.[2];
     expect({ x: end?.x, y: end?.y }).toEqual({ x: 260, y: 300 });
+  },
+};
+
+/** The arrow's bend handle, carried 40 right and 40 down. */
+const BENT_MOVED = { from: at({ x: 140, y: 300 }, VIEW), to: at({ x: 180, y: 340 }, VIEW) };
+
+const BEND_HANDLE: Gesture = {
+  name: 'bend handle',
+  arm: selectBent,
+  press: (ui) => carry(ui, BENT_MOVED.from, BENT_MOVED.to),
+  again: async (ui) => {
+    await selectBent(ui);
+    await drag(ui, BENT_MOVED.from, BENT_MOVED.to);
+  },
+  proves: (scene) => {
+    const bend = scene.elements.find((element) => element.id === 'bent')?.points?.[1];
+    expect({ x: bend?.x, y: bend?.y }).toEqual({ x: 180, y: 340 });
   },
 };
 
@@ -361,7 +378,7 @@ const EXITS: readonly Exit[] = [
   },
 ];
 
-for (const gesture of [DRAW, MOVE, RESIZE, END_HANDLE]) {
+for (const gesture of [DRAW, MOVE, RESIZE, END_HANDLE, BEND_HANDLE]) {
   describe(`the exits a cancelled ${gesture.name} survives`, () => {
     for (const exit of EXITS) {
       test(`ends on ${exit.name}, and the next press starts fresh`, async ({ app, browser, screen }) => {
