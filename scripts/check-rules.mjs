@@ -10,8 +10,8 @@
  *      name or in copy. One word per idea is the point of the glossary, and the
  *      list is read from GLOSSARY.md so the two cannot drift.
  *   3. A test never asserts on the seam's implementation: no markup regexes, no
- *      bounding boxes, no `data-element-id`, no tag-name selectors, and no test
- *      reads a `src/` file for itself.
+ *      bounding boxes, no DOM structure or rect reads, no `data-element-id`, no
+ *      tag-name selectors, and no test reads a `src/` file for itself.
  *
  * Usage: node scripts/check-rules.mjs [root]
  *
@@ -40,15 +40,19 @@ const SUITES = /^(?:test|tests)\//;
 const SELF = /^(?:scripts\/check-rules\.mjs|test\/check-rules\.test\.ts)$/;
 
 /**
- * The one comment this script takes: a markup regex may parse the SVG a save
- * wrote, because that file is public output. The wording is exact on purpose —
- * a string that happens to hold `check-rules:` excuses nothing.
+ * The two comments this script takes, each for one rule and nothing else: a
+ * markup regex may parse the SVG a save wrote, because that file is public
+ * output, and a test may measure the host page's own words, because the element
+ * is everything it may ask and those words are outside it. The wording is exact
+ * on purpose — a string that happens to hold `check-rules:` excuses nothing.
  *
- * It is honour-system: the script sees a pattern and a nearby comment, never the
- * SVG that pattern is handed, so it cannot tell a written file from the page. A
- * person reading the diff is the one who catches a comment on the wrong regex.
+ * They are honour-system: the script sees a pattern and a nearby comment, never
+ * the SVG that pattern is handed, so it cannot tell a written file from the
+ * page; nor can it see the node a rect is taken of. A person reading the diff is
+ * the one who catches a comment on the wrong line.
  */
 const EXCUSE = '// check-rules: markup of a written SVG file, not the page';
+const HOST_EXCUSE = "// check-rules: rect of the host page's own words, outside <esbozo-editor>";
 
 /**
  * The tag names the page draws its Scene with, and the one HTML tag a test
@@ -60,6 +64,17 @@ const TAGS = new Set([
   'text', 'tspan', 'textPath', 'defs', 'use', 'marker', 'title', 'desc', 'symbol',
   'image', 'pattern', 'clipPath', 'linearGradient', 'radialGradient', 'stop', 'mask',
   'filter', 'foreignObject', 'animate', 'button',
+]);
+
+/**
+ * The reads that see the page's build rather than what it shows: its nodes, the
+ * markup it was made of, and the box it was given. A test that reaches for one
+ * is asserting on the seam's implementation, so it drives the role or the name
+ * and reads the pixels instead.
+ */
+const DOM_READS = new Set([
+  'tagName', 'nodeName', 'children', 'childElementCount', 'firstElementChild',
+  'lastElementChild', 'innerHTML', 'outerHTML', 'getBoundingClientRect',
 ]);
 
 /** The calls a tag name reaches the page through. */
@@ -174,11 +189,11 @@ function testSeams(file) {
   if (!SUITES.test(path) || SELF.test(path)) return;
 
   const comments = commentsOf(text, source);
-  const excused = (at) => {
+  const excused = (at, excuse = EXCUSE) => {
     const line = lineAt(text, at);
     return comments.some(
       (comment) =>
-        comment.text.trim() === EXCUSE && [line, line - 1].includes(lineAt(text, comment.at)),
+        comment.text.trim() === excuse && [line, line - 1].includes(lineAt(text, comment.at)),
     );
   };
 
@@ -189,6 +204,14 @@ function testSeams(file) {
         report(node.getStart(source), 'data-element-id reaches into the page: use a role, a name or a key');
       } else if (namesMarkup(body) && !excused(node.getStart(source))) {
         report(node.getStart(source), 'markup in a regex: drive the page, do not read the SVG it wrote');
+      }
+      return;
+    }
+
+    if (ts.isPropertyAccessExpression(node) && DOM_READS.has(node.name.text)) {
+      const at = node.name.getStart(source);
+      if (!excused(at, HOST_EXCUSE)) {
+        report(at, `dom read "${node.name.text}": assert on what the page shows, not on its structure or its rect`);
       }
       return;
     }
