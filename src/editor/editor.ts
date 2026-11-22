@@ -600,8 +600,10 @@ class EsbozoEditorElement extends HTMLElement {
     // Write access can end in the middle of a gesture, as a folder that answers a
     // queued save with a 403 does. Half a gesture is not a Scene any more: it is
     // dropped with the preview it painted, rather than left on a page that may
-    // only read.
-    if (this.#gestures.holdsScene()) {
+    // only read. A sweep holds the pointer as a Scene edit does, so it goes too:
+    // its band is the old page's, and a release here would settle it on the new
+    // one.
+    if (this.#gestures.holdsScene() || this.#gestures.sweeping()) {
       this.#gestures.cancel();
     }
     // The point a press picked waits for the key that removes it: a page that may
@@ -1232,14 +1234,16 @@ class EsbozoEditorElement extends HTMLElement {
       this.#gestures.finishPlacing();
       return;
     }
-    if (event.key === 'Escape' && this.#gestures.holdsScene()) {
+    if (event.key === 'Escape' && (this.#gestures.holdsScene() || this.#gestures.sweeping())) {
       // Half a Scene edit is not a Scene: Escape drops what the gesture drew back
       // to the place the Scene holds, and the release that follows it settles
       // nothing. It answers here, before the gesture that holds the Scene,
       // because that guard is about edits — and an Escape is what keeps one from
-      // landing. Every other drag keeps the behaviour it has: Escape is ignored
-      // while the pointer is down, and the release settles the gesture. A place
-      // is the one edit that is not a drag: Escape finishes it, above.
+      // landing. A sweep holds the pointer and no Scene at all: Escape drops its
+      // band and leaves the selection as it is, so the release settles nothing
+      // there either. Every other drag keeps the behaviour it has: Escape is
+      // ignored while the pointer is down, and the release settles the gesture. A
+      // place is the one edit that is not a drag: Escape finishes it, above.
       event.preventDefault();
       this.#gestures.cancel();
       return;
