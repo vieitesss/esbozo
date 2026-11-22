@@ -27,7 +27,6 @@ import { describe, test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import {
   SCENE,
-  VIEW,
   at,
   clickScene,
   drag,
@@ -38,14 +37,40 @@ import {
   savedScene,
   settle,
 } from './helpers.ts';
-import type { Folders, Point, SavedScene, Ui } from './helpers.ts';
+import type { Folders, Point, SavedScene, Ui, View } from './helpers.ts';
 import { blurPage, cursorAt } from './cdp.ts';
-import { SCENE_SOURCE } from './editor-shared.ts';
 
-/** A second Scene of the same two boxes, so a switch is a different file. */
-const SECOND_SOURCE = JSON.stringify({ ...SCENE, title: 'Second' }, null, 2);
+/**
+ * A free arrow through one sharp bend, on the bare paper beneath both boxes and
+ * clear of every other row's press: its last point is an end handle and its
+ * middle point a bend handle.
+ */
+const BENT = {
+  id: 'bent',
+  type: 'arrow',
+  points: [
+    { x: 60, y: 240 },
+    { x: 140, y: 300, corner: 'sharp' },
+    { x: 220, y: 240 },
+  ],
+  heads: { start: 'none', end: 'arrow' },
+};
+
+/** `SCENE` with the arrow: the one Scene every row presses in. */
+const ARROWED = { ...SCENE, elements: [...SCENE.elements, BENT] };
+const SCENE_SOURCE = JSON.stringify(ARROWED, null, 2);
+
+/** A second Scene of the same three Elements, so a switch is a different file. */
+const SECOND_SOURCE = JSON.stringify({ ...ARROWED, title: 'Second' }, null, 2);
 
 const FOLDERS: Folders = { A: { 'scene.json': SCENE_SOURCE, 'second.json': SECOND_SOURCE } };
+
+/**
+ * The view the arrowed Scene lands in, worked out as `helpers.ts` works `VIEW`
+ * out: opening a Scene fits it, so the arrow's 140px of height moves the pan
+ * down by half of it and leaves the zoom at 1.
+ */
+const VIEW: View = { zoom: 1, panX: 470, panY: 231 };
 
 /** Where the pointer rests between gestures: bare paper, clear of any handle. */
 const IDLE: Point = at({ x: 300, y: 380 }, VIEW);
@@ -98,6 +123,8 @@ const MOVED = { from: at({ x: 100, y: 80 }, VIEW), to: at({ x: 160, y: 140 }, VI
 
 const rect = (ui: Ui) => ui.screen.getByRole('button', { name: 'Rectangle' });
 const selectA = (ui: Ui) => clickScene(ui, { x: 100, y: 80 }, [], VIEW);
+/** On the arrow's first run, on no Element: where a press selects the arrow. */
+const selectBent = (ui: Ui) => clickScene(ui, { x: 100, y: 270 }, [], VIEW);
 
 const DRAW: Gesture = {
   name: 'draw',
@@ -108,8 +135,8 @@ const DRAW: Gesture = {
     await drag(ui, DRAWN.from, DRAWN.to);
   },
   proves: (scene) => {
-    const drawn = scene.elements[2];
-    expect(scene.elements.length).toBe(3);
+    const drawn = scene.elements[3];
+    expect(scene.elements.length).toBe(4);
     expect({
       type: drawn?.type,
       x: drawn?.x,
@@ -153,6 +180,23 @@ const RESIZE: Gesture = {
       width: 160,
       height: 120,
     });
+  },
+};
+
+/** The arrow's end handle, and a free point below and right of it, on no box. */
+const ENDED = { from: at({ x: 220, y: 240 }, VIEW), to: at({ x: 260, y: 300 }, VIEW) };
+
+const END_HANDLE: Gesture = {
+  name: 'end handle',
+  arm: selectBent,
+  press: (ui) => carry(ui, ENDED.from, ENDED.to),
+  again: async (ui) => {
+    await selectBent(ui);
+    await drag(ui, ENDED.from, ENDED.to);
+  },
+  proves: (scene) => {
+    const end = scene.elements.find((element) => element.id === 'bent')?.points?.[2];
+    expect({ x: end?.x, y: end?.y }).toEqual({ x: 260, y: 300 });
   },
 };
 
@@ -317,8 +361,8 @@ const EXITS: readonly Exit[] = [
   },
 ];
 
-for (const gesture of [DRAW, MOVE, RESIZE]) {
-  describe(`a ${gesture.name} the page loses`, () => {
+for (const gesture of [DRAW, MOVE, RESIZE, END_HANDLE]) {
+  describe(`the exits a cancelled ${gesture.name} survives`, () => {
     for (const exit of EXITS) {
       test(`ends on ${exit.name}, and the next press starts fresh`, async ({ app, browser, screen }) => {
         const ui = { app, browser, screen };
