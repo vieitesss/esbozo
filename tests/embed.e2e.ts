@@ -1525,12 +1525,27 @@ test('the pointer measures the paper the view draws on, not the host’s border 
   }
 });
 
+/**
+ * The strip of the host page the element's paper fills, to the right of the
+ * heading and of the Scene's own ink: the paper is not white, and the host's
+ * page is, so the pixels say where the box starts and ends.
+ */
+const HOST_PAPER = { x: 1000, y: 0, width: 40, height: 2000 };
+
+/** The luminance below which a pixel is the element's paper rather than the page's white. */
+const HOST_PAPER_INK = 0.995;
+
 test('the element is a box in the host page’s content, and the bundle styles nothing else', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
   const embed = await startEmbed(await bundleFolder());
   try {
     await app.open(`${embed.url}/host.html`);
     await expect(screen.getByRole('status')).toHaveText('saved');
     const after = await styles(browser);
+    const paper = (await shot(ui)).darkBounds(HOST_PAPER, HOST_PAPER_INK);
+    if (paper === null) {
+      throw new Error('the host page shows no paper');
+    }
 
     // The host's own page, exactly as it was: margins, font, scrolling and its
     // custom properties. Nothing the bundle writes reaches them.
@@ -1540,12 +1555,14 @@ test('the element is a box in the host page’s content, and the bundle styles n
     expect(after.ink).toBe('');
     expect(after.headingFamily).toContain('Georgia');
 
-    // The element is a 480px box in the flow, with the page's words after it
-    // rather than behind it: the words only sit past the box because the box is
-    // in the flow and as tall as the height it gives itself.
+    // The element is a 480px box in the flow, under the heading and below the
+    // page's top margin, with the page's words after it rather than behind it:
+    // the paper's own rows say where the box is, and the words sit past the
+    // bottom of those rows.
     expect(after.height).toBe(480);
     expect(after.position).toBe('relative');
-    expect(after.wordsTop).toBeGreaterThan(after.height);
+    expect(paper.y).toBeGreaterThan(24);
+    expect(after.wordsTop).toBeGreaterThan(paper.y + paper.height - 1);
   } finally {
     await embed.stop();
   }
@@ -1570,8 +1587,9 @@ interface HostStyles {
  *
  * The words are the host's, outside the element, and no seam of the element can
  * say they sit past its box — so that one rect is read, with the comment the
- * checker asks for. The box itself is measured by the height the page computed
- * for it, which is what the host page's layout gives it.
+ * checker asks for. Where the box starts and ends is what the page draws, so the
+ * paper's own pixels say it (`HOST_PAPER`), and the height the layout computed
+ * for the element is the rule that box obeys.
  */
 async function styles(browser: Ui['browser']): Promise<HostStyles> {
   return browser.evaluate(() => {
