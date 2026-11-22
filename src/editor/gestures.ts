@@ -437,6 +437,13 @@ export class Gestures {
     if (event.button !== 0 && event.button !== 1) {
       return;
     }
+    // A Ctrl+left press is the secondary click macOS reads as a context menu,
+    // and the point menu's: it carries no gesture, so a Ctrl+click on a handle
+    // opens that point's menu instead of a press the clicks after it could pair
+    // with and remove the point through.
+    if (event.button === 0 && event.ctrlKey) {
+      return;
+    }
     const text = this.#host.typing.text();
     if (text !== null && event.button === 0) {
       // A press inside the words being typed moves their caret: it is the

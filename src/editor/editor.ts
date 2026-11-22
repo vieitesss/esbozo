@@ -26,6 +26,7 @@ import type { FolderSource, FontSource, SaveTarget } from './connection.js';
 import { Page } from './page.js';
 import type { Shown } from './page.js';
 import { CommandPalette } from './palette.js';
+import { PointMenu } from './point-menu.js';
 import { menuSignature, styleNote } from './menu.js';
 import { nextRoughness, roughnessLabel, styled } from './style.js';
 import type { StyleKey } from './style.js';
@@ -119,6 +120,8 @@ class EsbozoEditorElement extends HTMLElement {
   #sheet!: HTMLElement;
   #helpButton!: HTMLButtonElement;
   #palette!: CommandPalette;
+  /** The note a secondary press on a bend point opens, and the one row it holds. */
+  #pointMenu!: PointMenu;
 
   /**
    * What the clipboard commands may ask of the editor: the Scene, its selection,
@@ -214,6 +217,20 @@ class EsbozoEditorElement extends HTMLElement {
       // The canvas is where the keys belong, and the paper is already in
       // view: a focus that scrolls would move the Scene under the pointer.
       closed: () => this.#canvas.focus({ preventScroll: true }),
+    });
+    // The point menu is the other note the pointer opens: a secondary press on a
+    // bend handle, held to the one removal the keys and the palette use.
+    this.#pointMenu = new PointMenu({
+      root: this.querySelector('.point-menu')!,
+      inside: this,
+      canvas: this.#canvas,
+      canOpen: () => this.#connection.writable() && this.#typing.text() === null,
+      removable: (bend) => this.#pointGoes(bend),
+      selectBend: (bend) => {
+        this.#bend = bend;
+        this.#refresh();
+      },
+      remove: (bend) => this.#removeBend(bend),
     });
 
     // Each instance's Grid is its own pattern: two editors on one page would
@@ -547,6 +564,7 @@ class EsbozoEditorElement extends HTMLElement {
     // The point a press picked waits for the key that removes it: a page that may
     // only read, and another Scene, hold none of it.
     this.#bend = null;
+    this.#pointMenu.close();
     if (this.#tool !== 'select') {
       this.#setTool('select');
     }
@@ -597,6 +615,9 @@ class EsbozoEditorElement extends HTMLElement {
   #selectElements(ids: readonly string[]): void {
     this.#selected = [...ids];
     this.#bend = null;
+    // The menu was opened for the selection the press found: another one is
+    // another point, or none at all.
+    this.#pointMenu.close();
   }
 
   /**
@@ -699,6 +720,15 @@ class EsbozoEditorElement extends HTMLElement {
   }
 
   /**
+   * Whether this point may go: the rule `#removeBend` keeps, asked before the row
+   * offers it, so a point a self-loop must keep reads as disabled.
+   */
+  #pointGoes(bend: Bend): boolean {
+    const element = this.#scene.elements.find((candidate) => candidate.id === bend.id);
+    return element !== undefined && isShaft(element) && withoutBend(element, bend.index) !== null;
+  }
+
+  /**
    * Remove the one bend point a press holds: the removal the key, the palette and
    * the double-click share. Every other point keeps its place, its `corner` and
    * its Snap, and a removal that would leave a two-point self-loop removes
@@ -781,6 +811,11 @@ class EsbozoEditorElement extends HTMLElement {
    */
   #takesKeys(target: EventTarget | null): boolean {
     if (this.#inField(target)) {
+      return false;
+    }
+    // The menu holds the keys while it is open, and with them the clipboard: no
+    // key edits the Scene except through the row the menu offers.
+    if (this.#pointMenu.open) {
       return false;
     }
     return !this.#ownsKeysWhenFocused || this.#focused;
@@ -980,6 +1015,9 @@ class EsbozoEditorElement extends HTMLElement {
    */
   #changedView(view: View): void {
     this.#page.viewport.view = view;
+    // A zoom carries the page away from the pointer the menu was placed by, so
+    // the menu goes with the place it was opened on.
+    this.#pointMenu.close();
     // Zoom is not part of a double-click: the next press starts a new one.
     this.#gestures.forgetClicks();
     this.#page.clearOfNote();
