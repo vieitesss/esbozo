@@ -541,6 +541,7 @@ esbozo-editor .note {
 /* a strip of tape across the top of each note */
 esbozo-editor .note::before,
 esbozo-editor .style-note::before,
+esbozo-editor .point-menu::before,
 esbozo-editor .status .shortcuts::before {
   content: "";
   position: absolute;
@@ -717,6 +718,36 @@ esbozo-editor .style-note .acts button {
 }
 
 esbozo-editor .style-note .acts button:hover { border-color: var(--line-strong); background: var(--line); }
+
+/* The point menu: the one row a right-click on a bend point offers, placed by
+   the pointer rather than docked, in the notes' paper and tape. Rows are
+   buttons, so a menu that grows a second row needs nothing here. */
+esbozo-editor .point-menu {
+  position: absolute;
+  z-index: 45;
+  padding: 6px 7px;
+  background: color-mix(in srgb, var(--paper) 96%, var(--ink));
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  box-shadow: 0 1px 0 var(--line), 0 14px 26px -16px var(--shadow), 2px 3px 0 -1px var(--line);
+  font-size: 11.5px;
+  outline: none;
+}
+
+esbozo-editor .point-menu button {
+  all: unset;
+  display: block;
+  cursor: pointer;
+  padding: 3px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  font-size: 10.5px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+esbozo-editor .point-menu button:hover { border-color: var(--line-strong); background: var(--line); }
+esbozo-editor .point-menu button:disabled { opacity: 0.45; cursor: default; border-style: dashed; }
 
 /* The command palette: every action by name, over the paper */
 esbozo-editor .palette {
