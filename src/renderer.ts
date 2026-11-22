@@ -79,6 +79,7 @@ import {
   shaftPath,
   shaftTangentAt,
   straight,
+  uAt,
 } from './geometry.js';
 import type { ShaftPath, ShaftPiece } from './geometry.js';
 
@@ -1196,8 +1197,7 @@ function behindHead(
   if (piece === undefined) {
     return { pieces: [], removed: at === 'start' ? covered : 0 };
   }
-  const fraction = at === 'end' ? 1 - walked / piece.length : walked / piece.length;
-  const cut = halvedAt(piece, fraction);
+  const cut = halvedAt(piece, parameterWalked(piece, walked, at));
   const kept =
     at === 'end'
       ? [cut.before, ...inward.slice(index + 1)].reverse()
@@ -1211,13 +1211,20 @@ function behindHead(
  * the ink that pokes out beside the tip before the cover begins included. It
  * never walks farther in than the head reaches, so a leg that turns under the
  * head costs that head its own length of shaft and no more.
+ *
+ * Where the walk never finds the stroke wholly under the triangle, because the
+ * ink turns out of it first, the cut stops where the ink still runs into the
+ * triangle instead: a shaft that reaches its head beats a tip with no ink beside
+ * it, and a shaft with no such place at all is not cut.
  */
 function coveredFrom(inward: readonly ShaftPiece[], face: HeadFace, at: 'start' | 'end'): number {
   const total = inward.reduce((sum, piece) => sum + piece.length, 0);
   const limit = Math.min(face.reach, total);
   const under = (arc: number): boolean => underHead(face, pointWalked(inward, arc, at));
+  const into = (arc: number): boolean => intoTriangle(face, pointWalked(inward, arc, at));
   let entered = false;
   let covered = 0;
+  let reached = 0;
   let arc = 0;
   while (arc < limit) {
     const next = Math.min(arc + HEAD_STEP, limit);
@@ -1228,12 +1235,16 @@ function coveredFrom(inward: readonly ShaftPiece[], face: HeadFace, at: 'start' 
       // The ink leaves the triangle again: the shaft shows beside the head from
       // here on, so the cover ends where it left.
       return edgeOfCover(under, arc, next);
+    } else if (into(next)) {
+      reached = next;
     } else {
-      covered = next;
+      // The ink turns out of the triangle before the stroke is ever wholly under
+      // it: stop where it still runs into the triangle, so the two stay joined.
+      return edgeOfCover(into, reached, next);
     }
     arc = next;
   }
-  return covered;
+  return entered ? covered : reached;
 }
 
 /** Where a walk that is under a head's triangle at `inside` leaves it by `outside`. */
@@ -1256,7 +1267,7 @@ function pointWalked(pieces: readonly ShaftPiece[], arc: number, at: 'start' | '
   let walked = arc;
   for (const piece of pieces) {
     if (piece.length > 0 && walked <= piece.length) {
-      return halvedAt(piece, at === 'end' ? 1 - walked / piece.length : walked / piece.length).at;
+      return halvedAt(piece, parameterWalked(piece, walked, at)).at;
     }
     walked -= piece.length;
   }
@@ -1265,19 +1276,46 @@ function pointWalked(pieces: readonly ShaftPiece[], arc: number, at: 'start' | '
 }
 
 /**
+ * One piece's own parameter at an arc length walked in from the end a head sits
+ * at. The walk measures arc, so the cut it asks for lands where the walk stood
+ * even on a roughened straight leg, which is drawn as a cubic: a share of that
+ * cubic's parameter is not the same share of the ink.
+ */
+function parameterWalked(piece: ShaftPiece, walked: number, at: 'start' | 'end'): number {
+  return uAt(piece, at === 'end' ? piece.length - walked : walked);
+}
+
+/**
  * Whether a head's triangle hides a stroke drawn around one point of the shaft,
  * its round cap included: the ink fits between the triangle's two long edges and
  * stays in front of its base.
  */
 function underHead(face: HeadFace, centre: Point): boolean {
-  const dx = centre.x - face.apex.x;
-  const dy = centre.y - face.apex.y;
-  const behind = dx * face.away.x + dy * face.away.y;
-  const beside = Math.abs(dy * face.away.x - dx * face.away.y);
+  const { behind, beside } = fromApex(face, centre);
   if (behind > face.reach - face.radius) {
     return false;
   }
   return behind * face.lean - beside >= face.radius * Math.hypot(1, face.lean);
+}
+
+/**
+ * Whether a point of the shaft runs into a head's triangle at all: its centre on
+ * the outline counts, since half the stroke is inside from there. This is what
+ * a cut keeps when the stroke is never wholly under the head.
+ */
+function intoTriangle(face: HeadFace, centre: Point): boolean {
+  const { behind, beside } = fromApex(face, centre);
+  return behind >= 0 && behind <= face.reach && behind * face.lean - beside >= 0;
+}
+
+/** How far behind a head's apex a point sits, and how far to the side of it. */
+function fromApex(face: HeadFace, centre: Point): { behind: number; beside: number } {
+  const dx = centre.x - face.apex.x;
+  const dy = centre.y - face.apex.y;
+  return {
+    behind: dx * face.away.x + dy * face.away.y,
+    beside: Math.abs(dy * face.away.x - dx * face.away.y),
+  };
 }
 
 /**

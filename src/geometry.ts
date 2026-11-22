@@ -933,7 +933,7 @@ function placeOn(path: ShaftPath, t: number): { piece: ShaftPiece; u: number } {
  * step is not a fraction of the arc it holds, and on a long curve the two are
  * far enough apart to move the words off the ink's middle.
  */
-function uAt(piece: ShaftPiece, distance: number): number {
+export function uAt(piece: ShaftPiece, distance: number): number {
   if (piece.kind === 'straight') {
     return piece.length === 0 ? 0 : Math.min(1, Math.max(0, distance / piece.length));
   }
