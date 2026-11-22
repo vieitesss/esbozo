@@ -1,7 +1,7 @@
 /**
  * The rules review kept finding by hand, as one script a machine runs.
  *
- * Three rules, each named by the ticket that paid for it:
+ * Four rules, each named by the ticket that paid for it:
  *
  *   1. A browser-safe module imports no Node builtin. The editor's page, the
  *      bundle and the Scene all run in a browser, so `node:crypto` anywhere in
@@ -12,6 +12,10 @@
  *   3. A test never asserts on the seam's implementation: no markup regexes, no
  *      bounding boxes, no DOM structure or rect reads, no `data-element-id`, no
  *      tag-name selectors, and no test reads a `src/` file for itself.
+ *   4. A Node test reaches the Editor only through the `src/editor/` modules
+ *      `test/modules.ts` may load. The list is today's set, held still: the
+ *      bundle loader hides a module from the import rule above, so a new
+ *      Editor internal reached `node:test` four times without a finding.
  *
  * Usage: node scripts/check-rules.mjs [root]
  *
@@ -35,6 +39,16 @@ const BROWSER_SAFE = /^src\/(?:scene|renderer|layout|geometry|paths|sha256)\.ts$
 
 /** The suites whose job is to drive the outside, never the inside. */
 const SUITES = /^(?:test|tests)\//;
+
+/**
+ * The `src/editor/` modules a Node test may load, as `test/modules.ts` loads
+ * them today. The set is frozen on purpose: a Node test that needs another one
+ * is asking the Editor for an inside, and Seam 2 is where it is proved.
+ */
+const TEST_EDITOR_MODULES = new Set(['history.ts', 'words.ts', 'geometry.ts', 'paint.ts']);
+
+/** A path in a test that names a module under `src/editor/`: written whole, or as a loader builds it. */
+const EDITOR_MODULE = /(?:^|\/)editor\/([\w.-]+\.ts)$/;
 
 /** The checker and its fixtures name the very things it bans, on purpose. */
 const SELF = /^(?:scripts\/check-rules\.mjs|test\/check-rules\.test\.ts)$/;
@@ -114,7 +128,7 @@ const MARKUP_TAGS_FOLDED = new Set([...MARKUP_TAGS].map((tag) => tag.toLowerCase
 const SRC = /(?:^|\/)src(?:\/|$)/;
 
 /** The rules, each one file: its parse tree, its text, and where to report. */
-const RULES = [nodeImports, avoidTerms, testSeams];
+const RULES = [nodeImports, avoidTerms, testSeams, testEditorModules];
 
 /** Every finding the rules make, as `path:line: message`. */
 const findings = [];
@@ -266,6 +280,26 @@ function testSeams(file) {
       const at = literal.at + literal.text.indexOf('data-element-id');
       report(at, 'data-element-id reaches into the page: use a role, a name or a key');
     }
+  }
+}
+
+/**
+ * Rule 4: a Node test loads an Editor module that is not on the allow-list.
+ *
+ * `test/modules.ts` bundles `src/editor/` by name, so an import rule reading
+ * import statements never sees what the bundle reaches. The four modules it
+ * loads today are the whole of what `node:test` may see of the Editor.
+ */
+function testEditorModules(file) {
+  const { path, source, report } = file;
+  if (!/^test\/[^/]+\.ts$/.test(path) || SELF.test(path)) return;
+  for (const literal of literals(source)) {
+    const named = EDITOR_MODULE.exec(literal.text);
+    if (named === null || TEST_EDITOR_MODULES.has(named[1])) continue;
+    report(
+      literal.at,
+      `loads "${literal.text}": node:test reaches the Editor only through the allow-list in check-rules`,
+    );
   }
 }
 

@@ -670,3 +670,43 @@ test('what a node says and how it is styled is not structure, and stays quiet', 
     ].join('\n'),
   });
 });
+
+// Rule 4: a Node test reaches the Editor only through the allow-list.
+
+test('an Editor module no Node test may load is a finding, however the bundle names it', async () => {
+  const line = await finding({
+    'test/modules.ts': [
+      'const source = (module: string): string => `../src/${module}`;',
+      "source('editor/registry.ts');",
+    ].join('\n'),
+  });
+
+  assert.match(
+    line,
+    /^test\/modules\.ts:2: loads "editor\/registry\.ts": node:test reaches the Editor only through the allow-list in check-rules$/,
+  );
+});
+
+test('a test that imports an Editor module for itself is the same finding', async () => {
+  const line = await finding({
+    'test/placement.test.ts': "import type { Scene } from '../src/editor/registry.ts';\n",
+  });
+
+  assert.match(
+    line,
+    /^test\/placement\.test\.ts:1: loads "\.\.\/src\/editor\/registry\.ts": node:test reaches the Editor only through the allow-list in check-rules$/,
+  );
+});
+
+test('the four modules Node tests load today, and a module outside the Editor, are quiet', async () => {
+  await quiet({
+    'test/modules.ts': [
+      'const source = (module: string): string => `../src/${module}`;',
+      "source('editor/history.ts');",
+      "source('editor/words.ts');",
+      "source('editor/geometry.ts');",
+      "source('editor/paint.ts');",
+    ].join('\n'),
+    'test/placement.test.ts': "import type { Scene } from '../src/scene.ts';\n",
+  });
+});
