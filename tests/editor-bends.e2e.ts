@@ -147,6 +147,43 @@ const LINE_BEND = { x: 350, y: 180 };
 const LINE_ZOOMED: View = { zoom: 1.2, panX: 160, panY: 64 };
 
 /**
+ * An arrow with both ends Snapped to a box each, and two bends between them, on
+ * a box that holds the page still: the drags below read which end kept its Snap
+ * and which bend stayed where it was.
+ */
+const SNAPPED_SCENE = {
+  version: 1,
+  title: 'Snapped bends',
+  defaults: { roughness: 0 },
+  elements: [
+    { id: 'page', type: 'rectangle', x: 0, y: 0, width: 800, height: 560 },
+    { id: 'a', type: 'rectangle', x: 100, y: 100, width: 100, height: 100 },
+    { id: 'b', type: 'rectangle', x: 600, y: 300, width: 100, height: 100 },
+    {
+      id: 'bent',
+      type: 'arrow',
+      points: [
+        { x: 150, y: 150, snap: 'a' },
+        { x: 350, y: 200, corner: 'sharp' },
+        { x: 550, y: 300, corner: 'round' },
+        { x: 650, y: 350, snap: 'b' },
+      ],
+      heads: { start: 'none', end: 'none' },
+    },
+  ],
+};
+const SNAPPED_SOURCE = JSON.stringify(SNAPPED_SCENE, null, 2);
+
+/** The view `SNAPPED_SCENE` lands in: its 800×560 box fitted 1:1. */
+const SNAPPED: View = { zoom: 1, panX: 240, panY: 120 };
+
+/** On the arrow's first run, past box `a` and clear of box `b`: where a press selects it. */
+const SNAPPED_ON = { x: 275, y: 181 };
+
+/** The sharp bend between the two Snapped ends, where its handle sits on the page. */
+const SNAPPED_BEND = { x: 350, y: 200 };
+
+/**
  * The Scene files the `bends.json` fixture folder holds, by the name a person opens.
  * `A` is the folder every helper in this suite reads back.
  */
@@ -154,6 +191,7 @@ const SCENES = {
   A: {
     'bends.json': SHARP_SOURCE,
     'line.json': LINE_SOURCE,
+    'snapped.json': SNAPPED_SOURCE,
     'shapes.json': SHAPES_SOURCE,
   },
 };
@@ -241,6 +279,50 @@ describe('a bend point handle', () => {
     );
     const scene = await savedScene(ui, 'line.json');
     expect(scene.elements.find((element) => element.id === 'bent')?.corners).toBe('round');
+  });
+
+  test('dragging a bend keeps both Snaps and the other bend', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'snapped.json');
+
+    await clickScene(ui, SNAPPED_ON, [], SNAPPED);
+    await drag(ui, at(SNAPPED_BEND, SNAPPED), at({ x: 390, y: 220 }, SNAPPED));
+
+    await expectPoints(
+      ui,
+      [
+        { x: 150, y: 150, snap: 'a' },
+        { x: 390, y: 220, corner: 'sharp' },
+        { x: 550, y: 300, corner: 'round' },
+        { x: 650, y: 350, snap: 'b' },
+      ],
+      'snapped.json',
+    );
+  });
+
+  test('dropping a bend over a box does not Snap it', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'snapped.json');
+
+    await clickScene(ui, SNAPPED_ON, [], SNAPPED);
+    // From the sharp bend into the middle of box `a`: an end there would attach,
+    // and a bend dropped there is a bend and only a bend.
+    await drag(ui, at(SNAPPED_BEND, SNAPPED), at({ x: 120, y: 120 }, SNAPPED));
+
+    await expectPoints(
+      ui,
+      [
+        { x: 150, y: 150, snap: 'a' },
+        { x: 120, y: 120, corner: 'sharp' },
+        { x: 550, y: 300, corner: 'round' },
+        { x: 650, y: 350, snap: 'b' },
+      ],
+      'snapped.json',
+    );
   });
 
   test('a sharp bend is marked by a square', async ({ app, browser, screen }) => {
