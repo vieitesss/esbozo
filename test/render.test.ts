@@ -713,6 +713,20 @@ test('an arrow head’s triangle is the last ink of its own arrow', async () => 
   assert.equal(covered.length, 3, 'three shafts are shorter than their heads');
 });
 
+test('a head’s cut takes ink from its own end, and no more than the head reaches', async () => {
+  const arrows = turnedMatrix();
+  const headed = await renderOne(turnedScene(arrows.map((one) => one.element)));
+  const bare = await renderOne(turnedScene(arrows.map((one) => one.bare)));
+
+  const groups = inkGroups(headed);
+  const bareGroups = inkGroups(bare);
+  assert.equal(groups.length, arrows.length, 'one group of ink per arrow');
+  assert.equal(bareGroups.length, arrows.length, 'and one per arrow drawn with no head');
+  for (const [index, one] of arrows.entries()) {
+    assertCutIsLocal(one, groups[index]!, bareGroups[index]!);
+  }
+});
+
 test('the same Scene renders the same bytes twice', async () => {
   const scene = lineScene([0, 100], [400, 100], { t: 0.5, offset: 0 });
 
@@ -1032,6 +1046,12 @@ const INK_DIRECTIONS = 12;
 const INK_SLACK = 0.02;
 
 /**
+ * How far two readings of the same ink may drift: each is sampled a step at a
+ * time, and a run cut into two curves is sampled at other places along it.
+ */
+const INK_STEP_SLACK = 0.5;
+
+/**
  * The head matrix: an arrow for every stroke width, roughness, shape, corner,
  * dash and Label a head has to hold for, then a shaft shorter than its own head
  * and one with a head at each end.
@@ -1308,4 +1328,191 @@ function middleOf(points: readonly At[]): At {
 function towards(from: At, to: At): At {
   const length = far(from, to) || 1;
   return { x: (to.x - from.x) / length, y: (to.y - from.y) / length };
+}
+
+/**
+ * The legs of the shapes whose cut was wrong: a short leg at one end that turns
+ * under the head, a staircase whose last leg is short, and a hairpin a Label
+ * splits in two. Each is laid out from its own top-left corner, in Scene units.
+ */
+const TURNED_LEGS = {
+  shortLastLeg: [
+    [0, 0],
+    [0, 200],
+    [5, 200],
+  ],
+  shortFirstLeg: [
+    [0, 0],
+    [5, 0],
+    [5, 200],
+  ],
+  stairs: [
+    [0, 0],
+    [100, 0],
+    [100, 100],
+    [105, 100],
+  ],
+  hairpin: [
+    [0, 0],
+    [400, 0],
+    [400, 100],
+    [200, 100],
+  ],
+} as const;
+
+/** Room one arrow of the turned matrix has to itself: the widest shape, a head and a Label. */
+const TURN_CELL = 460;
+
+/** How many arrows one row of the turned matrix holds. */
+const TURN_COLUMNS = 4;
+
+/** What varies from one arrow of the turned matrix to the next. */
+interface TurnedOptions {
+  readonly shape: keyof typeof TURNED_LEGS;
+  readonly at: 'start' | 'end';
+  readonly corners: 'round' | 'sharp';
+  readonly roughness: number;
+  readonly label: boolean;
+}
+
+/** One arrow of the turned matrix: the head it puts on which end, and the same arrow with no head. */
+interface TurnedCase {
+  readonly id: string;
+  readonly at: 'start' | 'end';
+  readonly element: HeadArrow;
+  readonly bare: HeadArrow;
+}
+
+/** One Scene of the turned matrix, so the arrows never share a cell. */
+function turnedScene(elements: readonly HeadArrow[]): unknown {
+  return { version: 1, title: 'Turned', defaults: { roughness: 0 }, elements };
+}
+
+/**
+ * The turned matrix: every leg shape with the head at either end, sharp and
+ * round, at roughness 0 and 2, with and without a Label — beside the same arrow
+ * drawn with no head at all, which is what its cut is measured against.
+ */
+function turnedMatrix(): TurnedCase[] {
+  const cases: TurnedCase[] = [];
+  const shapes = Object.keys(TURNED_LEGS) as (keyof typeof TURNED_LEGS)[];
+  for (const shape of shapes) {
+    for (const at of ['start', 'end'] as const) {
+      for (const corners of ['round', 'sharp'] as const) {
+        for (const roughness of [0, 2]) {
+          for (const label of [false, true]) {
+            cases.push(turnedCase(cases.length, { shape, at, corners, roughness, label }));
+          }
+        }
+      }
+    }
+  }
+  return cases;
+}
+
+/** One arrow of the turned matrix, laid out so no two arrows overlap. */
+function turnedCase(index: number, options: TurnedOptions): TurnedCase {
+  const id = `turned-${index}`;
+  const x = (index % TURN_COLUMNS) * TURN_CELL + 40;
+  const y = Math.floor(index / TURN_COLUMNS) * TURN_CELL + 40;
+  const points = TURNED_LEGS[options.shape].map(([dx, dy]) => ({ x: x + dx, y: y + dy }));
+  const shared = {
+    id,
+    type: 'arrow' as const,
+    points,
+    corners: options.corners,
+    // A bold stroke at its whole width, so the round cap is wide enough to show.
+    stroke: { width: 'bold', style: 'solid' },
+    roughness: options.roughness,
+    ...(options.label ? { label: 'words', labelAt: { t: 0.17, offset: 0 } } : {}),
+  };
+  return {
+    id,
+    at: options.at,
+    element: {
+      ...shared,
+      heads:
+        options.at === 'start'
+          ? { start: 'arrow', end: 'none' }
+          : { start: 'none', end: 'arrow' },
+    },
+    bare: { ...shared, heads: { start: 'none', end: 'none' } },
+  };
+}
+
+/**
+ * One arrow of the turned matrix checked against the same arrow drawn with no
+ * head: every run of shaft ink farther in from the head's own end than that head
+ * reaches is the ink the headless arrow draws, the cut takes no more off any
+ * run than the head reaches, and the shaft still reaches under the head, so the
+ * two meet rather than leaving a gap.
+ */
+function assertCutIsLocal(one: TurnedCase, group: string, bare: string): void {
+  const head = pathsOf(group).find((tag) => attributeIn(tag, 'fill') !== 'none');
+  assert.ok(head !== undefined, `${one.id}: the arrow draws its head`);
+  const corners = flatPoints(head);
+  assert.equal(corners.length, 3, `${one.id}: the head fills a triangle`);
+  const tip = one.element.points[one.at === 'start' ? 0 : one.element.points.length - 1]!;
+  const apex = nearestOf(corners, tip).at;
+  const reach = far(apex, middleOf(corners.filter((corner) => corner !== apex)));
+
+  const headed = shaftRuns(group);
+  const headless = shaftRuns(bare);
+  assert.equal(headed.length, headless.length, `${one.id}: the same runs of shaft ink`);
+  let lost = 0;
+  for (const [index, run] of headed.entries()) {
+    const whole = headless[index]!;
+    const cut = runLength(whole) - runLength(run);
+    lost += cut;
+    assert.ok(cut >= -INK_SLACK, `${one.id}: run ${index} draws no more ink than the headless arrow`);
+    const kept = runBeyond(run, Math.max(0, reach - cut), one.at);
+    const wanted = runBeyond(whole, reach, one.at);
+    assert.ok(
+      Math.abs(kept - wanted) <= INK_STEP_SLACK,
+      `${one.id}: run ${index} keeps ${kept.toFixed(2)} of the ${wanted.toFixed(2)} units of ink ${reach.toFixed(2)} in from the ${one.at}, the headless arrow’s own`,
+    );
+  }
+  assert.ok(
+    lost <= headed.length * reach + INK_SLACK * 2,
+    `${one.id}: the cut took ${lost.toFixed(2)} units, more than ${headed.length} runs of ${reach.toFixed(2)} the head reaches`,
+  );
+
+  const nearest = nearestOf(headed.flat(), apex);
+  assert.ok(
+    covers(corners, nearest.at),
+    `${one.id}: the shaft’s ink at (${nearest.at.x}, ${nearest.at.y}) is outside the head, a gap beside the ${one.at}`,
+  );
+}
+
+/** Every run of shaft ink a drawing wrote, in the order it wrote them. */
+function shaftRuns(svg: string): At[][] {
+  return pathsOf(svg)
+    .filter((tag) => attributeIn(tag, 'fill') === 'none')
+    .flatMap((tag) => inkRuns(tag));
+}
+
+/** How long the ink one run draws, a step at a time. */
+function runLength(run: readonly At[]): number {
+  let length = 0;
+  for (let index = 1; index < run.length; index += 1) {
+    length += far(run[index - 1]!, run[index]!);
+  }
+  return length;
+}
+
+/** How much of one run's ink lies farther in than `arc`, from the end the head sits at. */
+function runBeyond(run: readonly At[], arc: number, at: 'start' | 'end'): number {
+  const forward = at === 'start' ? [...run] : [...run].reverse();
+  let walked = 0;
+  let beyond = 0;
+  for (let index = 1; index < forward.length; index += 1) {
+    const step = far(forward[index - 1]!, forward[index]!);
+    if (walked + step <= arc) {
+      walked += step;
+      continue;
+    }
+    beyond += walked + step - Math.max(arc, walked);
+    walked += step;
+  }
+  return beyond;
 }
