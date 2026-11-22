@@ -98,14 +98,6 @@ export class PointMenu {
   }
 
   /**
-   * The bend point a press landed on, or null where it landed on anything else:
-   * a handle is the mark a point draws, and a dot is a press pulling a new one.
-   */
-  #pointAt(target: EventTarget | null): Bend | null {
-    return bendFromHandle(target, this.#options.shaft)?.bend ?? null;
-  }
-
-  /**
    * A press anywhere on the page. A secondary press on a bend handle opens the
    * menu over that point; every press outside the panel shuts the menu the page
    * had open and goes on to do what it already does.
@@ -120,7 +112,11 @@ export class PointMenu {
       this.close();
       return;
     }
-    const point = this.#options.canvas.contains(target) ? this.#pointAt(target) : null;
+    // A handle is the mark a point draws, so a dot — a press pulling a new point
+    // out of the ink — leaves the menu shut.
+    const point = this.#options.canvas.contains(target)
+      ? (bendFromHandle(target, this.#options.shaft)?.bend ?? null)
+      : null;
     if (point === null) {
       this.close();
       return;
