@@ -48,6 +48,40 @@ test('a command that leaves a temporary folder behind fails the run, and the fol
   assert.equal(existsSync(run.folder), false, 'and the folder it was in is removed anyway');
 });
 
+test('one interrupt to the run is handed to the command once', { timeout: 30_000 }, async () => {
+  // The command counts the interrupts it is sent and takes a moment to finish,
+  // the way a runner's graceful cleanup does, so a second copy would be seen.
+  const child = `let got = 0;
+    process.on('SIGINT', () => {
+      process.stdout.write('interrupt ' + (++got) + '\\n');
+      setTimeout(() => process.exit(130), 300);
+    });
+    process.stdout.write(process.env.TMPDIR + '\\nready\\n');
+    setInterval(() => {}, 1_000);`;
+  // A group of its own, so one interrupt to it is one interrupt to the wrapper
+  // and to the command, the way a terminal's Ctrl-C reaches both.
+  const proc = spawn(process.execPath, [SCRIPT, process.execPath, '-e', child], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: true,
+  });
+  let stdout = '';
+  proc.stdout.setEncoding('utf8');
+  const ready = new Promise<void>((resolve) => {
+    proc.stdout.on('data', (chunk: string) => {
+      stdout += chunk;
+      if (stdout.includes('ready')) resolve();
+    });
+  });
+  await ready;
+  process.kill(-(proc.pid as number), 'SIGINT');
+  const code = await new Promise<number>((resolve) => proc.once('close', resolve));
+
+  const [folder = ''] = stdout.split('\n');
+  assert.deepEqual(stdout.trim().split('\n').slice(1), ['ready', 'interrupt 1']);
+  assert.equal(code, 130, 'the run ends the way a shell reports SIGINT');
+  assert.equal(existsSync(folder), false, 'the folder is removed after the interrupt');
+});
+
 test('a command that leaves only its own entries passes', () => {
   const run = guard(
     `require('node:fs').mkdirSync(require('node:path').join(process.env.TMPDIR, 'other-x'))`,

@@ -49,16 +49,24 @@ const child = spawn(command[0], command.slice(1), {
 });
 
 /**
- * The interrupt goes to the command first, and to this run only through the
- * cleanup: stopping here alone would leave the folder behind with the command
- * still writing into it.
+ * A terminal interrupt is already on its way to the command: the terminal sends
+ * SIGINT to every process in the foreground group, and the command is one of
+ * them. A second copy would be a second signal — e2e reads the second as "force
+ * the cleanup" — so this run only records it, and lets the command's own
+ * cleanup finish before the folder is read.
  */
-for (const signal of ['SIGINT', 'SIGTERM']) {
-  process.on(signal, () => {
-    interrupted ??= signal;
-    child.kill(signal);
-  });
-}
+process.on('SIGINT', () => {
+  interrupted ??= 'SIGINT';
+});
+
+/**
+ * A SIGTERM is never sent to the group by a terminal: it is aimed at this run, so
+ * the command only hears it if this run passes it on.
+ */
+process.on('SIGTERM', () => {
+  interrupted ??= 'SIGTERM';
+  child.kill('SIGTERM');
+});
 
 /** Whether the command could not be started at all. */
 let failed = false;
