@@ -196,6 +196,25 @@ test('an empty Scene hangs the rail above a centred 960×600 frame, 20 px down a
   expect(Math.abs(ink.x + ink.width / 2 - 1280 / 2), 'the strip is centred').toBeLessThan(4);
 });
 
+test('an empty Scene opened at 1280×760 keeps the frame’s gap, so the rail hangs about 1 px down', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui, { width: 1280, height: 760 });
+
+  // The same 960×600 frame, its top side 80 px down in this window: the 16 px gap
+  // and the 63 px outline leave the strip's box at 8 px and its outline at 1. A
+  // dock pulled to the 15 px inset would sit the box at 15 and the outline at 8,
+  // cutting the gap to 9 px, which is what this window shows of a clamp that
+  // moves a rail already inside the editor.
+  const ink = await railInk(ui, { x: 400, y: 0, width: 480, height: 240 });
+  expect(ink.y, 'the measured dock holds the frame’s gap').toBeLessThan(5);
+  expect(ink.width, 'the strip is the whole strip').toBeGreaterThan(ink.height * 2);
+  expect(Math.abs(ink.x + ink.width / 2 - 1280 / 2), 'the strip is centred').toBeLessThan(4);
+});
+
 test('an empty Scene at 3440×1440 hangs the rail about 340 px down', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   await openBare(ui, { width: 3440, height: 1440 });
