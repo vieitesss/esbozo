@@ -42,8 +42,10 @@ import { blurPage, cursorAt } from './cdp.ts';
 
 /**
  * A free arrow through one sharp bend, on the bare paper beneath both boxes and
- * clear of every other row's press: its last point is an end handle and its
- * middle point a bend handle.
+ * clear of every other row's press: its last point is an end handle, its middle
+ * point a bend handle, and the words it is written about a Label to drag. The
+ * Label sits 20px to the side of its second run, inside the box the arrow's own
+ * points make, so it moves no Element's bounds and no row's fitted view.
  */
 const BENT = {
   id: 'bent',
@@ -54,6 +56,8 @@ const BENT = {
     { x: 220, y: 240 },
   ],
   heads: { start: 'none', end: 'arrow' },
+  label: 'moving',
+  labelAt: { t: 0.75, offset: 20 },
 };
 
 /** `SCENE` with the arrow: the one Scene every row presses in. */
@@ -125,6 +129,8 @@ const rect = (ui: Ui) => ui.screen.getByRole('button', { name: 'Rectangle' });
 const selectA = (ui: Ui) => clickScene(ui, { x: 100, y: 80 }, [], VIEW);
 /** On the arrow's first run, on no Element: where a press selects the arrow. */
 const selectBent = (ui: Ui) => clickScene(ui, { x: 100, y: 270 }, [], VIEW);
+/** A page state a row starts from: the Select tool the page opens on needs no arming. */
+const noop = async (): Promise<void> => undefined;
 
 const DRAW: Gesture = {
   name: 'draw',
@@ -218,6 +224,35 @@ const BEND_HANDLE: Gesture = {
 };
 
 /**
+ * The arrow's Label, taken by the words as they draw — their middle is Scene
+ * (168,254): three quarters along the arrow's drawn path, 20px to the side of
+ * its second run — and carried 32 right and 16 down. The arrow's drawn ends are
+ * level, (60,240) to (220,240), so the place the drag lands reads back as the
+ * point the pointer left the words' middle on.
+ */
+const LABEL_MOVED = { from: at({ x: 168, y: 254 }, VIEW), to: at({ x: 200, y: 270 }, VIEW) };
+
+const LABEL_DRAG: Gesture = {
+  name: 'Label drag',
+  arm: noop,
+  press: (ui) => carry(ui, LABEL_MOVED.from, LABEL_MOVED.to),
+  again: async (ui) => {
+    await drag(ui, LABEL_MOVED.from, LABEL_MOVED.to);
+  },
+  proves: (scene) => {
+    // The arrow's drawn ends are level, from (60,240) to (220,240): the place it
+    // saves is the fraction along that line and the distance below it, so it
+    // reads back as the point the release left the words' middle on. The words
+    // are the page's measured ink, so the middle a press took is theirs, a
+    // fraction of a pixel from the arrow's own anchor: half a pixel is the
+    // tolerance, and a gesture that carried nothing misses by tens.
+    const place = scene.elements.find((element) => element.id === 'bent')?.labelAt;
+    expect(60 + (place?.t ?? 0) * 160).toBeCloseTo(200, 0);
+    expect(240 - (place?.offset ?? 0)).toBeCloseTo(270, 0);
+  },
+};
+
+/**
  * The page this file's detach test owns: it holds the element in a slot and
  * keeps its own hands on it, so taking it off the page is the host's doing.
  */
@@ -258,7 +293,6 @@ interface Exit {
 }
 
 const editorPage = (ui: Ui) => openEditor(ui, FOLDERS, 'scene.json');
-const noop = async (): Promise<void> => undefined;
 
 const EXITS: readonly Exit[] = [
   {
@@ -378,7 +412,14 @@ const EXITS: readonly Exit[] = [
   },
 ];
 
-for (const gesture of [DRAW, MOVE, RESIZE, END_HANDLE, BEND_HANDLE]) {
+for (const gesture of [
+  DRAW,
+  MOVE,
+  RESIZE,
+  END_HANDLE,
+  BEND_HANDLE,
+  LABEL_DRAG,
+]) {
   describe(`the exits a cancelled ${gesture.name} survives`, () => {
     for (const exit of EXITS) {
       test(`ends on ${exit.name}, and the next press starts fresh`, async ({ app, browser, screen }) => {
