@@ -264,7 +264,7 @@ test('Zoom in, Zoom out and Reset zoom run from the palette', async ({ app, brow
   await palette(ui);
   await browser.keyboard.type('zoom');
   await expect(command(ui, 'Zoom in · ⌘+')).toBeVisible();
-  await browser.keyboard.press('Meta+a');
+  await browser.keyboard.press('ControlOrMeta+a');
   await browser.keyboard.type('zoom in');
   await browser.keyboard.press('Enter');
   await expect(zoomLabel).toHaveText('120%');
