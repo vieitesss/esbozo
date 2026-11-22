@@ -1862,25 +1862,22 @@ describe('a selected bend point', () => {
     screen,
   }) => {
     const ui = { app, browser, screen };
-    await open(ui);
+    await open(ui, 'bent.json');
 
-    // The first press selects the arrow, and the frame after it paints a dot on
-    // the segment the press did not land on.
-    const dot = { x: 425, y: 150 };
-    await clickScene(ui, SHARP_ON, [], SHARP);
+    // The first press selects the arrow, and the frame after it paints a dot
+    // halfway along its last leg, clear of the corner's handle.
+    await clickScene(ui, { x: 150, y: 300 }, [], BENT);
     await settle(ui);
-    const before = await savedSource(ui);
-    await clickScene(ui, dot, [], SHARP);
+    await clickScene(ui, LAST_DOT, [], BENT);
     await settle(ui);
-    expect(await savedSource(ui)).toBe(before);
+    expect(await savedSource(ui, 'bent.json')).toBe(BENT_SOURCE);
 
     // A press on a dot pulls a point out of the ink or does nothing: it picks no
     // point, so the key goes on to the arrow and the whole shaft goes.
     await browser.keyboard.press('Backspace');
     await settle(ui);
 
-    expect(await savedSource(ui)).toContain('"elements": []');
-    await expectPoints(ui, []);
+    await expectPoints(ui, [], 'bent.json');
   });
 
   test('a cancelled drag picks no point, and the key behind it deletes the shaft', async ({
@@ -2192,25 +2189,18 @@ describe('a bend point the selection lets go of', () => {
     expect(await savedSource(ui)).toBe(SHARP_SOURCE);
   });
 
-  test('an undo lets the point go, and its index names nothing', async ({
-    app,
-    browser,
-    screen,
-  }) => {
+  test('an undo lets the point go', async ({ app, browser, screen }) => {
     const ui = { app, browser, screen };
     await open(ui);
     await clickScene(ui, SHARP_ON, [], SHARP);
     await settle(ui);
-    await clickScene(ui, SHARP_BEND, [], SHARP);
+    // One step to undo, so the undo below changes the Scene the point sits in.
+    await browser.keyboard.press('Shift+ArrowRight');
+    await clickScene(ui, { x: SHARP_BEND.x + 10, y: SHARP_BEND.y }, [], SHARP);
     await settle(ui);
-    await browser.keyboard.press('Backspace');
-    await expectPoints(ui, [
-      { x: 50, y: 50 },
-      { x: 550, y: 50 },
-    ]);
 
-    // The point comes back whole, and the selection holds none of it: the next
-    // key takes the shaft, rather than the point its old index would name now.
+    // The arrow moves back and the point its index named is no longer the point
+    // a press picked: the key takes the whole shaft.
     await browser.keyboard.press('Meta+z');
     await expectPoints(ui, SHARP_POINTS);
     await browser.keyboard.press('Backspace');
