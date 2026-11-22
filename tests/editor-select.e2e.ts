@@ -16,12 +16,14 @@ import {
   drag,
   dragBy,
   expectSvgMatchesCli,
+  median,
   settle,
   openEditor,
   savedFiles,
   savedScene,
+  TIMING,
 } from './helpers.ts';
-import type { Point, SavedScene, Ui } from './helpers.ts';
+import type { Point, SavedScene, Ui, View } from './helpers.ts';
 import { livePage } from './cdp.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
@@ -575,4 +577,156 @@ test('a resize follows the outline, not a Label that overflows it', async ({ app
     width: resized?.width,
     height: resized?.height,
   }).toEqual({ x: 40, y: 40, width: 110, height: 40 });
+});
+
+// ---------------------------------------------- the frame a press reads
+
+/**
+ * A Scene of a sheet and a hundred and ninety-six boxes, laid out so one press
+ * has to ask every box before the one it lands on is reached: the sheet is drawn
+ * first, the boxes above it, and the box drawn last sits away from the sheet, so
+ * a second press is answered by the first Element the pick asks.
+ *
+ * A frame the page already painted answers a press with the box it drew, so
+ * asking a hundred and ninety-six of them costs no more than asking one. A press
+ * that measures the Scene instead draws each Element it walks past — words and
+ * all — and a Scene of labelled boxes is what makes that difference a wall
+ * clock's.
+ */
+const DENSE_BOXES = 196;
+const DENSE_COLUMNS = 14;
+/** One box, the step to the next one, and where the grid of them starts. */
+const DENSE_BOX = { width: 50, height: 34 };
+const DENSE_STEP = { x: 60, y: 42 };
+const DENSE_ORIGIN = { x: 176, y: 16 };
+/** The sheet the deep press lands on: behind every box, and drawn first. */
+const DENSE_SHEET = { x: 16, y: 16, width: 140, height: 100 };
+
+/** One box of the grid, at `cell` counted across the columns then down the rows. */
+function denseBox(cell: number) {
+  return {
+    id: `box-${cell + 1}`,
+    type: 'rectangle',
+    x: DENSE_ORIGIN.x + (cell % DENSE_COLUMNS) * DENSE_STEP.x,
+    y: DENSE_ORIGIN.y + Math.floor(cell / DENSE_COLUMNS) * DENSE_STEP.y,
+    width: DENSE_BOX.width,
+    height: DENSE_BOX.height,
+    label: `box ${cell + 1}`,
+  };
+}
+
+const DENSE_SCENE = {
+  version: 1,
+  title: 'Dense',
+  defaults: { roughness: 1 },
+  // The sheet first and the first box last: the press on the sheet is answered
+  // only after every box above it has been asked, and the press on the last box
+  // is answered at once. Both carry words, so the note either press shows is the
+  // same shape as the other's.
+  elements: [
+    { id: 'sheet', type: 'rectangle', ...DENSE_SHEET, label: 'sheet' },
+    ...Array.from({ length: DENSE_BOXES - 1 }, (_, index) => denseBox(index + 1)),
+    denseBox(0),
+  ],
+};
+const DENSE_SOURCE = JSON.stringify(DENSE_SCENE, null, 2);
+/** The view `DENSE_SCENE` lands in: its 1022×612 page fitted 1:1 and centred. */
+const DENSE: View = { zoom: 1, panX: 129, panY: 94 };
+/** The middle of the sheet, under every box of the grid. */
+const DEEP_POINT: Point = {
+  x: DENSE_SHEET.x + DENSE_SHEET.width / 2,
+  y: DENSE_SHEET.y + DENSE_SHEET.height / 2,
+};
+/** The middle of the box drawn last, which no other Element's ink covers. */
+const SHALLOW_POINT: Point = {
+  x: DENSE_ORIGIN.x + DENSE_BOX.width / 2,
+  y: DENSE_ORIGIN.y + DENSE_BOX.height / 2,
+};
+
+/** The presses a median is taken over: five of each, interleaved. */
+const PRESS_SAMPLES = 5;
+
+/**
+ * The page's own stopwatch around a press. The window hears the pointer go down
+ * before the editor's own listeners do and hears the same event again after
+ * them, so the mark is what the press cost the page, with no round trip in it.
+ */
+async function watchPresses(ui: Ui): Promise<void> {
+  await ui.browser.evaluate(() => {
+    const page = window as unknown as { __pressCosts: number[] };
+    page.__pressCosts = [];
+    let started = 0;
+    window.addEventListener(
+      'pointerdown',
+      () => {
+        started = performance.now();
+      },
+      true,
+    );
+    window.addEventListener('pointerdown', () => {
+      page.__pressCosts.push(performance.now() - started);
+    });
+    return true;
+  });
+}
+
+/** Press a page point, and answer what the press itself cost the page, in ms. */
+async function costOfPress(ui: Ui, point: Point): Promise<number> {
+  await ui.browser.mouse.move(point.x, point.y);
+  await ui.browser.mouse.down();
+  await ui.browser.mouse.up();
+  const [cost] = await ui.browser.evaluate(() => {
+    const page = window as unknown as { __pressCosts: number[] };
+    return page.__pressCosts.splice(0);
+  });
+  if (cost === undefined) {
+    throw new Error('the page saw no press');
+  }
+  return cost;
+}
+
+test('a press reads the ink the page painted instead of measuring every Element', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  test.skip(
+    !TIMING,
+    'wall-clock timing: set ESBOZO_TIMING=1 to compare the presses (see tests/README.md)',
+  );
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'dense.json': DENSE_SOURCE } }, 'dense.json');
+
+  // What the two presses land on, so the costs measured below are two known
+  // answers: the deep press takes the sheet behind the grid, the shallow one the
+  // box drawn last.
+  await clickScene(ui, DEEP_POINT, [], DENSE);
+  await ui.browser.keyboard.press('Shift+ArrowRight');
+  await clickScene(ui, SHALLOW_POINT, [], DENSE);
+  await ui.browser.keyboard.press('Shift+ArrowRight');
+
+  const scene = await savedScene(ui, 'dense.json');
+  const placed = new Map(DENSE_SCENE.elements.map((element) => [element.id, element.x]));
+  const moved = scene.elements.filter((element) => element.x !== placed.get(element.id));
+  expect(moved.map((element) => element.id)).toEqual(['sheet', 'box-1']);
+
+  // One of each before the samples, so the first frame a press reads and the
+  // first note it shows are nobody's measurement.
+  await settle(ui);
+  await watchPresses(ui);
+  await costOfPress(ui, at(DEEP_POINT, DENSE));
+  await costOfPress(ui, at(SHALLOW_POINT, DENSE));
+
+  const deep: number[] = [];
+  const shallow: number[] = [];
+  for (let sample = 0; sample < PRESS_SAMPLES; sample += 1) {
+    deep.push(await costOfPress(ui, at(DEEP_POINT, DENSE)));
+    shallow.push(await costOfPress(ui, at(SHALLOW_POINT, DENSE)));
+  }
+
+  // Walking past a hundred and ninety-six Elements answers with the boxes the
+  // page painted, so the press that must pass them all costs no more than the
+  // press that asks one. An editor that measures the Scene instead draws each of
+  // them, and then the two presses are twenty times apart.
+  expect(median(deep)).toBeLessThan(median(shallow) * 8);
 });
