@@ -80,10 +80,18 @@ jobs:
         id: e2e
         if: ${{ !cancelled() }}
         run: |
-          flaky=0
-          if [ -f .e2e/report.json ]; then
-            flaky="$(node -p "JSON.parse(require('node:fs').readFileSync('.e2e/report.json', 'utf8')).summary.flaky")"
-          fi
+          # `flaky` sits at run.summary.flaky, under the report's top-level `run`.
+          # A report that is absent, unparsable or without that field reads 0: this
+          # step must never turn a green run red.
+          flaky="$(node -e '
+            let flaky = 0
+            try {
+              const read = require("node:fs").readFileSync
+              const report = JSON.parse(read(".e2e/report.json", "utf8"))
+              flaky = report?.run?.summary?.flaky ?? 0
+            } catch {}
+            process.stdout.write(String(flaky))
+          ')"
           echo "flaky=$flaky" >> "$GITHUB_OUTPUT"
       - name: Keep the run's evidence
         if: ${{ failure() || steps.e2e.outputs.flaky != '0' }}
