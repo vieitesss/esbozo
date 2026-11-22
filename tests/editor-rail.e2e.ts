@@ -59,9 +59,33 @@ function rail(ui: Ui) {
  */
 async function railInk(ui: Ui, band: Rect): Promise<Rect> {
   await rail(ui).getByRole('button', 'Select').focus();
+  await fullInk(ui);
   const ink = async (): Promise<Rect | null> => (await shot(ui)).darkBounds(band, 0.6);
   await expect.poll(async () => (await ink()) !== null, { timeout: 5000 }).toBe(true);
   return (await ink())!;
+}
+
+/**
+ * The strip is drawn at the ink a person sees, its fade to full ink finished.
+ *
+ * A tile taking the focus fades the strip from 0.58 to 1 over 0.22 s, and a
+ * screenshot taken during that fade holds the tiles' ink while the thin pencil
+ * outline around them is still too pale to pass the ink threshold: the strip's
+ * top then reads 26 px where the outline paints 8 px. The opacity is the page's
+ * own answer to when the fade is over, so a starved machine waits as long as it
+ * takes; a stopwatch would be this machine's guess, and CI outlasted it.
+ */
+async function fullInk(ui: Ui): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        ui.browser.evaluate(() => {
+          const strip = document.querySelector('esbozo-editor nav[aria-label="Tools"]');
+          return strip === null ? 0 : Number(getComputedStyle(strip).opacity);
+        }),
+      { timeout: 5000 },
+    )
+    .toBe(1);
 }
 
 /**
@@ -145,6 +169,7 @@ test('a diagram larger than the frame keeps the rail a gap above its own box, ce
   // is 370 px down. The strip is measured in a band that stops above that
   // stroke, and the box in one beside the strip's own reach.
   await rail(ui).getByRole('button', 'Select').focus();
+  await fullInk(ui);
   const stripBand: Rect = { x: 1400, y: 0, width: 640, height: 366 };
   await expect
     .poll(async () => (await shot(ui)).darkBounds(stripBand, 0.6) !== null, { timeout: 5000 })
