@@ -1,12 +1,7 @@
-/**
- * The fixtures, page regions and helpers the editor suites share: every
- * `tests/editor-*.e2e.ts` reads the same few pages, and one copy of them keeps
- * a test that moves between suites a move and not a rewrite.
- */
+/** Scene fixtures, page regions and input helpers shared by the editor suites. */
 import { expect } from 'e2e';
 import { MIXED_SCENE, SCENE, THREE_SCENE } from './helpers.ts';
-import type { Point, Ui } from './helpers.ts';
-import { livePage } from './cdp.ts';
+import type { Ui } from './helpers.ts';
 import type { Rect } from './pixels.ts';
 
 export const SCENE_SOURCE = JSON.stringify(SCENE, null, 2);
@@ -20,14 +15,6 @@ export const GRID: Rect = { x: 850, y: 500, width: 200, height: 150 };
 /** Empty canvas in the top right corner, where only paper and Grid show. */
 export const CORNER: Rect = { x: 950, y: 100, width: 100, height: 100 };
 
-/** A press and a release where the pointer lands, through the browser's own mouse. */
-export async function press(point: Point): Promise<void> {
-  const mouse = livePage().mouse;
-  await mouse.move(point.x, point.y);
-  await mouse.down();
-  await mouse.up();
-}
-
 /**
  * One control of the Style menu, by the name it gives itself: the row's name
  * and the value's, so a test asks for the button a person clicks and never for
@@ -37,9 +24,9 @@ export function control(ui: Ui, name: string) {
   return ui.screen.getByRole('button', { name });
 }
 
-/** A row of the Style menu, for the plain words it shows beside its buttons. */
-export function row(ui: Ui, name: string) {
-  return ui.screen.getByRole('group', name);
+/** The percentage shown by the zoom readout. */
+export function zoomReadout(ui: Ui) {
+  return ui.screen.getByText(/^\d+%$/);
 }
 
 // --------------------------------------------------------------- the palette

@@ -1,7 +1,4 @@
 /**
- * One of the editor suites, split by the area of the editor it drives:
- * `tests/editor-*.e2e.ts`.
- *
  * Seam 2: what a press selects — a click, a box a drag sweeps, the drawn border
  * outside the box, the ink a glyph hangs outside its words, the halo of a lower
  * Element, and the resize handles the selection gets. The press is the browser's
@@ -28,7 +25,7 @@ import type { Point, SavedScene, Ui } from './helpers.ts';
 import { livePage } from './cdp.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
-import { SCENE_SOURCE, press } from './editor-shared.ts';
+import { SCENE_SOURCE } from './editor-shared.ts';
 
 const CROSSED_SOURCE = JSON.stringify(CROSSED_SCENE, null, 2);
 
@@ -133,6 +130,14 @@ async function borderInk(ui: Ui, edge: Point, span: number): Promise<Point> {
   return { x: bounds.x + 0.5, y: edge.y };
 }
 
+/** A press and a release at a screen point, through the browser's own mouse. */
+async function press(point: Point): Promise<void> {
+  const mouse = livePage().mouse;
+  await mouse.move(point.x, point.y);
+  await mouse.down();
+  await mouse.up();
+}
+
 /** The middle of a box's left edge, as the page shows it. */
 function leftEdgeOf(box: { x: number; y: number; height: number }): Point {
   return at({ x: box.x, y: box.y + box.height / 2 }, BORDERS);
@@ -171,7 +176,7 @@ test('a press on the drawn border, outside the box, selects the Element', async 
   for (const [index, { id, box }] of BORDERS_BOXES.entries()) {
     const edge = leftEdgeOf(box);
     // The border the Renderer drew, from the page's pixels: its roughness puts
-    // the ink outside the box, which is exactly where a press used to miss.
+    // the ink outside the box. A press must still pick the Element there.
     const ink = await borderInk(ui, edge, 15);
     expect(ink.x, `${id}'s border is drawn outside its box`).toBeLessThan(edge.x);
 
@@ -198,7 +203,7 @@ test('a press on the drawn border selects the Element in a zoomed-in view', asyn
   const ui = { app, browser, screen };
 
   for (const { id, box } of BORDERS_BOXES) {
-    // Each Element starts from the fitted view: a zoom about one shape's border
+    // Each Element starts from the fitted view: a zoom about one Element's border
     // would carry the next one somewhere the test never asked for.
     await openEditor(ui, { A: { 'borders.json': BORDERS_SOURCE } }, 'borders.json');
     const edge = leftEdgeOf(box);

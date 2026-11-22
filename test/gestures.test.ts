@@ -1,5 +1,5 @@
 /**
- * Seam 3: the pointer's pick reads the ink the page painted.
+ * A pointer press picks from the frame the page painted.
  *
  * `ez` cannot reach this case: no command presses on a Scene, so the pick that
  * decides what a press lands on is only reached by the editor's pointer. The
@@ -15,10 +15,11 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { loadProjectModules } from './modules.ts';
 import type { Scene } from '../src/scene.ts';
+import type { Box } from '../src/editor/geometry.ts';
 
 const { parseScene, createLayout, parseFontFile, KALAM, Gestures } = await loadProjectModules();
 
-/** The drawing is measured with the bundled font, as `ez render` measures it. */
+/** Use the same Layout and bundled font as `ez render`. */
 const LAYOUT = createLayout(parseFontFile(KALAM));
 
 test('a press picks by the ink the page painted for the Scene', () => {
@@ -110,13 +111,6 @@ function press(x: number, y: number): PointerEvent {
     target: null,
     preventDefault() {},
   } as unknown as PointerEvent;
-}
-
-interface Box {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
 }
 
 function parsed(scene: unknown): Scene {

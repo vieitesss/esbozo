@@ -1,7 +1,4 @@
 /**
- * One of the editor suites, split by the area of the editor it drives:
- * `tests/editor-*.e2e.ts`.
- *
  * Seam 2: the editor's files — opening a Scene, the folder a person picks, the
  * name a new Scene is saved under, and the save status that follows the bytes
  * that are on disk. Driven the way a person drives it, the folder button and

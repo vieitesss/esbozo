@@ -1,7 +1,4 @@
 /**
- * One of the editor suites, split by the area of the editor it drives:
- * `tests/editor-*.e2e.ts`.
- *
  * Seam 2: the command palette — every action with the key that runs it, the
  * rows a query keeps, the focus a palette hands back, and the actions it runs.
  * Driven by `Q`, `⌘K`, the arrows and Enter, and asserted on the Scene.
@@ -11,7 +8,7 @@ import { expect } from 'e2e';
 import { clickScene, settle, openEditor, savedScene } from './helpers.ts';
 import type { Ui } from './helpers.ts';
 import { shot } from './pixels.ts';
-import { SCENE_SOURCE, GRID, CORNER, command, palette } from './editor-shared.ts';
+import { SCENE_SOURCE, GRID, CORNER, command, palette, zoomReadout } from './editor-shared.ts';
 
 test('Q opens the palette on every action, each with the key that does it', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
@@ -261,7 +258,7 @@ test('shutting the palette puts the focus back on the canvas', async ({ app, bro
 test('Zoom in, Zoom out and Reset zoom run from the palette', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
-  const zoomLabel = screen.getByText(/^\d+%$/);
+  const zoomLabel = zoomReadout(ui);
   await expect(zoomLabel).toHaveText('100%');
 
   await palette(ui);

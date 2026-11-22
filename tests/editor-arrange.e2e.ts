@@ -1,7 +1,4 @@
 /**
- * One of the editor suites, split by the area of the editor it drives:
- * `tests/editor-*.e2e.ts`.
- *
  * Seam 2: Arrange and Spread — the layers an action steps a selection through,
  * the edges and middles it lines them up on, and the gaps it evens out. The
  * answer is the saved geometry, never a path number.
@@ -28,6 +25,7 @@ import {
   openEditor,
   savedScene,
 } from './helpers.ts';
+import type { Ui } from './helpers.ts';
 import { THREE_SOURCE, control } from './editor-shared.ts';
 
 const SPREAD_SOURCE = JSON.stringify(SPREAD_SCENE, null, 2);
@@ -38,25 +36,28 @@ const PINNED_SOURCE = JSON.stringify(PINNED_SCENE, null, 2);
 const UNEVEN_SOURCE = JSON.stringify(UNEVEN_SCENE, null, 2);
 const LACED_SOURCE = JSON.stringify(LACED_SCENE, null, 2);
 
+async function savedLayerOrder(ui: Ui): Promise<string[]> {
+  return (await savedScene(ui, 'three.json')).elements.map((element) => element.id);
+}
+
 test('Arrange moves the selection through the layers and leaves its geometry alone', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'three.json': THREE_SOURCE } }, 'three.json');
 
   // Select the middle one by itself.
   await clickScene(ui, { x: 200, y: 220 }, [], THREE);
-  const ids = async () => (await savedScene(ui, 'three.json')).elements.map((element) => element.id);
 
   await control(ui, 'Order: front').click();
-  expect(await ids()).toEqual(['p', 'r', 'q']);
+  expect(await savedLayerOrder(ui)).toEqual(['p', 'r', 'q']);
 
   await control(ui, 'Order: back').click();
-  expect(await ids()).toEqual(['q', 'p', 'r']);
+  expect(await savedLayerOrder(ui)).toEqual(['q', 'p', 'r']);
 
   await control(ui, 'Order: forward').click();
-  expect(await ids()).toEqual(['p', 'q', 'r']);
+  expect(await savedLayerOrder(ui)).toEqual(['p', 'q', 'r']);
 
   await control(ui, 'Order: backward').click();
-  expect(await ids()).toEqual(['q', 'p', 'r']);
+  expect(await savedLayerOrder(ui)).toEqual(['q', 'p', 'r']);
 
   // Layer order is not geometry: every box keeps the box it had.
   const scene = await savedScene(ui, 'three.json');
@@ -72,21 +73,19 @@ test('Arrange steps two adjacent layers together, and not at all at the boundary
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'three.json': THREE_SOURCE } }, 'three.json');
 
-  const ids = async () => (await savedScene(ui, 'three.json')).elements.map((element) => element.id);
-
   // The two front-most layers: `forward` has nowhere to move them past.
   await clickScene(ui, { x: 200, y: 220 }, [], THREE);
   await clickScene(ui, { x: 420, y: 120 }, ['Shift'], THREE);
   await control(ui, 'Order: forward').click();
-  expect(await ids()).toEqual(['p', 'q', 'r']);
+  expect(await savedLayerOrder(ui)).toEqual(['p', 'q', 'r']);
 
   // `backward` takes both down one layer and keeps them in the order they had.
   await control(ui, 'Order: backward').click();
-  expect(await ids()).toEqual(['q', 'r', 'p']);
+  expect(await savedLayerOrder(ui)).toEqual(['q', 'r', 'p']);
 
   // They are the two back-most now, so `backward` has nowhere to go either.
   await control(ui, 'Order: backward').click();
-  expect(await ids()).toEqual(['q', 'r', 'p']);
+  expect(await savedLayerOrder(ui)).toEqual(['q', 'r', 'p']);
 });
 
 test('Arrange lines the selection up on each edge and in each middle', async ({ app, browser, screen }) => {

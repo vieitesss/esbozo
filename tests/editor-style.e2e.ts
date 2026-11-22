@@ -1,7 +1,4 @@
 /**
- * One of the editor suites, split by the area of the editor it drives:
- * `tests/editor-*.e2e.ts`.
- *
  * Seam 2: the Style menu — the controls a selection can use, the value a pick
  * writes to every selected Element, the one undo step a pick is, and the Scene
  * default roughness the status bar sets. Asserted on the saved Scene.
@@ -12,7 +9,7 @@ import { MIXED, clickScene, expectSvgMatchesCli, openEditor, savedScene } from '
 import type { Ui } from './helpers.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
-import { SCENE_SOURCE, MIXED_SOURCE, control, row } from './editor-shared.ts';
+import { SCENE_SOURCE, MIXED_SOURCE, control } from './editor-shared.ts';
 
 /** None of these controls is offered: the buttons themselves are absent. */
 async function expectNoControl(ui: Ui, names: readonly string[]): Promise<void> {
@@ -139,8 +136,9 @@ test('a pick writes to every selected Element, and a row that shares no value sa
 
   // `a` and `b` are both bold and sharp, and disagree on line and tone.
   await expect(control(ui, 'Rough: artist')).toHaveAttribute('aria-pressed', 'true');
-  await expect(row(ui, 'Line').getByText('mixed')).toBeVisible();
-  await expect(row(ui, 'Tone').getByText('mixed')).toBeVisible();
+  for (const name of ['Line', 'Tone']) {
+    await expect(ui.screen.getByRole('group', name).getByText('mixed')).toBeVisible();
+  }
   await expect(control(ui, 'Line: solid')).not.toHaveAttribute('aria-pressed', 'true');
 
   await control(ui, 'Tone: ink').click();
