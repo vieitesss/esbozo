@@ -1,7 +1,7 @@
 /**
  * The rules review kept finding by hand, as one script a machine runs.
  *
- * Three rules, each named by the ticket that paid for it:
+ * Five rules, each named by the ticket that paid for it:
  *
  *   1. A browser-safe module imports no Node builtin. The editor's page, the
  *      bundle and the Scene all run in a browser, so `node:crypto` anywhere in
@@ -12,13 +12,21 @@
  *   3. A test never asserts on the seam's implementation: no markup regexes, no
  *      bounding boxes, no DOM structure or rect reads, no `data-element-id`, no
  *      tag-name selectors, and no test reads a `src/` file for itself.
+ *   4. A Node test reaches the Editor only through the `src/editor/` modules
+ *      `test/modules.ts` may load. The list is today's set, held still: the
+ *      bundle loader names its modules in strings no rule above judges, so a
+ *      new Editor internal reached `node:test` four times without a finding.
+ *   5. Every `tests/*.e2e.ts` runs in exactly one of the `e2e` scripts, and a
+ *      file a script names exists. A suite added without its line in
+ *      package.json ran nowhere, and CI stayed green while it did.
  *
  * Usage: node scripts/check-rules.mjs [root]
  *
  * The files are read as the compiler reads them — a parse tree, not a guess at
  * where the strings are — so an import split by a comment, an export alias and
- * a template literal are all seen for what they are. `pnpm check` runs it on the
- * project, and `test/check-rules.test.ts` runs it on fixtures.
+ * a template literal are all seen for what they are. `package.json` is read as
+ * JSON, for the files the e2e scripts name. `pnpm check` runs it on the project,
+ * and `test/check-rules.test.ts` runs it on fixtures.
  */
 import { readdir, readFile } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
@@ -35,6 +43,22 @@ const BROWSER_SAFE = /^src\/(?:scene|renderer|layout|geometry|paths|sha256)\.ts$
 
 /** The suites whose job is to drive the outside, never the inside. */
 const SUITES = /^(?:test|tests)\//;
+
+/**
+ * The `src/editor/` modules a Node test may load, as `test/modules.ts` loads
+ * them today. The set is frozen on purpose: a Node test that needs another one
+ * is asking the Editor for an inside, and Seam 2 is where it is proved.
+ */
+const TEST_EDITOR_MODULES = new Set(['history.ts', 'words.ts', 'geometry.ts', 'paint.ts']);
+
+/** A path in a test that names a module under `src/editor/`: written whole, or as a loader builds it. */
+const EDITOR_MODULE = /(?:^|\/)editor\/([\w.-]+\.ts)$/;
+
+/** The scripts a `tests/*.e2e.ts` runs in: exactly one of them runs it. */
+const E2E_SCRIPTS = ['e2e', 'e2e:agent', 'e2e:shots'];
+
+/** One e2e file as a script names it. */
+const E2E_FILE = /tests\/[\w.-]+\.e2e\.ts/g;
 
 /** The checker and its fixtures name the very things it bans, on purpose. */
 const SELF = /^(?:scripts\/check-rules\.mjs|test\/check-rules\.test\.ts)$/;
@@ -114,14 +138,15 @@ const MARKUP_TAGS_FOLDED = new Set([...MARKUP_TAGS].map((tag) => tag.toLowerCase
 const SRC = /(?:^|\/)src(?:\/|$)/;
 
 /** The rules, each one file: its parse tree, its text, and where to report. */
-const RULES = [nodeImports, avoidTerms, testSeams];
+const RULES = [nodeImports, avoidTerms, testSeams, testEditorModules];
 
 /** Every finding the rules make, as `path:line: message`. */
 const findings = [];
 
 const terms = await glossary(join(ROOT, 'GLOSSARY.md'));
+const paths = await files(ROOT);
 
-for (const path of await files(ROOT)) {
+for (const path of paths) {
   const text = await readFile(join(ROOT, path), 'utf8');
   const source = parse(path, text);
   const file = {
@@ -132,6 +157,8 @@ for (const path of await files(ROOT)) {
   };
   for (const rule of RULES) rule(file);
 }
+
+await e2eScripts(ROOT, paths);
 
 findings.sort();
 if (findings.length > 0) {
@@ -265,6 +292,81 @@ function testSeams(file) {
     if (literal.text.includes('data-element-id')) {
       const at = literal.at + literal.text.indexOf('data-element-id');
       report(at, 'data-element-id reaches into the page: use a role, a name or a key');
+    }
+  }
+}
+
+/**
+ * Rule 4: a Node test loads an Editor module that is not on the allow-list.
+ *
+ * `test/modules.ts` bundles `src/editor/` by name, so an import rule reading
+ * import statements never sees what the bundle reaches. The four modules it
+ * loads today are the whole of what `node:test` may see of the Editor.
+ */
+function testEditorModules(file) {
+  const { path, source, report } = file;
+  if (!/^test\/[^/]+\.ts$/.test(path) || SELF.test(path)) return;
+  for (const literal of literals(source)) {
+    const named = EDITOR_MODULE.exec(literal.text);
+    if (named === null || TEST_EDITOR_MODULES.has(named[1])) continue;
+    report(
+      literal.at,
+      `loads "${literal.text}": node:test reaches the Editor only through the allow-list in check-rules`,
+    );
+  }
+}
+
+/**
+ * Rule 5: every `tests/*.e2e.ts` runs in exactly one e2e script, and every file
+ * the scripts name exists.
+ *
+ * The scripts name their files one by one, so a suite written without its line
+ * in package.json runs nowhere while CI stays green — which happened twice. The
+ * rule reads the scripts as JSON rather than counting, so the list of files has
+ * one owner and the README need not keep a count.
+ */
+async function e2eScripts(root, paths) {
+  let text;
+  try {
+    text = await readFile(join(root, 'package.json'), 'utf8');
+  } catch {
+    return;
+  }
+  let commands;
+  try {
+    commands = JSON.parse(text).scripts ?? {};
+  } catch (error) {
+    fail(`package.json: cannot read its scripts: ${error.message}`);
+  }
+
+  const report = (at, message) => findings.push(`package.json:${lineAt(text, at)}: ${message}`);
+  const scriptsAt = text.indexOf('"scripts"');
+
+  /** Every e2e file a script names, with the scripts that name it. */
+  const named = new Map();
+  for (const script of E2E_SCRIPTS) {
+    const command = commands[script];
+    if (typeof command !== 'string') continue;
+    for (const [file] of command.matchAll(E2E_FILE)) {
+      named.set(file, [...(named.get(file) ?? []), script]);
+    }
+  }
+
+  const present = new Set(paths);
+  for (const path of paths) {
+    if (!/^tests\/[^/]+\.e2e\.ts$/.test(path) || named.has(path)) continue;
+    report(
+      scriptsAt === -1 ? 0 : scriptsAt,
+      `${path} is in no e2e script: name it in e2e, e2e:agent or e2e:shots`,
+    );
+  }
+
+  for (const [file, scripts] of named) {
+    const at = text.indexOf(file);
+    if (!present.has(file)) {
+      report(at, `the ${scripts[0]} script names "${file}", which does not exist`);
+    } else if (scripts.length > 1) {
+      report(at, `${file} is in more than one e2e script (${scripts.join(', ')}): exactly one runs it`);
     }
   }
 }

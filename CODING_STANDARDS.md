@@ -15,7 +15,7 @@ Judgement-call rules for code and tests. Mechanical checks (lint, unused exports
 ## Testing
 
 - **External behaviour only:** assert on written files, exit codes, plain-text messages, saved Scene JSON, rendered pixels, or `vision: 'only'` judgements — never internal state, private helpers, or DOM structure — so behaviour-preserving refactors stay green.
-- **Seam 1 — `ez` CLI (`test/*.test.ts`):** run real `ez` commands on sample Scenes in temporary folders under `node:test`; cover `Scene`, `Renderer`, and `Layout` through this seam unless a case cannot be reached from the CLI.
+- **Seam 1 — `ez` CLI (`test/*.test.ts`):** run real `ez` commands on sample Scenes in temporary folders under `node:test`; cover `Scene`, `Renderer`, and `Layout` through this seam unless a case cannot be reached from the CLI. Editor modules reach `node:test` only through the allow-list in `scripts/check-rules.mjs`, and everything else about the Editor goes through Seam 2.
 - **Seam 2 — Editor in a real browser (`tests/*.e2e.ts`):** drive the built editor with pointer, role, and keyboard input and assert on the saved Scene, rendered pixels, or `vision: 'only'` visual checks; see `tests/README.md` for scripts, files, and the model-free vs. agent split.
 
 ## Invariants and boundaries

@@ -2,9 +2,11 @@
  * The modules the editor loads, bundled for Node the way the editor loads them.
  *
  * Rough.js ships imports Node cannot resolve, and `opentype.js` is CommonJS, so
- * the module-seam tests (Scene, Renderer, Layout, glyph outlines) go through one esbuild bundle
- * instead of importing `src/` directly. Both seams share this helper, so a
- * change to how the modules are loaded cannot make the suites disagree.
+ * the module-seam tests (Scene, Renderer, Layout, glyph outlines, and the four
+ * Editor modules `scripts/check-rules.mjs` allows — history, words, geometry,
+ * paint) go through one esbuild bundle instead of importing `src/` directly.
+ * Both seams share this helper, so a change to how the modules are loaded
+ * cannot make the suites disagree.
  */
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
