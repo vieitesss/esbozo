@@ -1,0 +1,27 @@
+#!/bin/sh
+# A new worktree comes out ready to build and test: `.env` linked from the main
+# checkout and dependencies installed, so nobody types that setup by hand.
+# Opt-in once per clone, with the other hooks beside it:
+#
+#   git config core.hooksPath .githooks
+#
+# `git worktree add` runs this with an all-zero previous HEAD; a branch switch
+# in an existing checkout passes a real one and is left alone.
+set -e
+
+case $1 in
+    *[!0]*) exit 0 ;;
+esac
+
+here=$(git rev-parse --show-toplevel)
+common=$(git rev-parse --path-format=absolute --git-common-dir)
+main=${common%/.git}
+[ "$here" != "$main" ] || exit 0
+
+if [ -e "$main/.env" ] && [ ! -e "$here/.env" ]; then
+    ln -s "$main/.env" "$here/.env"
+    echo "post-checkout: linked .env from $main"
+fi
+
+cd "$here"
+pnpm install --frozen-lockfile

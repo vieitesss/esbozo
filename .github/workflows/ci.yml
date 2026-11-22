@@ -18,6 +18,12 @@ on:
   push:
   pull_request:
 
+# Plain text in the log: the runner sets `CI`, which makes the test reporters
+# colour their output, and a failed run is read as text through
+# `gh run view --log-failed`, where colour codes only bury the failing test.
+env:
+  NO_COLOR: '1'
+
 jobs:
   check:
     runs-on: ubuntu-latest
