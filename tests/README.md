@@ -33,6 +33,8 @@ For fast inner-loop runs without creating scratch files or running an entire sui
 
 For one look at the live editor with no e2e file at all, write a probe whose default export takes `{ page, url, cdp }` and run `pnpm probe <probe.mjs>`: it serves the built editor on an ephemeral port, opens Chromium, prints what the probe returned as JSON, and closes both however the probe ends. It does not build, so `pnpm build` first.
 
+`pnpm test` and the three `e2e` scripts run through `scripts/fresh-tmp.mjs`, which hands the run a fresh `TMPDIR` and fails it when an `esbozo*` folder is still in there at the end: a test that stops removing its folder is a red run, not a folder a person finds weeks later. A bare `npx e2e run` skips that guard, which is the point of the fast inner loops above and the cost of them.
+
 ## Shared helpers: `tests/helpers.ts`
 
 Open the editor, pick stubbed folders, and create a new Scene:
