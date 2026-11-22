@@ -152,6 +152,10 @@ describe('labels view', () => {
     await seedPrimarySelection(label, STRAY_FRAGMENT, 'Orders');
     await label.press('Escape');
     await expect(label).toHaveCount(0);
+    // The words the Scene took are a write of its own, and the last read below is
+    // compared with this snapshot: a write still due would make the two differ
+    // with nothing pasted.
+    expect((await savedScene(ui)).elements[0]?.label).toBe('Orders');
     const before = await savedFiles(ui);
 
     const from = at({ x: 100, y: 80 });
@@ -207,6 +211,10 @@ describe('labels view', () => {
     await seedPrimarySelection(label, STRAY_FRAGMENT, 'Orders');
     await label.press('Escape');
     await expect(label).toHaveCount(0);
+    // The words the Scene took are a write of its own, and the last read below is
+    // compared with this snapshot: a write still due would make the two differ
+    // with nothing pasted.
+    expect((await savedScene(ui)).elements[0]?.label).toBe('Orders');
     const before = await savedFiles(ui);
 
     const page = livePage();
@@ -256,6 +264,10 @@ describe('labels view', () => {
     await seedPrimarySelection(label, STRAY_FRAGMENT, 'Orders');
     await label.press('Escape');
     await expect(label).toHaveCount(0);
+    // The words the Scene took are a write of its own, and the last read below is
+    // compared with this snapshot: a write still due would make the two differ
+    // with nothing pasted.
+    expect((await savedScene(ui)).elements[0]?.label).toBe('Orders');
     const before = await savedFiles(ui);
 
     const page = livePage();

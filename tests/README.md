@@ -1,13 +1,13 @@
 # Browser tests
 
-Twenty-six files, three scripts, each running a real page in Chromium through
+Twenty-seven files, three scripts, each running a real page in Chromium through
 e2e: most start the built editor, and `svg.e2e.ts` serves the SVG `ez render`
 wrote instead. Build first (`pnpm build`), or use the scripts, which build.
 
 `editor-*.e2e.ts` serves the page statically and stubs the File System Access
-API, one file per area of the editor it drives — files, select, move, pan-zoom,
-page, style, status, arrange, palette, clipboard, export — so an inner loop
-re-runs the area it iterates on, with what those files share in
+API, one file per area of the editor it drives — opens, files, select, move,
+pan-zoom, page, style, status, arrange, palette, clipboard, export — so an inner
+loop re-runs the area it iterates on, with what those files share in
 `editor-shared.ts`;
 `labels-*.e2e.ts` places, draws, drags, selects and edits Labels and Texts in
 place on the same page, one file per thing a person sees — edit, draw, caret,
@@ -20,7 +20,7 @@ the element and its attributes, beside a stub of the same save API;
 `svg.e2e.ts` opens the SVG `ez render` wrote as a page of its own, with no
 stylesheet anywhere, then as an `<img>` on a page that declares no theme
 either, and then inlined in a host page that declares its own theme. All
-twenty-four model-free files run under `pnpm e2e`.
+twenty-five model-free files run under `pnpm e2e`.
 
 | Script | Files | Model calls |
 | --- | --- | --- |
