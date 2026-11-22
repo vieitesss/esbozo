@@ -33,6 +33,46 @@ For fast inner-loop runs without creating scratch files or running an entire sui
 
 For one look at the live editor with no e2e file at all, write a probe whose default export takes `{ page, url, cdp }` and run `pnpm probe <probe.mjs>`: it serves the built editor on an ephemeral port, opens Chromium, prints what the probe returned as JSON, and closes both however the probe ends. It does not build, so `pnpm build` first.
 
+## Shared helpers: `tests/helpers.ts`
+
+Open the editor, pick stubbed folders, and create a new Scene:
+`Ui`, `Folders`, `openEditor`, `openNewScene`, `browseFolder`.
+
+Hold, release, or refuse stubbed disk and clipboard writes:
+`holdWrites`, `releaseWrite`, `refuseWrite`, `allowWrites`, `holdClipboardWrites`, `releaseClipboardWrite`.
+
+Read the stubbed folder files and the parsed saved Scene:
+`savedFiles`, `savedScene`, `SavedScene`.
+
+Map Scene coordinates to page points, drive pointer clicks and drags, and wait for the next painted frame:
+`Point`, `View`, `at`, `drag`, `clickScene`, `doubleClickScene`, `dragBy`, `settle`.
+
+Compare editor output against the CLI, run printed fallback commands, and read downloaded PNGs:
+`cliRender`, `cliCheck`, `cliCheckBytes`, `expectSvgMatchesCli`, `cliPng`, `runAsWritten`, `Downloaded`, `exported`.
+
+Gate and aggregate opt-in wall-clock timing checks:
+`TIMING`, `median`.
+
+Load core Scene fixtures and their fitted views for general, empty, poster, and invalid Scenes:
+`SCENE`, `VIEW`, `MIXED_SCENE`, `MIXED`, `EMPTY`, `POSTER_SCENE`, `POSTER`, `BROKEN_SCENE`.
+
+Load Label and Text fixtures and their fitted views for editing, placement, crossing shafts, and overflow:
+`WORDS_SCENE`, `WORDS`, `BLANK_SCENE`, `ROOM_SCENE`, `ROOM`, `SPACED_SCENE`, `BESIDE_SCENE`, `BESIDE`, `LABELLED_SCENE`, `LABELLED`, `UNPLACED_SCENE`, `UNPLACED`, `FOLLOW_SCENE`, `FOLLOW`, `OVERLAP_SCENE`, `OVERLAP`, `HEAD_OVER_SCENE`, `HEAD_OVER`, `CHORD_SCENE`, `CHORD`, `TILTED_SCENE`, `TILTED`, `POINT_SCENE`, `POINT`, `CROSSED_SCENE`, `CROSSED`, `OVERFLOW_SCENE`, `OVERFLOW`.
+
+Load Snap and routing fixtures and their fitted views for attached arrows and line crossings:
+`SNAPPED_SCENE`, `SNAPPED`, `HYPHEN_SCENE`, `SNAP_SCENE`, `SNAP`, `CROSSING_SCENE`, `CROSSING`.
+
+Load Arrange and Spread fixtures and their fitted views for alignment, layer order, and distribution:
+`PINNED_SCENE`, `PINNED`, `UNEVEN_SCENE`, `UNEVEN`, `LACED_SCENE`, `LACED`, `THREE_SCENE`, `THREE`, `SPREAD_SCENE`, `SPREAD`, `ARRANGE_SCENE`, `ARRANGE`, `TETHER_SCENE`, `TETHER`.
+
+Load docked Style menu clearance fixtures and their fitted views at standard and narrow viewports:
+`EDGE_SCENE`, `EDGE`, `EDGE_1366`, `PRESS_SCENE`, `PRESS`, `WIDE_SCENE`, `WIDE_1366`, `LONG_SCENE`, `LONG_1366`, `SHIFTED_SCENE`, `SHIFTED`, `SHAFT_SCENE`, `SHAFT`.
+
+Load large-page and dense-word fixtures for PNG and CLI export limits:
+`TEXT_SCENE`, `BIG_SCENE`, `XL_WORDS_SCENE`, `WIDE_WALL_SCENE`.
+
+Other shared test modules hold the rest: `tests/pixels.ts` decodes screenshots and measures pixel ink, `tests/cdp.ts` sends real browser IME and CPU-throttling commands, `tests/labels-shared.ts` holds serialized Scenes and ink thresholds for the Label suites, and `tests/editor-shared.ts` holds serialized Scenes, paper regions, and Style menu or command-palette controls for the editor suites.
+
 ## Real browser input: `tests/cdp.ts`
 
 e2e's `browser` fixture drives the page through roles, pointer and keys, and
