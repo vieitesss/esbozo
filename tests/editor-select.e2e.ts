@@ -646,6 +646,9 @@ const SHALLOW_POINT: Point = {
 /** The presses a median is taken over: five of each, interleaved. */
 const PRESS_SAMPLES = 5;
 
+/** The coarsest a browser clamps its stopwatch: a press under 1 ms reads as zero. */
+const STOPWATCH_TICK = 1;
+
 /**
  * The page's own stopwatch around a press. The window hears the pointer go down
  * before the editor's own listeners do and hears the same event again after
@@ -728,5 +731,7 @@ test('a press reads the ink the page painted instead of measuring every Element'
   // page painted, so the press that must pass them all costs no more than the
   // press that asks one. An editor that measures the Scene instead draws each of
   // them, and then the two presses are twenty times apart.
-  expect(median(deep)).toBeLessThan(median(shallow) * 8);
+  // The cutoff never falls below one tick: on a clamped stopwatch a press under
+  // it reads as zero, and a cutoff of zero fails a healthy editor.
+  expect(median(deep)).toBeLessThan(Math.max(median(shallow), STOPWATCH_TICK) * 8);
 });
