@@ -272,10 +272,12 @@ describe('labels draw', () => {
     const ui = { app, browser, screen };
     await openEditor(ui, { A: { 'words.json': WORDS_SOURCE } }, 'words.json');
 
-    // The box is at page (548, 348); its words fit inside it, so the space
-    // between the two views is the ink of the same two lines, and the box the
-    // caret sits in is below it, out of the way.
-    const inside: Rect = { x: 556, y: 356, width: 184, height: 104 };
+    // The box is at page (540, 340); this is its inside, 8 in from the outline,
+    // so the space between the two views is the ink of the same two lines. It
+    // stops short of the caret's column at x 656: the page draws the caret
+    // while the words are typed and not once they are saved, so the caret is
+    // the one ink the two views cannot be asked to share.
+    const inside: Rect = { x: 548, y: 348, width: 106, height: 104 };
     const drawn = await shot(ui);
     const before = drawn.darkCentre(inside, DARK);
     expect(before.count).toBeGreaterThan(100);
