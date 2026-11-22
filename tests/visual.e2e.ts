@@ -48,7 +48,7 @@ import { stillCaret } from './cdp.ts';
 
 const SCENE_SOURCE = JSON.stringify(SCENE, null, 2);
 
-/** Empty canvas, clear of the two fixture rectangles and of the rail. */
+/** Empty canvas, clear of the two fixture rectangles and of the rail at the top edge. */
 const PAPER = { x: 420, y: 40 };
 const MIXED_SOURCE = JSON.stringify(MIXED_SCENE, null, 2);
 const BROKEN_SOURCE = JSON.stringify(BROKEN_SCENE, null, 2);
@@ -175,10 +175,10 @@ test('a tool comes into hand on the rail, and the pencil draws a box that lands 
   const ui = { agent, app, browser, screen };
   await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
 
-  // Rectangle is picked with the left hand; the rail has to say so.
+  // Rectangle is picked with the left hand; the rail along the top has to say so.
   await browser.keyboard.press('r');
   await ui.agent.assert(
-    'on the left tool rail, the Rectangle button is the one filled dark, and the Select button is not',
+    'on the tool rail that runs along the top edge of the page, the Rectangle button is the one filled dark, and the Select button at its left end is not',
     { vision: 'only' },
   );
 

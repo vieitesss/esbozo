@@ -206,15 +206,15 @@ esbozo-editor .sweep {
   pointer-events: none;
 }
 
-/* tool rail: a rough, hand-drawn strip */
+/* tool rail: a rough, hand-drawn strip along the editor's top edge */
 esbozo-editor .rail {
   position: absolute;
-  left: 15px;
-  top: 50%;
-  transform: translateY(-50%) rotate(-1.1deg);
+  left: 50%;
+  top: 15px;
+  transform: translateX(-50%) rotate(-1.1deg);
   z-index: 20;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   gap: 1px;
   padding: 9px 8px;
   border-radius: 18px;

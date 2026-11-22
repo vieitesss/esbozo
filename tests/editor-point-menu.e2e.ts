@@ -79,8 +79,11 @@ const ZIG_ON = { x: 125, y: 425 };
 const PEAK = { x: 250, y: 150 };
 const DIP = { x: 400, y: 420 };
 
-/** Bare paper: off the page box, above the status bar and clear of every note. */
-const PAPER = { x: 640, y: 40 };
+/**
+ * Bare paper: off the page box, above the status bar, clear of every note and of
+ * the tool rail's own strip along the top edge.
+ */
+const PAPER = { x: 1100, y: 40 };
 
 /** On the arrow's first leg, away from every handle: ink that is not a point. */
 const ON_INK = { x: 200, y: 260 };

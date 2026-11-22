@@ -107,8 +107,6 @@ interface PageParts extends ViewportParts {
   readonly painted: SVGGElement;
   /** The docked Style note, which must never sit on what it edits. */
   readonly note: HTMLElement;
-  /** The rail the note is docked beside: its right edge is where the note starts. */
-  readonly rail: HTMLElement;
 }
 
 export class Page {
@@ -116,9 +114,8 @@ export class Page {
   readonly #host: PageHost;
   readonly #overlay: SVGGElement;
   readonly #paintedLayer: SVGGElement;
-  /** The Style note and the rail beside it, which `clearOfNote` keeps the view clear of. */
+  /** The Style note, which `clearOfNote` keeps the view clear of. */
   readonly #note: HTMLElement;
-  readonly #rail: HTMLElement;
   /** What the next frame owes the page: nothing yet, the words' own layer, or the whole page. */
   #queued: 'none' | 'words' | 'page' = 'none';
   /** The settled Scene last drawn, or null when a preview or new measurement invalidates it. */
@@ -165,7 +162,6 @@ export class Page {
     this.#overlay = parts.overlay;
     this.#paintedLayer = parts.painted;
     this.#note = parts.note;
-    this.#rail = parts.rail;
     this.viewport = new Viewport(parts);
   }
 
@@ -239,7 +235,6 @@ export class Page {
     if (box === null) {
       return;
     }
-    const canvas = this.viewport.box();
     const { elements: shown } = this.#host.shown();
     const selected = new Set(this.#host.selected());
     this.viewport.view = clearedView(this.viewport.view, {
@@ -249,7 +244,9 @@ export class Page {
         this.#host.layout(),
       ),
       note: box,
-      left: this.#rail.getBoundingClientRect().right - canvas.left + MENU_GAP,
+      // The rail is not a limit: it lies along the top edge, out of the way of a
+      // selection the note would cover, so the editor's own left edge is.
+      left: MENU_GAP,
       gap: MENU_GAP,
     });
   }
