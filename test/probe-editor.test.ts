@@ -43,14 +43,16 @@ const PAN_PROBE = `export default async ({ page }) => {
  */
 const PAN_STATUS = /Panning/;
 
-/** What one run of the helper left behind: its exit code, its two streams, and
- * the browser processes it started. */
+/** What one run of the helper left behind: its exit code, its two streams, the
+ * browser processes it started, and the probe process itself. */
 interface Run {
   code: number;
   stdout: string;
   stderr: string;
   /** The pids of the Chromium processes the run started, watched as it ran. */
   browsers: number[];
+  /** The pid of the probe process, watched as it ran, if a reading ever saw it. */
+  probe: number | undefined;
 }
 
 /** Writes one probe module in a folder of its own, and answers its path. */
@@ -72,19 +74,52 @@ async function probeSource(t: TestContext, source: string): Promise<string> {
 const RUN_EXIT = 60_000;
 
 /**
+ * How long a probe that never answers is given in the deadline test: long enough
+ * to boot a browser on a busy machine, short enough for the suite to stay quick.
+ */
+const STUCK_EXIT = 5_000;
+
+/**
+ * How long a killed run is given for its streams to close before it is read as a
+ * run that never ended. A killed process is not one that reports it.
+ */
+const KILLED_EXIT = 5_000;
+
+/**
+ * Kills the process group `pid` leads, if it is still there: a group that ended
+ * already answers ESRCH, and there is nothing left to kill.
+ */
+function killGroup(pid: number | undefined): void {
+  if (pid === undefined) return;
+  try {
+    process.kill(-pid, 'SIGKILL');
+  } catch {
+    // The group was gone before the deadline was.
+  }
+}
+
+/**
  * Runs the documented command, and answers what it left behind. pnpm's own
  * banner is silenced so the streams the run prints are the helper's alone.
+ *
+ * The run is started in a process group of its own, so a deadline can end the
+ * probe and the browser it started and not only the pnpm that handed the pipes
+ * on: a child of a killed process still holds those.
  *
  * `interrupt` sends SIGINT to the probe itself once its browser is starting and
  * the run has not announced a server: the moment a setup signal has to take the
  * browser that is still on its way. The probe receives it as a person's Ctrl+C
  * reaches it; pnpm is not the one killed, so its own death cannot race the
  * cleanup the test is about.
+ *
+ * `exitAfter` is how long the run has to end: a probe that never answers is one
+ * the deadline has to kill and report, inside a bound of the test's own.
  */
 async function helper(
   args: readonly string[],
   input?: { source: string; folder: string },
   interrupt?: 'during-setup',
+  exitAfter: number = RUN_EXIT,
 ): Promise<Run> {
   return await new Promise((resolve, reject) => {
     const env = input && { ...process.env, TMPDIR: input.folder, TEMP: input.folder };
@@ -92,44 +127,55 @@ async function helper(
       cwd: ROOT,
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
+      detached: true,
     });
     let stdout = '';
     let stderr = '';
+    let probe: number | undefined;
     let interrupted = false;
-    const duringSetup =
-      interrupt === undefined
-        ? undefined
-        : (all: readonly Proc[], started: Set<number>): void => {
-            if (interrupted || stderr.includes('probing')) return;
-            const probe = all.find((proc) => started.has(proc.pid) && proc.command.includes('probe-editor.mjs'));
-            const browser = all.some((proc) => started.has(proc.pid) && isBrowser(proc.command));
-            if (probe === undefined || !browser) return;
-            interrupted = true;
-            process.kill(probe.pid, 'SIGINT');
-          };
+    let finished = false;
+    const duringSetup = (all: readonly Proc[], started: Set<number>): void => {
+      const running = all.find((proc) => started.has(proc.pid) && proc.command.includes('probe-editor.mjs'));
+      probe ??= running?.pid;
+      if (interrupt === undefined || interrupted || stderr.includes('probing')) return;
+      const browser = all.some((proc) => started.has(proc.pid) && isBrowser(proc.command));
+      if (running === undefined || !browser) return;
+      interrupted = true;
+      process.kill(running.pid, 'SIGINT');
+    };
     const watching = child.pid === undefined ? undefined : watchBrowsers(child.pid, duringSetup);
+    /** Ends the wait once, whatever ended it: a close, an error, or the deadline. */
+    const finish = (code: number): void => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(deadline);
+      void (watching?.stop() ?? Promise.resolve()).then(() =>
+        resolve({
+          code,
+          stdout,
+          stderr,
+          browsers: [...(watching?.browsers ?? [])],
+          probe,
+        }),
+      );
+    };
     const deadline = setTimeout(() => {
-      stderr += `the run had not ended after ${RUN_EXIT}ms, so it was killed\n`;
-      child.kill('SIGKILL');
-    }, RUN_EXIT);
+      stderr += `the run had not ended after ${exitAfter}ms, so it was killed\n`;
+      // pnpm holds nothing of the run but the pipes it handed on: killing it
+      // alone leaves the probe and the browser holding them, so `close` never
+      // comes. The group goes, and the wait is bounded rather than trusted.
+      killGroup(child.pid);
+      setTimeout(() => finish(-1), KILLED_EXIT);
+    }, exitAfter);
     child.stdin.end(input?.source);
     child.stdout.setEncoding('utf8').on('data', (chunk: string) => (stdout += chunk));
     child.stderr.setEncoding('utf8').on('data', (chunk: string) => (stderr += chunk));
     child.once('error', (error) => {
+      finished = true;
       clearTimeout(deadline);
       reject(error);
     });
-    child.once('close', (code) => {
-      clearTimeout(deadline);
-      void (watching?.stop() ?? Promise.resolve()).then(() =>
-        resolve({
-          code: code ?? -1,
-          stdout,
-          stderr,
-          browsers: [...(watching?.browsers ?? [])],
-        }),
-      );
-    });
+    child.once('close', (code) => finish(code ?? -1));
   });
 }
 
@@ -349,6 +395,23 @@ test('a cleanup that fails is printed and exits non-zero, and the rest is still 
     [],
     `one failing disposal kept the browser ${run.browsers} open`,
   );
+});
+
+test('a probe that never answers is killed at its deadline, browser and all', async (t) => {
+  const scratch = await mkdtemp(join(tmpdir(), 'esbozo-probe-stuck-'));
+  t.after(() => rm(scratch, { recursive: true, force: true }));
+  const run = await helper(
+    [],
+    { source: 'export default async () => new Promise(() => {});\n', folder: scratch },
+    undefined,
+    STUCK_EXIT,
+  );
+
+  assert.match(run.stderr, new RegExp(`had not ended after ${STUCK_EXIT}ms, so it was killed`));
+  assert.notEqual(run.code, 0, 'a run killed at its deadline exited as a finished run');
+  assert.notEqual(run.probe, undefined, 'the test never saw the probe process');
+  assert.deepEqual(await stillRunning([run.probe!]), [], `the probe ${run.probe} outlived the deadline`);
+  assert.deepEqual(await stillRunning(run.browsers), [], `the deadline left Chromium ${run.browsers} running`);
 });
 
 test('a throwing probe exits non-zero, prints the error, and leaves no server', async (t) => {
