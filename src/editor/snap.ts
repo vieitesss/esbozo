@@ -8,16 +8,18 @@
  * geometry, the one the Renderer and `geometry.ts` already share.
  *
  * The rules are the Scene's own: only a rectangle, ellipse or diamond has an
- * outline to land on, and both ends of one arrow or line cannot attach to the
- * same Element. A Snap is per end, so moving the arrow it belongs to frees the
- * ends it had (`released`), rather than turning the drag into a no-op.
+ * outline to land on, and a shaft of two points cannot attach both its ends to
+ * the same Element, though one with a bend between its ends can: a loop leaves
+ * an Element and comes back to it. A Snap is per end, so moving the arrow it
+ * belongs to frees the ends it had (`released`), rather than turning the drag
+ * into a no-op.
  */
 import { insideOutline } from '../geometry.js';
 import { drawnShaft } from '../renderer.js';
 import type { ArrowOrLineElement, Element, Point } from '../scene.js';
 import { isOutlined } from '../scene.js';
 
-/** Which end of an arrow or line: the first point, or the second. */
+/** Which end of an arrow or line: the first point, or the last. */
 export const ENDS = ['start', 'end'] as const;
 export type End = (typeof ENDS)[number];
 
