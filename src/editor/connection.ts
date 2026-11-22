@@ -63,7 +63,7 @@ interface ConnectionHost {
   /** List the browsed folder's Scenes in the note. */
   note(): Promise<void>;
   /** The page's folder is the one it serves: the Scenes button lists it. */
-  served(folder: SceneFolder): void;
+  served(): void;
   /** A Scene's file and its SVG, assembled after the frame that is already due. */
   files(scene: Scene): Promise<SceneFiles>;
 }
@@ -412,7 +412,7 @@ export class Connection {
     }
     this.#served = true;
     this.#browsed = folder;
-    this.#host.served(folder);
+    this.#host.served();
     // The folder's own read-only and a refusal earned before this join are the
     // one answer to what the page may do, and the page is told it once.
     this.#host.mode(folder.readOnly || this.#refused);

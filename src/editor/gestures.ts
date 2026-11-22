@@ -136,9 +136,6 @@ export function shownElements(elements: SceneElement[], drag: ShownDrag): SceneE
   if (drag.kind === 'move') {
     return elements.map((element) => drag.shown.get(element.id) ?? element);
   }
-  if (drag.kind === 'label' && !drag.moved) {
-    return elements;
-  }
   return elements.map((element) => (element.id === drag.id ? drag.shown : element));
 }
 
