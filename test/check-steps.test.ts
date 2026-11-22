@@ -9,6 +9,10 @@
  * person is standing in. The fixture is three commits long, the middle one
  * breaking the checks, so a green range and a red one both come out of the same
  * repository.
+ *
+ * Each test makes its own fixture and removes it in that test's own teardown: a
+ * name filter that matches none of a file's tests skips the file's `before` and
+ * `after` on Node 26, and a folder made there would outlive the run.
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -16,7 +20,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { after, before, test } from 'node:test';
+import { test, type TestContext } from 'node:test';
 
 const SCRIPT = fileURLToPath(new URL('../scripts/check-steps.mjs', import.meta.url));
 
@@ -71,42 +75,48 @@ function checkSteps(cwd: string, base: string) {
   return spawnSync(process.execPath, [SCRIPT, base], { cwd, encoding: 'utf8' });
 }
 
-let repo = '';
-let base = '';
-let broken = '';
-let clean = '';
+/** The fixture repository one test runs against, and the three commits in it. */
+interface Fixture {
+  readonly repo: string;
+  readonly base: string;
+  readonly broken: string;
+  readonly clean: string;
+}
 
-before(async () => {
-  repo = await mkdtemp(join(tmpdir(), 'esbozo-check-steps-'));
+/** A green commit, a red one and a green one again, in a folder this test removes. */
+async function fixture(t: TestContext): Promise<Fixture> {
+  const repo = await mkdtemp(join(tmpdir(), 'esbozo-check-steps-'));
+  t.after(() => rm(repo, { recursive: true, force: true }));
+
   git(repo, 'init', '--quiet', '--initial-branch=main');
   await writeFile(join(repo, 'package.json'), PACKAGE_JSON);
   await writeFile(join(repo, 'check.mjs'), CHECK);
   git(repo, 'add', '--all');
   commit(repo, 'the checks are green');
-  base = git(repo, 'rev-parse', 'HEAD');
+  const base = git(repo, 'rev-parse', 'HEAD');
 
   await writeFile(join(repo, 'broken'), '');
   git(repo, 'add', '--all');
   commit(repo, 'break the checks');
-  broken = git(repo, 'rev-parse', 'HEAD');
+  const broken = git(repo, 'rev-parse', 'HEAD');
 
   await rm(join(repo, 'broken'));
   git(repo, 'add', '--all');
   commit(repo, 'put them back');
-  clean = git(repo, 'rev-parse', 'HEAD');
-});
+  const clean = git(repo, 'rev-parse', 'HEAD');
 
-after(async () => {
-  if (repo !== '') await rm(repo, { recursive: true, force: true });
-});
+  return { repo, base, broken, clean };
+}
 
-test('a base that is not a commit HEAD descends from is a usage error', () => {
+test('a base that is not a commit HEAD descends from is a usage error', async (t) => {
+  const { repo } = await fixture(t);
   const run = checkSteps(repo, 'no-such-commit');
   assert.equal(run.status, 2);
   assert.match(run.stdout + run.stderr, /^Usage: pnpm check:steps <base>/m);
 });
 
-test('check:steps names the commit that fails, keeps going and cleans up after itself', () => {
+test('check:steps names the commit that fails, keeps going and cleans up after itself', async (t) => {
+  const { repo, base, broken, clean } = await fixture(t);
   const worktrees = git(repo, 'worktree', 'list', '--porcelain');
   const run = checkSteps(repo, base);
   assert.equal(run.status, 1, run.stdout + run.stderr);
@@ -117,7 +127,8 @@ test('check:steps names the commit that fails, keeps going and cleans up after i
   assert.equal(git(repo, 'worktree', 'list', '--porcelain'), worktrees);
 });
 
-test('check:steps passes a green range and leaves the caller where it was', () => {
+test('check:steps passes a green range and leaves the caller where it was', async (t) => {
+  const { repo, broken, clean } = await fixture(t);
   const head = git(repo, 'rev-parse', 'HEAD');
   const status = git(repo, 'status', '--porcelain');
   const worktrees = git(repo, 'worktree', 'list', '--porcelain');
