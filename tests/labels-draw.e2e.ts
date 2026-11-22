@@ -186,7 +186,7 @@ describe('labels draw', () => {
 
     // Words arrive: they are drawn where they will save, and the fill under them
     // stays fill between them — the grey of it shows through the space between
-    // the first two words, as pale as paper there would be dark against it.
+    // the first two words, where paper would read as a paler patch.
     const label = screen.getByRole('textbox', { name: 'Label' });
     await label.pressSequentially('on the line');
     await settle(ui);
