@@ -5,10 +5,9 @@
  * A Shaft is the drawn path of an arrow or line between its two ends, and the
  * points it turns by in between are bend points: a person drags one by its
  * handle, pulls a new one out of a segment's dot, and removes one by
- * double-clicking it or from its own menu. The page writes a mark on each — a
- * `bend` handle where a point is, a dot on each segment's middle — and both
- * name the point they stand for by `data-point` and the Shaft by
- * `data-element`.
+ * double-clicking it or from its own menu. A mark stands on each — a `bend`
+ * handle where a point is, a dot on each segment's middle — and names the point
+ * it stands for by `data-point` and the Shaft by `data-element`.
  *
  * This module says which marks a lone Shaft shows, in the Scene's own
  * coordinates, and names them: the page turns each into a node where the view
@@ -74,6 +73,26 @@ export function bendPoints(shaft: ArrowOrLineElement): BendPoint[] {
  * at.
  */
 export { shaftDots as segmentDots } from '../geometry.js';
+
+/**
+ * Names a node as a bend point's handle: the `bend` handle a press reads back,
+ * the point it stands for, and the Shaft that point belongs to.
+ */
+export function nameBendHandle(node: Element, shaft: string, index: number): void {
+  node.setAttribute('data-handle', 'bend');
+  node.setAttribute('data-point', String(index));
+  node.setAttribute('data-element', shaft);
+}
+
+/**
+ * Names a node as a segment's dot: the mark a press pulls a bend point out of,
+ * the `points` index a pull there inserts at, and the Shaft it is pulled out of.
+ */
+export function nameDot(node: Element, shaft: string, index: number): void {
+  node.setAttribute('data-dot', 'bend');
+  node.setAttribute('data-point', String(index));
+  node.setAttribute('data-element', shaft);
+}
 
 /**
  * The bend point a press on a handle names, or null where it landed anywhere

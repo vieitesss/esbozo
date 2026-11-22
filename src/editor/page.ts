@@ -32,8 +32,8 @@ import type { Block, Layout, LineGlyphs } from '../layout.js';
 import { HANDLES, boxBetween, boxOf, clearedView, handlePoint, unionOf } from './geometry.js';
 import type { Box, Point } from './geometry.js';
 import type { Drag } from './gestures.js';
-import { bendPoints, segmentDots } from './bend-point.js';
-import type { Bend } from './bend-point.js';
+import { bendPoints, nameBendHandle, nameDot, segmentDots } from './bend-point.js';
+import type { Bend, BendPoint } from './bend-point.js';
 import { PaintCache, paintedInk } from './paint.js';
 import type { Paint, SceneFiles } from './paint.js';
 import { isShaft } from './snap.js';
@@ -71,7 +71,7 @@ const MENU_GAP = 16;
  */
 type HandleMark =
   | { readonly at: Point; readonly kind: 'handle'; readonly name: string }
-  | { readonly at: Point; readonly kind: 'bend'; readonly index: number; readonly corner: Corner };
+  | (BendPoint & { readonly kind: 'bend' });
 
 /**
  * The Elements the page draws, and whether they are still a preview: a settled
@@ -749,11 +749,12 @@ export class Page {
               height: HANDLE_SIZE,
               class: `handle handle-${handle.name}`,
             });
-      node.setAttribute('data-handle', handle.kind === 'bend' ? 'bend' : handle.name);
       if (handle.kind === 'bend') {
-        node.setAttribute('data-point', String(handle.index));
+        nameBendHandle(node, id, handle.index);
+      } else {
+        node.setAttribute('data-handle', handle.name);
+        node.setAttribute('data-element', id);
       }
-      node.setAttribute('data-element', id);
     }
   }
 
@@ -808,9 +809,7 @@ export class Page {
     node.setAttribute('cy', String(at.y));
     node.setAttribute('r', String(DOT_SIZE / 2));
     node.setAttribute('class', 'handle-dot');
-    node.setAttribute('data-dot', 'bend');
-    node.setAttribute('data-point', String(index));
-    node.setAttribute('data-element', id);
+    nameDot(node, id, index);
     parent.append(node);
   }
 
