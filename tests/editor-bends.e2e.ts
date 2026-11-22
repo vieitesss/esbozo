@@ -29,12 +29,14 @@ import {
   holdWrites,
   openEditor,
   refuseWrite,
+  releaseWrite,
   savedFiles,
   savedScene,
   settle,
 } from './helpers.ts';
 import type { Point, SavedScene, Ui, View } from './helpers.ts';
 import { zoomReadout } from './editor-shared.ts';
+import { command, palette } from './editor-shared.ts';
 import { shot } from './pixels.ts';
 import type { Rect, Shot } from './pixels.ts';
 import { removeTempFolders } from '../test/temp.ts';
@@ -413,6 +415,15 @@ const ROUND_MARK = { x: 500, y: 180 };
  */
 function pixelAt(handle: Point, dx: number, dy: number): Rect {
   return { x: handle.x + dx, y: handle.y + dy, width: 1, height: 1 };
+}
+
+/**
+ * The fill inside a handle: the pixels around its middle, clear of the stroke
+ * that runs around an eight-pixel mark. What a selected point paints there is
+ * the selection's colour, and an unselected one the paper.
+ */
+function handleFill(handle: Point): Rect {
+  return { x: handle.x - 1, y: handle.y - 1, width: 2, height: 2 };
 }
 
 /**
@@ -1720,6 +1731,732 @@ describe('a double-click on a bend handle', () => {
     await browser.keyboard.press('Meta+z');
     await expectPoints(ui, SHARP_POINTS);
     await browser.keyboard.press('Shift+Meta+z');
+    await expectPoints(ui, [
+      { x: 50, y: 50 },
+      { x: 550, y: 50 },
+    ]);
+  });
+});
+
+/**
+ * A press on a bend handle picks the point it holds: the handle fills with the
+ * selection's colour, keeps its shape and its size, and the shaft it is a point
+ * of stays selected. The point is one press's, so a pan or a zoom keeps it and
+ * the next press lets it go; a drag the person cancels, and a press on a dot,
+ * pick nothing at all.
+ */
+describe('a selected bend point', () => {
+  test('a click on a sharp bend fills its square, and the arrow keeps the selection', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'shapes.json');
+    await clickScene(ui, SHAPES_ON, [], SHAPES);
+    await settle(ui);
+
+    const mark = at(SHARP_MARK, SHAPES);
+    // Unselected, the handle is the paper inside its own stroke.
+    expect((await shot(ui)).meanLuminance(handleFill(mark))).toBeGreaterThan(0.85);
+    await clickScene(ui, SHARP_MARK, [], SHAPES);
+    await settle(ui);
+
+    // Selected, the same square is filled with the selection's blue: the light
+    // theme's `--sel` is 0.35 on this page, its paper 0.97 and its ink 0.10.
+    const painted = await shot(ui);
+    expect(painted.meanLuminance(handleFill(mark))).toBeGreaterThan(0.2);
+    expect(painted.meanLuminance(handleFill(mark))).toBeLessThan(0.5);
+    // A square still: its corner reaches where a circle of eight pixels cannot.
+    expect(painted.darkCount(pixelAt(mark, 4, -4), 0.6)).toBeGreaterThan(0);
+    await expect(screen.getByRole('dialog', 'Style')).toBeVisible();
+  });
+
+  test('a drag of a round bend selects the point where it lands, at another zoom', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'line.json');
+
+    await clickScene(ui, LINE_BEND, [], LINE);
+    await browser.keyboard.press('Meta+=');
+    await expect(zoomReadout(ui)).toHaveText('120%');
+    await settle(ui);
+
+    await drag(ui, at(LINE_BEND, LINE_ZOOMED), at({ x: 390, y: 220 }, LINE_ZOOMED));
+    await expectPoints(
+      ui,
+      [
+        { x: 150, y: 300 },
+        { x: 390, y: 220 },
+        { x: 600, y: 300 },
+      ],
+      'line.json',
+    );
+
+    // The point the release left is the one the press picked, at a zoom the
+    // handle keeps its eight pixels through.
+    const mark = at({ x: 390, y: 220 }, LINE_ZOOMED);
+    const painted = await shot(ui);
+    expect(painted.meanLuminance(handleFill(mark))).toBeGreaterThan(0.2);
+    expect(painted.meanLuminance(handleFill(mark))).toBeLessThan(0.5);
+    // A circle still: its stroke crosses the diagonal and its corner is bare.
+    expect(painted.darkCount(pixelAt(mark, 3, -3), 0.6)).toBeGreaterThan(0);
+    expect(painted.darkCount(pixelAt(mark, 4, -4), 0.6)).toBe(0);
+    await expect(screen.getByRole('dialog', 'Style')).toBeVisible();
+  });
+
+  test('a press on another handle moves the one point the selection holds', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'shapes.json');
+    await clickScene(ui, SHAPES_ON, [], SHAPES);
+    await settle(ui);
+    await clickScene(ui, SHARP_MARK, [], SHAPES);
+    await settle(ui);
+    await clickScene(ui, ROUND_MARK, [], SHAPES);
+    await settle(ui);
+
+    const painted = await shot(ui);
+    expect(painted.meanLuminance(handleFill(at(ROUND_MARK, SHAPES)))).toBeLessThan(0.5);
+    // The point before it is the paper again: one point, never two.
+    expect(painted.meanLuminance(handleFill(at(SHARP_MARK, SHAPES)))).toBeGreaterThan(0.85);
+  });
+
+  test('a round bend is filled in the dark theme too, and marked by a circle', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'line.json');
+    // The page's own switch, which the served page starts on light.
+    await screen.getByRole('button', { name: 'Dark' }).click();
+    await clickScene(ui, LINE_BEND, [], LINE);
+    await browser.keyboard.press('Meta+=');
+    await expect(zoomReadout(ui)).toHaveText('120%');
+    await settle(ui);
+
+    const mark = at(LINE_BEND, LINE_ZOOMED);
+    // The dark theme's paper is 0.09, and the handle is drawn on it.
+    expect((await shot(ui)).meanLuminance(handleFill(mark))).toBeLessThan(0.3);
+    await clickScene(ui, LINE_BEND, [], LINE_ZOOMED);
+    await settle(ui);
+
+    // `--sel` is 0.67 in the dark theme: the fill is the selection's, not the
+    // ink's 0.90 or the paper's 0.09. The corner stays bare, so it is a circle.
+    const painted = await shot(ui);
+    expect(painted.meanLuminance(handleFill(mark))).toBeGreaterThan(0.5);
+    expect(painted.meanLuminance(handleFill(mark))).toBeLessThan(0.8);
+    expect(painted.meanLuminance(pixelAt(mark, 4, -4))).toBeLessThan(0.3);
+  });
+
+  test('a press on a dot picks no point, and the key behind it deletes the shaft', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'bent.json');
+
+    // The first press selects the arrow, and the frame after it paints a dot
+    // halfway along its last leg, clear of the corner's handle.
+    await clickScene(ui, { x: 150, y: 300 }, [], BENT);
+    await settle(ui);
+    await clickScene(ui, LAST_DOT, [], BENT);
+    await settle(ui);
+    expect(await savedSource(ui, 'bent.json')).toBe(BENT_SOURCE);
+
+    // A press on a dot pulls a point out of the ink or does nothing: it picks no
+    // point, so the key goes on to the arrow and the whole shaft goes.
+    await browser.keyboard.press('Backspace');
+    await settle(ui);
+
+    await expectPoints(ui, [], 'bent.json');
+  });
+
+  test('a cancelled drag picks no point, and the key behind it deletes the shaft', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    const before = await savedSource(ui);
+
+    const from = at(SHARP_BEND, SHARP);
+    await drag(ui, from, { x: from.x + 40, y: from.y + 20 }, 'left', async () => {
+      await browser.keyboard.press('Escape');
+    });
+    await settle(ui);
+    expect(await savedSource(ui)).toBe(before);
+
+    // Half a drag is not a press: it picked nothing, so the key takes the shaft.
+    await browser.keyboard.press('Backspace');
+    await settle(ui);
+    await expectPoints(ui, []);
+  });
+});
+
+/**
+ * The delete action acts on the point the selection holds before it acts on the
+ * Elements: Backspace, Delete, the letter and the palette all remove that one
+ * point, as one history step and one write, and the shaft stays selected and in
+ * the Scene. A point the Scene cannot remove — the last bend of a self-loop —
+ * stays, and nothing is written.
+ */
+/** How many writes the stubbed folder is holding: one ask per Scene change the editor saved. */
+async function heldWrites(ui: Ui): Promise<number> {
+  return ui.browser.evaluate(
+    () => (window as unknown as { __esbozoGates?: unknown[] }).__esbozoGates?.length ?? 0,
+  );
+}
+
+describe('a key on a selected bend point', () => {
+  test('Backspace removes the selected sharp point and keeps every other point', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'snapped.json');
+    await clickScene(ui, SNAPPED_ON, [], SNAPPED);
+    await settle(ui);
+    await clickScene(ui, SNAPPED_BEND, [], SNAPPED);
+    await settle(ui);
+
+    await holdWrites(ui, 'snapped.json');
+    await browser.keyboard.press('Backspace');
+    // One point is one history step and one write: the folder is asked once.
+    await expect.poll(() => heldWrites(ui)).toBe(1);
+    await releaseWrite(ui);
+    await allowWrites(ui);
+    await expectPoints(
+      ui,
+      [
+        { x: 150, y: 150, snap: 'a' },
+        { x: 550, y: 300, corner: 'round' },
+        { x: 650, y: 350, snap: 'b' },
+      ],
+      'snapped.json',
+    );
+    // The shaft kept the selection: the note is still there to say so.
+    await expect(screen.getByRole('dialog', 'Style')).toBeVisible();
+  });
+
+  test('Delete removes the selected round point of a line at another zoom', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'line.json');
+    await clickScene(ui, LINE_BEND, [], LINE);
+    await browser.keyboard.press('Meta+=');
+    await expect(zoomReadout(ui)).toHaveText('120%');
+    await settle(ui);
+    await clickScene(ui, LINE_BEND, [], LINE_ZOOMED);
+    await settle(ui);
+
+    await browser.keyboard.press('Delete');
+    await expectPoints(
+      ui,
+      [
+        { x: 150, y: 300 },
+        { x: 600, y: 300 },
+      ],
+      'line.json',
+    );
+    const painted = await shot(ui);
+    // No point is held any more, so no handle is filled.
+    expect(painted.meanLuminance(handleFill(at(LINE_BEND, LINE_ZOOMED)))).toBeGreaterThan(0.85);
+  });
+
+  test('the palette’s Delete removes the point, whatever started it', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    await clickScene(ui, SHARP_BEND, [], SHARP);
+    await settle(ui);
+
+    await palette(ui);
+    await browser.keyboard.type('delete');
+    await command(ui, 'Delete · X · ⌫ · Del').click();
+
+    await expectPoints(ui, [
+      { x: 50, y: 50 },
+      { x: 550, y: 50 },
+    ]);
+  });
+
+  test('the last bend of a self-loop stays, and the arrow with it', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'loop.json');
+    await clickScene(ui, LOOP_ON, [], SHAPES);
+    await settle(ui);
+    await clickScene(ui, LOOP_BEND, [], SHAPES);
+    await settle(ui);
+    const before = await savedSource(ui, 'loop.json');
+
+    await browser.keyboard.press('Backspace');
+    await settle(ui);
+
+    // The Scene has no two-point shaft whose ends both Snap to one box, so the
+    // removal the key asked for changes nothing and writes nothing.
+    expect(await savedSource(ui, 'loop.json')).toBe(before ?? '');
+    await expectPoints(ui, LOOP_POINTS, 'loop.json');
+  });
+
+  test('a held Backspace removes the point once, and a new press takes the shaft', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    await clickScene(ui, SHARP_BEND, [], SHARP);
+    await settle(ui);
+
+    // The browser's own auto-repeat: the key stays down and sends keydowns the
+    // page reads as repeats of one press.
+    await browser.keyboard.down('Backspace');
+    await browser.keyboard.down('Backspace');
+    await browser.keyboard.up('Backspace');
+    await expectPoints(ui, [
+      { x: 50, y: 50 },
+      { x: 550, y: 50 },
+    ]);
+
+    // The press that took the point is spent; the next press is the shaft's.
+    await browser.keyboard.press('Backspace');
+    await expectPoints(ui, []);
+  });
+
+  test('one undo returns the point whole, and redo removes it again', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    await clickScene(ui, SHARP_BEND, [], SHARP);
+    await settle(ui);
+
+    await browser.keyboard.press('Delete');
+    await expectPoints(ui, [
+      { x: 50, y: 50 },
+      { x: 550, y: 50 },
+    ]);
+
+    // One step, so one undo is the whole point back, `corner` and all.
+    await browser.keyboard.press('Meta+z');
+    await expectPoints(ui, SHARP_POINTS);
+    await browser.keyboard.press('Shift+Meta+z');
+    await expectPoints(ui, [
+      { x: 50, y: 50 },
+      { x: 550, y: 50 },
+    ]);
+  });
+});
+
+/**
+ * The point belongs to the press that picked it, and to nothing else. A press
+ * that is not a pan lets it go, and so do Escape, a change of the selection or
+ * of the tool, a removal and an undo; a pan and a zoom keep it. No index is
+ * looked up again after the Scene moves, so a point that went cannot be named by
+ * the one that takes its place.
+ */
+describe('a bend point the selection lets go of', () => {
+  test('a press on the shaft lets the point go, and the key takes the shaft', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    await clickScene(ui, SHARP_BEND, [], SHARP);
+    await settle(ui);
+
+    // On the arrow's ink, clear of the handle and of both dots: the arrow is
+    // already selected, so this press changes the selection and picks nothing.
+    await clickScene(ui, { x: 100, y: 90 }, [], SHARP);
+    await settle(ui);
+    await browser.keyboard.press('Backspace');
+
+    await expectPoints(ui, []);
+  });
+
+  test('a pan and a zoom keep the point', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    await clickScene(ui, SHARP_BEND, [], SHARP);
+    await settle(ui);
+
+    await drag(ui, { x: 900, y: 600 }, { x: 860, y: 580 }, 'middle');
+    await browser.keyboard.press('Meta+=');
+    await settle(ui);
+    await browser.keyboard.press('Backspace');
+
+    // The point the press picked is still the one the key takes: the arrow stays,
+    // without it.
+    await expectPoints(ui, [
+      { x: 50, y: 50 },
+      { x: 550, y: 50 },
+    ]);
+  });
+
+  test('Escape lets the point go', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    // A nudge writes the file, so the bytes below say whether anything moved.
+    await browser.keyboard.press('Shift+ArrowRight');
+    await savedScene(ui, 'bends.json');
+    const before = await savedSource(ui);
+    await clickScene(ui, { x: SHARP_BEND.x + 10, y: SHARP_BEND.y }, [], SHARP);
+    await settle(ui);
+    await browser.keyboard.press('Escape');
+    await settle(ui);
+
+    // Escape left nothing selected, and the point went with the selection: the
+    // key has nothing to take.
+    await browser.keyboard.press('Backspace');
+    await settle(ui);
+    expect(await savedSource(ui)).toBe(before);
+  });
+
+  test('a change of the selection lets the point go', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'snapped.json');
+    await clickScene(ui, SNAPPED_ON, [], SNAPPED);
+    await settle(ui);
+    await clickScene(ui, SNAPPED_BEND, [], SNAPPED);
+    await settle(ui);
+
+    // Box `a`, then the arrow again: the selection changed twice, and a point of
+    // the arrow went with the first change.
+    await clickScene(ui, { x: 130, y: 180 }, [], SNAPPED);
+    await settle(ui);
+    await clickScene(ui, SNAPPED_ON, [], SNAPPED);
+    await settle(ui);
+    await browser.keyboard.press('Backspace');
+
+    // The arrow is what went: no point of it was still held.
+    await expectPoints(ui, [], 'snapped.json');
+  });
+
+  test('a change of the tool lets the point go', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    await clickScene(ui, SHARP_BEND, [], SHARP);
+    await settle(ui);
+
+    await browser.keyboard.press('r');
+    await browser.keyboard.press('v');
+    await settle(ui);
+    // Nothing is selected any more, and no point is held: the key writes nothing,
+    // so the file holds the bytes it was seeded with.
+    expect(await savedSource(ui)).toBe(SHARP_SOURCE);
+    await browser.keyboard.press('Backspace');
+    await settle(ui);
+    expect(await savedSource(ui)).toBe(SHARP_SOURCE);
+  });
+
+  test('an undo lets the point go', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    // One step to undo, so the undo below changes the Scene the point sits in.
+    await browser.keyboard.press('Shift+ArrowRight');
+    await clickScene(ui, { x: SHARP_BEND.x + 10, y: SHARP_BEND.y }, [], SHARP);
+    await settle(ui);
+
+    // The arrow moves back and the point its index named is no longer the point
+    // a press picked: the key takes the whole shaft.
+    await browser.keyboard.press('Meta+z');
+    await expectPoints(ui, SHARP_POINTS);
+    await browser.keyboard.press('Backspace');
+    await expectPoints(ui, []);
+  });
+
+  test('a double-click that removed a point leaves none of it held', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'near.json');
+    await clickScene(ui, NEAR_ON, [], SHAPES);
+    await settle(ui);
+    await doubleClickScene(ui, NEAR_FIRST, SHAPES);
+    await settle(ui);
+
+    // The pair took the point and holds nothing: the key takes the whole arrow.
+    await browser.keyboard.press('Backspace');
+    await expectPoints(ui, [], 'near.json');
+  });
+
+  test('another Scene holds no point of the last one, even under the same id', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    await clickScene(ui, SHARP_BEND, [], SHARP);
+    await settle(ui);
+
+    // The next Scene has a shaft with the same id and a bend at the same index:
+    // the point of the last one is no part of it.
+    await screen.getByRole('button', /Open folder/).click();
+    await screen.getByRole('button', 'shapes.json').click();
+    await settle(ui);
+    await browser.keyboard.press('Backspace');
+    await settle(ui);
+    expect(await savedSource(ui, 'shapes.json')).toBe(SHAPES_SOURCE);
+  });
+
+  test('with no point picked, the keys delete the shaft as they did', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    await browser.keyboard.press('Backspace');
+    await expectPoints(ui, []);
+  });
+
+  test('the keys edit the words while they are typed', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'on-bend.json');
+    await clickScene(ui, ON_BEND_ON, [], SHAPES);
+    await settle(ui);
+    await clickScene(ui, ON_BEND_BEND, [], SHAPES);
+    await settle(ui);
+
+    // Enter on the lone selection opens the arrow's words, so the field holds
+    // the keys; a point the selection still holds is not the keys' to take.
+    await browser.keyboard.press('Enter');
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await expect(label).toHaveValue('bend words');
+    await label.press('Backspace');
+    await expect(label).toHaveValue('bend word');
+    await label.press('Escape');
+
+    const scene = await savedScene(ui, 'on-bend.json');
+    expect(scene.elements.find((element) => element.id === 'bent')?.label).toBe('bend word');
+    await expectPoints(
+      ui,
+      [
+        { x: 200, y: 400 },
+        { x: 400, y: 300, corner: 'sharp' },
+        { x: 600, y: 400 },
+      ],
+      'on-bend.json',
+    );
+  });
+
+  test('a page that may only read picks no point and deletes nothing', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+
+    // An edit asks the folder to write, and the folder answers `403`.
+    await holdWrites(ui, 'bends.json');
+    await browser.keyboard.press('Shift+ArrowRight');
+    await refuseWrite(ui, 'this folder is served read-only');
+    await expect(screen.getByText('read-only')).toBeVisible();
+    const bend = { x: SHARP_BEND.x + 10, y: SHARP_BEND.y };
+    const before = await savedSource(ui);
+
+    await clickScene(ui, bend, [], SHARP);
+    await settle(ui);
+    // The mark is the paper it was drawn on: a page that may only read picks no
+    // point, whatever a press lands on.
+    expect((await shot(ui)).meanLuminance(handleFill(at(bend, SHARP)))).toBeGreaterThan(0.85);
+
+    await browser.keyboard.press('Backspace');
+    await settle(ui);
+    expect(await savedSource(ui)).toBe(before);
+    await expectPoints(ui, SHARP_POINTS);
+    await allowWrites(ui);
+  });
+});
+
+/**
+ * Three things a point beside the keys must not bend. A cut takes exactly the
+ * Elements it copied, which is not the one point of them a press picked; a Shift
+ * press is about the selection and picks no point; and a held key edits once,
+ * however many keys are pressed inside the hold, because none of them is a new
+ * press of the delete key.
+ */
+describe('a cut, a Shift press and a held key', () => {
+  /** The arrow selected, and its sharp bend the point the selection holds. */
+  async function picked(ui: Ui): Promise<void> {
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    await clickScene(ui, SHARP_BEND, [], SHARP);
+    await settle(ui);
+    // The square is filled with the selection's colour, so the press did pick it.
+    expect((await shot(ui)).meanLuminance(handleFill(at(SHARP_BEND, SHARP)))).toBeLessThan(0.85);
+  }
+
+  test('a cut by key deletes the shaft it copied, not the point it holds', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await picked(ui);
+
+    // The key's own cut event copies the arrow and deletes what it copied: the
+    // point is a place on the shaft, and not an Element the clipboard carries.
+    await browser.keyboard.press('ControlOrMeta+x');
+    await expectPoints(ui, []);
+  });
+
+  test('a cut from the palette deletes the shaft it copied', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await picked(ui);
+
+    await palette(ui);
+    await browser.keyboard.type('cut');
+    await command(ui, 'Cut · ⌘X').click();
+
+    await expectPoints(ui, []);
+  });
+
+  test('a Shift click on a bend handle picks no point, and the key takes the shaft', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+
+    // Shift is about the selection, so a press that holds it picks nothing: the
+    // square stays the paper inside its own stroke.
+    await clickScene(ui, SHARP_BEND, ['Shift'], SHARP);
+    await settle(ui);
+    expect((await shot(ui)).meanLuminance(handleFill(at(SHARP_BEND, SHARP)))).toBeGreaterThan(
+      0.85,
+    );
+
+    // No point is held, so the key goes on to the arrow behind it.
+    await browser.keyboard.press('Backspace');
+    await expectPoints(ui, []);
+  });
+
+  test('a Shift drag of a bend handle carries the point and picks none of it', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+
+    await browser.keyboard.down('Shift');
+    await drag(ui, at(SHARP_BEND, SHARP), at({ x: 340, y: 270 }, SHARP));
+    await browser.keyboard.up('Shift');
+    // The drag itself still moves the one point it holds.
+    await expectPoints(ui, DRAGGED_POINTS);
+    await settle(ui);
+    const landed = { x: 340, y: 270 };
+    expect((await shot(ui)).meanLuminance(handleFill(at(landed, SHARP)))).toBeGreaterThan(0.85);
+
+    await browser.keyboard.press('Backspace');
+    await expectPoints(ui, []);
+  });
+
+  test('a key pressed inside a held Backspace never frees the shaft', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await picked(ui);
+
+    // The folder holds the write the press queued, so the Scene the whole hold
+    // left is the one the editor calls saved.
+    await holdWrites(ui, 'bends.json');
+    await browser.keyboard.down('Backspace');
+    await browser.keyboard.down('Shift');
+    await browser.keyboard.up('Shift');
+    await browser.keyboard.down('Backspace');
+    await browser.keyboard.up('Backspace');
+    await releaseWrite(ui);
+    await allowWrites(ui);
+
+    // Only the newest write the hold queued says `saved`: a second one — the
+    // repeat walking on to the shaft — would land before this reads the file.
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    await expectPoints(ui, [
+      { x: 50, y: 50 },
+      { x: 550, y: 50 },
+    ]);
+  });
+
+  test('a key pressed inside a held Delete never frees the shaft', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await picked(ui);
+
+    await holdWrites(ui, 'bends.json');
+    await browser.keyboard.down('Delete');
+    await browser.keyboard.down('Shift');
+    await browser.keyboard.up('Shift');
+    await browser.keyboard.down('Delete');
+    await browser.keyboard.up('Delete');
+    await releaseWrite(ui);
+    await allowWrites(ui);
+
+    await expect(screen.getByRole('status')).toHaveText('saved');
     await expectPoints(ui, [
       { x: 50, y: 50 },
       { x: 550, y: 50 },
