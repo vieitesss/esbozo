@@ -729,15 +729,12 @@ test('a head’s cut takes ink from its own end, and no more than the head reach
 
 test('a short leg at a head still runs into its triangle', async () => {
   const arrows = shortLegMatrix();
-  const headed = await renderOne(turnedScene(arrows.map((one) => one.element)));
-  const bare = await renderOne(turnedScene(arrows.map((one) => one.bare)));
+  const svg = await renderOne(turnedScene(arrows.map((one) => one.element)));
 
-  const groups = inkGroups(headed);
-  const bareGroups = inkGroups(bare);
+  const groups = inkGroups(svg);
   assert.equal(groups.length, arrows.length, 'one group of ink per arrow');
-  assert.equal(bareGroups.length, arrows.length, 'and one per arrow drawn with no head');
   for (const [index, one] of arrows.entries()) {
-    assertCutIsLocal(one, groups[index]!, bareGroups[index]!);
+    assertShaftTouches(one, groups[index]!);
   }
 });
 
@@ -1583,9 +1580,16 @@ interface ShortOptions {
   readonly roughness: number;
 }
 
+/** One arrow of the short-leg matrix: a leg that turns under a head. */
+interface ShortCase {
+  readonly id: string;
+  readonly at: 'start' | 'end';
+  readonly element: HeadArrow;
+}
+
 /** Every short leg, at every width, on either end, sharp and round, flat and rough. */
-function shortLegMatrix(): TurnedCase[] {
-  const cases: TurnedCase[] = [];
+function shortLegMatrix(): ShortCase[] {
+  const cases: ShortCase[] = [];
   for (const leg of SHORT_LEGS) {
     for (const width of ['thin', 'bold', 'extra']) {
       for (const at of ['start', 'end'] as const) {
@@ -1600,34 +1604,51 @@ function shortLegMatrix(): TurnedCase[] {
   return cases;
 }
 
-/** One arrow of the short-leg matrix: a leg that turns under a head, and the same arrow headless. */
-function shortLegCase(index: number, options: ShortOptions): TurnedCase {
+/** One arrow of the short-leg matrix: a leg that turns under a head. */
+function shortLegCase(index: number, options: ShortOptions): ShortCase {
   const id = `short-${index}`;
   const x = (index % SHORT_COLUMNS) * SHORT_CELL + 60;
   const y = Math.floor(index / SHORT_COLUMNS) * SHORT_CELL + 60;
   const bend = { x: x - options.leg, y };
   const tail = { x: bend.x, y: bend.y + 120 };
   const points = options.at === 'end' ? [tail, bend, { x, y }] : [{ x, y }, bend, tail];
-  const shared = {
-    id,
-    type: 'arrow' as const,
-    points,
-    corners: options.corners,
-    stroke: { width: options.width, style: 'solid' },
-    roughness: options.roughness,
-  };
   return {
     id,
     at: options.at,
     element: {
-      ...shared,
+      id,
+      type: 'arrow',
+      points,
+      corners: options.corners,
+      stroke: { width: options.width, style: 'solid' },
+      roughness: options.roughness,
       heads:
         options.at === 'start'
           ? { start: 'arrow', end: 'none' }
           : { start: 'none', end: 'arrow' },
     },
-    bare: { ...shared, heads: { start: 'none', end: 'none' } },
   };
+}
+
+/**
+ * One arrow of the short-leg matrix, checked against what a person sees: the ink
+ * of its shaft runs into its head, so the two meet rather than leaving a gap.
+ * The stroke's own width counts, since that ink is what touches the head.
+ */
+function assertShaftTouches(one: ShortCase, group: string): void {
+  const head = pathsOf(group).find((tag) => attributeIn(tag, 'fill') !== 'none');
+  assert.ok(head !== undefined, `${one.id}: the arrow draws its head`);
+  const corners = flatPoints(head);
+  assert.equal(corners.length, 3, `${one.id}: the head fills a triangle`);
+  const touching = pathsOf(group)
+    .filter((tag) => attributeIn(tag, 'fill') === 'none')
+    .some((tag) => {
+      const radius = attributeOf(tag, 'stroke-width') / 2;
+      return inkRuns(tag).some((run) =>
+        run.some((sample) => inkAround(sample, radius).some((ink) => covers(corners, ink))),
+      );
+    });
+  assert.ok(touching, `${one.id}: the shaft’s ink touches the ${one.at} head`);
 }
 
 /** Room one dashed shaft of the phase matrix has to itself: its 280 units and a Label. */
