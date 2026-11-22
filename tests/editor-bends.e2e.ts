@@ -18,7 +18,7 @@
  */
 import { describe, test } from '@e2e-dev/web';
 import { afterAll, expect } from 'e2e';
-import { at, clickScene, drag, openEditor, savedFiles, savedScene } from './helpers.ts';
+import { at, clickScene, drag, openEditor, savedFiles, savedScene, settle } from './helpers.ts';
 import type { Point, SavedScene, Ui, View } from './helpers.ts';
 import { zoomReadout } from './editor-shared.ts';
 import { shot } from './pixels.ts';
@@ -60,6 +60,21 @@ const SHARP_ON = { x: 175, y: 150 };
 
 /** Where the sharp bend is stored, and so where its handle sits on the page. */
 const SHARP_BEND = { x: 300, y: 250 };
+
+/** The points of `SHARP_SCENE` as the file holds them, and where a drag carries the bend. */
+const SHARP_POINTS: SavedPoint[] = [
+  { x: 50, y: 50 },
+  { x: 300, y: 250, corner: 'sharp' },
+  { x: 550, y: 50 },
+];
+const DRAGGED_POINTS: SavedPoint[] = [
+  { x: 50, y: 50 },
+  { x: 340, y: 270, corner: 'sharp' },
+  { x: 550, y: 50 },
+];
+
+/** The part of the page the arrow, its selection and its bend handle paint in. */
+const SHARP_AREA: Rect = { x: 480, y: 380, width: 260, height: 240 };
 
 /**
  * An arrow with one `sharp` bend and one `round` bend, on a box that holds the
@@ -323,6 +338,64 @@ describe('a bend point handle', () => {
       ],
       'snapped.json',
     );
+  });
+
+  test('a click on a bend handle writes nothing, and one undo takes the whole drag back', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    const handle = at(SHARP_BEND, SHARP);
+    await drag(ui, handle, at({ x: 340, y: 270 }, SHARP));
+    await expectPoints(ui, DRAGGED_POINTS);
+    const dragged = await savedSource(ui);
+
+    // A press and release on the handle is a click on it: no write, no step.
+    await clickScene(ui, { x: 340, y: 270 }, [], SHARP);
+    await settle(ui);
+    expect(await savedSource(ui)).toBe(dragged);
+    // The first undo takes the drag back, so the click recorded no step of its
+    // own: a history it had written would be the one undone here instead.
+    await browser.keyboard.press('Meta+z');
+    await expectPoints(ui, SHARP_POINTS);
+    // And the drag is one step forward again.
+    await browser.keyboard.press('Shift+Meta+z');
+    await expectPoints(ui, DRAGGED_POINTS);
+  });
+
+  test('Escape mid-drag leaves the file, the history and the shaft as they were', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await drag(ui, at(SHARP_BEND, SHARP), at({ x: 340, y: 270 }, SHARP));
+    await expectPoints(ui, DRAGGED_POINTS);
+    const dragged = await savedSource(ui);
+    const before = (await shot(ui)).darkBounds(SHARP_AREA, 0.6);
+
+    // Half a drag is not a Scene: Escape drops the preview, and the release
+    // that follows it settles nothing.
+    const from = at({ x: 340, y: 270 }, SHARP);
+    await drag(ui, from, { x: from.x + 40, y: from.y + 20 }, 'left', async () => {
+      await browser.keyboard.press('Escape');
+    });
+    await settle(ui);
+
+    expect(await savedSource(ui)).toBe(dragged);
+    expect((await shot(ui)).darkBounds(SHARP_AREA, 0.6)).toEqual(before);
+    // The selection is kept, and so is the single step the drag earned: the
+    // first undo still takes that drag back, not a second one.
+    await expect(ui.screen.getByRole('dialog', 'Style')).toBeVisible();
+    await browser.keyboard.press('Meta+z');
+    await expectPoints(ui, SHARP_POINTS);
   });
 
   test('a sharp bend is marked by a square', async ({ app, browser, screen }) => {

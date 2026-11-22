@@ -977,11 +977,14 @@ class EsbozoEditorElement extends HTMLElement {
       this.#showSheet(false);
       return;
     }
-    if (event.key === 'Escape' && this.#gestures.drag?.kind === 'label') {
-      // Half a Label is not a Scene: Escape drops the words back to the place the
-      // Scene holds, and the release that follows settles nothing. It answers
-      // here, before the gesture that holds the Scene, because that guard is
-      // about edits — and an Escape is what keeps one from landing.
+    const drag = this.#gestures.drag;
+    if (event.key === 'Escape' && (drag?.kind === 'label' || drag?.kind === 'bend')) {
+      // Half a Label or half a bend is not a Scene: Escape drops what the gesture
+      // drew back to the place the Scene holds, and the release that follows it
+      // settles nothing. It answers here, before the gesture that holds the
+      // Scene, because that guard is about edits — and an Escape is what keeps
+      // one from landing. Every other drag keeps the behaviour it has: Escape is
+      // ignored while the pointer is down, and the release settles the gesture.
       event.preventDefault();
       this.#gestures.cancel();
       return;
