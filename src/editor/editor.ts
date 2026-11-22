@@ -227,8 +227,7 @@ class EsbozoEditorElement extends HTMLElement {
         shown: () => this.#shown(),
         selected: () => this.#selected,
         drag: () => this.#gestures.drag,
-        editingId: () => this.#typing.editingId(),
-        typing: () => this.#typing.words(),
+        typing: () => this.#typing,
       },
     );
     this.#page.viewport.showGrid(this.#grid);
@@ -250,6 +249,29 @@ class EsbozoEditorElement extends HTMLElement {
       files: (scene) => this.#page.files(scene),
     });
 
+    // The pointer opens the session and the page draws its preview. Committed
+    // words land through the same history and save path as other Scene edits.
+    this.#typing = new Typing({
+      field: this,
+      page: {
+        paint: () => this.#page.paint(),
+        paintWords: () => this.#page.paintWords(),
+        wordsLine: (key, state) => this.#page.wordsLine(key, state),
+        clearOfNote: () => this.#page.clearOfNote(this.#menu, this.#rail),
+      },
+      scene: () => this.#scene,
+      layout: () => this.#connection.layout,
+      writable: () => this.#connection.writable(),
+      useSelectTool: () => this.#setTool('select'),
+      selectElement: (id) => {
+        this.#selected = [id];
+        this.#refresh();
+      },
+      refused: (problem) => this.#setSaved('failed', problem),
+      applyScene: (next, select) => this.#applyScene(next, { select }),
+      forgetWordClick: () => this.#gestures.forgetWordClick(),
+    });
+
     // The pointer's machine is told what the page holds, and asked for the one
     // thing a gesture may change: a Scene that lands as a step and a write.
     this.#gestures = new Gestures({
@@ -266,37 +288,10 @@ class EsbozoEditorElement extends HTMLElement {
       tool: () => this.#tool,
       setTool: (tool) => this.#setTool(tool),
       writable: () => this.#connection.writable(),
-      text: () => this.#typing.text(),
-      typedOffset: (drawn) => this.#typing.typedOffset(drawn),
-      openWords: (element) => this.#typing.openWords(element),
-      openTextInput: (at) => this.#typing.openTextInput(at),
+      typing: this.#typing,
       applyScene: (next, options) => this.#applyScene(next, options),
       refresh: () => this.#refresh(),
       showPanning: () => this.#showPill(),
-    });
-
-    // The words being typed are the editor's last state machine of its own: it
-    // is fed by the pointer and read by the page, and it changes the Scene only
-    // through the one step this editor lands.
-    this.#typing = new Typing({
-      field: this,
-      page: {
-        paint: () => this.#page.paint(),
-        paintWords: () => this.#page.paintWords(),
-        wordsLine: (key, state) => this.#page.wordsLine(key, state),
-        clearOfNote: () => this.#page.clearOfNote(this.#menu, this.#rail),
-      },
-      scene: () => this.#scene,
-      layout: () => this.#connection.layout,
-      writable: () => this.#connection.writable(),
-      setTool: (tool) => this.#setTool(tool),
-      select: (ids) => {
-        this.#selected = [...ids];
-      },
-      refresh: () => this.#refresh(),
-      refused: (problem) => this.#setSaved('failed', problem),
-      applyScene: (next, options) => this.#applyScene(next, options),
-      forgetWordClick: () => this.#gestures.forgetWordClick(),
     });
 
     if (this.#ownsKeysWhenFocused) {

@@ -37,7 +37,7 @@ import type { Paint, SceneFiles } from './paint.js';
 import { isShaft } from './snap.js';
 import { drawnBox, drawnGlyphs } from './drawn-glyphs.js';
 import type { TextSessionState } from './text-session.js';
-import type { TypingWords } from './typing.js';
+import type { Typing } from './typing.js';
 import { clearWashes, drawWords, rect } from './words-layer.js';
 import { shownWords } from './words.js';
 import { Viewport } from './viewport.js';
@@ -76,10 +76,8 @@ interface PageHost {
   selected(): readonly string[];
   /** The gesture in flight, as the drawing and the overlay read it. */
   drag(): Drag | null;
-  /** The Element of the Scene whose words are being typed, or null for a new Text. */
-  editingId(): string | null;
-  /** The words being typed, when a session is open. */
-  typing(): TypingWords | null;
+  /** The preview Element and the field whose caret the page draws. */
+  typing(): Pick<Typing, 'editingId' | 'words'>;
 }
 
 /** The nodes a frame draws into. */
@@ -234,7 +232,7 @@ export class Page {
    * place for a caret at all.
    */
   #block(): Block | null {
-    const element = this.#host.typing()?.element ?? null;
+    const element = this.#host.typing().words()?.element ?? null;
     if (element === null) {
       return null;
     }
@@ -266,7 +264,7 @@ export class Page {
    * whichever end the words begin and stop.
    */
   wordsLine(key: 'up' | 'down' | 'home' | 'end', state: TextSessionState): number | null {
-    const shift = this.#host.typing()?.shift;
+    const shift = this.#host.typing().words()?.shift;
     const block = this.#block();
     if (shift === undefined || block === null) {
       return null;
@@ -406,14 +404,15 @@ export class Page {
     // next letter would go in: only the Element being typed in is drawn with
     // them. An Element nobody is editing keeps the words the Scene holds, so an
     // unlabeled arrow draws no words — and no paper for them either.
-    const typing = this.#host.editingId();
+    const typing = this.#host.typing();
+    const editingId = typing.editingId();
     const paint = paintables.paint(
-      typing === null
+      editingId === null
         ? shown
-        : shown.map((element) => (element.id === typing ? shownWords(element) : element)),
+        : shown.map((element) => (element.id === editingId ? shownWords(element) : element)),
     );
     this.#painted = paint;
-    this.#drawnWords = this.#host.typing()?.element ?? null;
+    this.#drawnWords = typing.words()?.element ?? null;
     this.#drawnMeasurement = paintables.generation;
     // A group moved by a drag carries a transform the Scene never holds: every
     // group starts a frame where its Element is.
@@ -611,7 +610,7 @@ export class Page {
     this.#wordsLayer = null;
     clearWashes(this.#washes);
     this.#washes = [];
-    const typing = this.#host.typing();
+    const typing = this.#host.typing().words();
     const block = this.#block();
     if (typing === null || block === null) {
       return;
@@ -633,7 +632,7 @@ export class Page {
 
   /** The group the page drew the words being typed in: where their wash goes. */
   #wordsGroup(): SVGGElement | null {
-    const id = this.#host.typing()?.element.id;
+    const id = this.#host.typing().words()?.element.id;
     return id === undefined ? null : (this.#groups.get(id)?.node ?? null);
   }
 
