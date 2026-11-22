@@ -1,7 +1,7 @@
 /**
  * Seam 2: the editor's visible outcomes, judged by the model.
  *
- * `tests/editor.e2e.ts` proves the same outcomes exactly, from the Scene the
+ * `tests/editor-*.e2e.ts` prove the same outcomes exactly, from the Scene the
  * editor saves and from its pixels. These tests prove what a person would look
  * at and answer in words: a Scene that will not parse being reported, the dots
  * of the Grid, light and dark, the resize handles around a selection, and a

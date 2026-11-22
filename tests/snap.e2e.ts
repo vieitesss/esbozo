@@ -1,7 +1,8 @@
 /**
  * Seam 2: Snap, the arrow or line end attached to an Element.
  *
- * Same rules as `tests/editor.e2e.ts`: the input is a person's — the rail, the
+ * Same rules as the editor suites (`tests/editor-*.e2e.ts`): the input is a
+ * person's — the rail, the
  * pointer, the keys, the Alt held down during a drag — and the assertion is the
  * Scene the editor saves. A Snap is stored per end, so the saved `points` are
  * where attaching, freeing and following an Element is visible without reading
