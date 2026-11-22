@@ -266,16 +266,10 @@ export class Typing {
     // A character XML cannot hold is refused as typed, before a trim can hide
     // it; everything else the Scene checks is the words it would keep.
     const words = hasXmlInvalidChars(raw) ? raw : keptWords(raw);
-    const problem = this.#problem(this.#wordsScene(element, words));
-    if (problem !== null) {
-      this.#host.refused(problem);
-      return false;
-    }
-    this.#land(
+    return this.#land(
       this.#wordsScene(element, words),
       words === '' && element.type === 'text' ? [] : [element.id],
     );
-    return true;
   }
 
   /**
@@ -293,13 +287,7 @@ export class Typing {
       return true;
     }
     const elements = [...this.#host.scene().elements, { ...draft, content: words }];
-    const problem = this.#problem(elements);
-    if (problem !== null) {
-      this.#host.refused(problem);
-      return false;
-    }
-    this.#land(elements, [draft.id]);
-    return true;
+    return this.#land(elements, [draft.id]);
   }
 
   /**
@@ -331,37 +319,16 @@ export class Typing {
   }
 
   /**
-   * The Scene's own verdict on a Scene holding these Elements: the Scene its
-   * parser reads back, or the first thing it cannot hold. Nothing is applied:
-   * the caller decides whether the edit lands.
+   * Land the Scene the parser reads back as one step and one write. If the Scene
+   * cannot hold the words, show its first problem without applying the edit.
    */
-  #verdict(elements: readonly SceneElement[]): { scene: Scene } | { problem: string } {
-    const parsed = parseScene(serialiseScene({ ...this.#host.scene(), elements: [...elements] }));
-    if (parsed.ok) {
-      return { scene: parsed.scene };
+  #land(elements: SceneElement[], selected: readonly string[]): boolean {
+    const parsed = parseScene(serialiseScene({ ...this.#host.scene(), elements }));
+    if (!parsed.ok) {
+      this.#host.refused(parsed.problems[0]?.message ?? 'the Scene cannot hold these words');
+      return false;
     }
-    const first = parsed.problems[0];
-    return { problem: first === undefined ? 'the Scene cannot hold these words' : first.message };
-  }
-
-  /** What the Scene says about these Elements: its first problem, or null when it can hold them. */
-  #problem(elements: readonly SceneElement[]): string | null {
-    const verdict = this.#verdict(elements);
-    return 'problem' in verdict ? verdict.problem : null;
-  }
-
-  /**
-   * The one way typed words land: the Scene's own verdict first, then one step
-   * and one write. A refusal says why in the status line and leaves the Scene
-   * exactly as it was, on the page and on disk.
-   */
-  #land(elements: readonly SceneElement[], selected: string[]): void {
-    const verdict = this.#verdict(elements);
-    if ('problem' in verdict) {
-      this.#host.refused(verdict.problem);
-      this.#host.page.paint();
-      return;
-    }
-    this.#host.applyScene(verdict.scene, selected);
+    this.#host.applyScene(parsed.scene, selected);
+    return true;
   }
 }
