@@ -7,8 +7,7 @@
  * on the pixels it paints, never on the editor's own state.
  */
 import { execFile } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -16,6 +15,7 @@ import { expect } from 'e2e';
 import type { App, Screen } from 'e2e';
 import type { Browser } from '@e2e-dev/web';
 import { livePage } from './cdp.ts';
+import { tempFolder } from '../test/temp.ts';
 
 const run = promisify(execFile);
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
@@ -1344,7 +1344,7 @@ export async function dragBy(
  * the folder, its name and its bytes are made in one place.
  */
 async function sceneFolder(source: string, prefix = 'esbozo-e2e-'): Promise<string> {
-  const folder = await mkdtemp(join(tmpdir(), prefix));
+  const folder = await tempFolder(prefix);
   await writeFile(join(folder, 'scene.json'), source, 'utf8');
   return folder;
 }
@@ -1430,7 +1430,7 @@ export async function runAsWritten(
   command: string,
   files: Record<string, string>,
 ): Promise<{ code: number; folder: string }> {
-  const folder = await mkdtemp(join(tmpdir(), 'esbozo-as-written-'));
+  const folder = await tempFolder('esbozo-as-written-');
   for (const [name, text] of Object.entries(files)) {
     await writeFile(join(folder, name), text, 'utf8');
   }

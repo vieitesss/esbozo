@@ -15,10 +15,14 @@ import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import opentype from 'opentype.js';
 import { ez, sceneFolder } from './cli.ts';
 import { writeFont } from './fonts.ts';
+import { removeTempFolders } from './temp.ts';
+
+/** The folders this file made, removed however its tests ended. */
+after(removeTempFolders);
 
 const KALAM = fileURLToPath(new URL('../fonts/Kalam-Regular.ttf', import.meta.url));
 

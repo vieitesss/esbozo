@@ -26,7 +26,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { test } from '@e2e-dev/web';
-import { expect } from 'e2e';
+import { afterAll, expect } from 'e2e';
 import { EMPTY, SCENE, SNAPPED_SCENE, VIEW, at, cliRender, clickScene, doubleClickScene, drag, settle } from './helpers.ts';
 import type { Ui, View } from './helpers.ts';
 import { blurPage, livePage } from './cdp.ts';
@@ -34,6 +34,10 @@ import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
 import { ez, tempFolder } from '../test/cli.ts';
 import { fontBytes } from '../test/fonts.ts';
+import { removeTempFolders } from '../test/temp.ts';
+
+/** The folders this file made, removed however its tests ended. */
+afterAll(removeTempFolders);
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const KALAM = fileURLToPath(new URL('../fonts/Kalam-Regular.ttf', import.meta.url));

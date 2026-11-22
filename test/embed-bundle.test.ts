@@ -19,9 +19,13 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { gzipSync } from 'node:zlib';
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import { transform } from 'esbuild';
 import { ez, tempFolder } from './cli.ts';
+import { removeTempFolders } from './temp.ts';
+
+/** The folders this file made, removed however its tests ended. */
+after(removeTempFolders);
 
 const run = promisify(execFile);
 const ROOT = fileURLToPath(new URL('..', import.meta.url));

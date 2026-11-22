@@ -6,11 +6,15 @@
  * instead of importing `src/` directly. Both seams share this helper, so a
  * change to how the modules are loaded cannot make the suites disagree.
  */
-import { mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { after } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
+import { removeTempFolders, tempFolder } from './temp.ts';
+
+/** Only `node:test` files import this module, so this module cleans its folder up. */
+after(removeTempFolders);
 
 /** What the bundled modules expose: the public Scene, Renderer and Layout functions, and Kalam. */
 export interface ProjectModules {
@@ -40,7 +44,7 @@ export interface ProjectModules {
 export async function loadProjectModules(): Promise<ProjectModules> {
   const source = (module: string): string =>
     JSON.stringify(fileURLToPath(new URL(`../src/${module}`, import.meta.url)));
-  const folder = await mkdtemp(join(tmpdir(), 'esbozo-module-'));
+  const folder = await tempFolder('esbozo-module-');
   const entry = join(folder, 'entry.ts');
   await writeFile(
     entry,

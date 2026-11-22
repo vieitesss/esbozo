@@ -26,10 +26,14 @@
 import { createServer } from 'node:http';
 import type { Server, ServerResponse } from 'node:http';
 import { test } from '@e2e-dev/web';
-import { expect } from 'e2e';
+import { afterAll, expect } from 'e2e';
 import { cliRender } from './helpers.ts';
 import { shot } from './pixels.ts';
 import type { Rect, Shot } from './pixels.ts';
+import { removeTempFolders } from '../test/temp.ts';
+
+/** The folders this file made, removed however its tests ended. */
+afterAll(removeTempFolders);
 
 /**
  * A Scene drawn at zero roughness, so a fill is one solid colour and an outline

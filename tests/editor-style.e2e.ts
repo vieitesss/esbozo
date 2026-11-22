@@ -4,11 +4,15 @@
  * default roughness the status bar sets. Asserted on the saved Scene.
  */
 import { test } from '@e2e-dev/web';
-import { expect } from 'e2e';
+import { afterAll, expect } from 'e2e';
 import { MIXED, clickScene, expectSvgMatchesCli, openEditor, savedScene } from './helpers.ts';
 import type { Ui } from './helpers.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
+import { removeTempFolders } from '../test/temp.ts';
+
+/** The folders this file made, removed however its tests ended. */
+afterAll(removeTempFolders);
 import { SCENE_SOURCE, MIXED_SOURCE, control } from './editor-shared.ts';
 
 /** None of these controls is offered: the buttons themselves are absent. */

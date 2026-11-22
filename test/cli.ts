@@ -7,11 +7,11 @@
  * exit code is read, cannot make the suites disagree.
  */
 import { execFile, spawn } from 'node:child_process';
-import { mkdtemp, realpath, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { tempFolder } from './temp.ts';
 
 const run = promisify(execFile);
 
@@ -25,10 +25,8 @@ export interface Run {
   stderr: string;
 }
 
-/** A fresh, resolved temporary folder, so a test never sees another test's files. */
-export async function tempFolder(prefix = 'esbozo-'): Promise<string> {
-  return realpath(await mkdtemp(join(tmpdir(), prefix)));
-}
+/** A fresh, resolved temporary folder, which the runner's teardown removes. */
+export { tempFolder };
 
 /** A folder holding `scene.json` (or `name`), ready for `ez render`. */
 export async function sceneFolder(scene: unknown, name = 'scene.json'): Promise<string> {

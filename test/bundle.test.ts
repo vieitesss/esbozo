@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { after, test } from 'node:test';
 import { startServe, tempFolder } from './cli.ts';
+import { removeTempFolders } from './temp.ts';
 import type { Serve } from './cli.ts';
 
 const run = promisify(execFile);
@@ -41,6 +42,7 @@ async function bundleFolder(): Promise<string> {
 const running: Serve[] = [];
 after(async () => {
   await Promise.all(running.map((server) => server.stop()));
+  await removeTempFolders();
 });
 
 test('the bundled CLI renders and draws a PNG with no node_modules beside it', async () => {

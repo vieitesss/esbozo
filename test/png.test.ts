@@ -9,16 +9,19 @@
  */
 import { execFile } from 'node:child_process';
 import assert from 'node:assert/strict';
-import { copyFile, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
+import { copyFile, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { inflateSync } from 'node:zlib';
 import opentype from 'opentype.js';
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import { writeFont } from './fonts.ts';
+import { removeTempFolders, tempFolder } from './temp.ts';
+
+/** Every folder this file makes is removed when its tests are done. */
+after(removeTempFolders);
 
 const run = promisify(execFile);
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
@@ -60,12 +63,8 @@ interface Run {
   stderr: string;
 }
 
-async function tempFolder(): Promise<string> {
-  return realpath(await mkdtemp(join(tmpdir(), 'esbozo-png-')));
-}
-
 async function sceneFolder(scene: unknown = SAMPLE_SCENE): Promise<string> {
-  const folder = await tempFolder();
+  const folder = await tempFolder('esbozo-png-');
   await writeFile(join(folder, 'scene.json'), JSON.stringify(scene, null, 2), 'utf8');
   return folder;
 }
@@ -271,7 +270,7 @@ test('png --theme dark writes its own PNG beside the Scene', async () => {
 });
 
 test('png names its file beside an .esbozo Scene the same way', async () => {
-  const folder = await tempFolder();
+  const folder = await tempFolder('esbozo-png-');
   await writeFile(join(folder, 'flow.esbozo'), JSON.stringify(SAMPLE_SCENE, null, 2), 'utf8');
 
   const run = await ez(['png', 'flow.esbozo', '--theme', 'light'], folder);
