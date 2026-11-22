@@ -164,14 +164,14 @@ export type Drag =
  * taken off its shaft. Those are shown as the pointer has made them, and only
  * those: the rest of the Scene is the Scene.
  */
-export type ShownDrag = Extract<Drag, { kind: 'move' | 'resize' | 'end' | 'bend' | 'label' }>;
+type ShownDrag = Extract<Drag, { kind: 'move' | 'resize' | 'end' | 'bend' | 'label' }>;
 
 /**
  * The Scene's Elements as the gesture in flight shows them. The ink the pointer
  * leaves and the Scene the release settles are this one projection, so a drag
  * can never show one thing and save another.
  */
-export function shownElements(elements: SceneElement[], drag: ShownDrag): SceneElement[] {
+function shownElements(elements: SceneElement[], drag: ShownDrag): SceneElement[] {
   if (drag.kind === 'move') {
     return elements.map((element) => drag.shown.get(element.id) ?? element);
   }

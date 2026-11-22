@@ -17,7 +17,7 @@ import type { ArrangeAct } from './arrange.js';
 import { actionById, actionFor } from './actions.js';
 import type { ActionHost, ActionState, ToolId } from './actions.js';
 import { exportPng } from './export.js';
-import { Gestures, shownElements } from './gestures.js';
+import { Gestures } from './gestures.js';
 import type { Bend } from './gestures.js';
 import { clipboardApi, copySelection, copyTo, cutSelection, pasteClipboard } from './clipboard.js';
 import type { ClipboardHost } from './clipboard.js';
@@ -628,33 +628,18 @@ class EsbozoEditorElement extends HTMLElement {
    * render.
    */
   #shown(): Shown {
-    const drag = this.#gestures.drag;
-    // A drag that only moves the pointer inside the words is still the same
-    // page: a pan moves the page, and so does carrying the caret through the
-    // words being typed, whose preview must stay drawn under the pointer.
-    if (drag === null || drag.kind === 'pan' || drag.kind === 'words') {
-      // A page with a session open draws the words it holds half-written, so it
-      // is not settled even when the Scene's Elements are the ones it shows.
-      const words = this.#typing.preview(this.#scene.elements);
-      return words === null
-        ? { settled: true, elements: this.#scene.elements }
-        : { settled: false, elements: words };
+    // The gesture says what it shows: null is the Scene as it is, under the
+    // words a session may be holding half-written.
+    const shown = this.#gestures.shownByDrag();
+    if (shown !== null) {
+      return { settled: false, elements: shown };
     }
-    if (drag.kind === 'draw') {
-      return { settled: false, elements: [...this.#scene.elements, drag.preview] };
-    }
-    if (
-      drag.kind === 'move' ||
-      drag.kind === 'resize' ||
-      drag.kind === 'end' ||
-      drag.kind === 'bend' ||
-      (drag.kind === 'label' && drag.moved)
-    ) {
-      return { settled: false, elements: shownElements(this.#scene.elements, drag) };
-    }
-    // A press that has placed nothing yet shows the Scene as it is: a Text press,
-    // a box sweep, and a Label the pointer has not carried.
-    return { settled: true, elements: this.#scene.elements };
+    // A page with a session open draws the words it holds half-written, so it is
+    // not settled even when the Scene's Elements are the ones it shows.
+    const words = this.#typing.preview(this.#scene.elements);
+    return words === null
+      ? { settled: true, elements: this.#scene.elements }
+      : { settled: false, elements: words };
   }
 
   /**
@@ -1085,16 +1070,7 @@ class EsbozoEditorElement extends HTMLElement {
       this.#showSheet(false);
       return;
     }
-    const drag = this.#gestures.drag;
-    if (
-      event.key === 'Escape' &&
-      (drag?.kind === 'label' ||
-        drag?.kind === 'bend' ||
-        drag?.kind === 'end' ||
-        drag?.kind === 'resize' ||
-        drag?.kind === 'move' ||
-        drag?.kind === 'draw')
-    ) {
+    if (event.key === 'Escape' && this.#gestures.holdsScene()) {
       // Half a Scene edit is not a Scene: Escape drops what the gesture drew back
       // to the place the Scene holds, and the release that follows it settles
       // nothing. It answers here, before the gesture that holds the Scene,
