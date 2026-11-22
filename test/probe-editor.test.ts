@@ -26,17 +26,44 @@ import { promisify } from 'node:util';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 /**
+ * The file a run's scan writes in the `TMPDIR` the run was handed, once a
+ * reading of the process list has seen the browser it started. A probe whose
+ * source waits for it answers nothing until the test's own look at the process
+ * list has seen that browser, so the look is never a race with how fast the
+ * probe answers. The browser is held open by the probe while it waits.
+ */
+const SEEN = 'browser-seen';
+
+/**
+ * A probe whose own work starts only once the run's scan has seen its browser: a
+ * probe module is imported before the browser is launched, so the wait belongs
+ * in the default export, on the page that launch produced. `imports` is what the
+ * body needs above the export.
+ */
+function heldByScan(body: string, imports = ''): string {
+  return `import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { setTimeout as wait } from 'node:timers/promises';
+${imports}
+export default async ({ page }) => {
+  // The browser this probe runs in is held open until the run's own reading of
+  // the process list has seen it: what the test reads is never a browser the run
+  // had already closed.
+  while (!existsSync(join(process.env.TMPDIR, ${JSON.stringify(SEEN)}))) await wait(5);
+${body}};
+`;
+}
+
+/**
  * A probe that holds Space and answers the status line: `Panning` is a word only
  * the running editor writes, so a page that never ran its JS cannot answer it.
  */
-const PAN_PROBE = `export default async ({ page }) => {
-  await page.getByRole('button', { name: 'Select' }).waitFor();
+const PAN_PROBE = heldByScan(`  await page.getByRole('button', { name: 'Select' }).waitFor();
   await page.keyboard.down(' ');
   const status = await page.getByRole('contentinfo').innerText();
   await page.keyboard.up(' ');
   return status;
-};
-`;
+`);
 
 /**
  * The status line while the pan runs: the one thing the served page answers to a
@@ -115,12 +142,17 @@ function killGroup(pid: number | undefined): void {
  * print next. The probe receives it as a person's Ctrl+C reaches it; pnpm is not
  * the one killed, so its own death cannot race the cleanup the test is about.
  *
+ * `input` is what the run is handed instead of a probe file: the probe module a
+ * piped source is written from, and the `TMPDIR` the run's scratch lives in. The
+ * first reading of the process list that sees a browser writes `browser-seen`
+ * there, which is what a `heldByScan` source waits for before it answers.
+ *
  * `exitAfter` is how long the run has to end: a probe that never answers is one
  * the deadline has to kill and report, inside a bound of the test's own.
  */
 async function helper(
   args: readonly string[],
-  input?: { source: string; folder: string },
+  input?: { source?: string; folder: string },
   interrupt?: 'during-setup' | 'while-probing',
   exitAfter: number = RUN_EXIT,
 ): Promise<Run> {
@@ -137,10 +169,24 @@ async function helper(
     let probe: number | undefined;
     let interrupted = false;
     let finished = false;
+    let seen = false;
+    /** Tells a probe that waits for it that a reading has seen its browser. */
+    const markSeen = async (folder: string): Promise<void> => {
+      try {
+        await writeFile(join(folder, SEEN), '');
+      } catch {
+        // The run's own scratch is the run's to remove: a folder gone already
+        // has a probe that ended without waiting.
+      }
+    };
     /** Sends the signal once the run has reached the point it is waiting at. */
     const atInterruptPoint = async (all: readonly Proc[], started: Set<number>): Promise<void> => {
       const running = all.find((proc) => started.has(proc.pid) && proc.command.includes('probe-editor.mjs'));
       probe ??= running?.pid;
+      if (!seen && input !== undefined && all.some((proc) => started.has(proc.pid) && isBrowser(proc.command))) {
+        seen = true;
+        await markSeen(input.folder);
+      }
       if (interrupt === undefined || interrupted || running === undefined) return;
       if (interrupt === 'during-setup') {
         // Setting up is where the URL is not announced yet, and the module is
@@ -314,8 +360,10 @@ async function moduleLanded(folder: string): Promise<boolean> {
 }
 
 test('a probe reads the running editor: a held Space names the pan in the status line', async (t) => {
+  const scratch = await mkdtemp(join(tmpdir(), 'esbozo-probe-run-'));
+  t.after(() => rm(scratch, { recursive: true, force: true }));
   const file = await probeSource(t, PAN_PROBE);
-  const run = await helper([file]);
+  const run = await helper([file], { folder: scratch });
 
   assert.equal(run.code, 0, run.stderr);
   assert.match(JSON.parse(run.stdout), PAN_STATUS);
@@ -424,13 +472,12 @@ test('a probe that exits by itself leaves no temporary module', async (t) => {
  * A probe that makes its own folder read-only before it answers: the run's last
  * act is to give that folder back, and it cannot.
  */
-const BLOCKING_PROBE = `import { chmodSync } from 'node:fs';
-
-export default async () => {
-  chmodSync(new URL('.', import.meta.url), 0o500);
+const BLOCKING_PROBE = heldByScan(
+  `  chmodSync(new URL('.', import.meta.url), 0o500);
   return 'finished';
-};
-`;
+`,
+  `import { chmodSync } from 'node:fs';`,
+);
 
 test('a cleanup that fails is printed and exits non-zero, and the rest is still given back', async (t) => {
   const folder = await mkdtemp(join(tmpdir(), 'esbozo-probe-blocked-'));
@@ -472,11 +519,13 @@ test('a probe that never answers is killed at its deadline, browser and all', as
 });
 
 test('a throwing probe exits non-zero, prints the error, and leaves no server', async (t) => {
+  const scratch = await mkdtemp(join(tmpdir(), 'esbozo-probe-run-'));
+  t.after(() => rm(scratch, { recursive: true, force: true }));
   const file = await probeSource(
     t,
-    "export default async () => {\n  throw new Error('probe on purpose');\n};\n",
+    heldByScan(`  throw new Error('probe on purpose');\n`),
   );
-  const run = await helper([file]);
+  const run = await helper([file], { folder: scratch });
 
   assert.notEqual(run.code, 0);
   assert.match(run.stderr, /probe on purpose/);
