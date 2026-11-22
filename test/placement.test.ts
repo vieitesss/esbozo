@@ -29,7 +29,8 @@ const {
 } = await loadProjectModules();
 
 /** The drawing is measured with the bundled font, as `ez render` measures it. */
-const LAYOUT = createLayout(parseFontFile(KALAM));
+const HAND = parseFontFile(KALAM);
+const LAYOUT = createLayout(HAND);
 
 test('a page measured in memory is the page the SVG draws', () => {
   // The editor assigns `t` with more precision than a saved Scene keeps. A very
@@ -90,8 +91,7 @@ test('a Snap target is resolved where it is drawn, so bounds and picking keep th
   }
   target.x = 79.6;
 
-  const paper = paperOf(renderScene(scene, LAYOUT));
-  const painted = { x: paper.x + paper.width / 2, y: paper.y + paper.height / 2 };
+  const painted = wordsCentre(renderScene(scene, LAYOUT));
   const line = scene.elements[1]!;
   const held = new Map(scene.elements.map((element) => [element.id, element]));
 
@@ -122,8 +122,7 @@ test('a shaft Label is picked where it is painted, not where Layout first put it
       },
     ],
   });
-  const paper = paperOf(renderScene(scene, LAYOUT));
-  const pressed = { x: paper.x + paper.width / 2, y: paper.y + paper.height / 2 };
+  const pressed = wordsCentre(renderScene(scene, LAYOUT));
 
   assert.equal(pick(scene, pressed), 'a', 'the Label is picked where it is painted');
   assert.equal(pick(scene, { x: 200, y: 90 }), null, 'and not where Layout first put it');
@@ -257,17 +256,10 @@ function pick(scene: Scene, point: { x: number; y: number }): string | null {
   return elementAt(scene.elements, point, 0, LAYOUT)?.id ?? null;
 }
 
-/** The paper the shaft's Label sits on, as the written SVG draws it. */
-function paperOf(svg: string): Box {
-  const at = svg.indexOf('<rect ');
-  assert.ok(at >= 0, 'the Label paints paper');
-  const tag = svg.slice(at, svg.indexOf('>', at));
-  return {
-    x: numberIn(tag, 'x'),
-    y: numberIn(tag, 'y'),
-    width: numberIn(tag, 'width'),
-    height: numberIn(tag, 'height'),
-  };
+/** Where the words of a Label sit: the middle of the block the drawing put them in. */
+function wordsCentre(svg: string): { x: number; y: number } {
+  const words = wordsOf(svg);
+  return { x: words.x, y: words.baseline - HAND.metrics.inkCentre(words.size) };
 }
 
 /** The page an SVG writes, read back from the bytes as the host reads them. */

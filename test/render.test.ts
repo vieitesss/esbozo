@@ -433,10 +433,10 @@ test('a failed write exits 4, which no other failure uses', async () => {
 });
 
 test('a shaft Label keeps one block, and each line reads from the edge its textAlign names', async () => {
-  /** One drawing of a two-line shaft Label: the lines it draws, and the paper its block sits on. */
+  /** One drawing of a two-line shaft Label: the lines it draws. */
   const drawing = async (
     textAlign: string,
-  ): Promise<{ lines: { x: number; y: number; anchor: string }[]; paper: Box }> => {
+  ): Promise<{ lines: { x: number; y: number; anchor: string }[] }> => {
     const svg = await renderOne({
       version: 1,
       title: 'Aligned',
@@ -454,7 +454,7 @@ test('a shaft Label keeps one block, and each line reads from the edge its textA
         },
       ],
     });
-    return { lines: textTags(svg).map(placeOf), paper: paperOf(svg) };
+    return { lines: textTags(svg).map(placeOf) };
   };
 
   const centred = await drawing('center');
@@ -465,8 +465,8 @@ test('a shaft Label keeps one block, and each line reads from the edge its textA
   assert.equal(centred.lines[0]!.x, 200, 'centred, as every shaft Label was before an alignment');
 
   // One block either way: the lines read from its left edge, or its right one,
-  // and the block itself keeps the middle of the shaft, so the paper behind it
-  // covers the same box whatever the alignment says.
+  // and the block itself keeps the middle and the width it had, so the words
+  // cover the same space whatever the alignment says.
   assert.equal(left.lines[0]!.anchor, 'start');
   assert.equal(right.lines[0]!.anchor, 'end');
   assert.equal(left.lines[0]!.x + right.lines[0]!.x, 400, 'the two edges straddle the shaft’s middle');
@@ -478,9 +478,12 @@ test('a shaft Label keeps one block, and each line reads from the edge its textA
     assert.equal(line.x, left.lines[0]!.x, 'every left line starts at the same edge');
     assert.equal(right.lines[index]!.x, right.lines[0]!.x, 'and every right line ends at the other');
     assert.equal(line.y, centred.lines[index]!.y, 'and every line keeps the height it had');
+    assert.equal(
+      centred.lines[index]!.x - line.x,
+      right.lines[index]!.x - centred.lines[index]!.x,
+      'the block is as wide on one edge as on the other',
+    );
   }
-  assert.deepEqual(left.paper, centred.paper, 'the paper keeps one box on the left edge');
-  assert.deepEqual(right.paper, centred.paper, 'and one on the right');
 });
 
 test('a shaft Label with labelAt sits at the fraction and to the side it names', async () => {
@@ -536,19 +539,164 @@ test('a shaft Label without labelAt keeps its place above the middle of the shaf
   assert.ok(words.y < 96, 'and clear above it, as Layout has always placed it');
 });
 
-test('every shaft Label has paper behind it, and a Scene with none writes no paper', async () => {
+test('a shaft Label cuts its own shaft open and paints no paper behind it', async () => {
   const bare = await renderOne(SAMPLE_SCENE);
   // check-rules: markup of a written SVG file, not the page
   assert.deepEqual(bare.match(/<rect\b/g) ?? [], [], 'nothing to knock out, nothing knocked out');
 
-  const svg = await renderOne(lineScene([0, 100], [400, 100]));
-  const paper = paperOf(svg);
+  const svg = await renderOne(lineScene([0, 100], [400, 100], { t: 0.5, offset: 0 }));
   // check-rules: markup of a written SVG file, not the page
-  assert.ok(svg.indexOf(`<rect x="${paper.x}"`) < svg.indexOf('<text'), 'and the paper goes under the words');
+  assert.deepEqual(svg.match(/<rect\b/g) ?? [], [], 'a Label paints no paper of its own');
+  assert.doesNotMatch(svg, /NaN/, 'and cuts path data it can draw');
+  assert.ok(pathsOf(svg).length >= 2, 'the shaft is cut where the words sit on it');
+  textOf(svg);
+});
 
-  const words = textOf(svg);
-  assert.ok(paper.x <= words.x && words.x <= paper.x + paper.width, 'the paper covers the words across');
-  assert.ok(paper.y <= words.y && words.y <= paper.y + paper.height, 'and down');
+test('a centred Label cuts a level, leaning, steep, upright and curved shaft open', async () => {
+  const cases: { name: string; points: Record<string, unknown>[]; middle: { x: number; y: number } }[] = [
+    { name: 'level', points: [{ x: 20, y: 200 }, { x: 380, y: 200 }], middle: { x: 200, y: 200 } },
+    { name: '30°', points: [{ x: 20, y: 200 }, { x: 314, y: 30 }], middle: { x: 167, y: 115 } },
+    { name: '75°', points: [{ x: 20, y: 360 }, { x: 108, y: 31 }], middle: { x: 64, y: 195.5 } },
+    { name: 'upright', points: [{ x: 200, y: 20 }, { x: 200, y: 380 }], middle: { x: 200, y: 200 } },
+    {
+      name: 'curved',
+      points: [{ x: 20, y: 200 }, { x: 200, y: 90, corner: 'round' }, { x: 380, y: 200 }],
+      middle: { x: 200, y: 145 },
+    },
+  ];
+
+  for (const one of cases) {
+    const svg = await renderOne({
+      version: 1,
+      title: one.name,
+      defaults: { roughness: 0 },
+      elements: [
+        {
+          id: 'a',
+          type: 'line',
+          points: one.points,
+          label: 'l l',
+          labelAt: { t: 0.5, offset: 0 },
+        },
+      ],
+    });
+    const runs = pathsOf(svg);
+    assert.ok(runs.length >= 2, `${one.name}: the shaft is cut where the words sit`);
+
+    const ink = pathBox(svg);
+    assert.ok(
+      (ink.x < one.middle.x && ink.x + ink.width > one.middle.x) ||
+        (ink.y < one.middle.y && ink.y + ink.height > one.middle.y),
+      `${one.name}: the ink reaches either side of the words`,
+    );
+  }
+});
+
+test('a curve that only clips a corner of the words is cut across that corner', async () => {
+  const scene = (offset: number): unknown => ({
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [
+      {
+        id: 'a',
+        type: 'line',
+        points: [{ x: 0, y: 300 }, { x: 150, y: 80, corner: 'round' }, { x: 300, y: 300 }],
+        label: 'middle',
+        labelAt: { t: 0.2, offset },
+      },
+    ],
+  });
+
+  // 28px beside the steep part of the curve, one corner of the words reaches it
+  // and nothing else does: the curve is cut across that corner alone, a short
+  // chord rather than the width of the block.
+  const svg = await renderOne(scene(28));
+  const runs = pathsOf(svg);
+  assert.ok(runs.length >= 2, 'the curve is cut where it clips the words');
+  assert.doesNotMatch(svg, /NaN/);
+  const before = pointsOf(runs[0]!).at(-1)!;
+  const after = pointsOf(runs[1]!)[0]!;
+  const corner = Math.hypot(after.x - before.x, after.y - before.y);
+  assert.ok(corner > 0 && corner < 20, `the cut is a corner's width, ${corner}px`);
+
+  // A pixel further out and the centre line misses the words altogether: the
+  // corner above is the nearest the words come to the curve.
+  const missed = pathsOf(await renderOne(scene(29)));
+  assert.equal(missed.length, 1, 'a hair further out and the curve is not cut at all');
+});
+
+test('a leaning bold arrow splits its shaft under the labelAt the Scene wrote', async () => {
+  const svg = await renderOne({
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [
+      {
+        id: 'a',
+        type: 'arrow',
+        points: [
+          { x: -252, y: -72 },
+          { x: -218, y: -195 },
+        ],
+        stroke: { width: 'bold' },
+        labelAt: { t: 0.5566, offset: 12 },
+        label: 'hola',
+      },
+    ],
+  });
+
+  assert.ok(pathsOf(svg).length >= 3, 'the head and a shaft cut under the words');
+  assert.doesNotMatch(svg, /NaN/);
+});
+
+test('a default Label leaves its shaft’s bytes alone at every angle, roughness, width, size and line count', async () => {
+  // A Label placed beside its shaft never meets it: the shaft's centre line stays
+  // out of the words' advance box, so the drawing has no gap to cut and every
+  // path is the one the same Scene draws with no Label at all.
+  const shafts: Record<string, unknown>[] = [];
+  for (let angle = 0; angle < 180; angle += 5) {
+    const radians = (angle * Math.PI) / 180;
+    for (const label of ['a label', 'two\nlines']) {
+      for (const width of ['thin', 'extra']) {
+        for (const roughness of [0, 2]) {
+          for (const fontSize of ['M', 'XL']) {
+            shafts.push({
+              id: `a${angle}-${label.length}-${width}-${roughness}-${fontSize}`,
+              type: 'arrow',
+              points: [
+                { x: 0, y: 0 },
+                {
+                  x: Math.round(260 * Math.cos(radians)),
+                  y: -Math.round(260 * Math.sin(radians)),
+                },
+              ],
+              label,
+              roughness,
+              fontSize,
+              stroke: { width },
+            });
+          }
+        }
+      }
+    }
+  }
+  const scene = (elements: Record<string, unknown>[]): unknown => ({
+    version: 1,
+    title: 'Every angle',
+    defaults: { roughness: 1 },
+    elements,
+  });
+  const bare = scene(shafts.map(({ label: _label, ...rest }) => rest));
+
+  const labelled = pathsOf(await renderOne(scene(shafts)));
+  const plain = pathsOf(await renderOne(bare));
+  assert.equal(labelled.length, plain.length, 'the same Elements, so the same paths');
+  assert.deepEqual(labelled, plain, 'and every path is byte for byte what it is with no Label');
+});
+
+test('the same Scene renders the same bytes twice', async () => {
+  const scene = lineScene([0, 100], [400, 100], { t: 0.5, offset: 0 });
+
+  assert.equal(await renderOne(scene), await renderOne(scene));
 });
 
 async function renderOne(scene: unknown): Promise<string> {
@@ -614,16 +762,73 @@ function placeOf(tag: string): { x: number; y: number; anchor: string } {
   };
 }
 
-/** The paper a drawing knocked out behind a shaft's Label, as the box it covers. */
-function paperOf(svg: string): Box {
+/** Every path a drawing wrote, in the order it wrote them. */
+function pathsOf(svg: string): string[] {
   // check-rules: markup of a written SVG file, not the page
-  const tag = /<rect\b[^>]*fill="var\(--paper, #fbf8f1\)"[^>]*>/.exec(svg)?.[0];
-  assert.ok(tag !== undefined, 'the words sit on paper, not on what runs under them');
+  return [...svg.matchAll(/<path\b[^>]*>/g)].map((found) => found[0]);
+}
+
+/** The box every point a drawing's paths run through covers. */
+function pathBox(svg: string): Box {
+  let left = Number.POSITIVE_INFINITY;
+  let top = Number.POSITIVE_INFINITY;
+  let right = Number.NEGATIVE_INFINITY;
+  let bottom = Number.NEGATIVE_INFINITY;
+  for (const tag of pathsOf(svg)) {
+    for (const point of pointsOf(tag)) {
+      left = Math.min(left, point.x);
+      top = Math.min(top, point.y);
+      right = Math.max(right, point.x);
+      bottom = Math.max(bottom, point.y);
+    }
+  }
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+/** The points one written path runs through, its curves followed a step at a time. */
+function pointsOf(tag: string): { x: number; y: number }[] {
+  const tokens = attributeIn(tag, 'd').match(/[MLC]|-?\d+(?:\.\d+)?/g) ?? [];
+  const points: { x: number; y: number }[] = [];
+  let at = { x: 0, y: 0 };
+  let index = 0;
+  const read = (): number => Number(tokens[index++]);
+  while (index < tokens.length) {
+    const command = tokens[index++];
+    if (command === 'M' || command === 'L') {
+      at = { x: read(), y: read() };
+      points.push(at);
+      continue;
+    }
+    if (command !== 'C') {
+      continue;
+    }
+    const control1 = { x: read(), y: read() };
+    const control2 = { x: read(), y: read() };
+    const to = { x: read(), y: read() };
+    for (let step = 1; step <= 8; step += 1) {
+      points.push(curveAt(at, control1, control2, to, step / 8));
+    }
+    at = to;
+  }
+  return points;
+}
+
+/** One point on a cubic curve, a `step` of the way along it. */
+function curveAt(
+  from: { x: number; y: number },
+  control1: { x: number; y: number },
+  control2: { x: number; y: number },
+  to: { x: number; y: number },
+  step: number,
+): { x: number; y: number } {
+  const rest = 1 - step;
+  const before = rest * rest * rest;
+  const first = 3 * rest * rest * step;
+  const second = 3 * rest * step * step;
+  const last = step * step * step;
   return {
-    x: attributeOf(tag, 'x'),
-    y: attributeOf(tag, 'y'),
-    width: attributeOf(tag, 'width'),
-    height: attributeOf(tag, 'height'),
+    x: from.x * before + control1.x * first + control2.x * second + to.x * last,
+    y: from.y * before + control1.y * first + control2.y * second + to.y * last,
   };
 }
 

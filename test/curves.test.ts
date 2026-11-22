@@ -24,7 +24,8 @@ const { parseScene, serialiseScene, renderScene, elementBounds, createLayout, pa
   await loadProjectModules();
 
 /** The drawing is measured with the bundled font, as `ez render` measures it. */
-const LAYOUT = createLayout(parseFontFile(KALAM));
+const HAND = parseFontFile(KALAM);
+const LAYOUT = createLayout(HAND);
 
 const BOX = { id: 'box', type: 'rectangle', x: 0, y: 0, width: 80, height: 80 };
 
@@ -222,9 +223,8 @@ function attribute(tag: string, name: string): string | undefined {
   return new RegExp(`\\b${name}="([^"]*)"`).exec(tag)?.[1];
 }
 
-/** The Renderer's ink and paper, with the light theme as the fallback they carry. */
+/** The Renderer's ink and hand font, with the light theme as the fallback they carry. */
 const INK = 'var(--ink, #1b1a17)';
-const PAPER = 'var(--paper, #fbf8f1)';
 const FONT = "var(--font-hand, 'Kalam', 'Bradley Hand', 'Segoe Print', cursive)";
 
 /** The shaft's own path: the stroked path that starts where the shaft does. */
@@ -945,22 +945,17 @@ test('an arrow head follows the curve it arrives on, not the line between the en
   assert.ok(near(middle.y, 87, 1.5), `the base sits one head length back, got ${middle.y}`);
 });
 
-/** The paper a shaft's Label sits on, read from the written SVG. */
-function paperOf(svg: string): Box {
-  const tag = tags(svg, 'rect').find((candidate) => attribute(candidate, 'fill') === PAPER);
-  assert.ok(tag !== undefined, 'the Label paints paper behind its words');
+/** Where the words of a Label sit: the middle of the block the drawing put them in. */
+function wordsCentre(svg: string): Point {
+  const [tag] = tags(svg, 'text');
+  assert.ok(tag !== undefined, 'the Label paints words');
+  const size = Number(attribute(tag, 'font-size'));
   return {
     x: Number(attribute(tag, 'x')),
-    y: Number(attribute(tag, 'y')),
-    width: Number(attribute(tag, 'width')),
-    height: Number(attribute(tag, 'height')),
+    // A line's baseline sits its own ink centre below the middle of its block,
+    // measured by the same font the drawing measured the words with.
+    y: Number(attribute(tag, 'y')) - HAND.metrics.inkCentre(size),
   };
-}
-
-/** Where the words of a Label sit: the middle of the paper behind them. */
-function wordsCentre(svg: string): Point {
-  const paper = paperOf(svg);
-  return { x: paper.x + paper.width / 2, y: paper.y + paper.height / 2 };
 }
 
 test('labelAt places a shaft Label by arc length along the curve', async () => {
@@ -1004,23 +999,24 @@ test('labelAt puts the words on the middle of a long curve, not the middle of it
   // A curve this long holds a lot of arc between two of its own chords: the ink
   // is measured finely enough that half its length lands on the ink, not a few
   // pixels behind it as thirty-two chords would have it.
+  const points = [
+    { x: 0, y: 0 },
+    { x: 10000, y: 15000, corner: 'round' },
+    { x: 30000, y: 0, corner: 'round' },
+    { x: 100000, y: 10000 },
+  ];
   const svg = await ink(
-    oneArrow(
-      [
-        { x: 0, y: 0 },
-        { x: 10000, y: 15000, corner: 'round' },
-        { x: 30000, y: 0, corner: 'round' },
-        { x: 100000, y: 10000 },
-      ],
-      {
-        label: 'middle',
-        labelAt: { t: 0.5, offset: 0 },
-        heads: { start: 'none', end: 'none' },
-      },
-    ),
+    oneArrow(points, {
+      label: 'middle',
+      labelAt: { t: 0.5, offset: 0 },
+      heads: { start: 'none', end: 'none' },
+    }),
   );
+  // The words cut the shaft they sit on, so the ink's own middle is measured on
+  // the same curve drawn without a Label.
+  const bare = await ink(oneArrow(points, { heads: { start: 'none', end: 'none' } }));
 
-  const shaft = firstPass(attribute(shaftFrom(svg, { x: 0, y: 0 }), 'd') ?? '');
+  const shaft = firstPass(attribute(shaftFrom(bare, { x: 0, y: 0 }), 'd') ?? '');
   const middle = arcMiddle(shaft);
   const centre = wordsCentre(svg);
   const missed = Math.hypot(centre.x - middle.x, centre.y - middle.y);
@@ -1034,23 +1030,22 @@ test('labelAt still finds the middle when the same curve is 250 times as long', 
   // solved for on the curve, so the words stay on the middle however far the
   // ink runs.
   const far = 250;
+  const points = [
+    { x: 0, y: 0 },
+    { x: 10000 * far, y: 15000 * far, corner: 'round' },
+    { x: 30000 * far, y: 0, corner: 'round' },
+    { x: 100000 * far, y: 10000 * far },
+  ];
   const svg = await ink(
-    oneArrow(
-      [
-        { x: 0, y: 0 },
-        { x: 10000 * far, y: 15000 * far, corner: 'round' },
-        { x: 30000 * far, y: 0, corner: 'round' },
-        { x: 100000 * far, y: 10000 * far },
-      ],
-      {
-        label: 'middle',
-        labelAt: { t: 0.5, offset: 0 },
-        heads: { start: 'none', end: 'none' },
-      },
-    ),
+    oneArrow(points, {
+      label: 'middle',
+      labelAt: { t: 0.5, offset: 0 },
+      heads: { start: 'none', end: 'none' },
+    }),
   );
+  const bare = await ink(oneArrow(points, { heads: { start: 'none', end: 'none' } }));
 
-  const shaft = firstPass(attribute(shaftFrom(svg, { x: 0, y: 0 }), 'd') ?? '');
+  const shaft = firstPass(attribute(shaftFrom(bare, { x: 0, y: 0 }), 'd') ?? '');
   const middle = arcMiddle(shaft, 100000);
   const centre = wordsCentre(svg);
   const missed = Math.hypot(centre.x - middle.x, centre.y - middle.y);

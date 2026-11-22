@@ -1082,10 +1082,11 @@ test('--help lists the stylesheet subset', async () => {
   assert.equal(help.stderr, '');
 });
 
-test('a Label placed on its shaft cuts the shaft out, leaving paper under the words', async () => {
+test('a Label placed on its shaft cuts the shaft out, leaving the page under the words', async () => {
   // One line across the page with a placed Label, drawn with one-em-wide glyphs
   // a fraction of a line tall: the row through the middle of the words is the
-  // shaft's own, so what is left there is the knockout and nothing else.
+  // shaft's own, so what is left there is the cut and nothing else — no paper
+  // rectangle behind the words, just the page showing through.
   const folder = await sceneFolder({
     version: 1,
     defaults: { roughness: 0 },
@@ -1125,10 +1126,10 @@ test('a Label placed on its shaft cuts the shaft out, leaving paper under the wo
   }
 });
 
-test('a Label placed off its shaft clears the ink under its paper and leaves the shaft whole', async () => {
-  // A solid band of ink runs behind the Label, 40px above its shaft. The paper
-  // has to cut that band to paper where the words stand, and cut nothing else:
-  // the band stays either side of them and the shaft below stays whole.
+test('a Label placed off its shaft leaves the ink behind its words alone and its shaft whole', async () => {
+  // A solid band of ink runs behind the Label, 40px above its shaft. Nothing is
+  // painted over that band where the words stand, so it runs unbroken under
+  // them, and the shaft below stays whole.
   const folder = await sceneFolder({
     version: 1,
     defaults: { roughness: 0 },
@@ -1173,14 +1174,96 @@ test('a Label placed off its shaft clears the ink under its paper and leaves the
     const band = inkOnRow(png, labelRow, paper);
     assert.ok(band !== null, `${theme}: the ink behind the Label is painted`);
     const gap = paperRunThrough(png, labelRow, paper, band);
-    assert.ok(
-      gap.length >= 30,
-      `${theme}: ${gap.length}px of paper between the band's edges, where the words stand`,
+    assert.equal(
+      gap.length,
+      0,
+      `${theme}: the band runs unbroken under the words, not knocked out for them`,
     );
     assert.ok(
-      inkIn(png, paper, gap.start, gap.start + gap.length, labelRow - 20, labelRow + 20) > 0,
-      `${theme}: the words are drawn on the paper the knockout left`,
+      inkIn(png, paper, 0, png.width, labelRow - 20, labelRow + 20) > 0,
+      `${theme}: the words are drawn over it`,
     );
+  }
+});
+
+test('a Label shows the rectangle behind it through the space between its glyphs, in both themes', async () => {
+  // The rectangle fills the page, and the Scene's own bounds start at (0,0), so
+  // a Scene point is a page pixel 16 across and down. The words sit centred on
+  // their shaft, and the space in `l l` is the middle of that block: the pixel
+  // there is either the shaft's ink or the rectangle's colour, nothing else.
+  const folder = await sceneFolder({
+    version: 1,
+    title: 'Behind the words',
+    defaults: { roughness: 0 },
+    elements: [
+      { id: 'behind', type: 'rectangle', x: 0, y: 0, width: 400, height: 200, fill: { kind: 'solid', grey: 2 } },
+      {
+        id: 'a',
+        type: 'line',
+        points: [
+          { x: 0, y: 100 },
+          { x: 400, y: 100 },
+        ],
+        label: 'l l',
+        labelAt: { t: 0.5, offset: 0 },
+      },
+    ],
+  });
+
+  for (const [theme, paper] of [
+    ['light', LIGHT_PAPER],
+    ['dark', DARK_PAPER],
+  ] as const) {
+    const { png } = await pngOne(['png', 'scene.json', '--theme', theme], folder);
+    const colourAt = (x: number, y: number): Color => png.pixel(x + 16, y + 16);
+    const behind = colourAt(380, 20);
+
+    assert.notDeepEqual(behind, [...paper, 255], `${theme}: the rectangle paints`);
+    assert.deepEqual(
+      colourAt(200, 100),
+      behind,
+      `${theme}: the space between the glyphs shows the rectangle through, not the shaft`,
+    );
+  }
+});
+
+test('a dashed shaft keeps its dashes outside the gap where they would be with no Label', async () => {
+  // A frame fixes both pages to the same size either way, so the shaft is the
+  // same row in both drawings and a column can be compared with itself. The
+  // fitted dash pattern is the shaft's own, so a gap cut out of it must not
+  // shift the dashes that are left.
+  const dashed = (label: boolean): unknown => ({
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [
+      { id: 'frame', type: 'rectangle', x: 0, y: 0, width: 400, height: 200 },
+      {
+        id: 'a',
+        type: 'line',
+        points: [
+          { x: 0, y: 100 },
+          { x: 400, y: 100 },
+        ],
+        stroke: { style: 'dashed' },
+        ...(label ? { label: 'l l', labelAt: { t: 0.5, offset: 0 } } : {}),
+      },
+    ],
+  });
+  const bare = await pngOne(['png', 'scene.json', '--theme', 'light'], await sceneFolder(dashed(false)));
+  const cut = await pngOne(['png', 'scene.json', '--theme', 'light'], await sceneFolder(dashed(true)));
+  const row = 100 + 16;
+
+  for (const [from, to] of [
+    [20, 160],
+    [256, 396],
+  ] as const) {
+    for (let x = from; x < to; x += 1) {
+      assert.equal(
+        isPaper(cut.png.pixel(x, row), LIGHT_PAPER),
+        isPaper(bare.png.pixel(x, row), LIGHT_PAPER),
+        `the dash at ${x} falls where it would with no Label`,
+      );
+    }
   }
 });
 
@@ -1221,10 +1304,11 @@ function placedLabelScene(behind: boolean): unknown {
   };
 }
 
-test('the paper behind a placed Label covers its glyph overhang too', async () => {
+test('a placed Label shows the ink behind it through instead of knocking it out', async () => {
   // Kalam's `j` hangs its hook past the advance box Layout measured. With
   // contrasting ink painted behind the Label, the words have to look exactly as
-  // they look on bare paper: the knockout reaches the glyph's ink, not the box.
+  // they look on bare paper, and the ink that is not under a glyph shows through
+  // them: nothing is painted over what the Label sits on any more.
   const words = await sceneFolder(placedLabelScene(false));
   const backed = await sceneFolder(placedLabelScene(true));
 
@@ -1238,10 +1322,9 @@ test('the paper behind a placed Label covers its glyph overhang too', async () =
     const ink = inkBox(plain.png, paper);
     assert.ok(ink !== null, `${theme}: the Label is drawn`);
     const differing = pixelsDiffering(plain.png, behind.png, ink);
-    assert.deepEqual(
-      differing.slice(0, 5),
-      [],
-      `${theme}: ${differing.length} pixels of the ink behind the Label survive inside its own ink`,
+    assert.ok(
+      differing.length > 0,
+      `${theme}: the ink behind the Label shows through the words' own box`,
     );
   }
 });

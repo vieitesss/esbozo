@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { after, test } from 'node:test';
 import { ez, sceneFolder, tempFolder } from './cli.ts';
 import type { Run } from './cli.ts';
-import { INK, MUTED, PAPER, assertOnlyThemeColours, isThemeColour } from './palette.ts';
+import { INK, MUTED, assertOnlyThemeColours, isThemeColour } from './palette.ts';
 import { removeTempFolders } from './temp.ts';
 
 /** The folders this file made, removed however its tests ended. */
@@ -856,10 +856,13 @@ test('a fractional roughness in the Scene defaults is a parse problem too', asyn
 
 test('a written labelAt draws where it says: a fraction along the shaft, and how far to one side', async () => {
   const svg = await renderOne(oneLine({ label: 'words', labelAt: { t: 0.25, offset: -20 } }));
-  const paper = paperOf(svg);
+  const on = await renderOne(oneLine({ label: 'words', labelAt: { t: 0.25, offset: 0 } }));
+  const words = textOf(svg);
+  const beside = textOf(on);
 
-  assert.ok(near(paper.x + paper.width / 2, 50), 'a quarter along a 200px shaft');
-  assert.ok(near(paper.y + paper.height / 2, 120), 'and 20px below it');
+  assert.ok(near(words.x, 50), 'a quarter along a 200px shaft');
+  assert.ok(near(words.y - beside.y, 20), 'and 20px below it, where offset 0 is on the shaft');
+  assert.ok(words.y > beside.y, 'below, as a negative offset puts them');
 });
 
 test('a written labelAt draws as the position it saves as', async () => {
@@ -987,16 +990,11 @@ function attribute(tag: string, name: string): string | undefined {
   return new RegExp(`\\b${name}="([^"]*)"`).exec(tag)?.[1];
 }
 
-/** The paper a shaft's Label sits on, read from the written SVG. */
-function paperOf(svg: string): Box {
-  const tag = tags(svg, 'rect').find((candidate) => attribute(candidate, 'fill') === PAPER);
-  assert.ok(tag !== undefined, 'the Label paints paper');
-  return {
-    x: Number(attribute(tag, 'x')),
-    y: Number(attribute(tag, 'y')),
-    width: Number(attribute(tag, 'width')),
-    height: Number(attribute(tag, 'height')),
-  };
+/** Where the one line of words a drawing wrote sits: its x and its baseline. */
+function textOf(svg: string): { x: number; y: number } {
+  const [tag] = tags(svg, 'text');
+  assert.ok(tag !== undefined, 'the Scene drew its words');
+  return { x: Number(attribute(tag, 'x')), y: Number(attribute(tag, 'y')) };
 }
 
 /** Each `<text>` Element with its content, so a test can ask what one Text drew. */
