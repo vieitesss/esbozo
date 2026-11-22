@@ -973,9 +973,22 @@ async function committedSources(): Promise<string> {
   await writeFile(join(folder, '.gitignore'), 'node_modules\ndist\n', 'utf8');
   await run('git', ['init', '-q'], { cwd: folder });
   await run('git', ['add', '-A'], { cwd: folder });
+  // A machine that signs every commit it makes signs this one too, and a signing
+  // program that is not there fails the fixture before the build it is here for.
   await run(
     'git',
-    ['-c', 'user.name=esbozo', '-c', 'user.email=esbozo@example.invalid', 'commit', '-q', '-m', 'the sources'],
+    [
+      '-c',
+      'user.name=esbozo',
+      '-c',
+      'user.email=esbozo@example.invalid',
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '-q',
+      '-m',
+      'the sources',
+    ],
     { cwd: folder },
   );
   return folder;

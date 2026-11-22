@@ -120,6 +120,9 @@ const owned = [];
 let stopping = false;
 let closing;
 
+/** What cleanup could not give back: one failure per disposal that threw. */
+const failures = [];
+
 /**
  * Owns one acquisition. `dispose` gives back what `landing` resolves to, and
  * `disposeNow` is the same in the synchronous form a probe that calls
@@ -150,8 +153,10 @@ async function close(held) {
   if (value === undefined) return;
   try {
     await held.dispose(value);
-  } catch {
-    // One resource that will not close cannot keep the others open.
+  } catch (error) {
+    // One resource that will not close cannot keep the others open, and none of
+    // them goes unreported: the run exits as the failure it is.
+    failures.push(error);
   }
 }
 
@@ -173,13 +178,33 @@ function stop() {
 }
 
 /**
+ * Prints what cleanup could not give back, and makes the exit code say so: a run
+ * that left something behind did not finish clean.
+ */
+function reportFailures() {
+  const unreported = failures.splice(0);
+  if (unreported.length === 0) return;
+  for (const error of unreported) {
+    process.stderr.write(`cleanup failed: ${error?.message ?? String(error)}\n`);
+  }
+  process.exitCode = 1;
+}
+
+/**
  * A probe that calls `process.exit` itself skips `finally`: this hook is the one
  * last look the run gets, and only what can be given back synchronously is.
  */
 process.on('exit', () => {
   for (const held of owned) {
-    if (!held.closed && held.landed && held.value !== undefined) held.disposeNow?.(held.value);
+    if (!held.closed && held.landed && held.value !== undefined) {
+      try {
+        held.disposeNow?.(held.value);
+      } catch (error) {
+        failures.push(error);
+      }
+    }
   }
+  reportFailures();
 });
 
 /** Set by a signal: the run ends where the person ended it, not where the probe was. */
@@ -188,7 +213,10 @@ let interrupted = false;
 /** Ends the run on a signal, with the exit code a shell reads for it. */
 function interrupt(code) {
   interrupted = true;
-  void stop().then(() => process.exit(code));
+  void stop().then(() => {
+    reportFailures();
+    process.exit(code);
+  });
 }
 process.once('SIGINT', () => interrupt(130));
 process.once('SIGTERM', () => interrupt(143));
@@ -250,4 +278,5 @@ try {
   process.exitCode = interrupted ? 130 : 1;
 } finally {
   await stop();
+  reportFailures();
 }
