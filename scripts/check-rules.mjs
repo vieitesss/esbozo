@@ -14,8 +14,8 @@
  *      tag-name selectors, and no test reads a `src/` file for itself.
  *   4. A Node test reaches the Editor only through the `src/editor/` modules
  *      `test/modules.ts` may load. The list is today's set, held still: the
- *      bundle loader hides a module from the import rule above, so a new
- *      Editor internal reached `node:test` four times without a finding.
+ *      bundle loader names its modules in strings no rule above judges, so a
+ *      new Editor internal reached `node:test` four times without a finding.
  *   5. Every `tests/*.e2e.ts` runs in exactly one of the `e2e` scripts, and a
  *      file a script names exists. A suite added without its line in
  *      package.json ran nowhere, and CI stayed green while it did.
