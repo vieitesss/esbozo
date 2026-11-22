@@ -18,8 +18,9 @@
  */
 import { describe, test } from '@e2e-dev/web';
 import { afterAll, expect } from 'e2e';
-import { at, clickScene, drag, openEditor, savedFiles } from './helpers.ts';
+import { at, clickScene, drag, openEditor, savedFiles, savedScene } from './helpers.ts';
 import type { Point, SavedScene, Ui, View } from './helpers.ts';
+import { zoomReadout } from './editor-shared.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
 import { removeTempFolders } from '../test/temp.ts';
@@ -107,12 +108,52 @@ function pixelAt(handle: Point, dx: number, dy: number): Rect {
 }
 
 /**
+ * A line through one bend, on a box that holds the page still: the Element's
+ * own corner is `round` and the point writes none, so the bend it draws is the
+ * Element's and a drag has to keep that.
+ */
+const LINE_SCENE = {
+  version: 1,
+  title: 'Round bend',
+  defaults: { roughness: 0 },
+  elements: [
+    { id: 'page', type: 'rectangle', x: 0, y: 0, width: 800, height: 560 },
+    {
+      id: 'bent',
+      type: 'line',
+      corners: 'round',
+      points: [
+        { x: 150, y: 300 },
+        { x: 350, y: 180 },
+        { x: 600, y: 300 },
+      ],
+      heads: { start: 'none', end: 'none' },
+    },
+  ],
+};
+const LINE_SOURCE = JSON.stringify(LINE_SCENE, null, 2);
+
+/** The view `LINE_SCENE` lands in: its 800×560 box fitted 1:1. */
+const LINE: View = { zoom: 1, panX: 240, panY: 120 };
+
+/** The line's bend, stored on its ink: a press there selects the line. */
+const LINE_BEND = { x: 350, y: 180 };
+
+/**
+ * The view one zoom-in step leaves: `Meta+=` zooms by 1.2 around the middle of
+ * the 1280×800 page, so Scene (400,280) stays at the middle and everything else
+ * spreads from it.
+ */
+const LINE_ZOOMED: View = { zoom: 1.2, panX: 160, panY: 64 };
+
+/**
  * The Scene files the `bends.json` fixture folder holds, by the name a person opens.
  * `A` is the folder every helper in this suite reads back.
  */
 const SCENES = {
   A: {
     'bends.json': SHARP_SOURCE,
+    'line.json': LINE_SOURCE,
     'shapes.json': SHAPES_SOURCE,
   },
 };
@@ -172,6 +213,34 @@ describe('a bend point handle', () => {
       { x: 340, y: 270, corner: 'sharp' },
       { x: 550, y: 50 },
     ]);
+  });
+
+  test('a round bend of a line drags at another zoom, keeping the Element its corner', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'line.json');
+
+    await clickScene(ui, LINE_BEND, [], LINE);
+    await browser.keyboard.press('Meta+=');
+    await expect(zoomReadout(ui)).toHaveText('120%');
+
+    const from = at(LINE_BEND, LINE_ZOOMED);
+    await drag(ui, from, { x: from.x + 60, y: from.y - 24 });
+
+    await expectPoints(
+      ui,
+      [
+        { x: 150, y: 300 },
+        { x: 400, y: 160 },
+        { x: 600, y: 300 },
+      ],
+      'line.json',
+    );
+    const scene = await savedScene(ui, 'line.json');
+    expect(scene.elements.find((element) => element.id === 'bent')?.corners).toBe('round');
   });
 
   test('a sharp bend is marked by a square', async ({ app, browser, screen }) => {
