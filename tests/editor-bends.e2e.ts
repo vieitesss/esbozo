@@ -793,13 +793,36 @@ describe('a segment dot', () => {
 
     // The first click selects the shaft and its dot appears under the pointer
     // with the next frame; the second click presses that dot, which is still a
-    // click on the shaft there, so the words the first click found open. The gap
-    // is a person's, and well inside the half second two clicks get: pressed as
-    // fast as the browser sends them, the second press lands on the ink the dot
-    // is drawn over, because the frame that paints it has not come yet.
+    // click on the shaft there, so the words the first click found open. Two
+    // frames are what the dot needs and all this waits: the two clicks are still
+    // one double-click by the editor's own clock, with none of its half second
+    // spent on a fixed gap that a loaded machine could stretch.
     await clickScene(ui, FIRST_DOT, [], BENT);
-    await sleep(200);
+    await settle(ui);
     await clickScene(ui, FIRST_DOT, [], BENT);
+
+    await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveValue('bend words');
+    // Nothing was pulled out of the shaft on the way.
+    expect(pointsIn(await savedSource(ui, 'bent-words.json'))).toEqual([
+      { x: 101, y: 300 },
+      { x: 400, y: 300, corner: 'sharp' },
+      { x: 400, y: 501 },
+    ]);
+  });
+
+  test('a double-click whose second press comes before the dot is painted opens the words', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'bent-words.json');
+
+    // The two clicks the browser sends back to back: the first selects the
+    // shaft, and the frame that paints its dot has not come when the second
+    // lands, so the second press is the ink the dot is drawn over — still a
+    // click on the shaft there, so the words the first click found open.
+    await doubleClickScene(ui, FIRST_DOT, BENT);
 
     await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveValue('bend words');
     // Nothing was pulled out of the shaft on the way.
