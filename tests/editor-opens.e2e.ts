@@ -7,11 +7,21 @@
  *
  * Each test holds one read in the stubbed folder, so the page can move on while
  * the first Scene is still on its way, and answers it afterwards the way a real
- * disk would: with its bytes, or with a failure.
+ * disk would: with its bytes, or with a failure. Between the two, the Scene in
+ * hand is edited with its own write held, so a write lands after the page has
+ * already spoken about the Scene it was opening.
  */
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import { SCENE, clickScene, savedFiles, savedScene, settle } from './helpers.ts';
+import {
+  SCENE,
+  browseFolder,
+  clickScene,
+  holdWrites,
+  savedFiles,
+  savedScene,
+  settle,
+} from './helpers.ts';
 import type { Folders, Ui } from './helpers.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
@@ -67,7 +77,17 @@ interface Holds {
   /** The file whose next read waits, or null when every read answers at once. */
   name: string | null;
   /** The reads waiting to be answered, oldest first. */
-  answers: Array<{ land: () => void; refuse: (message: string) => void }>;
+  answers: Array<{
+    land: () => void;
+    refuse: (message: string) => void;
+    missing: () => void;
+  }>;
+}
+
+/** A write the stub's gate holds: it lands when the test says so. */
+interface Held {
+  resolve: () => void;
+  reject: (error: Error) => void;
 }
 
 interface GateWindow {
@@ -75,6 +95,7 @@ interface GateWindow {
   __esbozoFolders: Folders;
   __esbozoPicks: string[];
   __esbozoHolds: Holds;
+  __esbozoGates?: Held[];
 }
 
 /**
@@ -112,6 +133,12 @@ async function openPage(ui: Ui, folders: Folders): Promise<void> {
                   page.__esbozoHolds.answers.push({
                     land: () => resolve(handle.getFile()),
                     refuse: (message) => reject(new Error(message)),
+                    missing: () =>
+                      reject(
+                        Object.assign(new Error(`${fileName} not found`), {
+                          name: 'NotFoundError',
+                        }),
+                      ),
                   });
                 }),
             };
@@ -160,6 +187,77 @@ async function refuseRead(ui: Ui, message: string): Promise<void> {
     (window as unknown as GateWindow).__esbozoHolds.answers.shift()!.refuse(words);
     return true;
   }, message);
+}
+
+/** Answer the held read as a file that is gone, which opens a new Scene. */
+async function missRead(ui: Ui): Promise<void> {
+  await ui.browser.evaluate(() => {
+    (window as unknown as GateWindow).__esbozoHolds.answers.shift()!.missing();
+    return true;
+  });
+}
+
+/** Wait until the page asks the disk for the held write, so it is in flight. */
+async function writeWaiting(ui: Ui): Promise<void> {
+  await expect
+    .poll(() =>
+      ui.browser.evaluate(() => (window as unknown as GateWindow).__esbozoGates?.length ?? 0),
+    )
+    .toBeGreaterThan(0);
+}
+
+/** Let the held write land, as a disk that was only busy does. */
+async function landWrite(ui: Ui): Promise<void> {
+  await ui.browser.evaluate(() => {
+    (window as unknown as GateWindow).__esbozoGates!.shift()!.resolve();
+    return true;
+  });
+}
+
+/** The `a` box's x, as the folder's bytes hold it: the edit reached the disk. */
+async function nudged(ui: Ui, name: string): Promise<number | undefined> {
+  const files = await savedFiles(ui);
+  const scene = JSON.parse(files[name] ?? '{}') as {
+    elements?: Array<{ id: string; x?: number }>;
+  };
+  return scene.elements?.find((element) => element.id === 'a')?.x;
+}
+
+/**
+ * Open `a.json`, then start opening `name` from the note and hold its read. With
+ * that read in hand the Scene in hand is edited, with its write held too: the
+ * write is in flight, and the Scene being opened still owes the page an answer.
+ */
+async function editWhileReadIsHeld(ui: Ui, folders: Folders, name: string): Promise<void> {
+  await openPage(ui, folders);
+  await ui.screen.getByRole('button', 'a.json').click();
+  await expect(ui.screen.getByRole('status')).toHaveText('saved');
+
+  // The note again, so `name` can be clicked while `a.json` is the Scene in hand.
+  await browseFolder(ui, 'A');
+  await expect(ui.screen.getByRole('button', name)).toBeVisible();
+  await holdRead(ui, name);
+  await ui.screen.getByRole('button', name).click();
+  await readWaiting(ui);
+  // The note is in the way of the canvas, and `a.json` is still the Scene in hand.
+  await ui.browser.keyboard.press('Escape');
+
+  await holdWrites(ui, 'a.json');
+  await clickScene(ui, { x: 100, y: 80 });
+  await ui.browser.keyboard.press('Shift+ArrowRight');
+  await writeWaiting(ui);
+}
+
+/**
+ * Let the held write of `a.json` land, and wait until its completion was
+ * processed: its bytes are on disk, and a frame is painted only after the
+ * microtasks that carried the answer are done, so a status written for it is
+ * already there when this returns.
+ */
+async function landEdit(ui: Ui): Promise<void> {
+  await landWrite(ui);
+  await expect.poll(() => nudged(ui, 'a.json')).toBe(50);
+  await settle(ui);
 }
 
 test('a Scene read that lands after a later open never replaces it', async ({ app, browser, screen }) => {
@@ -213,4 +311,63 @@ test('a Scene read that fails after a later open changes nothing', async ({ app,
   const scene = await savedScene(ui, 'c.json');
   expect(scene.elements.find((element) => element.id === 'a')?.x).toBe(50);
   expect((await savedFiles(ui))['b.json']).toBe(B_SOURCE);
+});
+
+/**
+ * The folder these tests read: `a.json` is the Scene being edited, and the other
+ * two names are the ones the note lists so a read can be started.
+ */
+function folderWith(extra: Record<string, string> = {}): Folders {
+  return { A: { 'a.json': B_SOURCE, 'b.json': B_SOURCE, 'c.json': C_SOURCE, ...extra } };
+}
+
+test("a Scene whose read fails while an edit's write is held keeps its failure", async ({ app, browser, screen }) => {
+  const ui: Ui = { app, browser, screen };
+  await editWhileReadIsHeld(ui, folderWith(), 'b.json');
+
+  // B says it cannot be read, while A's edit is still waiting to be written.
+  await refuseRead(ui, 'b.json could not be read');
+  const failure = 'cannot read b.json: b.json could not be read';
+  await expect(screen.getByRole('status')).toHaveText(failure);
+
+  // A's write lands now, and it changes nothing the page says: a write that lands
+  // after another Scene spoke is not news about this one.
+  await landEdit(ui);
+  await expect(screen.getByRole('status')).toHaveText(failure);
+
+  // The write did finish, where it was made: a.json holds the edit, and the
+  // Scene whose read failed is untouched.
+  expect(await nudged(ui, 'a.json')).toBe(50);
+  expect((await savedFiles(ui))['b.json']).toBe(B_SOURCE);
+});
+
+test("a Scene that opens new while an edit's write is held keeps its own word", async ({ app, browser, screen }) => {
+  const ui: Ui = { app, browser, screen };
+  await editWhileReadIsHeld(ui, folderWith(), 'b.json');
+
+  // The file is gone by the time its own read answers, as a Scene deleted
+  // between the listing and the open is: the page opens it empty and says so.
+  await missRead(ui);
+  await expect(screen.getByRole('status')).toHaveText('new Scene');
+
+  await landEdit(ui);
+  await expect(screen.getByRole('status')).toHaveText('new Scene');
+
+  expect(await nudged(ui, 'a.json')).toBe(50);
+  expect((await savedFiles(ui))['b.json']).toBe(B_SOURCE);
+});
+
+test("a Scene that will not parse while an edit's write is held keeps its failure", async ({ app, browser, screen }) => {
+  const ui: Ui = { app, browser, screen };
+  const broken = '{ this is not a Scene';
+  await editWhileReadIsHeld(ui, folderWith({ 'broken.esbozo': broken }), 'broken.esbozo');
+
+  await landRead(ui);
+  await expect(screen.getByRole('status')).toContainText('broken.esbozo:');
+
+  await landEdit(ui);
+  await expect(screen.getByRole('status')).toContainText('broken.esbozo:');
+
+  expect(await nudged(ui, 'a.json')).toBe(50);
+  expect((await savedFiles(ui))['broken.esbozo']).toBe(broken);
 });
