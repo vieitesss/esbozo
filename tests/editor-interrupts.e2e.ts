@@ -134,6 +134,28 @@ const MOVE: Gesture = {
   },
 };
 
+/** `a`'s bottom-right handle, carried 40 right and 40 down. */
+const RESIZED = { from: at({ x: 160, y: 120 }, VIEW), to: at({ x: 200, y: 160 }, VIEW) };
+
+const RESIZE: Gesture = {
+  name: 'resize',
+  arm: selectA,
+  press: (ui) => carry(ui, RESIZED.from, RESIZED.to),
+  again: async (ui) => {
+    await selectA(ui);
+    await drag(ui, RESIZED.from, RESIZED.to);
+  },
+  proves: (scene) => {
+    const box = scene.elements.find((element) => element.id === 'a');
+    expect({ x: box?.x, y: box?.y, width: box?.width, height: box?.height }).toEqual({
+      x: 40,
+      y: 40,
+      width: 160,
+      height: 120,
+    });
+  },
+};
+
 /**
  * The page this file's detach test owns: it holds the element in a slot and
  * keeps its own hands on it, so taking it off the page is the host's doing.
@@ -295,7 +317,7 @@ const EXITS: readonly Exit[] = [
   },
 ];
 
-for (const gesture of [DRAW, MOVE]) {
+for (const gesture of [DRAW, MOVE, RESIZE]) {
   describe(`a ${gesture.name} the page loses`, () => {
     for (const exit of EXITS) {
       test(`ends on ${exit.name}, and the next press starts fresh`, async ({ app, browser, screen }) => {
