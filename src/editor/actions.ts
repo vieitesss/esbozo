@@ -23,6 +23,7 @@
 import type { Element } from '../scene.js';
 import type { Theme } from '../css.js';
 import type { ArrangeAct } from './arrange.js';
+import type { RailSide } from './geometry.js';
 
 /** The Element types a tool draws. */
 export type DrawableType = Element['type'];
@@ -77,6 +78,8 @@ export interface ActionHost {
   zoomOut(): void;
   zoomToFit(): void;
   resetZoom(): void;
+  /** Dock the rail on one of the frame's four sides, measuring the frame as it does. */
+  dockRail(side: RailSide): void;
   openFolder(): void;
 }
 
@@ -230,6 +233,25 @@ function arrange(
   };
 }
 
+/**
+ * One dock of the tool rail: the palette's row for it, and the move it asks the
+ * editor for. There is no key, button or grip for a dock: the palette is where
+ * a move is named (D8).
+ */
+function dock(side: RailSide): ActionSpec {
+  return {
+    id: `rail-${side}`,
+    name: `Tool rail: ${side}`,
+    group: 'View',
+    bindings: [],
+    minSelected: 0,
+    // A dock is the page's chrome, not the Scene's: it is offered in a read-only
+    // Scene as it is anywhere (D9), and needs nothing selected.
+    reason: always,
+    run: (host) => host.dockRail(side),
+  };
+}
+
 const OTHER_ACTIONS: readonly ActionSpec[] = [
   {
     id: 'palette',
@@ -378,6 +400,10 @@ const OTHER_ACTIONS: readonly ActionSpec[] = [
     reason: always,
     run: (host) => host.toggleTheme(),
   },
+  dock('top'),
+  dock('bottom'),
+  dock('left'),
+  dock('right'),
   {
     id: 'roughness',
     name: 'Default roughness',

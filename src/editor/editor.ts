@@ -163,6 +163,7 @@ class EsbozoEditorElement extends HTMLElement {
     zoomOut: () => this.#zoomBy(1 / ZOOM_STEP),
     zoomToFit: () => this.#zoomToFit(),
     resetZoom: () => this.#resetZoom(),
+    dockRail: (side) => this.#dockRail(side),
     openFolder: () => void (this.#connection.served ? this.#showNote() : this.#connection.pick()),
   };
 
@@ -1066,6 +1067,21 @@ class EsbozoEditorElement extends HTMLElement {
     );
     this.#railDockOffset = { x: dock.x - size.width / 2, y: dock.y - size.height / 2 };
     this.#hangRail();
+  }
+
+  /**
+   * Dock the rail on one of the frame's four sides: the side it lies along, or
+   * stands up, is the side's own. The frame is measured every time, even for the
+   * side already in use (I4), and the Scene is never touched: a move is the
+   * page's chrome, so it works in a read-only Scene and records no step (D9).
+   */
+  #dockRail(side: RailSide): void {
+    this.#railSide = side;
+    this.#rail.dataset['side'] = side;
+    // Laying the strip along another edge is another size, so the outline is
+    // drawn again for the shape it now covers before the frame is measured.
+    this.#drawRailArt();
+    this.#placeRail();
   }
 
   /**
