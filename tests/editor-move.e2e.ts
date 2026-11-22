@@ -17,6 +17,7 @@ import {
   expectSvgMatchesCli,
   settle,
   openEditor,
+  savedFiles,
   savedScene,
 } from './helpers.ts';
 import type { Ui } from './helpers.ts';
@@ -181,9 +182,10 @@ test('Escape drops a move in flight, and the release that follows saves nothing'
 
   // Escape with no drag keeps the behaviour it had: the selection goes and the
   // file is left alone.
+  const quiet = await savedFiles(ui);
   await browser.keyboard.press('Escape');
   await expect(screen.getByRole('dialog', 'Style')).toBeHidden();
-  expect(await savedScene(ui, 'block.json')).toEqual(alone);
+  expect(await savedFiles(ui)).toEqual(quiet);
 });
 
 test('Escape drops a resize in flight, and the release that follows saves nothing', async ({
