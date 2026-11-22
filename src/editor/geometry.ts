@@ -624,29 +624,45 @@ export function railFrame(
 }
 
 /**
- * A dock pulled inside the editor's box: no side of the strip nearer an edge
- * than the top edge's own inset, and a dock already inside left where it is.
+ * A dock pulled inside the editor's box: one whose pencilled outline already
+ * fits is left exactly where the frame measured it, and one carried out of the
+ * box is pulled to the top edge's own inset.
  *
  * A resize carries the dock with the editor's middle, so a window smaller than
  * the dock's distance from the middle asks for a place outside the editor. Where
- * the editor is smaller than the strip itself there is no place that keeps it
- * in, and the inset wins on the low side: the strip is clipped by the far edge
- * rather than shrunk, wrapped or turned (O3).
+ * the strip can sit at the inset but its outline cannot, the outline is what
+ * fits and it is centred. Where the editor is smaller than the outline itself
+ * there is no such place, and the inset wins on the low side: the outline is
+ * clipped by the far edge rather than shrunk, wrapped or turned (O3).
  */
 export function clampedDock(
   dock: Point,
-  strip: { width: number; height: number },
+  strip: { width: number; height: number; overhang: number },
   viewport: { width: number; height: number },
 ): Point {
   return {
-    x: inside(dock.x - strip.width / 2, viewport.width, strip.width) + strip.width / 2,
-    y: inside(dock.y, viewport.height, strip.height),
+    x:
+      placed(dock.x - strip.width / 2, viewport.width, strip.width, strip.overhang) +
+      strip.width / 2,
+    y: placed(dock.y, viewport.height, strip.height, strip.overhang),
   };
 }
 
-/** One side of a box pulled to the inset, or to the low inset when even that does not fit. */
-function inside(start: number, extent: number, size: number): number {
-  return Math.max(RAIL_INSET, Math.min(start, extent - RAIL_INSET - size));
+/**
+ * One side of the rail: where the frame measured it while its outline fits the
+ * editor, or inside the edge the carried place crossed — measured to the outline
+ * that hangs outside the strip, never to the strip's own box.
+ */
+function placed(start: number, extent: number, size: number, overhang: number): number {
+  if (start - overhang >= 0 && start + size + overhang <= extent) {
+    return start;
+  }
+  const pulled = Math.max(RAIL_INSET, Math.min(start, extent - RAIL_INSET - size));
+  const held = pulled - overhang >= 0 && pulled + size + overhang <= extent;
+  if (!held && size + overhang * 2 <= extent) {
+    return (extent - size) / 2;
+  }
+  return pulled;
 }
 
 /** A box grown about its own centre to at least the frame's minimum size. */

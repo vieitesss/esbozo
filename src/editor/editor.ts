@@ -1047,7 +1047,7 @@ class EsbozoEditorElement extends HTMLElement {
     const size = this.#page.viewport.size();
     const dock = clampedDock(
       { x: size.width / 2 + kept.x, y: size.height / 2 + kept.y },
-      { width: this.#rail.offsetWidth, height: this.#rail.offsetHeight },
+      { width: this.#rail.offsetWidth, height: this.#rail.offsetHeight, overhang: RAIL_OUTLINE },
       size,
     );
     this.#rail.style.setProperty('--rail-left', `${dock.x}px`);
