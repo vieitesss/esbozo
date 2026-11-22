@@ -28,6 +28,17 @@ An arrow or line end attached to an Element, so it follows that Element when
 it moves. Can be turned off.
 _Avoid_: binding, grid snap
 
+**Shaft**:
+The drawn path of an arrow or line between its two ends, and the points it
+turns by in between. A Snap is one of its ends'.
+_Avoid_: leader, polyline
+
+**Bend point**:
+A point of a Shaft between its ends. A person drags one by its handle, pulls a
+new one out of a segment's dot, and removes one by double-clicking it or from
+its own menu.
+_Avoid_: waypoint, elbow
+
 **Grid**:
 The guide drawn behind the Scene. A visual aid only: Elements move freely and
 never jump to it.
