@@ -13,7 +13,7 @@
  * — is judged in `tests/visual.e2e.ts`.
  */
 import { describe, test } from '@e2e-dev/web';
-import { expect } from 'e2e';
+import { afterAll, expect } from 'e2e';
 import {
   CROSSING,
   CROSSING_SCENE,
@@ -37,6 +37,11 @@ import {
 import type { Point, SavedScene, Ui, View } from './helpers.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
+import { removeTempFolders } from '../test/temp.ts';
+
+// `ez check` reads a saved Scene out of a temporary folder, as it does in every
+// suite that asks the CLI about a file this page wrote.
+afterAll(removeTempFolders);
 
 const SNAP_SOURCE = JSON.stringify(SNAP_SCENE, null, 2);
 const SNAPPED_SOURCE = JSON.stringify(SNAPPED_SCENE, null, 2);
