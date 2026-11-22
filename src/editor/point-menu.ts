@@ -168,23 +168,23 @@ export class PointMenu {
 
   /**
    * The keys the menu holds while it is open: Escape shuts it, the arrows move
-   * between its rows, and Enter runs the row that holds the keys. Nothing else on
-   * the page hears the key at all.
+   * between its rows, and Enter runs the row that holds the keys. Every key is
+   * the menu's, so not one of them keeps a default of its own: Space would press
+   * the row that holds the keys, and Tab would carry them out of the panel. And
+   * nothing else on the page hears the key at all.
    */
   #onKeyDown = (event: KeyboardEvent): void => {
+    event.preventDefault();
     event.stopPropagation();
     if (event.key === 'Escape') {
-      event.preventDefault();
       this.close();
       return;
     }
     if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-      event.preventDefault();
       this.#step(event.key === 'ArrowDown' ? 1 : -1);
       return;
     }
     if (event.key === 'Enter') {
-      event.preventDefault();
       const row = this.#held();
       if (row !== null) {
         this.#run(row);
