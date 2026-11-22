@@ -1,23 +1,28 @@
 /**
- * The point menu: the note a right-click on a bend point opens, and the one row
- * it offers — `Delete point`.
+ * The point menu: the note a right-click on a bend point opens, and the two rows
+ * it offers — the corner the point would switch to, and `Delete point`.
  *
  * A secondary press — the right button, or the Ctrl+click macOS reads as one —
  * on a bend handle picks that point and opens the note by the pointer, wholly
- * inside the editor. Enter runs the row, Escape shuts the menu and leaves the
- * point selected, and a press anywhere else shuts it and then does the work that
- * press already does. While it is open it holds the keys, so nothing else edits
- * the Scene from under it; every key that would is the menu's or nobody's.
+ * inside the editor. The corner row names the corner the point would turn by
+ * next, so it reads `Sharp corner` on a round point and `Round corner` on a sharp
+ * one, and running it switches the point to it. Enter runs the row that holds the
+ * keys, ArrowUp and ArrowDown move them between the rows, Escape shuts the menu
+ * and leaves the point selected, and a press anywhere else shuts it and then does
+ * the work that press already does. While it is open it holds the keys, so
+ * nothing else edits the Scene from under it; every key that would is the menu's
+ * or nobody's.
  *
- * The point is `#removeBend`'s alone: this module names no removal of its own,
- * and asks the Bend point module — the one rule the removal keeps — whether the
- * point may go before it offers the row, so a point a self-loop must keep reads
- * as disabled rather than failing on the press.
+ * The removal is `#removeBend`'s and the corner is `#switchCorner`'s: this module
+ * names no change of its own, and asks the Bend point module — the one rule the
+ * removal keeps, and the corner a point turns by — what each row may do, so a
+ * point a self-loop must keep reads as disabled rather than failing on the press.
  * Ties to the editor are callbacks only, so the menu knows nothing about the
  * Scene and cannot change it by itself.
  */
-import { bendFromHandle, mayRemove } from './bend-point.js';
+import { bendFromHandle, cornerAt, mayRemove } from './bend-point.js';
 import type { Bend, ShaftOf } from './bend-point.js';
+import type { Corner } from '../scene.js';
 import type { Point } from './geometry.js';
 
 /** How far the panel keeps from the editor's edges: the tape above it still shows. */
@@ -40,20 +45,36 @@ export interface PointMenuOptions {
   readonly shaft: ShaftOf;
   /** Make the point the selection's, and paint it: the editor's own selection. */
   readonly selectBend: (bend: Bend) => void;
+  /** Switch the point to its other corner, through the editor's one corner step. */
+  readonly switchCorner: (bend: Bend, corner: Corner) => void;
   /** Remove the point, through the editor's one removal: a step and a write. */
   readonly remove: (bend: Bend) => void;
 }
 
+/** The row that switches the point's corner, and the one that removes it. */
+type Row = 'corner' | 'delete';
+
+/** The corner the other one, which is what the corner row offers. */
+function other(corner: Corner): Corner {
+  return corner === 'round' ? 'sharp' : 'round';
+}
+
+/** What each corner is called, in the words its row carries. */
+const CORNER_NAMES: Record<Corner, string> = { round: 'Round corner', sharp: 'Sharp corner' };
+
 export class PointMenu {
   readonly #options: PointMenuOptions;
-  /** The row this menu holds, which is the one Enter runs. */
-  readonly #row: HTMLButtonElement;
+  /** The rows this menu holds, in the order they are drawn: corner, then removal. */
+  readonly #rows: ReadonlyMap<Row, HTMLButtonElement>;
   /** The point the menu was opened on, for as long as it is open. */
   #bend: Bend | null = null;
 
   constructor(options: PointMenuOptions) {
     this.#options = options;
-    this.#row = options.root.querySelector('[role="menuitem"]')!;
+    this.#rows = new Map([
+      ['corner', options.root.querySelector<HTMLButtonElement>('[data-act="corner"]')!],
+      ['delete', options.root.querySelector<HTMLButtonElement>('[data-act="delete-point"]')!],
+    ]);
     options.root.addEventListener('keydown', this.#onKeyDown);
     options.root.addEventListener('click', this.#onClick);
     // The press that opens the menu and the press that shuts it are the same
@@ -72,7 +93,16 @@ export class PointMenu {
     this.#bend = bend;
     // The removal's own rule, so the row is disabled on exactly the points the
     // key cannot remove.
-    this.#row.disabled = shaft === null || !mayRemove(shaft);
+    const removal = this.#rows.get('delete')!;
+    removal.disabled = shaft === null || !mayRemove(shaft);
+    // The corner the point turns by today names the one its row offers: the
+    // other. A point the Scene no longer draws has neither to offer.
+    const next = this.#switchTo(bend);
+    const switchTo = this.#rows.get('corner')!;
+    switchTo.disabled = next === null;
+    if (next !== null) {
+      switchTo.textContent = CORNER_NAMES[next];
+    }
     this.#options.selectBend(bend);
     root.hidden = false;
     // The panel has a size only once it is on the page, and the editor's box is
@@ -83,6 +113,13 @@ export class PointMenu {
       Math.round(Math.max(INSET, Math.min(want, room - size - INSET)));
     root.style.left = `${place(at.x - box.left, box.width, root.offsetWidth)}px`;
     root.style.top = `${place(at.y - box.top, box.height, root.offsetHeight)}px`;
+    // The menu opens on the row Enter ran when it was the only one — the removal
+    // — so that key goes on doing what it did. A point it cannot remove leaves no
+    // row holding the keys: the arrows are how that point's corner is reached.
+    if (!removal.disabled) {
+      removal.focus({ preventScroll: true });
+      return;
+    }
     root.focus({ preventScroll: true });
   }
 
@@ -130,8 +167,9 @@ export class PointMenu {
   };
 
   /**
-   * The keys the menu holds while it is open: Escape shuts it and Enter runs its
-   * row, and nothing else on the page hears the key at all.
+   * The keys the menu holds while it is open: Escape shuts it, the arrows move
+   * between its rows, and Enter runs the row that holds the keys. Nothing else on
+   * the page hears the key at all.
    */
   #onKeyDown = (event: KeyboardEvent): void => {
     event.stopPropagation();
@@ -140,25 +178,86 @@ export class PointMenu {
       this.close();
       return;
     }
+    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      event.preventDefault();
+      this.#step(event.key === 'ArrowDown' ? 1 : -1);
+      return;
+    }
     if (event.key === 'Enter') {
       event.preventDefault();
-      this.#run();
+      const row = this.#held();
+      if (row !== null) {
+        this.#run(row);
+      }
     }
   };
 
   #onClick = (event: Event): void => {
-    if ((event.target as Element | null)?.closest('[role="menuitem"]') === this.#row) {
-      this.#run();
+    const row = this.#rowOf(event.target as Element | null);
+    if (row !== null && !this.#rows.get(row)!.disabled) {
+      this.#run(row);
     }
   };
 
-  /** Run the row on the point the menu was opened on, and shut it first. */
-  #run(): void {
-    const bend = this.#bend;
-    if (bend === null || this.#row.disabled) {
+  /** The row a node belongs to, or null where it belongs to no row of this menu. */
+  #rowOf(target: Element | null): Row | null {
+    const button = target?.closest('[role="menuitem"]') ?? null;
+    for (const [row, node] of this.#rows) {
+      if (node === button) {
+        return row;
+      }
+    }
+    return null;
+  }
+
+  /** The row that holds the keys, or null where the menu's panel holds them. */
+  #held(): Row | null {
+    return this.#rowOf(document.activeElement instanceof Element ? document.activeElement : null);
+  }
+
+  /**
+   * Move the keys to the next row a person may run, by one and around the ends:
+   * a row the point cannot run is stepped over rather than focused, and a panel
+   * that holds the keys hands them to the first row the keys meet.
+   */
+  #step(by: number): void {
+    const runnable = [...this.#rows].filter(([, node]) => !node.disabled);
+    if (runnable.length === 0) {
       return;
     }
+    const held = this.#held();
+    const at = runnable.findIndex(([row]) => row === held);
+    const next =
+      at === -1
+        ? runnable[by > 0 ? 0 : runnable.length - 1]
+        : runnable[(at + by + runnable.length) % runnable.length];
+    next?.[1].focus({ preventScroll: true });
+  }
+
+  /**
+   * Run a row on the point the menu was opened on, and shut it first. The corner
+   * row switches the point to the corner it named; the removal takes the point.
+   */
+  #run(row: Row): void {
+    const bend = this.#bend;
+    if (bend === null) {
+      return;
+    }
+    const corner = row === 'corner' ? this.#switchTo(bend) : null;
     this.close();
+    if (row === 'corner') {
+      if (corner !== null) {
+        this.#options.switchCorner(bend, corner);
+      }
+      return;
+    }
     this.#options.remove(bend);
+  }
+
+  /** The corner the corner row switches the point to: the other one it turns by. */
+  #switchTo(bend: Bend): Corner | null {
+    const shaft = this.#options.shaft(bend.id);
+    const corner = shaft === null ? null : cornerAt(shaft, bend.index);
+    return corner === null ? null : other(corner);
   }
 }

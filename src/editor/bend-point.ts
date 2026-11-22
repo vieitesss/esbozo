@@ -1,7 +1,8 @@
 /**
  * The bend point: the point of a Shaft between its ends, the edits that move,
- * pull out and remove one, the one rule that decides a removal, the marks a lone
- * Shaft shows to reach one, and the one reader of the press that lands on one.
+ * pull out, turn and remove one, the one rule that decides a removal, the marks
+ * a lone Shaft shows to reach one, and the one reader of the press that lands on
+ * one.
  *
  * A Shaft is the drawn path of an arrow or line between its two ends, and the
  * points it turns by in between are bend points: a person drags one by its
@@ -184,6 +185,45 @@ export function mayRemove(shaft: ArrowOrLineElement): boolean {
 export function withoutBend(element: ArrowOrLineElement, index: number): ArrowOrLineElement {
   const points = [...element.points];
   points.splice(index, 1);
+  return { ...element, points: points as ArrowOrLineElement['points'] };
+}
+
+/**
+ * The corner the bend at `index` turns by today: its own `corner`, or the
+ * Element's where it writes none. Null where the Shaft draws no bend there, so a
+ * caller holding a stale point has no corner to offer either way.
+ */
+export function cornerAt(shaft: ArrowOrLineElement, index: number): Corner | null {
+  return isBendPoint(shaft.points.length, index)
+    ? cornerOf(shaft.points[index], shaft.corners)
+    : null;
+}
+
+/**
+ * The shaft with the bend at `index` turning by `corner`: written on the point
+ * where it differs from the Element's own corner, and left out where it is the
+ * same, so a Scene stores only the corners it means and a toggle back to the
+ * Element's own leaves no key behind. Every other point keeps its place, its
+ * `corner` and its Snap, and the Element keeps its own `corners`.
+ */
+export function withCorner(
+  element: ArrowOrLineElement,
+  index: number,
+  corner: Corner,
+): ArrowOrLineElement {
+  if (!isBendPoint(element.points.length, index)) {
+    return element;
+  }
+  const points = element.points.map((point, at) =>
+    at === index
+      ? {
+          x: point.x,
+          y: point.y,
+          ...(point.snap === undefined ? {} : { snap: point.snap }),
+          ...(corner === element.corners ? {} : { corner }),
+        }
+      : point,
+  );
   return { ...element, points: points as ArrowOrLineElement['points'] };
 }
 
