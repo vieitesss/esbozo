@@ -16,14 +16,20 @@ import {
   SHIFTED_SCENE,
   cliCheck,
   cliCheckBytes,
+  at,
   clickScene,
   doubleClickScene,
+  drag,
   dragBy,
   openEditor,
   savedFiles,
   savedScene,
+  settle,
 } from './helpers.ts';
-import { BESIDE_SOURCE, MIXED_SOURCE, SCENE_SOURCE } from './labels-shared.ts';
+import { BESIDE_SOURCE, DARK, MIXED_SOURCE, SCENE_SOURCE } from './labels-shared.ts';
+import { stillCaret } from './cdp.ts';
+import { shot } from './pixels.ts';
+import type { Rect } from './pixels.ts';
 import { removeTempFolders } from '../test/temp.ts';
 
 afterAll(removeTempFolders);
@@ -94,6 +100,51 @@ describe('labels edit', () => {
       content: 'edited in place',
     });
     expect(scene.elements.length).toBe(3);
+  });
+
+  test('a sweep in flight shows the committed words, not the ones being typed under it', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': MIXED_SOURCE } }, 'scene.json');
+    await stillCaret();
+
+    // One Text selected, so Enter opens its words; the Shift sweep adds to that
+    // selection, so the sweep is still in flight when the typing starts.
+    await clickScene(ui, { x: 277, y: 110 }, [], MIXED);
+    await settle(ui);
+    const row: Rect = {
+      x: at({ x: 250, y: 80 }, MIXED).x,
+      y: at({ x: 250, y: 80 }, MIXED).y,
+      width: 200,
+      height: 120,
+    };
+    const words = (await shot(ui)).darkBounds(row, DARK);
+    expect(words).not.toBeNull();
+    // The strip just past the words the Scene holds, where a longer draft's own
+    // glyphs stand. It is bare as long as the page shows the committed words.
+    const pastTheWords: Rect = {
+      x: (words as Rect).x + (words as Rect).width + 6,
+      y: (words as Rect).y,
+      width: 80,
+      height: (words as Rect).height,
+    };
+
+    await browser.keyboard.down('Shift');
+    await drag(ui, at({ x: 10, y: 180 }, MIXED), at({ x: 50, y: 210 }, MIXED), 'left', async () => {
+      // The pointer is still down: the page owes the Scene's own words until the
+      // sweep ends, however far the session under it has got.
+      await browser.keyboard.up('Shift');
+      await browser.keyboard.press('Enter');
+      await screen.getByRole('textbox', { name: 'Text' }).press('ControlOrMeta+a');
+      await browser.keyboard.type('Box draft');
+      await settle(ui);
+      const held = await shot(ui);
+      expect(held.darkCount(pastTheWords, DARK)).toBe(0);
+      expect(held.darkBounds(row, DARK)).toEqual(words);
+    });
   });
 
   test("double-clicking an arrow's shaft edits its Label, which sits on the line", async ({

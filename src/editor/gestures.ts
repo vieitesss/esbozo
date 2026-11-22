@@ -35,7 +35,7 @@ import type { Box, Handle, Point, Pointer, View } from './geometry.js';
 import type { ToolId } from './actions.js';
 import { drawn, drawnAtClick, freshId, idsOf, isClick } from './elements.js';
 import type { ElementTool } from './elements.js';
-import type { Page } from './page.js';
+import type { Page, Shown } from './page.js';
 import {
   attachedTo,
   endPoint,
@@ -164,18 +164,35 @@ export type Drag =
  * taken off its shaft. Those are shown as the pointer has made them, and only
  * those: the rest of the Scene is the Scene.
  */
-export type ShownDrag = Extract<Drag, { kind: 'move' | 'resize' | 'end' | 'bend' | 'label' }>;
+type ShownDrag = Extract<Drag, { kind: 'move' | 'resize' | 'end' | 'bend' | 'label' }>;
 
 /**
  * The Scene's Elements as the gesture in flight shows them. The ink the pointer
  * leaves and the Scene the release settles are this one projection, so a drag
  * can never show one thing and save another.
  */
-export function shownElements(elements: SceneElement[], drag: ShownDrag): SceneElement[] {
+function shownElements(elements: SceneElement[], drag: ShownDrag): SceneElement[] {
   if (drag.kind === 'move') {
     return elements.map((element) => drag.shown.get(element.id) ?? element);
   }
   return elements.map((element) => (element.id === drag.id ? drag.shown : element));
+}
+
+/**
+ * The drag kinds `ShownDrag` names, as the one list both the type and the
+ * runtime ask: a kind added or dropped here and not there is a compile error.
+ */
+const SHOWN_KINDS: Record<ShownDrag['kind'], true> = {
+  move: true,
+  resize: true,
+  end: true,
+  bend: true,
+  label: true,
+};
+
+/** Whether a drag's preview is a swap of Elements: one of `ShownDrag`'s kinds. */
+function asShownDrag(drag: Drag): ShownDrag | null {
+  return drag.kind in SHOWN_KINDS ? (drag as ShownDrag) : null;
 }
 
 /**
@@ -278,15 +295,37 @@ export class Gestures {
   /** Whether a gesture that changes the Scene is in flight, so an edit waits for the pointer. */
   holdsScene(): boolean {
     const drag = this.#drag;
-    return (
-      drag !== null &&
-      (drag.kind === 'draw' ||
-        drag.kind === 'move' ||
-        drag.kind === 'resize' ||
-        drag.kind === 'end' ||
-        drag.kind === 'bend' ||
-        drag.kind === 'label')
-    );
+    return drag !== null && (drag.kind === 'draw' || asShownDrag(drag) !== null);
+  }
+
+  /**
+   * What the page shows while a gesture is in flight, or null when no gesture is
+   * in the way: the Scene as it is, under the words a session may be holding.
+   * The three answers are a drag that shows its own Elements, a drag that shows
+   * the Scene as it is and settles the page, and no drag at all — a sweep or a
+   * Text press shows the committed words, never the words under them.
+   */
+  shownByDrag(): Shown | null {
+    const drag = this.#drag;
+    if (drag === null) {
+      return null;
+    }
+    const elements = this.#host.scene().elements;
+    if (drag.kind === 'draw') {
+      return { settled: false, elements: [...elements, drag.preview] };
+    }
+    // A pan and a caret drag carry the page under the words rather than changing
+    // what it holds, so the session's own preview stays drawn.
+    if (drag.kind === 'pan' || drag.kind === 'words') {
+      return null;
+    }
+    const shown = asShownDrag(drag);
+    // A Label the pointer has not carried stands where the Scene holds it, and a
+    // press that has placed nothing shows that Scene too.
+    if (shown === null || (shown.kind === 'label' && !shown.moved)) {
+      return { settled: true, elements };
+    }
+    return { settled: false, elements: shownElements(elements, shown) };
   }
 
   /** Whether a Space press is holding the page in the hand, so the pencil stands down. */
@@ -890,11 +929,12 @@ export class Gestures {
     }
     if (drag.kind === 'move' || drag.kind === 'resize') {
       // The gesture is over: what the page showed becomes the Scene, as one step.
-      const settled = this.#shownScene(drag);
+      const shown = this.shownByDrag();
+      const elements = shown === null ? this.#host.scene().elements : [...shown.elements];
       this.#drag = null;
       // The whole gesture is one history step, and the note may make room for
       // where the selection ended up.
-      this.#host.applyScene(settled);
+      this.#host.applyScene({ ...this.#host.scene(), elements });
       return;
     }
     this.#drag = null;
@@ -1220,12 +1260,6 @@ export class Gestures {
     const from = event.shiftKey ? (state.caret === state.end ? state.start : state.end) : at;
     text.select(from, at);
     this.#drag = { kind: 'words', from };
-  }
-
-  /** The Scene as the page shows it: committed Elements plus the gesture in flight. */
-  #shownScene(drag: ShownDrag): Scene {
-    const scene = this.#host.scene();
-    return { ...scene, elements: shownElements(scene.elements, drag) };
   }
 
   /** The Elements the selection holds, as the page shows them. */
