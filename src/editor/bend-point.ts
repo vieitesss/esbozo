@@ -110,10 +110,14 @@ export class PickedBend {
 
   /**
    * The point this delete press removes, spent with the press whether the point
-   * may go or not: the shaft behind it answers only to a press of its own.
+   * may go or not: the shaft behind it answers only to a press of its own. A
+   * press that finds no point spends nothing, so a held key stays spent even
+   * when a palette Delete runs inside its hold.
    */
   take(): Bend | null {
-    this.#spent = this.#held !== null;
+    if (this.#held !== null) {
+      this.#spent = true;
+    }
     return this.#held;
   }
 }
