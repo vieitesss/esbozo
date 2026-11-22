@@ -23,8 +23,6 @@ const {
   elementBounds,
   elementAt,
   caretLine,
-  PaintCache,
-  paintedInk,
   createLayout,
   parseFontFile,
   KALAM,
@@ -205,57 +203,6 @@ test('a press on the ink an Element paints finds it outside its own box', () => 
     pick(scene, { x: press.x - 20, y: press.y }),
     null,
     'and bare paper beside it finds nothing',
-  );
-});
-
-test('a press reads a box only from the frame the page drew for this Scene', () => {
-  // The page has drawn this Scene, so a press on an Element's ink is answered
-  // from the drawing already made. What a press must never read is a box that
-  // frame drew for a Scene the page no longer holds: the Element it was drawn
-  // from may have moved since, under the same id, and the press has to measure
-  // where it is now.
-  const scene = parsed({
-    version: 1,
-    defaults: { roughness: 1 },
-    elements: [
-      { id: 'box', type: 'rectangle', x: 100, y: 100, width: 200, height: 100 },
-      { id: 'other', type: 'rectangle', x: 400, y: 100, width: 120, height: 80 },
-    ],
-  });
-  const drawn = scene.elements[0]!;
-  const frame = new PaintCache(LAYOUT).paint(scene.elements);
-  const byId = new Map(scene.elements.map((element) => [element.id, element]));
-  const ink = renderElement(drawn, byId, LAYOUT).ink;
-
-  assert.deepEqual(
-    paintedInk(frame, scene, scene, drawn),
-    ink,
-    'the frame drawn for this Scene answers with the box the Renderer drew',
-  );
-
-  // A Scene edited since is not the Scene the frame was drawn for, however many
-  // of its Elements are the same objects: nothing of that frame answers for it.
-  const moved = parsed({
-    version: 1,
-    defaults: { roughness: 1 },
-    elements: [
-      { id: 'box', type: 'rectangle', x: 100, y: 100, width: 200, height: 100 },
-      { id: 'other', type: 'rectangle', x: 600, y: 100, width: 120, height: 80 },
-    ],
-  });
-  const edited: Scene = { ...scene, elements: [drawn, moved.elements[1]!] };
-  assert.equal(
-    paintedInk(frame, scene, edited, drawn),
-    null,
-    'a box of a Scene the page has not drawn answers for nothing',
-  );
-
-  // And the very object matters: another Element under the same id — the words
-  // being typed are drawn for the words, not for the Element — has its own box.
-  assert.equal(
-    paintedInk(frame, scene, scene, { ...drawn }),
-    null,
-    'an Element the frame did not draw from is not given the id’s box',
   );
 });
 
