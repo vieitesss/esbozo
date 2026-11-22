@@ -35,6 +35,7 @@ import {
 } from './helpers.ts';
 import type { Point, SavedScene, Ui, View } from './helpers.ts';
 import { zoomReadout } from './editor-shared.ts';
+import { command, palette } from './editor-shared.ts';
 import { shot } from './pixels.ts';
 import type { Rect, Shot } from './pixels.ts';
 import { removeTempFolders } from '../test/temp.ts';
@@ -1903,5 +1904,167 @@ describe('a selected bend point', () => {
     await browser.keyboard.press('Backspace');
     await settle(ui);
     await expectPoints(ui, []);
+  });
+});
+
+/**
+ * The delete action acts on the point the selection holds before it acts on the
+ * Elements: Backspace, Delete, the letter and the palette all remove that one
+ * point, as one history step and one write, and the shaft stays selected and in
+ * the Scene. A point the Scene cannot remove — the last bend of a self-loop —
+ * stays, and nothing is written.
+ */
+describe('a key on a selected bend point', () => {
+  test('Backspace removes the selected sharp point and keeps every other point', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'snapped.json');
+    await clickScene(ui, SNAPPED_ON, [], SNAPPED);
+    await settle(ui);
+    await clickScene(ui, SNAPPED_BEND, [], SNAPPED);
+    await settle(ui);
+
+    await browser.keyboard.press('Backspace');
+    await expectPoints(
+      ui,
+      [
+        { x: 150, y: 150, snap: 'a' },
+        { x: 550, y: 300, corner: 'round' },
+        { x: 650, y: 350, snap: 'b' },
+      ],
+      'snapped.json',
+    );
+    // The shaft kept the selection: the note is still there to say so.
+    await expect(screen.getByRole('dialog', 'Style')).toBeVisible();
+  });
+
+  test('Delete removes the selected round point of a line at another zoom', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'line.json');
+    await clickScene(ui, LINE_BEND, [], LINE);
+    await browser.keyboard.press('Meta+=');
+    await expect(zoomReadout(ui)).toHaveText('120%');
+    await settle(ui);
+    await clickScene(ui, LINE_BEND, [], LINE_ZOOMED);
+    await settle(ui);
+
+    await browser.keyboard.press('Delete');
+    await expectPoints(
+      ui,
+      [
+        { x: 150, y: 300 },
+        { x: 600, y: 300 },
+      ],
+      'line.json',
+    );
+    const painted = await shot(ui);
+    // No point is held any more, so no handle is filled.
+    expect(painted.meanLuminance(handleFill(at(LINE_BEND, LINE_ZOOMED)))).toBeGreaterThan(0.85);
+  });
+
+  test('the palette’s Delete removes the point, whatever started it', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    await clickScene(ui, SHARP_BEND, [], SHARP);
+    await settle(ui);
+
+    await palette(ui);
+    await browser.keyboard.type('delete');
+    await command(ui, 'Delete · X · ⌫ · Del').click();
+
+    await expectPoints(ui, [
+      { x: 50, y: 50 },
+      { x: 550, y: 50 },
+    ]);
+  });
+
+  test('the last bend of a self-loop stays, and the arrow with it', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'loop.json');
+    await clickScene(ui, LOOP_ON, [], SHAPES);
+    await settle(ui);
+    await clickScene(ui, LOOP_BEND, [], SHAPES);
+    await settle(ui);
+    const before = await savedSource(ui, 'loop.json');
+
+    await browser.keyboard.press('Backspace');
+    await settle(ui);
+
+    // The Scene has no two-point shaft whose ends both Snap to one box, so the
+    // removal the key asked for changes nothing and writes nothing.
+    expect(await savedSource(ui, 'loop.json')).toBe(before ?? '');
+    await expectPoints(ui, LOOP_POINTS, 'loop.json');
+  });
+
+  test('a held Backspace removes the point once, and a new press takes the shaft', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    await clickScene(ui, SHARP_BEND, [], SHARP);
+    await settle(ui);
+
+    // The browser's own auto-repeat: the key stays down and sends keydowns the
+    // page reads as repeats of one press.
+    await browser.keyboard.down('Backspace');
+    await browser.keyboard.down('Backspace');
+    await browser.keyboard.up('Backspace');
+    await expectPoints(ui, [
+      { x: 50, y: 50 },
+      { x: 550, y: 50 },
+    ]);
+
+    // The press that took the point is spent; the next press is the shaft's.
+    await browser.keyboard.press('Backspace');
+    await expectPoints(ui, []);
+  });
+
+  test('one undo returns the point whole, and redo removes it again', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await clickScene(ui, SHARP_ON, [], SHARP);
+    await settle(ui);
+    await clickScene(ui, SHARP_BEND, [], SHARP);
+    await settle(ui);
+
+    await browser.keyboard.press('Delete');
+    await expectPoints(ui, [
+      { x: 50, y: 50 },
+      { x: 550, y: 50 },
+    ]);
+
+    // One step, so one undo is the whole point back, `corner` and all.
+    await browser.keyboard.press('Meta+z');
+    await expectPoints(ui, SHARP_POINTS);
+    await browser.keyboard.press('Shift+Meta+z');
+    await expectPoints(ui, [
+      { x: 50, y: 50 },
+      { x: 550, y: 50 },
+    ]);
   });
 });

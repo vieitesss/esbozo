@@ -36,7 +36,7 @@ import type { View } from './geometry.js';
 import { History } from './history.js';
 import { railArt } from './rail.js';
 import { SHELL } from './shell.js';
-import { freedEnd, isShaft, released } from './snap.js';
+import { freedEnd, isShaft, released, withoutBend } from './snap.js';
 import type { End } from './snap.js';
 import { Typing } from './typing.js';
 import { sceneFile } from './paint.js';
@@ -84,6 +84,11 @@ class EsbozoEditorElement extends HTMLElement {
    * named.
    */
   #bend: Bend | null = null;
+  /**
+   * Whether the key press in hand took the bend point: one press deletes once, so
+   * its auto-repeat does not go on from the point to the shaft behind it.
+   */
+  #tookPoint = false;
   #tool: ToolId = 'select';
   #history = new History(serialiseScene(this.#scene));
   /** When the last nudge landed, so a burst of them folds into one undo step. */
@@ -676,9 +681,45 @@ class EsbozoEditorElement extends HTMLElement {
     void this.#connection.save(this.#scene);
   }
 
-  /** Delete the selected Elements, as one step. A Snap to a deleted target is dropped. */
+  /**
+   * Delete what the selection holds: the bend point a press picked, or else the
+   * selected Elements, as one step. A Snap to a deleted target is dropped.
+   */
   #deleteSelected(): void {
+    const bend = this.#bend;
+    if (bend !== null) {
+      // The press that removes a point is spent with it, whether the point could
+      // go or not: the shaft behind it answers only to a press of its own.
+      this.#tookPoint = true;
+      this.#removeBend(bend);
+      return;
+    }
     this.#remove(new Set(this.#selected));
+  }
+
+  /**
+   * Remove the one bend point the selection holds, by the rule a double-click
+   * removes one: every other point keeps its place, its `corner` and its Snap,
+   * and a removal that would leave a two-point self-loop removes nothing at all —
+   * the shaft stays, the point stays and no byte is written. The shaft keeps the
+   * selection; the point does not.
+   */
+  #removeBend(bend: Bend): void {
+    const scene = this.#scene;
+    const element = scene.elements.find((candidate) => candidate.id === bend.id);
+    const removed =
+      element !== undefined && isShaft(element) ? withoutBend(element, bend.index) : null;
+    if (removed === null) {
+      this.#refresh();
+      return;
+    }
+    this.#bend = null;
+    this.#applyScene({
+      ...scene,
+      elements: scene.elements.map((candidate) =>
+        candidate.id === bend.id ? removed : candidate,
+      ),
+    });
   }
 
   /**
@@ -982,6 +1023,10 @@ class EsbozoEditorElement extends HTMLElement {
     if (active !== this || !this.#takesKeys(event.target)) {
       return;
     }
+    // A key that is not the repeat of a held one begins a press of its own.
+    if (!event.repeat) {
+      this.#tookPoint = false;
+    }
     if (event.key === ' ' || event.code === 'Space') {
       this.#gestures.holdSpace();
       event.preventDefault();
@@ -1056,6 +1101,11 @@ class EsbozoEditorElement extends HTMLElement {
     const action = actionFor(event);
     if (action !== null) {
       event.preventDefault();
+      // The press that took the point has done its work: its repeats run nothing,
+      // rather than walking on to the shaft the point is a part of.
+      if (action.id === 'delete' && event.repeat && this.#tookPoint) {
+        return;
+      }
       void action.run(this.#host);
       return;
     }
