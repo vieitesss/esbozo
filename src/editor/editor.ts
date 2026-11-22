@@ -711,7 +711,7 @@ class EsbozoEditorElement extends HTMLElement {
     const element = scene.elements.find((candidate) => candidate.id === bend.id);
     // The one removal rule, asked here as the point menu asks it: a point the
     // menu shows as disabled is exactly a point this cannot remove.
-    if (element === undefined || !isShaft(element) || !mayRemove(element, bend.index)) {
+    if (element === undefined || !isShaft(element) || !mayRemove(element)) {
       this.#refresh();
       return;
     }

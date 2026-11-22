@@ -72,7 +72,7 @@ export class PointMenu {
     this.#bend = bend;
     // The removal's own rule, so the row is disabled on exactly the points the
     // key cannot remove.
-    this.#row.disabled = shaft === null || !mayRemove(shaft, bend.index);
+    this.#row.disabled = shaft === null || !mayRemove(shaft);
     this.#options.selectBend(bend);
     root.hidden = false;
     // The panel has a size only once it is on the page, and the editor's box is

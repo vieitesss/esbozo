@@ -160,20 +160,20 @@ export function withInsertedBend(
 }
 
 /**
- * Whether the bend at `index` may go: the one rule a removal keeps, asked by the
- * editor before it removes a point and by the point menu before it offers the
- * row, so a point the menu shows as disabled is exactly a point the key cannot
- * remove. A removal that would leave a two-point shaft with both ends Snapped to
- * one Element takes nothing, because the Scene has no such shaft: two ends on
- * one outline have no direction to aim along, and the point between them is what
- * gave it one.
+ * Whether the bend at an interior index may go: the one rule a removal keeps,
+ * asked by the editor before it removes a point and by the point menu before it
+ * offers the row, so a point the menu shows as disabled is exactly a point the
+ * key cannot remove. A removal that would leave a two-point shaft with both ends
+ * Snapped to one Element takes nothing, because the Scene has no such shaft: two
+ * ends on one outline have no direction to aim along, and the point between them
+ * is what gave it one. Only a three-point Shaft can become that two-point loop,
+ * so the count and the two ends are the whole rule.
  */
-export function mayRemove(shaft: ArrowOrLineElement, index: number): boolean {
-  const points = [...shaft.points];
-  points.splice(index, 1);
+export function mayRemove(shaft: ArrowOrLineElement): boolean {
+  const points = shaft.points;
   const start = points[0]!;
   const end = points[points.length - 1]!;
-  return !(points.length === 2 && start.snap !== undefined && start.snap === end.snap);
+  return !(points.length === 3 && start.snap !== undefined && start.snap === end.snap);
 }
 
 /**
