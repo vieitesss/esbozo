@@ -4,10 +4,13 @@
  * Asserted on the Scene the editor saves and the words the status line shows.
  */
 import { test } from '@e2e-dev/web';
-import { expect } from 'e2e';
+import { afterAll, expect } from 'e2e';
 import {
+  SNAPPED,
+  SNAPPED_SCENE,
   THREE,
   clickScene,
+  cliCheckBytes,
   dragBy,
   holdClipboardWrites,
   openEditor,
@@ -15,7 +18,38 @@ import {
   savedFiles,
   savedScene,
 } from './helpers.ts';
+import type { SavedScene, Ui } from './helpers.ts';
 import { SCENE_SOURCE, THREE_SOURCE, command, palette } from './editor-shared.ts';
+import { removeTempFolders } from '../test/temp.ts';
+
+// `ez check` reads a saved Scene out of a temporary folder, as it does in every
+// suite that asks the CLI about a file this page wrote.
+afterAll(removeTempFolders);
+
+/** `SNAPPED_SCENE` as the file a person opens: an arrow Snapped to two boxes. */
+const SNAPPED_SOURCE = JSON.stringify(SNAPPED_SCENE, null, 2);
+
+/** A point on that arrow's shaft, on no box: where a press selects it alone. */
+const SNAPPED_ON = { x: 230, y: 80 };
+
+/** Every shaft's whole `points`, in the order the Scene lists them. */
+function pointsOf(scene: SavedScene): unknown[] {
+  return scene.elements.flatMap((element) =>
+    element.points === undefined ? [] : [element.points],
+  );
+}
+
+/**
+ * The saved Scene, and `ez check`'s word that the file it was saved as parses:
+ * a Snap naming a target the Scene does not carry is a Scene the editor can
+ * write and cannot read back.
+ */
+async function savedAndChecked(ui: Ui): Promise<SavedScene> {
+  const scene = await savedScene(ui);
+  const checked = await cliCheckBytes((await savedFiles(ui))['scene.json'] ?? '');
+  expect(checked.code, checked.reported).toBe(0);
+  return scene;
+}
 
 test('Copy, Cut and Paste say to use the keys where the page has no clipboard', async ({
   app,
@@ -104,5 +138,42 @@ test('a cut deletes nothing when the Scene changed before the copy landed', asyn
     'p',
     'q',
     'r',
+  ]);
+});
+
+test('Duplicate copies a Snapped arrow alone as a free arrow, keeping its points', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SNAPPED_SOURCE } }, 'scene.json');
+
+  // The arrow alone: both of its targets stay out of the selection, so a copy
+  // of it is a free-standing arrow, as a copy pasted by hand already is.
+  await clickScene(ui, SNAPPED_ON, [], SNAPPED);
+  await browser.keyboard.press('Meta+d');
+
+  const scene = await savedAndChecked(ui);
+  expect(scene.elements.map((element) => element.id)).toEqual(['from', 'to', 'link', 'arrow-1']);
+  expect(pointsOf(scene)).toEqual([
+    [
+      { x: 160, y: 80, snap: 'from' },
+      { x: 300, y: 80, snap: 'to' },
+    ],
+    [
+      { x: 176, y: 96 },
+      { x: 316, y: 96 },
+    ],
+  ]);
+
+  // One undo takes the copy away, and the ends stay attached to their targets.
+  await browser.keyboard.press('Meta+z');
+  await expect.poll(async () => (await savedScene(ui)).elements.length).toBe(3);
+  expect(pointsOf(await savedAndChecked(ui))).toEqual([
+    [
+      { x: 160, y: 80, snap: 'from' },
+      { x: 300, y: 80, snap: 'to' },
+    ],
   ]);
 });

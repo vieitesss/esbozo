@@ -8,7 +8,7 @@
  * `{ folder, name }` destination.
  */
 import { elementBounds, elementsById } from '../renderer.js';
-import { emptyScene, parseFragment, parseScene, serialiseScene } from '../scene.js';
+import { emptyScene, parseFragment, parseScene, serialiseFragment, serialiseScene } from '../scene.js';
 import type { Element as SceneElement, Scene } from '../scene.js';
 import { PRIMARY_SCENE_EXTENSION, sceneFileNameFor, sceneStem } from '../paths.js';
 import { copies, idsOf, without } from './elements.js';
@@ -669,9 +669,16 @@ class EsbozoEditorElement extends HTMLElement {
     );
   }
 
-  /** A duplicate is a copy pasted in place, offset so the copy reads as a copy: one step. */
+  /**
+   * A duplicate is a copy pasted in place, offset so the copy reads as a copy:
+   * one step. It goes through the fragment Copy writes and Paste reads, so a
+   * Snap to an Element outside the selection is dropped and the stored point is
+   * kept, and a Snap to an Element inside the selection follows its copy.
+   */
   #duplicate(): void {
-    this.#insertCopies(this.#selectedElements());
+    const selected = this.#selectedElements();
+    const fragment = parseFragment(serialiseFragment(this.#scene, selected), this.#scene.defaults);
+    this.#insertCopies(fragment ?? []);
   }
 
   /**
