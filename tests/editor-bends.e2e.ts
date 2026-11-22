@@ -791,10 +791,15 @@ describe('a segment dot', () => {
     const ui = { app, browser, screen };
     await open(ui, 'bent-words.json');
 
-    // The first click selects the shaft and its dot appears under the pointer;
-    // the second click is a press on that dot, which is still a click on the
-    // shaft there, so the words the first click found open.
-    await doubleClickScene(ui, FIRST_DOT, BENT);
+    // The first click selects the shaft and its dot appears under the pointer
+    // with the next frame; the second click presses that dot, which is still a
+    // click on the shaft there, so the words the first click found open. The gap
+    // is a person's, and well inside the half second two clicks get: pressed as
+    // fast as the browser sends them, the second press lands on the ink the dot
+    // is drawn over, because the frame that paints it has not come yet.
+    await clickScene(ui, FIRST_DOT, [], BENT);
+    await sleep(200);
+    await clickScene(ui, FIRST_DOT, [], BENT);
 
     await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveValue('bend words');
     // Nothing was pulled out of the shaft on the way.
@@ -980,6 +985,33 @@ describe('a segment dot', () => {
     // press there is the corner's, not a bend the shaft does not have.
     expect(selected.darkCount(FIRST_LEG_INK, 0.85)).toBe(1);
     expect(selected.darkCount(SHORT_LEG_INK, 0.85)).toBe(0);
+  });
+  test('a press where a dot was left off moves the shaft instead of adding a point', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'short.json');
+
+    await clickScene(ui, { x: 200, y: 300 }, [], SHORT);
+    // The press lands on the place the short leg's dot would hold, where the
+    // page paints no dot at all: nothing there is a mark a press could pull a
+    // bend out of, so the press is the one the shaft's own ink takes — a move,
+    // with no point added and no point taken away. The place is six pixels from
+    // the corner handles either side of it, so neither square is under it.
+    await drag(ui, at({ x: 400, y: 306 }, SHORT), at({ x: 440, y: 336 }, SHORT));
+
+    await expectPoints(
+      ui,
+      [
+        { x: 140, y: 330 },
+        { x: 440, y: 330, corner: 'sharp' },
+        { x: 440, y: 342, corner: 'sharp' },
+        { x: 440, y: 550 },
+      ],
+      'short.json',
+    );
   });
 });
 
