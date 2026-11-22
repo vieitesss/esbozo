@@ -9,9 +9,12 @@ import assert from 'node:assert/strict';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import { ez, sceneFolder, tempFolder } from './cli.ts';
 import { FONT, assertOnlyThemeColours, inkPercent, isThemeColour } from './palette.ts';
+import { removeTempFolders } from './temp.ts';
+
+after(removeTempFolders);
 
 interface SceneElement {
   id: string;

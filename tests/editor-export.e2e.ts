@@ -6,7 +6,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from '@e2e-dev/web';
-import { expect } from 'e2e';
+import { afterAll, expect } from 'e2e';
 import {
   BIG_SCENE,
   TEXT_SCENE,
@@ -24,6 +24,9 @@ import {
 import type { Ui } from './helpers.ts';
 import { decodePng, difference } from './pixels.ts';
 import { SCENE_SOURCE, MIXED_SOURCE, command, palette } from './editor-shared.ts';
+import { removeTempFolders } from '../test/temp.ts';
+
+afterAll(removeTempFolders);
 
 const TEXT_SOURCE = JSON.stringify(TEXT_SCENE, null, 2);
 const BIG_SOURCE = JSON.stringify(BIG_SCENE, null, 2);

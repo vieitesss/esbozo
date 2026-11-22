@@ -7,13 +7,16 @@
  */
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { sha256Hex, sha256HexAsync } from '../src/sha256.ts';
+import { removeTempFolders, tempFolder } from './temp.ts';
+
+/** The bundle folder is this file's, so its teardown is too. */
+after(removeTempFolders);
 
 const SAMPLES = [
   '',
@@ -64,7 +67,7 @@ test('sha256Hex matches the published digest of the empty string', () => {
 });
 
 test('the Scene, Renderer and hash modules bundle for the browser', async () => {
-  const folder = await mkdtemp(join(tmpdir(), 'esbozo-browser-'));
+  const folder = await tempFolder('esbozo-browser-');
   const entry = join(folder, 'entry.ts');
   const source = (module: string) =>
     JSON.stringify(fileURLToPath(new URL(`../src/${module}`, import.meta.url)));

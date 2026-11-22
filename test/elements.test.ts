@@ -14,10 +14,13 @@ import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import { ez, sceneFolder, tempFolder } from './cli.ts';
 import type { Run } from './cli.ts';
 import { INK, MUTED, PAPER, assertOnlyThemeColours, isThemeColour } from './palette.ts';
+import { removeTempFolders } from './temp.ts';
+
+after(removeTempFolders);
 
 const KITCHEN_SINK = fileURLToPath(new URL('./fixtures/every-element.json', import.meta.url));
 

@@ -5,7 +5,7 @@
  * the file name, and asserted on the files the editor wrote.
  */
 import { test } from '@e2e-dev/web';
-import { expect } from 'e2e';
+import { afterAll, expect } from 'e2e';
 import {
   BROKEN_SCENE,
   SCENE,
@@ -24,6 +24,9 @@ import {
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
 import { SCENE_SOURCE } from './editor-shared.ts';
+import { removeTempFolders } from '../test/temp.ts';
+
+afterAll(removeTempFolders);
 
 const BROKEN_SOURCE = JSON.stringify(BROKEN_SCENE, null, 2);
 

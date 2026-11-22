@@ -13,11 +13,14 @@
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from '@e2e-dev/web';
-import { expect } from 'e2e';
+import { afterAll, expect } from 'e2e';
 import { cliRender, dragBy, MIXED, MIXED_SCENE, SCENE, clickScene, doubleClickScene, settle } from './helpers.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
 import { startServe, tempFolder } from '../test/cli.ts';
+import { removeTempFolders } from '../test/temp.ts';
+
+afterAll(removeTempFolders);
 
 const SCENE_SOURCE = JSON.stringify(SCENE, null, 2);
 const MIXED_SOURCE = JSON.stringify(MIXED_SCENE, null, 2);

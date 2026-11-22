@@ -19,6 +19,7 @@ import { PAGE_ASSETS } from '../src/page-assets.ts';
 import { MAX_LISTED_SCENE_BYTES } from '../src/paths.ts';
 import { promisify } from 'node:util';
 import { ez, sceneFolder, startServe, tempFolder } from './cli.ts';
+import { removeTempFolders } from './temp.ts';
 import type { Serve } from './cli.ts';
 
 const run = promisify(execFile);
@@ -41,6 +42,7 @@ const SVG = '<svg xmlns="http://www.w3.org/2000/svg"><title>Two boxes</title></s
 const running: Serve[] = [];
 after(async () => {
   await Promise.all(running.map((server) => server.stop()));
+  await removeTempFolders();
 });
 
 async function served(folder: string, args: readonly string[] = []): Promise<Serve> {

@@ -5,7 +5,7 @@
  * gesture leaves behind.
  */
 import { test } from '@e2e-dev/web';
-import { expect } from 'e2e';
+import { afterAll, expect } from 'e2e';
 import {
   MIXED,
   SNAPPED,
@@ -23,6 +23,9 @@ import type { Ui } from './helpers.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
 import { SCENE_SOURCE, MIXED_SOURCE } from './editor-shared.ts';
+import { removeTempFolders } from '../test/temp.ts';
+
+afterAll(removeTempFolders);
 
 const SNAPPED_SOURCE = JSON.stringify(SNAPPED_SCENE, null, 2);
 
