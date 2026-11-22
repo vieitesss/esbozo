@@ -15,7 +15,8 @@
  * Ties to the editor are callbacks only, so the menu knows nothing about the
  * Scene and cannot change it by itself.
  */
-import type { Bend } from './gestures.js';
+import { bendFromHandle } from './bend-point.js';
+import type { Bend, ShaftOf } from './bend-point.js';
 import type { Point } from './geometry.js';
 
 /** How far the panel keeps from the editor's edges: the tape above it still shows. */
@@ -36,6 +37,8 @@ export interface PointMenuOptions {
   readonly canOpen: () => boolean;
   /** Whether the point may go, which is the one rule the removal keeps. */
   readonly removable: (bend: Bend) => boolean;
+  /** The Shaft a mark names, which is what makes a press on it a bend point's. */
+  readonly shaft: ShaftOf;
   /** Make the point the selection's, and paint it: the editor's own selection. */
   readonly selectBend: (bend: Bend) => void;
   /** Remove the point, through the editor's one removal: a step and a write. */
@@ -99,10 +102,7 @@ export class PointMenu {
    * a handle is the mark a point draws, and a dot is a press pulling a new one.
    */
   #pointAt(target: EventTarget | null): Bend | null {
-    const handle = target instanceof Element ? target.closest('[data-handle="bend"]') : null;
-    const id = handle?.getAttribute('data-element');
-    const index = Number(handle?.getAttribute('data-point'));
-    return id == null || !Number.isInteger(index) ? null : { id, index };
+    return bendFromHandle(target, this.#options.shaft)?.bend ?? null;
   }
 
   /**

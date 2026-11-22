@@ -18,7 +18,8 @@ import { actionById, actionFor } from './actions.js';
 import type { ActionHost, ActionState, ToolId } from './actions.js';
 import { exportPng } from './export.js';
 import { Gestures } from './gestures.js';
-import type { Bend } from './gestures.js';
+import { shaftIn } from './bend-point.js';
+import type { Bend } from './bend-point.js';
 import { clipboardApi, copySelection, copyTo, cutSelection, pasteClipboard } from './clipboard.js';
 import type { ClipboardHost } from './clipboard.js';
 import { Connection } from './connection.js';
@@ -232,6 +233,7 @@ class EsbozoEditorElement extends HTMLElement {
       canvas: this.#canvas,
       canOpen: () => this.#connection.writable() && this.#typing.text() === null,
       removable: (bend) => this.#pointGoes(bend),
+      shaft: (id) => shaftIn(this.#scene, id),
       selectBend: (bend) => {
         this.#bend = bend;
         this.#refresh();
