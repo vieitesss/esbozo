@@ -30,7 +30,7 @@ _Avoid_: binding, grid snap
 
 **Shaft**:
 The drawn path of an arrow or line between its two ends, and the points it
-turns by in between. A Snap is one of its ends'.
+turns by in between. Either end can Snap to an Element.
 _Avoid_: leader, polyline
 
 **Bend point**:
