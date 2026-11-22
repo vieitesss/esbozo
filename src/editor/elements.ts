@@ -167,12 +167,13 @@ export function copies(
   return elements.map((element) => {
     const id = renamed.get(element.id)!;
     if (element.type === 'arrow' || element.type === 'line') {
-      const [start, end] = element.points;
+      // Every point moves: the two ends, and each bend the shaft turns at.
+      const points = element.points.map((point) => movedPoint(point, renamed, offset));
       return {
         ...element,
         id,
         seed: seedForId(id),
-        points: [movedPoint(start, renamed, offset), movedPoint(end, renamed, offset)],
+        points: points as [Point, Point, ...Point[]],
       };
     }
     return {
@@ -191,6 +192,7 @@ function movedPoint(point: Point, renamed: ReadonlyMap<string, string>, offset: 
     x: point.x + offset.x,
     y: point.y + offset.y,
     ...(target === undefined ? {} : { snap: target }),
+    ...(point.corner === undefined ? {} : { corner: point.corner }),
   };
 }
 
@@ -199,6 +201,7 @@ function movedPoint(point: Point, renamed: ReadonlyMap<string, string>, offset: 
  * dropped, and its end stays where it was drawn: a Scene that names a missing
  * target would not parse when it is reopened, and an end that jumped back to
  * the point it was attached from would move on the page as the target vanishes.
+ * Every bend between the two ends is kept where the Scene put it.
  */
 export function without(elements: readonly Element[], removed: ReadonlySet<string>): Element[] {
   const byId = elementsById(elements);
@@ -208,17 +211,20 @@ export function without(elements: readonly Element[], removed: ReadonlySet<strin
       if (element.type !== 'arrow' && element.type !== 'line') {
         return element;
       }
-      const [start, end] = element.points;
-      const drops = (point: Point): boolean =>
-        point.snap !== undefined && removed.has(point.snap);
-      if (!drops(start) && !drops(end)) {
+      const points = element.points;
+      const last = points.length - 1;
+      const drops = (index: number): boolean => {
+        const target = points[index]?.snap;
+        return target !== undefined && removed.has(target);
+      };
+      if (!drops(0) && !drops(last)) {
         return element;
       }
       // Where the end draws now, with the target still in the Scene to resolve it.
       const [drawnStart, drawnEnd] = drawnShaft(element, byId);
-      return {
-        ...element,
-        points: [drops(start) ? free(drawnStart) : start, drops(end) ? free(drawnEnd) : end],
-      };
+      const freed = points.map((point, index) =>
+        drops(index) ? free(index === 0 ? drawnStart : drawnEnd) : point,
+      );
+      return { ...element, points: freed as [Point, Point, ...Point[]] };
     });
 }

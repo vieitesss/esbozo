@@ -877,8 +877,10 @@ export class Gestures {
 
   /**
    * The Element the end being dragged would attach to, or null when there is
-   * none. Alt held skips attaching, and the Element the other end is attached to
-   * is never a target: both ends of one arrow cannot attach to the same one.
+   * none. Alt held skips attaching, and a two-point shaft never takes the
+   * Element its other end is attached to: both ends of one straight arrow
+   * cannot attach to the same one. A shaft with a bend between its ends can,
+   * because that is a loop, and it comes back to the Element it left.
    */
   #attachTarget(id: string, end: End, point: Point, skipAttaching: boolean): string | null {
     if (skipAttaching) {
@@ -886,7 +888,10 @@ export class Gestures {
     }
     const elements = this.#host.scene().elements;
     const element = elements.find((candidate) => candidate.id === id);
-    const other = element !== undefined && isShaft(element) ? attachedTo(element, otherEnd(end)) : null;
+    const other =
+      element !== undefined && isShaft(element) && element.points.length === 2
+        ? attachedTo(element, otherEnd(end))
+        : null;
     return targetAt(elements, point, other);
   }
 

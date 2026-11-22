@@ -8,16 +8,18 @@
  * geometry, the one the Renderer and `geometry.ts` already share.
  *
  * The rules are the Scene's own: only a rectangle, ellipse or diamond has an
- * outline to land on, and both ends of one arrow or line cannot attach to the
- * same Element. A Snap is per end, so moving the arrow it belongs to frees the
- * ends it had (`released`), rather than turning the drag into a no-op.
+ * outline to land on, and a shaft of two points cannot attach both its ends to
+ * the same Element, though one with a bend between its ends can: a loop leaves
+ * an Element and comes back to it. A Snap is per end, so moving the arrow it
+ * belongs to frees the ends it had (`released`), rather than turning the drag
+ * into a no-op.
  */
 import { insideOutline } from '../geometry.js';
 import { drawnShaft } from '../renderer.js';
 import type { ArrowOrLineElement, Element, Point } from '../scene.js';
 import { isOutlined } from '../scene.js';
 
-/** Which end of an arrow or line: the first point, or the second. */
+/** Which end of an arrow or line: the first point, or the last. */
 export const ENDS = ['start', 'end'] as const;
 export type End = (typeof ENDS)[number];
 
@@ -31,9 +33,21 @@ export function otherEnd(end: End): End {
   return end === 'start' ? 'end' : 'start';
 }
 
-/** The stored point of one end. */
+/** The index of one end's point: the first, or the last, never a bend between them. */
+function endIndex(element: ArrowOrLineElement, end: End): number {
+  return end === 'start' ? 0 : element.points.length - 1;
+}
+
+/** The stored point of one end: the first point or the last, whichever end it is. */
 export function endPoint(element: ArrowOrLineElement, end: End): Point {
-  return end === 'start' ? element.points[0] : element.points[1];
+  return element.points[endIndex(element, end)]!;
+}
+
+/** This shaft with the point at `index` replaced: every other point, bends included, is kept. */
+function withPoint(element: ArrowOrLineElement, index: number, point: Point): ArrowOrLineElement {
+  const points = [...element.points];
+  points[index] = point;
+  return { ...element, points: points as ArrowOrLineElement['points'] };
 }
 
 /** The Element this end is attached to, or null when the end is free. */
@@ -87,16 +101,14 @@ export function withEnd(
     y: Math.round(point.y),
     ...(target === null ? {} : { snap: target }),
   };
-  return {
-    ...element,
-    points: end === 'start' ? [stored, element.points[1]] : [element.points[0], stored],
-  };
+  return withPoint(element, endIndex(element, end), stored);
 }
 
 /**
- * The arrow or line with both ends freed where they draw now. An attached end
- * is stored on its target's outline rather than where it was when it attached,
- * so freeing it does not move it.
+ * The arrow or line with its attached ends freed where they draw now, and every
+ * bend between them where the Scene put it. An attached end is stored on its
+ * target's outline rather than where it was when it attached, so freeing it does
+ * not move it.
  */
 export function released(
   element: Element,
@@ -105,7 +117,16 @@ export function released(
   if (!attached(element) || !isShaft(element)) {
     return element;
   }
-  return { ...element, points: drawnEnds(element, byId) };
+  const [start, end] = drawnEnds(element, byId);
+  let freed = element;
+  if (freed.points[0]!.snap !== undefined) {
+    freed = withPoint(freed, 0, start);
+  }
+  const last = freed.points.length - 1;
+  if (freed.points[last]!.snap !== undefined) {
+    freed = withPoint(freed, last, end);
+  }
+  return freed;
 }
 
 /** One end freed where it draws now, the other end left as it is. */
