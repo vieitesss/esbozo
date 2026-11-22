@@ -93,14 +93,21 @@ jobs:
             process.stdout.write(String(flaky))
           ')"
           echo "flaky=$flaky" >> "$GITHUB_OUTPUT"
+      # `> 0` and not `!= '0'`: an output the step never set reads as no flaky
+      # test, not as one. Best-effort, because evidence is worth having and is
+      # never worth the run: a failed upload must not turn a green run red.
       - name: Keep the run's evidence
-        if: ${{ failure() || steps.e2e.outputs.flaky != '0' }}
+        if: ${{ failure() || steps.e2e.outputs.flaky > 0 }}
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: e2e-evidence
           path: |
             .e2e/
             !.e2e/cache/
+          # `.e2e/` is a dot directory, which the action skips unless told not
+          # to; the exclusion above still leaves the replay cache behind.
+          include-hidden-files: true
           # A red run is read within the week; the cache is not evidence.
           retention-days: 7
           if-no-files-found: ignore
