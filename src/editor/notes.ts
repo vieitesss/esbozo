@@ -48,11 +48,17 @@ export interface Ask {
 }
 
 export interface NotesOptions {
+  /**
+   * The element the notes open inside. A press there is the stack's wherever the
+   * page keeps it from bubbling to, because a host may hold its own presses.
+   */
+  readonly inside: HTMLElement;
   /** The paper the focus goes back to when a note shuts. */
   readonly canvas: HTMLElement | SVGSVGElement;
 }
 
 export class Notes {
+  readonly #inside: HTMLElement;
   readonly #canvas: HTMLElement | SVGSVGElement;
   readonly #notes = new Map<NoteId, Note>();
   /** The open notes, the one on top last. */
@@ -63,6 +69,7 @@ export class Notes {
   #listening = false;
 
   constructor(options: NotesOptions) {
+    this.#inside = options.inside;
     this.#canvas = options.canvas;
   }
 
@@ -150,7 +157,11 @@ export class Notes {
     return this.#notes.get(top)?.keys === 'all' ? 'hold' : null;
   }
 
-  /** Take the note's presses, once, while the element is on the page. */
+  /**
+   * Take the note's presses while the element is on the page: the element hears
+   * the ones inside it, even when the page keeps them from bubbling on, and the
+   * document hears the ones that land outside the element.
+   */
   listen(): void {
     if (this.#listening) {
       return;
@@ -159,24 +170,28 @@ export class Notes {
     // The bubble path, so a press outside the note still lands where it was
     // aimed: the target's own handlers run first, and the browser's focus with
     // them.
+    this.#inside.addEventListener('pointerdown', this.#onPress);
     document.addEventListener('pointerdown', this.#onPress);
   }
 
   /** Give every listener back, so no note answers for an element off the page. */
   unlisten(): void {
+    this.#inside.removeEventListener('pointerdown', this.#onPress);
     document.removeEventListener('pointerdown', this.#onPress);
     this.#listening = false;
   }
 
   /** A press outside the note on top shuts it, and is otherwise the press it was. */
   #onPress = (event: PointerEvent): void => {
-    const top = this.#open.at(-1);
-    const note = top === undefined ? undefined : this.#notes.get(top);
     const target = event.target as Node | null;
-    if (top === undefined || note === undefined || target === null) {
+    // The element already answered this press, and the page's listener is for the
+    // presses that land beyond it.
+    if (target === null || (event.currentTarget !== this.#inside && this.#inside.contains(target))) {
       return;
     }
-    if (this.#holds(note, target)) {
+    const top = this.#open.at(-1);
+    const note = top === undefined ? undefined : this.#notes.get(top);
+    if (top === undefined || note === undefined || this.#holds(note, target)) {
       return;
     }
     // The press itself says where the focus goes: it may have opened a note of

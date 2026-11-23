@@ -279,7 +279,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#roughButton = this.querySelector('[data-act="roughness"]')!;
     this.#sheet = this.querySelector('.shortcuts')!;
     this.#helpButton = this.querySelector('[data-act="shortcuts"]')!;
-    this.#notes = new Notes({ canvas: this.#canvas });
+    this.#notes = new Notes({ inside: this, canvas: this.#canvas });
     this.#palette = new CommandPalette({
       root: this.querySelector('.palette')!,
       state: () => this.#actionState(),
