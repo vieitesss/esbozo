@@ -50,6 +50,13 @@ const HYPHEN_SOURCE = JSON.stringify(HYPHEN_SCENE, null, 2);
 const CROSSING_SOURCE = JSON.stringify(CROSSING_SCENE, null, 2);
 
 /**
+ * `SNAP_SCENE` with roughness 0, so a test can read the exact line a drag shows
+ * rather than the hand's wobble around it.
+ */
+const PLAIN_SCENE = { ...SNAP_SCENE, title: 'Plain', defaults: { roughness: 0 } };
+const PLAIN_SOURCE = JSON.stringify(PLAIN_SCENE, null, 2);
+
+/**
  * A bent arrow between two boxes: three points, both ends Snapped and the bend
  * between them written `sharp`. Roughness 0, so the ends it draws at are the
  * ones the numbers below say: `a`'s outline puts the start at (100,90), `b`'s
@@ -305,6 +312,7 @@ const PINNED_FACE = { x: 360, y: 80 };
 const SCENES = {
   A: {
     'snap.json': SNAP_SOURCE,
+    'plain.json': PLAIN_SOURCE,
     'snapped.json': SNAPPED_SOURCE,
     'hyphen.json': HYPHEN_SOURCE,
     'crossing.json': CROSSING_SOURCE,
@@ -362,6 +370,11 @@ function reaches(point: Point, expected: Point, tolerance = 0.5): boolean {
   return Math.abs(point.x - expected.x) <= tolerance && Math.abs(point.y - expected.y) <= tolerance;
 }
 
+/** The ink of a small patch of page, too dark to be paper. */
+function inked(drawn: Shot, point: Point): number {
+  return drawn.darkCount({ x: point.x - 8, y: point.y - 4, width: 16, height: 8 }, 0.6);
+}
+
 /** Every path's drawn points, in document order: where each move, line and curve ends. */
 function drawnPaths(svg: string): Point[][] {
   // check-rules: markup of a written SVG file, not the page
@@ -404,18 +417,24 @@ async function tieToPost(ui: Ui): Promise<void> {
 }
 
 describe('an end drawn onto an Element', () => {
-  test('an arrow drawn onto a box saves that end attached to it', async ({ app, browser, screen }) => {
+  test('an arrow drawn onto a box saves that end attached to it, with its Anchor', async ({
+    app,
+    browser,
+    screen,
+  }) => {
     const ui = { app, browser, screen };
     await open(ui);
 
     await browser.keyboard.press('a');
     await drag(ui, at(PAPER, SNAP), at(IN_POST, SNAP));
 
+    // The drop is inside `post`, twenty pixels above its bottom edge, so the end
+    // is written there: half way across the box, at the bottom it reached first.
     const scene = await savedScene(ui, 'snap.json');
     expect(scene.elements.map((element) => element.type)).toEqual(['rectangle', 'line', 'arrow']);
     expect(scene.elements[2]?.points).toEqual([
       { x: PAPER.x, y: PAPER.y },
-      { x: IN_POST.x, y: IN_POST.y, snap: 'post' },
+      { x: IN_POST.x, y: 120, snap: 'post', anchor: { x: 0.5, y: 1 } },
     ]);
   });
 
@@ -449,7 +468,7 @@ describe('an end drawn onto an Element', () => {
     const scene = await savedScene(ui, 'snap.json');
     expect(scene.elements[2]?.points).toEqual([
       { x: PAPER.x, y: PAPER.y },
-      { x: IN_POST.x, y: IN_POST.y, snap: 'post' },
+      { x: IN_POST.x, y: 120, snap: 'post', anchor: { x: 0.5, y: 1 } },
     ]);
   });
 
@@ -477,17 +496,80 @@ describe('an end drawn onto an Element', () => {
 });
 
 describe('moving an end that already exists', () => {
-  test('dragging an end handle onto a box attaches that end', async ({ app, browser, screen }) => {
+  test('dragging an end handle onto a box attaches that end, with its Anchor', async ({
+    app,
+    browser,
+    screen,
+  }) => {
     const ui = { app, browser, screen };
     await open(ui);
 
     await tieToPost(ui);
 
+    // The pointer lets go inside `post`'s bottom edge, a quarter of the way
+    // across it: the end is drawn on that edge, and the Anchor names it.
     const scene = await savedScene(ui, 'snap.json');
     expect(scene.elements[1]?.points).toEqual([
       { x: 60, y: 80 },
-      { x: 330, y: 100, snap: 'post' },
+      { x: 330, y: 120, snap: 'post', anchor: { x: 0.25, y: 1 } },
     ]);
+  });
+
+  test('dropping an end on a box’s right side writes the Anchor that names it', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await clickScene(ui, { x: 180, y: 80 }, [], SNAP);
+
+    // Ten pixels inside `post`'s right edge, a quarter of the way down it: the
+    // nearest outline point is that edge, and the fraction is the whole of x and
+    // the place down the side.
+    await drag(ui, at(TIE_END, SNAP), at({ x: 410, y: 70 }, SNAP));
+
+    const scene = await savedAndChecked(ui, 'snap.json');
+    expect(scene.elements[1]?.points).toEqual([
+      { x: 60, y: 80 },
+      { x: 420, y: 70, snap: 'post', anchor: { x: 1, y: 0.375 } },
+    ]);
+  });
+
+  test('the preview under a dragged end is the outline point the drop writes', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'plain.json');
+    await clickScene(ui, { x: 180, y: 80 }, [], SNAP);
+
+    const handle = at(TIE_END, SNAP);
+    const drop = at(IN_POST, SNAP);
+    await browser.mouse.move(handle.x, handle.y);
+    await browser.mouse.down();
+    await browser.mouse.move(drop.x, drop.y);
+    await settle(ui);
+
+    // The pointer is inside `post`; the end the page shows is on its bottom edge,
+    // at (360,120), so the line runs through (200,99) and not along the level at
+    // (200,89) the pointer alone would draw.
+    const held = await shot(ui);
+    expect(inked(held, at({ x: 200, y: 99 }, SNAP))).toBeGreaterThan(0);
+    expect(inked(held, at({ x: 200, y: 89 }, SNAP))).toBe(0);
+
+    await browser.mouse.up();
+    const scene = await savedScene(ui, 'plain.json');
+    expect(scene.elements[1]?.points).toEqual([
+      { x: 60, y: 80 },
+      { x: 360, y: 120, snap: 'post', anchor: { x: 0.5, y: 1 } },
+    ]);
+
+    // The saved drawing is the preview: the same patch is still the shaft's.
+    const dropped = await shot(ui);
+    expect(inked(dropped, at({ x: 200, y: 99 }, SNAP))).toBeGreaterThan(0);
+    expect(inked(dropped, at({ x: 200, y: 89 }, SNAP))).toBe(0);
   });
 
   test('dragging an attached end off its box frees it where it was dropped', async ({
@@ -576,13 +658,15 @@ describe('moving an end that already exists', () => {
 
     // The drop is inside `post`, but this grab is 2 px to the right of the end,
     // so the endpoint the drag carries lands at (299,100): a pixel outside the
-    // box. The pointer at (301,100) is inside it, and the pointer decides.
+    // box. The pointer at (301,100) is inside it, and the pointer decides. The
+    // Anchor is the outline point nearest the end the drag carried, and the
+    // stored point is where it draws.
     await drag(ui, at({ x: 302, y: 80 }, SNAP), at({ x: 301, y: 100 }, SNAP));
 
     const scene = await savedScene(ui, 'snap.json');
     expect(scene.elements[1]?.points).toEqual([
       { x: 60, y: 80 },
-      { x: 299, y: 100, snap: 'post' },
+      { x: 300, y: 100, snap: 'post', anchor: { x: 0, y: 0.75 } },
     ]);
   });
 
@@ -614,7 +698,7 @@ describe('moving an end that already exists', () => {
     ]);
   });
 
-  test('a release that changes nothing still clears the highlight', async ({
+  test('a drag that comes back to where it started still clears the highlight', async ({
     app,
     browser,
     screen,
@@ -625,7 +709,8 @@ describe('moving an end that already exists', () => {
     const rest = (await shot(ui)).meanLuminance(POST_FACE);
 
     // The end is dragged over the box it is already attached to and back to
-    // where it was: the Scene the release settles is the Scene it started with.
+    // where it was: the drop attaches it again, at the same outline point, and
+    // the Anchor it writes names the left edge half way down.
     const [from, over] = [at({ x: 300, y: 80 }, SNAPPED), at(IN_TO, SNAPPED)];
     await browser.mouse.move(from.x, from.y);
     await browser.mouse.down();
@@ -636,14 +721,14 @@ describe('moving an end that already exists', () => {
     await browser.mouse.move(from.x, from.y);
     await browser.mouse.up();
 
-    // The box is its own colour again, and nothing was written.
+    // The box is its own colour again, and the end still draws where it did.
     await expect
       .poll(async () => (await shot(ui)).meanLuminance(POST_FACE))
       .toBeGreaterThan(rest - 0.005);
     const scene = await savedScene(ui, 'snapped.json');
     expect(scene.elements[2]?.points).toEqual([
       { x: 160, y: 80, snap: 'from' },
-      { x: 300, y: 80, snap: 'to' },
+      { x: 300, y: 80, snap: 'to', anchor: { x: 0, y: 0.5 } },
     ]);
   });
 
@@ -687,24 +772,25 @@ describe('an attached end follows its Element', () => {
     await open(ui);
     await tieToPost(ui);
 
-    // The box moves; the line's own ends are not rewritten, because where they
-    // draw is the Element's business.
+    // The box moves sixty pixels right. The end keeps its quarter of the box's
+    // width and its bottom side, and its stored `x`, `y` are rewritten where the
+    // moved Anchor draws it: a quarter across the new box, on its bottom edge.
     await dragBy(ui, IN_POST, 60, 0, SNAP);
     const moved = await savedScene(ui, 'snap.json');
     expect(moved.elements[0]?.x).toBe(360);
     expect(moved.elements[1]?.points).toEqual([
       { x: 60, y: 80 },
-      { x: 330, y: 100, snap: 'post' },
+      { x: 390, y: 120, snap: 'post', anchor: { x: 0.25, y: 1 } },
     ]);
 
-    // Freed, the end is stored where it drew: the moved box's left edge, level
-    // with the other end, which is the outline point the Renderer uses.
+    // Freed, the end is stored where it drew: the moved box's bottom edge, a
+    // quarter of the way across it.
     await clickScene(ui, { x: 100, y: 80 }, [], SNAP);
     await screen.getByRole('button', { name: 'Detach: end' }).click();
     const freed = await savedScene(ui, 'snap.json');
     expect(freed.elements[1]?.points).toEqual([
       { x: 60, y: 80 },
-      { x: 360, y: 80 },
+      { x: 390, y: 120 },
     ]);
   });
 
@@ -754,7 +840,9 @@ describe('an attached end follows its Element', () => {
     await open(ui);
     await tieToPost(ui);
 
-    // The box's west handle drags its outline in by 40: the end rides the edge.
+    // The box's west handle drags its outline in by 40: the end keeps its quarter
+    // of the width and its bottom side, and its stored `x`, `y` are rewritten
+    // where the narrower Anchor draws it.
     await clickScene(ui, IN_POST, [], SNAP);
     await dragBy(ui, TIE_END, 40, 0, SNAP);
     const resized = await savedScene(ui, 'snap.json');
@@ -762,13 +850,17 @@ describe('an attached end follows its Element', () => {
       x: 340,
       width: 80,
     });
+    expect(resized.elements[1]?.points).toEqual([
+      { x: 60, y: 80 },
+      { x: 360, y: 120, snap: 'post', anchor: { x: 0.25, y: 1 } },
+    ]);
 
     await clickScene(ui, { x: 100, y: 80 }, [], SNAP);
     await screen.getByRole('button', { name: 'Detach: end' }).click();
     const freed = await savedScene(ui, 'snap.json');
     expect(freed.elements[1]?.points).toEqual([
       { x: 60, y: 80 },
-      { x: 340, y: 80 },
+      { x: 360, y: 120 },
     ]);
   });
 
@@ -781,7 +873,8 @@ describe('an attached end follows its Element', () => {
     await open(ui);
     await tieToPost(ui);
 
-    // The box moves right; the attached end rides its left edge, at x 360.
+    // The box moves right; the attached end rides its bottom edge, a quarter of
+    // the way across it, and its stored point is rewritten there.
     await dragBy(ui, IN_POST, 60, 0, SNAP);
 
     // Deleting the box leaves the end where the eye last saw it, not at the
@@ -791,7 +884,7 @@ describe('an attached end follows its Element', () => {
     expect(scene.elements.map((element) => element.id)).toEqual(['tie']);
     expect(scene.elements[0]?.points).toEqual([
       { x: 60, y: 80 },
-      { x: 360, y: 80 },
+      { x: 390, y: 120 },
     ]);
   });
 });
@@ -855,13 +948,15 @@ describe('which Element is under the pointer', () => {
       { x: 60, y: 60 },
     ]);
 
-    // The middle of the ellipse is inside it, so that drop attaches.
+    // The middle of the ellipse is inside it, so that drop attaches. The nearest
+    // point of the oval's outline to the box's middle is where its shorter axis
+    // reaches it, so the Anchor names the bottom of that axis.
     await browser.keyboard.press('a');
     await drag(ui, at({ x: 300, y: 300 }, MIXED), at({ x: 120, y: 110 }, MIXED));
     const inside = await savedScene(ui, 'mixed.json');
     expect(inside.elements[4]?.points).toEqual([
       { x: 300, y: 300 },
-      { x: 120, y: 110, snap: 'oval' },
+      { x: 120, y: 160, snap: 'oval', anchor: { x: 0.5, y: 1 } },
     ]);
   });
 });
@@ -886,18 +981,22 @@ describe('two targets that cross', () => {
       'rectangle',
       'arrow',
     ]);
+    // Each end carries the Anchor the drag wrote: the start on the bar's top
+    // edge, the nearest point to where it was dropped, and the end on the post's
+    // right edge, the nearest point to the middle it was dropped on. The stored
+    // points are where those Anchors draw.
     expect(scene.elements[2]?.points).toEqual([
-      { x: 10, y: 50, snap: 'bar' },
-      { x: 50, y: 50, snap: 'post' },
+      { x: 10, y: 40, snap: 'bar', anchor: { x: 0.1, y: 0 } },
+      { x: 60, y: 50, snap: 'post', anchor: { x: 1, y: 0.5 } },
     ]);
 
-    // The bars cross, so the two ends cannot follow the line between the
-    // centres: the drawing leaves the bar's right edge and stops on the post's
-    // right edge, along y=50, with the head pointing left into the post. The
-    // head is the last ink of the arrow, so the shaft stops behind it and the
-    // head's tip is the ink that reaches that edge. A collapsed shaft would put
-    // both ends on one point, and a shaft that ran backwards would end on the
-    // post's top edge instead.
+    // An Anchored end is drawn where it says, not by the centre-aiming rules: the
+    // ink leaves the bar's top edge at (10,40), runs into the post and stops on
+    // its right edge at (60,50), with the head pointing left into it. The head is
+    // the last ink of the arrow, so the shaft stops behind it and the head's tip
+    // is the ink that reaches that edge. A collapsed shaft would put both ends on
+    // one point, and a shaft that ran backwards would end on the post's top edge
+    // instead.
     const svg = (await savedFiles(ui))['crossing.svg'] ?? '';
     const paths = drawnPaths(svg);
     const head = paths.find(
@@ -905,9 +1004,9 @@ describe('two targets that cross', () => {
     );
     expect(head, 'the head’s tip reaches the post at (60,50)').toBeTruthy();
     const shaft = paths.find(
-      (points) => points.length > 0 && reaches(points[0]!, { x: 100, y: 50 }),
+      (points) => points.length > 0 && reaches(points[0]!, { x: 10, y: 40 }),
     );
-    expect(shaft, 'a shaft starts on the bar at (100,50)').toBeTruthy();
+    expect(shaft, 'a shaft starts on the bar at (10,40)').toBeTruthy();
     const end = shaft?.[shaft.length - 1];
     // The cut ends the shaft under the head that covers it: behind the tip and
     // inside the triangle, so no ink of it shows beside the head.
@@ -1293,20 +1392,17 @@ describe('the two ends of a loop', () => {
     await dragBy(ui, LOOP_END, -40, -20, LOOP);
 
     const scene = await savedAndChecked(ui, 'loop.json');
+    // The end now carries the Anchor the drop wrote: the outline point nearest
+    // where it was let go, a little below the oval's right-hand reach.
     expect(scene.elements[1]?.points).toEqual([
       { x: 360, y: 140, snap: 'oval' },
       { x: 360, y: 320, corner: 'sharp' },
-      { x: 362, y: 122, snap: 'oval' },
+      { x: 366, y: 160, snap: 'oval', anchor: { x: 0.554, y: 0.997 } },
     ]);
   });
 });
 
 describe('an end that carries an Anchor', () => {
-  /** The ink of a small patch of page, too dark to be paper. */
-  function inked(drawn: Shot, point: Point): number {
-    return drawn.darkCount({ x: point.x - 8, y: point.y - 4, width: 16, height: 8 }, 0.6);
-  }
-
   test('the end draws at its Anchor, and stays on it when its box moves', async ({
     app,
     browser,
@@ -1322,15 +1418,15 @@ describe('an end that carries an Anchor', () => {
     expect(inked(before, at({ x: 180, y: 80 }, PINNED))).toBe(0);
 
     // The box moves down 40px with the pointer, and the end stays a quarter of
-    // the way up its left edge: the same fraction of the box it just left.
+    // the way up its left edge: the same fraction of the box it just left. Its
+    // stored `x`, `y` are rewritten at the place the moved Anchor draws it.
     await dragBy(ui, PINNED_FACE, 0, 40, PINNED);
 
     const scene = await savedAndChecked(ui, 'pinned.json');
     expect({ y: scene.elements[0]?.y }).toEqual({ y: 80 });
-    // The stored point is untouched: the Anchor decides where the ink lands.
     expect(scene.elements[1]?.points).toEqual([
       { x: 60, y: 80 },
-      { x: 300, y: 80, snap: 'post', anchor: { x: 0, y: 0.75 } },
+      { x: 300, y: 140, snap: 'post', anchor: { x: 0, y: 0.75 } },
     ]);
 
     // The box's left edge now runs y=80..160, so its three-quarter point is
