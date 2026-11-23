@@ -320,48 +320,49 @@ test('every Element type moves, and only a box-like one gets resize handles', as
   expect(moved.get('word')?.x).toBe(270);
 });
 
-test('dragging an arrow Snapped at both ends frees both ends and moves it', async ({ app, browser, screen }) => {
+test('dragging an arrow Snapped at both ends moves nothing and keeps both Snaps', async ({
+  app,
+  browser,
+  screen,
+}) => {
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'snapped.json': SNAPPED_SOURCE } }, 'snapped.json');
 
-  // An arrow cannot move while it follows two Elements, so the drag frees both
-  // ends where they draw and carries them by the drag.
+  // A two-point arrow has no bend to move in its Snapped ends' place, so the
+  // drag carries nothing: both ends keep the places and the Snaps they had.
   await dragBy(ui, { x: 230, y: 80 }, 10, 20, SNAPPED);
 
   const scene = await savedScene(ui, 'snapped.json');
   expect(scene.elements[2]?.points).toEqual([
-    { x: 170, y: 100 },
-    { x: 310, y: 100 },
-  ]);
-
-  // One gesture is one step: a single undo takes the drag back, Snaps and all.
-  await ui.browser.keyboard.press('Meta+z');
-  const undone = await savedScene(ui, 'snapped.json');
-  expect(undone.elements[2]?.points).toEqual([
     { x: 160, y: 80, snap: 'from' },
     { x: 300, y: 80, snap: 'to' },
   ]);
+
+  // The arrow is still selected, and the note still names a Snap on each end:
+  // the drag did not let either go.
+  await expect(screen.getByRole('button', { name: 'Detach: start' })).toBeVisible();
+  await expect(screen.getByRole('button', { name: 'Detach: end' })).toBeVisible();
 });
 
-test('nudging an arrow Snapped at both ends frees both ends and moves it', async ({ app, browser, screen }) => {
+test('nudging an arrow Snapped at both ends moves nothing and keeps both Snaps', async ({
+  app,
+  browser,
+  screen,
+}) => {
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'snapped.json': SNAPPED_SOURCE } }, 'snapped.json');
 
   await clickScene(ui, { x: 230, y: 80 }, [], SNAPPED);
+  await expect(screen.getByRole('button', { name: 'Detach: end' })).toBeVisible();
   await ui.browser.keyboard.press('Shift+ArrowRight');
 
+  // A nudge follows the drag rule for a two-point shaft: only a free end moves,
+  // and both ends here follow an Element, so the step changes nothing at all.
   const scene = await savedScene(ui, 'snapped.json');
   expect(scene.elements[2]?.points).toEqual([
-    { x: 170, y: 80 },
-    { x: 310, y: 80 },
-  ]);
-
-  // A keyboard nudge is a body move, so it follows the drag rule: the one step
-  // it is undoes the move and puts both Snaps back.
-  await ui.browser.keyboard.press('Meta+z');
-  const undone = await savedScene(ui, 'snapped.json');
-  expect(undone.elements[2]?.points).toEqual([
     { x: 160, y: 80, snap: 'from' },
     { x: 300, y: 80, snap: 'to' },
   ]);
+  await expect(screen.getByRole('button', { name: 'Detach: start' })).toBeVisible();
+  await expect(screen.getByRole('button', { name: 'Detach: end' })).toBeVisible();
 });

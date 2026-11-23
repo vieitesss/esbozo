@@ -1511,16 +1511,16 @@ test('the pointer measures the paper the view draws on, not the host’s border 
     await browser.mouse.down();
     await browser.mouse.up();
 
-    // The arrow is what the click picked, so the note offers its ends, and a
-    // nudge moves the arrow itself.
+    // The arrow is what the click picked, so the note offers both its ends —
+    // the pointer measured the paper, not the host's border. A nudge is then a
+    // body move of a two-point shaft Snapped at both ends, so it carries nothing
+    // and the file stays as it was.
+    await expect(screen.getByRole('button', { name: 'Detach: start' })).toBeVisible();
     await expect(screen.getByRole('button', { name: 'Detach: end' })).toBeVisible();
     await browser.keyboard.press('Shift+ArrowRight');
-    await expect
-      .poll(
-        async () =>
-          (JSON.parse(await embed.saved('link')) as SavedScene).elements[2]?.points?.[0]?.x,
-      )
-      .toBe(170);
+    await settle(ui);
+    expect(embed.writes('link')).toBe(0);
+    expect(await embed.saved('link')).toBe(LINK_SOURCE);
   } finally {
     await embed.stop();
   }
