@@ -143,12 +143,6 @@ class EsbozoEditorElement extends HTMLElement {
    */
   #frameOffset: Point | null = null;
   /**
-   * Whether the strip hangs where a person's own drag let it go, rather than
-   * where a measure of the frame put it (D6): a status corner that grows later
-   * leaves that place alone, and a dock by name takes the question back.
-   */
-  #railOwn = false;
-  /**
    * Whether a status corner changed size while a press held the strip, so the
    * placement it asks for waits for that press to end rather than moving the
    * strip out from under the pointer (D6, O2).
@@ -1144,17 +1138,14 @@ class EsbozoEditorElement extends HTMLElement {
    * was then, and a corner that grows over the strip prints its words over the
    * tiles and takes the press of the nearest of them (O2). The strip is measured
    * again on its own side, which is also what puts it back when a corner only
-   * shrinks.
+   * shrinks. A strip a person dragged is measured the same way: the drag keeps the
+   * side and the place along it, and only the travel across the side is the
+   * corner's to ask for.
    *
-   * Two places are not the measure's to take. A strip a person dragged is the place
-   * they chose, and a corner arriving over it is theirs to move (D6). A press on
-   * the strip keeps it under the pointer it was pressed with, and asks for the
-   * placement when that press ends (D6, O2).
+   * A press on the strip keeps it under the pointer it was pressed with, and asks
+   * for the placement when that press ends (D6, O2).
    */
   #onCornerResize = (): void => {
-    if (this.#railOwn) {
-      return;
-    }
     if (this.#railDrag !== null) {
       this.#railWaiting = true;
       return;
@@ -1285,10 +1276,6 @@ class EsbozoEditorElement extends HTMLElement {
    * records no step (D9).
    */
   #dockRail(side: RailSide, pressed?: MeasuredFrame): void {
-    // A release that carries the strip docks on the frame the press measured, and
-    // the place it reaches is the person's: only a dock by name measures one now
-    // (D3, D6).
-    this.#railOwn = pressed !== undefined;
     this.#railSide = side;
     this.#rail.dataset['side'] = side;
     // Laying the strip along another edge is another size, so the outline is
