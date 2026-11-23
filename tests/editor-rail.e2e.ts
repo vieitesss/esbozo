@@ -24,9 +24,9 @@ import {
 } from './helpers.ts';
 import type { Ui } from './helpers.ts';
 import { fullInk, zoomReadout } from './editor-shared.ts';
-import { blurPage, cancelTouch, livePage, touchCarry } from './cdp.ts';
+import { blurPage, cancelTouch, cursorAt, livePage, touchCarry } from './cdp.ts';
 import { shot } from './pixels.ts';
-import type { Rect } from './pixels.ts';
+import type { Rect, Shot } from './pixels.ts';
 
 /** An empty Scene: bare paper, so the only ink up top is the strip's own. */
 const BARE_SOURCE = JSON.stringify(
@@ -2452,4 +2452,344 @@ test('a finger pressed on a tile before a cancel keeps the click it makes after 
   ).toBe('true');
   expect(await rectanglePressed(ui), 'the cancelled pen picks no tool').toBe('false');
   expect(await keptSide(ui), 'a called-off drag stores no side').toBeNull();
+});
+
+// ------------------------------------------- the four docks a drag would take
+
+/**
+ * The window the docks are read at: an empty Scene's 960×600 frame runs from 160
+ * to 1120 across and 200 to 800 down, so every dock hangs clear of the status
+ * bar's corners and of the mode pill at the bottom's middle (O2).
+ */
+const DOCK_WINDOW = { width: 1280, height: 1000 };
+
+/** The frame an empty Scene's rail hangs on at `DOCK_WINDOW` (D2). */
+const DOCK_FRAME: Rect = { x: 160, y: 200, width: 960, height: 600 };
+
+/** The gap the strip's pencil outline keeps outside the frame (I2). */
+const DOCK_GAP = 16;
+
+/**
+ * The strip's pencil outline as it measures each way it hangs, from the shapes
+ * the sheet draws (D12, O3): seven 30 px tiles 1 px apart inside 8 px of padding
+ * across and 9 px above and below, with the 7 px outline `rail-art` draws outside
+ * all of it. A dock is drawn in its own orientation, so both measures are needed.
+ */
+const LYING_OUTLINE = { width: 7 * 30 + 6 + 2 * 8 + 2 * 7, height: 31 + 2 * 9 + 2 * 7 };
+const STANDING_OUTLINE = { width: 30 + 2 * 8 + 2 * 7, height: 7 * 31 + 6 + 2 * 9 + 2 * 7 };
+
+/** Where a drag draws one of the four docks: the outline the strip would wear there (D6). */
+function dockMark(side: 'top' | 'bottom' | 'left' | 'right'): Rect {
+  const outline = side === 'top' || side === 'bottom' ? LYING_OUTLINE : STANDING_OUTLINE;
+  const middleX = DOCK_FRAME.x + DOCK_FRAME.width / 2;
+  const middleY = DOCK_FRAME.y + DOCK_FRAME.height / 2;
+  switch (side) {
+    case 'top':
+      return { x: middleX - outline.width / 2, y: DOCK_FRAME.y - DOCK_GAP - outline.height, ...outline };
+    case 'bottom':
+      return { x: middleX - outline.width / 2, y: DOCK_FRAME.y + DOCK_FRAME.height + DOCK_GAP, ...outline };
+    case 'left':
+      return { x: DOCK_FRAME.x - DOCK_GAP - outline.width, y: middleY - outline.height / 2, ...outline };
+    case 'right':
+      return { x: DOCK_FRAME.x + DOCK_FRAME.width + DOCK_GAP, y: middleY - outline.height / 2, ...outline };
+  }
+}
+
+/** A band holding one dock and the few pixels its pencil wanders, and no other dock. */
+function markBand(mark: Rect): Rect {
+  return { x: mark.x - 10, y: mark.y - 10, width: mark.width + 20, height: mark.height + 20 };
+}
+
+/** Bare paper beside every dock, at both windows the rail is read at: what a band with no ink reads. */
+const BARE_PAPER: Rect = { x: 300, y: 620, width: 180, height: 100 };
+
+/**
+ * The ink a band holds, whichever way the theme draws it: how far its mean sits
+ * from the bare paper beside it. A drawn dock differs from paper; an empty band
+ * is the paper itself, grid and all.
+ */
+function inkOverPaper(shown: Shot, band: Rect): number {
+  return Math.abs(shown.meanLuminance(band) - shown.meanLuminance(BARE_PAPER));
+}
+
+/**
+ * A dock drawn where the frame puts it, in its own orientation: its pencil
+ * outline is drawn a few pixels inside its box the way the strip's own is, so the
+ * measure is its middle and its span, never its corners.
+ */
+function expectMark(ink: Rect | null, mark: Rect, side: string): void {
+  expect(ink, `the ${side} dock is drawn`).not.toBeNull();
+  const found = ink!;
+  const across = (box: Rect): number => box.x + box.width / 2;
+  const down = (box: Rect): number => box.y + box.height / 2;
+  expect(Math.abs(across(found) - across(mark)), `the ${side} dock’s middle across`).toBeLessThan(5);
+  expect(Math.abs(down(found) - down(mark)), `the ${side} dock’s middle down`).toBeLessThan(5);
+  expect(Math.abs(found.width - mark.width), `the ${side} dock’s width`).toBeLessThan(10);
+  expect(Math.abs(found.height - mark.height), `the ${side} dock’s height`).toBeLessThan(10);
+}
+
+/** The band a strip lying along the top of `DOCK_WINDOW` hangs in, and the one it stands in at its left. */
+const DOCK_BAND: Rect = { x: 400, y: 0, width: 480, height: 240 };
+const LEFT_BAND: Rect = { x: 0, y: 300, width: 240, height: 400 };
+
+/** The middle of a standing strip's top padding: a press that drags without picking a tile (D6). */
+async function paddingGrip(ui: Ui): Promise<{ x: number; y: number }> {
+  const box = boxOfPlace(await railPlace(ui, LEFT_BAND));
+  return { x: box.x + 30, y: box.y + 11 };
+}
+
+test('a drag past the click’s slop shows the four docks and marks the one it will take', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui, DOCK_WINDOW);
+  const opened = await railPlace(ui, DOCK_BAND);
+  const left = dockMark('left');
+  const right = dockMark('right');
+  const bottom = dockMark('bottom');
+
+  // Pressed on the Rectangle tile and carried to the frame's left side, with the
+  // button still down: the frame is the one the press measured, so the four docks
+  // are the places it would hang the strip, and the release is nearest the left.
+  await drag(ui, tileCentre(boxOfPlace(opened), 1), { x: 200, y: 500 }, 'left', async () => {
+    await settle(ui);
+    const shown = await shot(ui);
+    // The strip lies where the top dock hangs, so its own outline is that mark;
+    // the other three are drawn clear of anything else on the paper.
+    expectMark(shown.darkBounds(markBand(left), 0.6), left, 'left');
+    expectMark(shown.darkBounds(markBand(right), 0.6), right, 'right');
+    expectMark(shown.darkBounds(markBand(bottom), 0.6), bottom, 'bottom');
+
+    // Exactly one of the three a release could take is the highlighted one: it is
+    // filled in as well as drawn, so it holds far more ink than the other two.
+    expect(inkOverPaper(shown, left), 'the dock a release takes is the highlighted one').toBeGreaterThan(0.15);
+    expect(inkOverPaper(shown, right), 'the right dock is a quiet outline').toBeLessThan(0.09);
+    expect(inkOverPaper(shown, bottom), 'the bottom dock is a quiet outline').toBeLessThan(0.09);
+  });
+  await settle(ui);
+
+  expect(await keptSide(ui), 'the release docks on the side the highlight named').toBe('left');
+  expect(
+    await screen.getByRole('button', 'Select', { exact: true }).getAttribute('aria-pressed'),
+    'the drag picks no tool',
+  ).toBe('true');
+
+  // The release takes the docks with it: the three the strip is no longer near
+  // hold paper again.
+  const after = await shot(ui);
+  for (const [side, mark] of [
+    ['top', dockMark('top')],
+    ['right', right],
+    ['bottom', bottom],
+  ] as const) {
+    expect(inkOverPaper(after, markBand(mark)), `the ${side} dock goes with the release`).toBeLessThan(0.03);
+  }
+});
+
+test('a mouse drag across the frame’s middle moves the highlight, and the release takes it', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui, DOCK_WINDOW);
+  await dockRail(ui, 'left');
+  const top = dockMark('top');
+  const bottom = dockMark('bottom');
+  const grip = await paddingGrip(ui);
+
+  // The strip waits at the left dock, so the top and bottom docks are drawn where
+  // nothing else on the page is.
+  await browser.mouse.move(grip.x, grip.y);
+  await browser.mouse.down();
+
+  // 480 px down is 280 px from the frame's top side and 320 from its bottom, so
+  // the nearest dock is the top one...
+  await browser.mouse.move(640, 480);
+  await settle(ui);
+  const over = await shot(ui);
+  expect(inkOverPaper(over, top), 'the top dock is highlighted above the middle').toBeGreaterThan(0.15);
+  expect(inkOverPaper(over, bottom), 'the bottom dock is quiet above the middle').toBeLessThan(0.09);
+
+  // ...and 520 px down is 320 from the top and 280 from the bottom, which carries
+  // the highlight across the frame's middle without a release.
+  await browser.mouse.move(640, 520);
+  await settle(ui);
+  const under = await shot(ui);
+  expect(inkOverPaper(under, bottom), 'the highlight follows the pointer across the middle').toBeGreaterThan(0.15);
+  expect(inkOverPaper(under, top), 'the top dock goes quiet').toBeLessThan(0.09);
+
+  await browser.mouse.up();
+  await settle(ui);
+  expect(await keptSide(ui), 'the release docks where the highlight was').toBe('bottom');
+});
+
+test('a touch drag across the frame’s middle moves the highlight, and the release takes it', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui, DOCK_WINDOW);
+  await dockRail(ui, 'left');
+  const top = dockMark('top');
+  const bottom = dockMark('bottom');
+  const grip = await paddingGrip(ui);
+  const { touch } = await mixedPointers();
+
+  // A finger presses the strip's padding and carries the strip 40 px nearer the
+  // frame's top side than its left one...
+  await touch('touchStart', [{ x: grip.x, y: grip.y, id: 0 }]);
+  await touch('touchMove', [{ x: 400, y: 420, id: 0 }]);
+  await settle(ui);
+  const over = await shot(ui);
+  expect(inkOverPaper(over, top), 'the top dock is highlighted above the middle').toBeGreaterThan(0.15);
+  expect(inkOverPaper(over, bottom), 'the bottom dock is quiet above the middle').toBeLessThan(0.09);
+
+  // ...and 160 px further down it is 220 px from the bottom side and 380 from the
+  // top, so the highlight changes sides under the finger.
+  await touch('touchMove', [{ x: 400, y: 580, id: 0 }]);
+  await settle(ui);
+  const under = await shot(ui);
+  expect(inkOverPaper(under, bottom), 'the highlight follows the finger across the middle').toBeGreaterThan(0.15);
+  expect(inkOverPaper(under, top), 'the top dock goes quiet').toBeLessThan(0.09);
+
+  await touch('touchEnd', []);
+  await settle(ui);
+  expect(await keptSide(ui), 'the finger’s release docks where the highlight was').toBe('bottom');
+});
+
+test('a press under the click’s slop on a tile shows no dock and still picks its tool', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui, DOCK_WINDOW);
+  const opened = await railPlace(ui, DOCK_BAND);
+  const quiet = async (): Promise<number[]> => {
+    const shown = await shot(ui);
+    return [dockMark('left'), dockMark('right'), dockMark('bottom')].map((mark) => inkOverPaper(shown, markBand(mark)));
+  };
+  // The measure is not blind: with nothing pressed, the three docks away from the
+  // strip hold no ink at all.
+  for (const [index, held] of (await quiet()).entries()) {
+    expect(held, `the dock at ${index} is not drawn before the press`).toBeLessThan(0.03);
+  }
+
+  // The third tile is Ellipse, and a 3 px move is under the click's own 4 px: a
+  // press that never leaves the slop is the click it has always been (D6).
+  const tile = tileCentre(boxOfPlace(opened), 2);
+  await drag(ui, tile, { x: tile.x + 3, y: tile.y });
+  await settle(ui);
+
+  expect(
+    await screen.getByRole('button', { name: 'Ellipse', exact: true }).getAttribute('aria-pressed'),
+    'a press under the slop picks its tool',
+  ).toBe('true');
+  expect(await keptSide(ui), 'a click moves nothing').toBeNull();
+  for (const [index, held] of (await quiet()).entries()) {
+    expect(held, `the dock at ${index} is not drawn by a click`).toBeLessThan(0.03);
+  }
+});
+
+for (const exit of CALLS_OFF) {
+  test(`a drag ${exit.name} calls off leaves no dock behind`, async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await openBare(ui);
+    const ink = await pageInk(ui);
+    const opened = await railPlace(ui, TOP_BAND);
+
+    // The docks are on the page before the exit, and the exit takes them away with
+    // the drag: the strip, the side, the tool and the page's ink are the press's.
+    await drag(ui, tileCentre(boxOfPlace(opened), 1), { x: 180, y: 500 }, 'left', async () => {
+      await settle(ui);
+      const shown = await shot(ui);
+      expect(inkOverPaper(shown, dockMark('left')), 'the left dock is drawn before the exit').toBeGreaterThan(
+        0.15,
+      );
+      await exit.drive(ui);
+      await settle(ui);
+    });
+    await settle(ui);
+
+    expectHeld(opened, await railPlace(ui, TOP_BAND), `${exit.name} during a drag`);
+    expect(await keptSide(ui), `${exit.name} stores no side`).toBeNull();
+    expect(await pageInk(ui), `${exit.name} leaves no dock and no highlight behind`).toEqual(ink);
+  });
+}
+
+test('a dock a drag draws takes no press, so the paper under it is still the paper', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+  const opened = await railPlace(ui, TOP_BAND);
+  const mark = dockMark('left');
+  const middle = { x: mark.x + mark.width / 2, y: mark.y + mark.height / 2 };
+  const { pen, mouse } = await mixedPointers();
+  await holdWrites(ui, 'bare.json');
+  const grip = tileCentre(boxOfPlace(opened), 1);
+
+  // A pen presses the Rectangle tile and carries the strip past the slop towards
+  // the dock the release will take, so the four docks are on the page.
+  await browser.keyboard.down('Space');
+  await pen('mousePressed', grip.x, grip.y);
+  await pen('mouseMoved', mark.x + 40, middle.y);
+  await settle(ui);
+
+  // The open hand a held Space shows is the board's, so the pointer over a dock
+  // is over the paper: the layer a drag draws takes no pointer at all (D5).
+  expect(await cursorAt(middle), 'a dock a drag draws takes no pointer').toBe('grab');
+
+  // A press inside a dock is the paper's, and the board refuses it while the rail
+  // drag owns a pointer: it draws nothing and saves nothing (29g).
+  await mouse('mousePressed', middle.x, middle.y);
+  await mouse('mouseMoved', middle.x - 120, middle.y + 80);
+  await mouse('mouseReleased', middle.x - 120, middle.y + 80);
+  await settle(ui);
+  expect(await writeCount(ui), 'a press on a dock draws nothing').toBe(0);
+
+  await browser.keyboard.up('Space');
+  await pen('mouseReleased', mark.x + 40, middle.y);
+  await settle(ui);
+  expect(await keptSide(ui), 'the pen’s release docks where the docks showed').toBe('left');
+});
+
+/**
+ * A drag towards the frame's left side, read while it runs: the dock the release
+ * will take carries far more ink than the three quiet ones, and the quiet ones are
+ * still drawn, whichever way the page is lit (D12).
+ */
+async function expectDocksRead(ui: Ui, theme: string, grip: { x: number; y: number }): Promise<void> {
+  // The strip hangs in the same place whichever way the page is lit, so the press
+  // that starts the drag is the one the light theme measured once.
+  await dockRail(ui, 'top');
+  const left = dockMark('left');
+  const right = dockMark('right');
+  await drag(ui, grip, { x: 200, y: 500 }, 'left', async () => {
+    await settle(ui);
+    const shown = await shot(ui);
+    expect(inkOverPaper(shown, left), `the dock a release takes is the darkest ink in ${theme}`).toBeGreaterThan(0.15);
+    expect(inkOverPaper(shown, right), `the quiet docks are drawn in ${theme}`).toBeGreaterThan(0.02);
+    expect(inkOverPaper(shown, right), `the quiet docks stay quiet in ${theme}`).toBeLessThan(0.09);
+  });
+  await settle(ui);
+  expect(await keptSide(ui), `the release docks where the ink was in ${theme}`).toBe('left');
+}
+
+test('the four docks and the mark on them read in both themes', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openBare(ui, DOCK_WINDOW);
+  const grip = tileCentre(boxOfPlace(await railPlace(ui, DOCK_BAND)), 1);
+  await expectDocksRead(ui, 'the light theme', grip);
+
+  // The page's own switch, which the served page starts on light.
+  await screen.getByRole('button', { name: 'Dark' }).click();
+  await settle(ui);
+  await expectDocksRead(ui, 'the dark theme', grip);
 });
