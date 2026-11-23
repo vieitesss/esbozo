@@ -212,6 +212,31 @@ async function bandTint(ui: Ui): Promise<number> {
   return image.meanLuminance(BESIDE) - image.meanLuminance(BANDED);
 }
 
+/**
+ * The mark a press rides, proved by the cursor the page shows at it: a mark a
+ * gesture takes is one the page advertises a grab on, so the cursor stands where
+ * the pointer carried the mark and no longer where the press armed it. A press
+ * that started nothing leaves the two the other way round — the mark armed, and
+ * bare paper where it should have gone.
+ */
+const rode =
+  (from: Point, home: Point, cursor: string) =>
+  async (ui: Ui): Promise<void> => {
+    await holdsPointer(ui);
+    expect(await cursorAt(home)).toBe(cursor);
+    expect(await cursorAt(from)).not.toBe(cursor);
+  };
+
+/** The marks the five rows carry, where the armed page draws them, in page pixels. */
+const SE_AT_REST: Point = at({ x: 160, y: 120 }, VIEW);
+const END_AT_REST: Point = at({ x: 220, y: 240 }, VIEW);
+const BEND_AT_REST: Point = at({ x: 140, y: 300 }, VIEW);
+/** `a`'s bottom-right handle once the move has carried the box: the same corner. */
+const SE_MOVED: Point = at({ x: 220, y: 180 }, VIEW);
+/** The mark the cursor is read on at each place, as the page's own styles name it. */
+const CORNER = 'nwse-resize';
+const GRAB = 'move';
+
 /** The press took the pointer: the gesture is in flight, not a page that started nothing. */
 const holdsPointer = async (ui: Ui): Promise<void> => {
   expect(await pointerHeld(ui)).toBe(true);
@@ -269,8 +294,9 @@ interface Gesture {
   readonly proves: (scene: SavedScene) => void;
   /**
    * What the press left on the page that proves it is a gesture in flight, read
-   * before the exit: a pointer held, a band painted, a field opened. Without it a
-   * cell is a page that never started the gesture and an exit that ended nothing.
+   * before the exit: a pointer held, a band painted, a field opened, a mark the
+   * press carried. Without it a cell is a page that never started the gesture and
+   * an exit that ended nothing.
    */
   readonly started: (ui: Ui) => Promise<void>;
   /**
@@ -278,6 +304,11 @@ interface Gesture {
    * the preview, the band and the pointer the exit took.
    */
   readonly cleared?: (ui: Ui) => Promise<void>;
+  /**
+   * What the hand letting go must not settle, read after the release and before
+   * the next press: a release that belongs to no gesture changes nothing.
+   */
+  readonly released?: (ui: Ui) => Promise<void>;
   /** The one hand this gesture is taken with, where a mouse is the only one for it. */
   readonly pointer?: 'mouse';
   /**
@@ -573,7 +604,10 @@ const MOVE: Gesture = {
   name: 'move',
   arm: selectA,
   press: (ui, pointer) => carry(ui, MOVED.from, MOVED.to, 'left', pointer),
-  started: holdsPointer,
+  // The box the press took is drawn where the pointer carried it: the corner its
+  // bottom-right handle stands on advertises the resize, and the corner the press
+  // armed is bare paper again.
+  started: rode(SE_AT_REST, SE_MOVED, CORNER),
   again: async (ui) => {
     await selectA(ui);
     await drag(ui, MOVED.from, MOVED.to);
@@ -591,7 +625,10 @@ const RESIZE: Gesture = {
   name: 'resize',
   arm: selectA,
   press: (ui, pointer) => carry(ui, RESIZED.from, RESIZED.to, 'left', pointer),
-  started: holdsPointer,
+  // The handle the press took is drawn under the pointer it followed: the corner
+  // the pointer stands on advertises the resize, and the place the press armed it
+  // is bare paper again.
+  started: rode(SE_AT_REST, RESIZED.to, CORNER),
   again: async (ui) => {
     await selectA(ui);
     await drag(ui, RESIZED.from, RESIZED.to);
@@ -614,7 +651,10 @@ const END_HANDLE: Gesture = {
   name: 'end handle',
   arm: selectBent,
   press: (ui, pointer) => carry(ui, ENDED.from, ENDED.to, 'left', pointer),
-  started: holdsPointer,
+  // The end the press took is drawn under the pointer it followed: that point
+  // advertises the grab a shaft's end is, and the place the arrow still ended at
+  // is bare paper.
+  started: rode(END_AT_REST, ENDED.to, GRAB),
   again: async (ui) => {
     await selectBent(ui);
     await drag(ui, ENDED.from, ENDED.to);
@@ -632,7 +672,9 @@ const BEND_HANDLE: Gesture = {
   name: 'bend handle',
   arm: selectBent,
   press: (ui, pointer) => carry(ui, BENT_MOVED.from, BENT_MOVED.to, 'left', pointer),
-  started: holdsPointer,
+  // The bend the press took is drawn under the pointer it followed: that point
+  // advertises the grab a bend point is, and the place the arrow bent at is bare.
+  started: rode(BEND_AT_REST, BENT_MOVED.to, GRAB),
   again: async (ui) => {
     await selectBent(ui);
     await drag(ui, BENT_MOVED.from, BENT_MOVED.to);
@@ -657,10 +699,12 @@ const BOX_SELECT: Gesture = {
   name: 'box select',
   arm: noop,
   press: (ui, pointer) => carry(ui, BOXED.from, BOXED.to, 'left', pointer),
-  // A sweep's own proof is the band it paints: a pointer held on bare paper is
-  // a press that started nothing yet.
+  // A sweep's own proof is the band it paints, and the selection a release that
+  // follows the exit must not land: a pointer held on bare paper is a press that
+  // started nothing yet, and a stale band can settle as a selection.
   started: boxSweeping,
   cleared: noBand,
+  released: expectNothingSelected,
   again: async (ui) => {
     await drag(ui, BOXED.from, BOXED.to);
     await ui.browser.keyboard.press('Shift+ArrowRight');
@@ -684,11 +728,22 @@ const BOX_SELECT: Gesture = {
  */
 const LABEL_MOVED = { from: at({ x: 168, y: 254 }, VIEW), to: at({ x: 200, y: 270 }, VIEW) };
 
+/**
+ * The words the Label's ink paints at rest, in page pixels: a press takes them by
+ * their middle, and the box they paint stands a shade right and below it. The two
+ * points are inside the words the press found and inside the words it carried.
+ */
+const LABEL_HUNG: Point = { x: 632, y: 493.5 };
+const LABEL_TAKEN: Point = { x: 664, y: 509.5 };
+
 const LABEL_DRAG: Gesture = {
   name: 'Label drag',
   arm: noop,
   press: (ui, pointer) => carry(ui, LABEL_MOVED.from, LABEL_MOVED.to, 'left', pointer),
-  started: holdsPointer,
+  // The words the press took are drawn where the pointer carried them: the paper
+  // they cover there advertises the grab they are, and the place they hung is
+  // bare.
+  started: rode(LABEL_HUNG, LABEL_TAKEN, 'grab'),
   again: async (ui) => {
     await drag(ui, LABEL_MOVED.from, LABEL_MOVED.to);
   },
@@ -1163,6 +1218,15 @@ const TEXT_SESSION: Gesture = {
 };
 
 /**
+ * Nothing is selected: the page draws no mark for a selection, and a release
+ * that belongs to no gesture adds none.
+ */
+async function expectNothingSelected(ui: Ui): Promise<void> {
+  const marks = await ui.browser.evaluate(() => document.querySelectorAll('.selection').length);
+  expect(marks).toBe(0);
+}
+
+/**
  * What a page that may only read still does, proved positively: the pill says
  * so, the tool that would change the Scene is refused at the rail, and a sweep
  * still selects — the palette's own Copy row is offered only with a selection —
@@ -1219,8 +1283,9 @@ for (const gesture of [
         await settle(ui);
 
         // The press is a gesture in flight — a pointer the page holds, a band it
-        // paints, a field it opened — and not a page that never started one: an
-        // exit is only an exit if there was something there to end.
+        // paints, a mark it carried, a field it opened — and not a page that
+        // never started one: an exit is only an exit if there was something there
+        // to end.
         await gesture.started(ui);
 
         await exit.drive(ui, to, gesture.pointer ?? exit.pointer ?? 'mouse');
@@ -1248,6 +1313,11 @@ for (const gesture of [
           await browser.mouse.up();
         }
         await settle(ui);
+
+        // What the hand letting go settles of its own, read here and not after the
+        // next press: a release that belongs to no gesture changes nothing, and a
+        // stale one that selects would be masked by the gesture that follows.
+        await gesture.released?.(ui);
 
         // Nothing the exit left settles: the file is the documented one, the
         // pointer is the browser's again, no mode pill is left, and the cursor is
