@@ -1078,12 +1078,22 @@ test('a drag docks the rail without touching the Scene, the SVG, the undo histor
   await allowWrites(ui);
 
   // The Scene's own file and the SVG beside it are the bytes they were, the view
-  // has not moved, and no tool was picked: the dock is the page's chrome.
+  // has not moved, and no tool was picked: the dock is the page's chrome. It is a
+  // dock, though — the strip stands up the frame's left side, one gap outside it —
+  // so a drag that did nothing at all cannot satisfy this test either.
   expect(await savedFiles(ui), 'a drag writes nothing').toEqual(files);
   expect((await shot(ui)).darkBounds(BIG_BOX, 0.6), 'a drag leaves the view alone').toEqual(before);
   expect(await screen.getByRole('button', 'Arrow').getAttribute('aria-pressed'), 'the drag picked no tool').toBe(
     'false',
   );
+  const docked = await railInk(ui, DOCK_BANDS.left);
+  expect(docked.height, 'the strip stands up the left side').toBeGreaterThan(docked.width * 2);
+  // The frame's left side is 1,220 px in, and the strip's outline hangs one gap
+  // outside it: somewhere between 6 and 24 px of paper between the ink and the box.
+  const gap = 1220 - (docked.x + docked.width);
+  expect(gap, 'the outline hangs one gap outside the frame').toBeGreaterThan(6);
+  expect(gap, 'the outline hangs one gap outside the frame').toBeLessThan(24);
+  expect(Math.abs(docked.y + docked.height / 2 - 720), 'the strip is centred on the frame’s side').toBeLessThan(4);
 
   // And no undo step: Undo is still greyed, saying there is nothing to undo.
   await browser.keyboard.press('q');
