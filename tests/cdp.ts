@@ -27,6 +27,12 @@
  *   to where it is: no event carries it and no screenshot shows it, so a page
  *   that advertises a grab where nothing can be grabbed is invisible to role and
  *   pixel alike. `cursorAt` asks the browser what it would show there.
+ * - **A cancelled pointer.** The browser cancels a touch it takes over for a
+ *   scroll, and that `pointercancel` is the only trusted one a test can make:
+ *   the protocol has no cancel for a mouse, and an event dispatched by a test is
+ *   untrusted, so a listener that answered only untrusted events would pass a
+ *   suite no browser can produce. `touchCarry` and `cancelTouch` drive the
+ *   press and the cancel together.
  *
  * Driving the page out of band is what the engine documents `surfaceOf` for: the
  * harness stays the notary for what it witnesses, and a test that needs more
@@ -35,6 +41,15 @@
 import { surfaceOf, type PlaywrightLiveSurface } from '@e2e-dev/web/engine';
 import type { EngineHandle } from '@e2e-dev/core/engine';
 import type { WebFixtures } from '@e2e-dev/web';
+
+/** A point in page CSS pixels. */
+interface Spot {
+  readonly x: number;
+  readonly y: number;
+}
+
+/** The one touch point these helpers drive. */
+const TOUCH = 1;
 
 /** The slice of a CDP session this module sends on. */
 interface Cdp {
@@ -220,6 +235,39 @@ export async function stillCaret(): Promise<void> {
   await cdp.send('Emulation.setEmulatedMedia', {
     features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
   });
+}
+
+/**
+ * A touch press carried from `from` to `to` and left down, as a finger makes
+ * one: the only pointer the browser will cancel for real (see `cancelTouch`).
+ * `moves` is how many pointer moves carry it, so a test can carry a gesture the
+ * same way its mouse drag does.
+ */
+export async function touchCarry(from: Spot, to: Spot, moves: number): Promise<void> {
+  const cdp = await session();
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x: from.x, y: from.y, id: TOUCH }],
+  });
+  for (let step = 1; step <= moves; step += 1) {
+    const share = step / moves;
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [
+        { x: from.x + (to.x - from.x) * share, y: from.y + (to.y - from.y) * share, id: TOUCH },
+      ],
+    });
+  }
+}
+
+/**
+ * The browser cancelling the touch press `touchCarry` left down, as it does when
+ * it takes the gesture over for a scroll: the page gets a `pointercancel` the
+ * browser made, with the pointer it really had.
+ */
+export async function cancelTouch(): Promise<void> {
+  const cdp = await session();
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
 }
 
 /**
