@@ -1164,3 +1164,76 @@ test('a drag in an editor set inside the page docks on the side the release is n
   expect(ink.x, 'the outline stops inside the editor’s left edge').toBeLessThan(500);
   expect(Math.abs(ink.y + ink.height / 2 - 405), 'the strip is centred on the frame’s side').toBeLessThan(4);
 });
+
+/**
+ * A mouse whose press, moves and release are three separate places, as
+ * Chromium's own protocol sends them: `browser.mouse` always releases where it
+ * last moved, and a release the page must read on its own cannot be faked by an
+ * event a test dispatched.
+ */
+async function protocolMouse() {
+  const page = livePage();
+  const client = await page.context().newCDPSession(page);
+  return async (type: 'mouseMoved' | 'mousePressed' | 'mouseReleased', x: number, y: number): Promise<void> => {
+    await client.send('Input.dispatchMouseEvent', {
+      type,
+      x,
+      y,
+      button: type === 'mouseMoved' ? 'none' : 'left',
+      buttons: type === 'mouseReleased' ? 0 : 1,
+      clickCount: 1,
+    });
+  };
+}
+
+test('a rail released past the slop with no move before it docks on the release’s side', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+  const band: Rect = { x: 400, y: 0, width: 480, height: 240 };
+  const opened = await railPlace(ui, band);
+  const mouse = await protocolMouse();
+  const from = tileCentre(boxOfPlace(opened), 1);
+
+  // Pressed on the tile and let go 650 px down, with no move between: the release
+  // is the whole gesture, and it is past the click's 4 px slop, so it docks. The
+  // empty Scene's frame ends 700 px down, so the bottom side is the nearest by
+  // far: 4 px against the top's 646.
+  await mouse('mouseMoved', from.x, from.y);
+  await mouse('mousePressed', from.x, from.y);
+  await mouse('mouseReleased', from.x, from.y + 650);
+  await settle(ui);
+
+  expect(await keptSide(ui), 'the release past the slop is a drag of the rail').toBe('bottom');
+  expect(await screen.getByRole('button', 'Select').getAttribute('aria-pressed'), 'the drag picked no tool').toBe(
+    'true',
+  );
+  expect(await screen.getByRole('button', 'Rectangle').getAttribute('aria-pressed')).toBe('false');
+});
+
+test('a rail whose last move went the other way docks where it is released', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+  const band: Rect = { x: 400, y: 0, width: 480, height: 240 };
+  const opened = await railPlace(ui, band);
+  const mouse = await protocolMouse();
+  const from = tileCentre(boxOfPlace(opened), 1);
+
+  // The pointer moves 5 px right with the button down, then the button is let go
+  // 650 px below the press: the release is 646 px nearer the frame's bottom side
+  // than its top, and that is the side the rail docks on. A drag that docked at
+  // its last move would take the top, level with the top side.
+  await mouse('mouseMoved', from.x, from.y);
+  await mouse('mousePressed', from.x, from.y);
+  await mouse('mouseMoved', from.x + 5, from.y);
+  await mouse('mouseReleased', from.x, from.y + 650);
+  await settle(ui);
+
+  expect(await keptSide(ui), 'the release decides the side, not the last move').toBe('bottom');
+  expect(await screen.getByRole('button', 'Select').getAttribute('aria-pressed'), 'the drag picked no tool').toBe(
+    'true',
+  );
+});
