@@ -392,11 +392,19 @@ export class Gestures {
     return this.#spaceDown || this.#drag?.kind === 'pan';
   }
 
-  /** Nothing pairs a click any more: a drag started, a key came, a zoom moved the page. */
+  /**
+   * Nothing pairs a click any more: a drag started, a key came, a zoom moved the
+   * page. A place in hand keeps its own last click, and loses it here with the
+   * rest, so a zoom or a pan never makes the next click the half of a pair.
+   */
   forgetClicks(): void {
     this.#press = null;
     this.#lastClick = null;
     this.#wordsClick = null;
+    const drag = this.#drag;
+    if (drag !== null && drag.kind === 'draw' && drag.placing !== null) {
+      drag.placing = { ...drag.placing, click: null };
+    }
   }
 
   /** The words are closed, so the press that selected a word in them pairs with nothing. */

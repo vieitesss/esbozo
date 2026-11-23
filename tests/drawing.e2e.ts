@@ -716,6 +716,40 @@ describe('a shaft placed by clicking', () => {
       { x: 40, y: 80 },
     ]);
   });
+
+  test('a zoom mid-place starts the clicks over, so the next click is a point', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    const walk: Point[] = [
+      { x: 60, y: 200 },
+      { x: 120, y: 200 },
+    ];
+    await browser.keyboard.press('a');
+    await clickScene(ui, walk[0]!);
+    await clickScene(ui, walk[1]!);
+
+    // A wheel zoom carries the page under the pointer, so three screen pixels
+    // away is more than the click's own slop in the Scene: the click after it is
+    // no half of a double-click with the one before it.
+    const last = at(walk[1]!);
+    await browser.mouse.move(last.x, last.y);
+    await browser.mouse.wheel(0, 240);
+    await clickScene(ui, { x: walk[1]!.x + 3, y: walk[1]!.y });
+    expect((await savedFiles(ui))['scene.json']).toBe(SCENE_SOURCE);
+
+    // The place is still in hand, with the point the zoomed page put under the
+    // pointer, and Enter finishes the three of them.
+    await browser.keyboard.press('Enter');
+    const placed = (await savedScene(ui)).elements[2];
+    expect(placed?.points?.length).toBe(3);
+    expect(placed?.points?.[1]).toEqual(walk[1]);
+    expect(placed?.points?.[2]).toEqual({ x: 124, y: walk[1]!.y });
+  });
 });
 
 describe('Text typed in place', () => {
