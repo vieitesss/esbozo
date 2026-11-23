@@ -287,6 +287,9 @@ class EsbozoEditorElement extends HTMLElement {
       // The palette shuts the way the stack shuts any note, so the keys and the
       // focus come back to the canvas with it.
       shut: () => this.#notes.shut('commands'),
+      // Escape is the stack's too: the note on top shuts, and the field never
+      // chooses for a note the person opened over it.
+      escape: () => this.#notes.shut(),
     });
     // The three notes are one stack: the palette asks for every action by name,
     // the sheet names the keys, and the Scenes note lists the folder. Whichever

@@ -25,6 +25,11 @@ export interface PaletteOptions {
   readonly run: (action: EditorAction) => void;
   /** Shut the palette by the stack's rule, so the keys and the focus follow it. */
   readonly shut: () => void;
+  /**
+   * Answer Escape: which note shuts is the stack's to say, because a person may
+   * have opened one over the palette, and the field cannot choose for it.
+   */
+  readonly escape: () => void;
 }
 
 export class CommandPalette {
@@ -66,10 +71,6 @@ export class CommandPalette {
    */
   holds(target: Node): boolean {
     return this.#input.contains(target) || this.#list.contains(target);
-  }
-
-  close(): void {
-    this.#options.shut();
   }
 
   /** Draw the rows the query keeps, and put the active one on the first it can run. */
@@ -130,7 +131,7 @@ export class CommandPalette {
     }
     if (event.key === 'Escape') {
       event.preventDefault();
-      this.close();
+      this.#options.escape();
     }
   };
 
@@ -160,7 +161,7 @@ export class CommandPalette {
     if (action === undefined || action.reason(this.#options.state()) !== null) {
       return;
     }
-    this.close();
+    this.#options.shut();
     this.#options.run(action);
   }
 }
