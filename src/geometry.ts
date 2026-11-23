@@ -1312,46 +1312,49 @@ function nearestU(piece: ShaftPiece, point: Point): number {
   if (piece.kind === 'straight') {
     return alongSegment(piece.from, piece.to, point);
   }
-  let best = 0;
-  let closest = Number.POSITIVE_INFINITY;
-  const consider = (u: number): void => {
-    const away = squaredAway(pointOf(piece, u), point);
-    if (away < closest) {
-      closest = away;
-      best = u;
-    }
-  };
+  const margin = 1 / NEAREST_STEPS;
   // The ends as they are: a point past the ink clamps onto the end it went past,
   // which is the place the drawing keeps, and not the float just inside it where
   // the side can face the other way.
-  consider(0);
-  consider(1);
-  const margin = 1 / NEAREST_STEPS;
-  for (const u of lobes(piece, point)) {
-    consider(narrowest(piece, point, Math.max(0, u - margin), Math.min(1, u + margin)));
+  const from = squaredAway(piece.from, point);
+  const to = squaredAway(piece.to, point);
+  let best = from <= to ? 0 : 1;
+  let closest = Math.min(from, to);
+  // The two intervals the samples leave at the ends are narrowed like any other:
+  // a dip between the last sample and the end lies below both, where the samples
+  // alone see only that the ink keeps coming nearer.
+  const head = narrowest(piece, point, 0, margin);
+  const headAway = squaredAway(pointOf(piece, head), point);
+  if (headAway < closest) {
+    closest = headAway;
+    best = head;
+  }
+  const tail = narrowest(piece, point, 1 - margin, 1);
+  const tailAway = squaredAway(pointOf(piece, tail), point);
+  if (tailAway < closest) {
+    closest = tailAway;
+    best = tail;
+  }
+  // One pass over the samples: a place nearer the point than both its neighbours
+  // is a bottom, and a curve that doubles back has more than one, so every bottom
+  // is narrowed and the narrowed places compared — the best sample alone cannot
+  // say which lobe holds the closest ink.
+  let before = from;
+  let here = squaredAway(pointOf(piece, margin), point);
+  for (let step = 1; step < NEAREST_STEPS; step += 1) {
+    const next = squaredAway(pointOf(piece, (step + 1) * margin), point);
+    if (here <= before && here < next) {
+      const u = narrowest(piece, point, (step - 1) * margin, (step + 1) * margin);
+      const away = squaredAway(pointOf(piece, u), point);
+      if (away < closest) {
+        closest = away;
+        best = u;
+      }
+    }
+    before = here;
+    here = next;
   }
   return best;
-}
-
-/**
- * Where a curve's distance to a point has a bottom of its own: the sampled places
- * that are nearer the point than both their neighbours, one per lobe.
- */
-function lobes(piece: CurvedPiece, point: Point): number[] {
-  const away = Array.from({ length: NEAREST_STEPS + 1 }, (_, step) =>
-    squaredAway(pointOf(piece, step / NEAREST_STEPS), point),
-  );
-  const bottoms: number[] = [];
-  for (let step = 0; step <= NEAREST_STEPS; step += 1) {
-    if (step > 0 && away[step - 1]! < away[step]!) {
-      continue;
-    }
-    if (step < NEAREST_STEPS && away[step + 1]! <= away[step]!) {
-      continue;
-    }
-    bottoms.push(step / NEAREST_STEPS);
-  }
-  return bottoms;
 }
 
 /**
