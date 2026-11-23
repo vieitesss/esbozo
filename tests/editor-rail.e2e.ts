@@ -1749,3 +1749,125 @@ test('a fresh drag after a cancel docks the rail as any other', async ({ app, br
     'true',
   );
 });
+
+// -------------------------------------------- the pointer a cancel leaves down
+
+/**
+ * The page a called-off press leaves its pointer in: the bare Scene open, the
+ * strip along the top with Select in hand, and the folder's writes held, so a
+ * save the late input made would wait where the test finds it.
+ */
+async function openForLateInput(ui: Ui): Promise<{ grip: { x: number; y: number } }> {
+  await openBare(ui);
+  const opened = await railPlace(ui, TOP_BAND);
+  await holdWrites(ui, 'bare.json');
+  return { grip: tileCentre(boxOfPlace(opened), 1) };
+}
+
+/** The Rectangle tile's pressed state: the tool a real click on it picks. */
+async function rectanglePressed(ui: Ui): Promise<string | null> {
+  return ui.screen.getByRole('button', { name: 'Rectangle', exact: true }).getAttribute('aria-pressed');
+}
+
+/**
+ * The exits that call a drag off with the pointer still in the person's hand:
+ * Escape, the window losing the focus, a hidden tab, and the browser taking the
+ * pointer over. None of them takes the press away, so the pointer's own moves
+ * and release arrive after it.
+ */
+const CALLS_OFF: Array<{ name: string; drive: (ui: Ui) => Promise<unknown> }> = [
+  { name: 'Escape', drive: (ui) => ui.browser.keyboard.press('Escape') },
+  { name: 'a lost focus', drive: () => blurPage() },
+  { name: 'a hidden tab', drive: (ui) => hidePage(ui) },
+  {
+    name: 'a cancelled pointer',
+    // No protocol command cancels a mouse, so this is the event the browser would
+    // send for the pointer the drag holds, as the test above keeps the same cell.
+    drive: (ui) =>
+      ui.browser.evaluate(() => {
+        window.dispatchEvent(new PointerEvent('pointercancel', { pointerId: 1, isPrimary: true }));
+        return true;
+      }),
+  },
+];
+
+for (const exit of CALLS_OFF) {
+  test(`a mouse let go back on a tile after ${exit.name} picks no tool and docks nothing`, async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    const { grip } = await openForLateInput(ui);
+    const mouse = await protocolMouse();
+
+    // The mouse presses the Rectangle tile, carries the strip past the click's 4
+    // px — a drag of the rail from there — and the exit calls it off with the
+    // button still down. The mouse then comes back to where it pressed and lets go
+    // there, which is a place of its own: the press the exit called off sent both.
+    await mouse('mouseMoved', grip.x, grip.y);
+    await mouse('mousePressed', grip.x, grip.y);
+    await mouse('mouseMoved', 300, 400);
+    await exit.drive(ui);
+    await settle(ui);
+    await mouse('mouseMoved', grip.x, grip.y);
+    await mouse('mouseReleased', grip.x, grip.y);
+    await settle(ui);
+
+    expect(await keptSide(ui), 'a called-off drag stores no side').toBeNull();
+    expect(await rectanglePressed(ui), 'the press the exit called off picks no tool').toBe('false');
+    expect(await writeCount(ui), 'a called-off drag sends no save').toBe(0);
+
+    // The next press of the same pointer is a press of its own: the tile's own
+    // click picks the tool, as a click there always does.
+    await mouse('mousePressed', grip.x, grip.y);
+    await mouse('mouseReleased', grip.x, grip.y);
+    await settle(ui);
+    expect(await rectanglePressed(ui), 'the next press on the tile picks Rectangle').toBe('true');
+  });
+}
+
+test('a pen a cancel left down carries no gesture and settles none', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  const { grip } = await openForLateInput(ui);
+  await screen.getByRole('button', { name: 'Rectangle', exact: true }).click();
+  const { pen, touch } = await mixedPointers();
+
+  // A pen presses the Rectangle tile and carries the strip towards the left dock;
+  // Escape calls the drag off with the pen still down.
+  await pen('mousePressed', grip.x, grip.y);
+  await pen('mouseMoved', 1080, 400);
+  await browser.keyboard.press('Escape');
+  await settle(ui);
+  expect(await toolInHand(ui), 'a called-off drag keeps Rectangle in hand').toEqual(['Rectangle']);
+
+  // A finger draws a 100×80 Rectangle on the paper, and the pen the cancel left
+  // down is carried over the paper and let go there while the finger is still
+  // down. Neither is the finger's gesture to take or to settle.
+  await touch('touchStart', [{ x: 400, y: 300, id: 0 }]);
+  await touch('touchMove', [{ x: 500, y: 380, id: 0 }]);
+  await pen('mouseMoved', 700, 460);
+  await pen('mouseReleased', 700, 460);
+  await settle(ui);
+  expect(await writeCount(ui), 'the cancelled pen settles no gesture').toBe(0);
+
+  // The finger's own release is the one that draws, and it draws what it carried.
+  await touch('touchEnd', []);
+  await expect.poll(() => writeCount(ui), { timeout: 5000 }).toBe(1);
+  await releaseWrite(ui);
+  const elements = (await savedScene(ui, 'bare.json')).elements;
+  expect(elements.length, 'one Rectangle, drawn by the finger').toBe(1);
+  const [drawn] = elements;
+  expect([drawn?.width, drawn?.height], 'the finger’s own Rectangle is what was saved').toEqual([100, 80]);
+  expect(await keptSide(ui), 'a called-off drag stores no side').toBeNull();
+
+  // And the pen's next press is a press of its own: it carries the strip to the
+  // left dock as any drag does. The release is 60 px from the editor's left edge,
+  // nearer the frame's left side than any other.
+  await pen('mouseMoved', grip.x, grip.y);
+  await pen('mousePressed', grip.x, grip.y);
+  await pen('mouseMoved', 60, 340);
+  await pen('mouseReleased', 60, 340);
+  await settle(ui);
+  expect(await keptSide(ui), 'the pen’s next press drags the rail').toBe('left');
+});
