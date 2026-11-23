@@ -22,7 +22,7 @@ import {
   refuseWrite,
 } from './helpers.ts';
 import type { Ui } from './helpers.ts';
-import { fullInk } from './editor-shared.ts';
+import { fullInk, zoomReadout } from './editor-shared.ts';
 import { livePage } from './cdp.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
@@ -1236,4 +1236,43 @@ test('a rail whose last move went the other way docks where it is released', asy
   expect(await screen.getByRole('button', 'Select').getAttribute('aria-pressed'), 'the drag picked no tool').toBe(
     'true',
   );
+});
+
+test('a zoom in the middle of a rail drag leaves the dock where the press measured it', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  // A window a wide diagram is fitted into, so its frame's bottom side is 200 px
+  // above the editor's own edge and the bottom dock hangs clear of its ink.
+  await browser.setViewport({ width: 1280, height: 1000 });
+  await openEditor(ui, { A: { 'wide.json': WIDE_SOURCE } }, 'wide.json');
+  await settle(ui);
+  const band: Rect = { x: 400, y: 0, width: 480, height: 300 };
+
+  // The same press and the same release twice, and the second drag zooms the page
+  // while the button is still down. The frame was measured at the press (D3), so
+  // the zoom moves the diagram and not the dock: a release that measured the
+  // frame again would hang the strip 30 px right of where the first drag left it.
+  const zoom = await zoomReadout(ui).textContent();
+  const opened = await railPlace(ui, band);
+  await drag(ui, tileCentre(boxOfPlace(opened), 1), { x: 200, y: 780 });
+  await settle(ui);
+  expect(await keptSide(ui), 'the release is nearest the frame’s bottom side').toBe('bottom');
+  expect(await zoomReadout(ui).textContent(), 'nothing zoomed the first drag').toBe(zoom);
+  const still = await railInk(ui, { x: 400, y: 700, width: 480, height: 300 });
+
+  await dockRail(ui, 'top');
+  const again = await railPlace(ui, band);
+  await drag(ui, tileCentre(boxOfPlace(again), 1), { x: 200, y: 780 }, 'left', async () => {
+    await ui.browser.mouse.wheel(0, -100);
+  });
+  await settle(ui);
+
+  expect(await zoomReadout(ui).textContent(), 'the wheel zoomed the page mid-drag').not.toBe(zoom);
+  expect(await keptSide(ui), 'the release is still nearest the frame’s bottom side').toBe('bottom');
+  const zoomed = await railInk(ui, { x: 400, y: 700, width: 480, height: 300 });
+  const middle = (ink: Rect): number => ink.x + ink.width / 2;
+  expect(Math.abs(middle(zoomed) - middle(still)), 'the dock is the one the press measured').toBeLessThan(4);
 });
