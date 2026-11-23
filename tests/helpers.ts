@@ -1349,6 +1349,21 @@ export async function releaseClipboardWrite(ui: Ui): Promise<void> {
   });
 }
 
+/**
+ * The disk caught up with the editor: the status line promises `saved`, or
+ * `idle` for a folder that may only be read, which is the same promise that no
+ * write is in flight.
+ *
+ * A test that reads a stubbed folder after an edit waits on this and not on a
+ * frame: the save waits for the frame that is due, renders the Scene's SVG, and
+ * only then writes, so two frames see the file before the drawing reaches it.
+ * The wait this replaces was silent for a wrong Scene and green on a slow
+ * machine; this one keeps the wrong Scene and fails on it.
+ */
+export async function saveSettled(ui: Ui): Promise<void> {
+  await expect(ui.screen.getByRole('status')).toHaveAttribute('data-state', /^(saved|idle)$/);
+}
+
 /** The saved Scene, parsed, once the editor says it saved. */
 export async function savedScene(ui: Ui, name = 'scene.json', folder = FOLDER): Promise<SavedScene> {
   await expect(ui.screen.getByRole('status')).toHaveText('saved');

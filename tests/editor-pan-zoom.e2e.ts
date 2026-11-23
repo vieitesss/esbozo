@@ -21,6 +21,8 @@ import {
   drag,
   settle,
   openEditor,
+  VIEW,
+  saveSettled,
   savedFiles,
   savedScene,
 } from './helpers.ts';
@@ -697,6 +699,24 @@ test('the rail is faint until it is looked at, and its outline surrounds all sev
   }
 });
 
+/**
+ * The row of the strip's own padding below an outline that is drawn by hand and
+ * so is not level: the first ink the column meets is the outline, and the padding
+ * is the row past it. The tiles start below that band, so a press there moves the
+ * rail rather than picking a tool with it, and paper just under it is paper a
+ * press does not reach.
+ */
+async function paddingRow(ui: Ui, ink: Rect, x: number): Promise<number> {
+  const picture = await shot(ui);
+  const column = (row: number): number => picture.darkCount({ x, y: row, width: 8, height: 1 }, 0.6);
+  const start = Math.round(ink.y);
+  const end = start + 24;
+  let row = start;
+  while (row < end && column(row) === 0) row += 1;
+  while (row < end && column(row) > 0) row += 1;
+  return row + 1;
+}
+
 test('a press on the rail draws and selects nothing, and the press below it reaches the canvas', async ({
   app,
   browser,
@@ -708,34 +728,67 @@ test('a press on the rail draws and selects nothing, and the press below it reac
   // The page is carried so that `a`'s top stroke lies 32 px down, in the strip's
   // own top padding: paper that a press would otherwise find, with the rail over
   // it, and its bottom stroke 80 px lower, clear of the strip's reach.
+  let view = { ...VIEW, panX: VIEW.panX + 60, panY: VIEW.panY - 308 };
   await browser.keyboard.down('Space');
   await drag(ui, { x: 600, y: 600 }, { x: 660, y: 292 });
   await browser.keyboard.up('Space');
   await settle(ui);
 
-  // A pencil armed makes the strip's own answer visible: a sweep across it draws
-  // nothing at all, and the Scene is the one the editor opened.
+  const docked = await railInk(ui);
+
+  // A pencil armed makes the strip's own answer visible: the sweep starts on the
+  // padding, which drags the rail rather than drawing, so the strip docks itself
+  // higher up and the Scene is the one the editor opened.
   await browser.keyboard.press('r');
   await settle(ui);
   const before = (await shot(ui)).darkCount({ x: 596, y: 84, width: 120, height: 60 }, 0.6);
   await drag(ui, { x: 600, y: 32 }, { x: 700, y: 140 });
   await settle(ui);
+  const moved = await railInk(ui);
+  expect(moved.y, 'the sweep docked the rail higher').toBeLessThan(docked.y);
   expect((await shot(ui)).darkCount({ x: 596, y: 84, width: 120, height: 60 }, 0.6)).toBe(before);
+  await saveSettled(ui);
   expect((await savedFiles(ui))['scene.json']).toBe(SCENE_SOURCE);
+
+  // The strip docks higher than the page was carried for, so the page is carried
+  // after it: `a`'s top stroke goes back under the strip's padding, and its
+  // bottom stroke stays clear of the strip.
+  const column = Math.round(at({ x: 100, y: 40 }, view).x);
+  const padding = await paddingRow(ui, moved, column);
+  const drop = Math.round(padding - at({ x: 100, y: 40 }, view).y);
+  await browser.keyboard.down('Space');
+  await drag(ui, { x: 600, y: 600 }, { x: 600, y: 600 + drop });
+  await browser.keyboard.up('Space');
+  await settle(ui);
+  view = { ...view, panY: view.panY + drop };
+
+  const top = at({ x: 100, y: 40 }, view);
+  const bottom = at({ x: 100, y: 120 }, view);
+
+  // The page carries `a`'s top stroke under that padding now: the ink left of
+  // the strip, level with the padding row, is the paper's own.
+  const carried = await shot(ui);
+  expect(
+    carried.darkCount({ x: 552, y: padding - 1, width: 22, height: 3 }, 0.6),
+    'the paper lies under the strip padding',
+  ).toBeGreaterThan(0);
 
   // Select in hand, the press on the strip's own padding selects nothing,
   // though `a`'s top stroke is under it.
   await browser.keyboard.press('v');
   await settle(ui);
-  await drag(ui, { x: 640, y: 32 }, { x: 640, y: 32 }, 'left');
+  const onPadding = { x: Math.round(top.x), y: padding };
+  await drag(ui, onPadding, onPadding, 'left');
   await settle(ui);
   await expect(screen.getByRole('dialog', 'Style')).toBeHidden();
 
   // The same press a little lower, clear of the strip, reaches that stroke.
-  await drag(ui, { x: 640, y: 112 }, { x: 640, y: 112 }, 'left');
+  const onStroke = { x: Math.round(bottom.x), y: Math.round(bottom.y) };
+  await drag(ui, onStroke, onStroke, 'left');
   await expect(screen.getByRole('dialog', 'Style')).toBeVisible();
 
   // Two presses on a stroke and a sweep with a pencil: neither edited the Scene.
+  await saveSettled(ui);
   expect((await savedFiles(ui))['scene.json']).toBe(SCENE_SOURCE);
 });
 
