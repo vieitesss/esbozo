@@ -1650,8 +1650,16 @@ async function stripIn(ui: Ui, which: number, band: Rect): Promise<Rect> {
     )
     .toBe(1);
   const ink = async (): Promise<Rect | null> => (await shot(ui)).darkBounds(band, 0.6);
-  await expect.poll(async () => (await ink()) !== null, { timeout: 5000 }).toBe(true);
-  return (await ink())!;
+  // A strip that is not where its own box puts it draws nothing in this band: the
+  // wait is the fade's, and a band still empty after it says so in words.
+  for (let waited = 0; waited < 50; waited += 1) {
+    const found = await ink();
+    if (found !== null) {
+      return found;
+    }
+    await sleep(100);
+  }
+  throw new Error(`no strip is drawn in editor ${which}'s own band ${JSON.stringify(band)}`);
 }
 
 test('two editors on one page measure and move their rails independently, each inside its own box', async ({
