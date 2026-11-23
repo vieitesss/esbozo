@@ -35,9 +35,14 @@ _Avoid_: leader, polyline
 
 **Bend point**:
 A point of a Shaft between its ends. A person drags one by its handle, pulls a
-new one out of a segment's dot, and removes one by double-clicking it or from
-its own menu.
+new one out of a segment's dot, switches it between a round and a sharp corner
+from its own menu, and removes it there or by double-clicking it.
 _Avoid_: waypoint, elbow
+
+**Corner**:
+The way a Shaft turns at a point: `round` for a smooth bend, `sharp` for a
+corner. A bend point may write its own; one that writes none takes the Element's
+`corners`.
 
 **Grid**:
 The guide drawn behind the Scene. A visual aid only: Elements move freely and

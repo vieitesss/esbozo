@@ -1,6 +1,6 @@
 /**
- * Seam 2: the point menu — the note a right-click on a bend point opens, its one
- * row, and every way it closes.
+ * Seam 2: the point menu — the note a right-click on a bend point opens, its two
+ * rows, and every way it closes.
  *
  * The input is a person's: a click that selects the shaft, the secondary press on
  * the handle a point draws, and the keys. The assertions are the Scene the editor
@@ -135,11 +135,12 @@ const BOTTOM: View = {
 };
 
 /**
- * The row's words at each edge, in the pixels they have to keep whole: the panel
- * sits inside the edge, and the box is measured inside the panel it draws.
+ * The rows' words at each edge, in the pixels they have to keep whole: the panel
+ * sits inside the edge, and the box is measured inside the panel it draws, deep
+ * enough for both rows so every edge is asked the same question.
  */
-const RIGHT_INK: Rect = { x: 1180, y: 706, width: 80, height: 26 };
-const BOTTOM_INK: Rect = { x: 710, y: 758, width: 80, height: 26 };
+const RIGHT_INK: Rect = { x: 1174, y: 708, width: 90, height: 40 };
+const BOTTOM_INK: Rect = { x: 708, y: 742, width: 90, height: 40 };
 
 /** The view one zoom-in step leaves the page in: ⌘= zooms around the window's middle. */
 const ZIG_ZOOMED: View = { zoom: 1.2, panX: 160, panY: 64 };
@@ -162,6 +163,40 @@ const LINE_SCENE = {
   ],
 };
 const LINE_SOURCE = JSON.stringify(LINE_SCENE, null, 2);
+
+/**
+ * The same arrow in a page whose Elements turn `round`: both bends take the
+ * Element's corner, so switching one to `sharp` has to write the point's own and
+ * switching it back has to leave the key out.
+ */
+const ROUND_SCENE = {
+  ...ZIG_SCENE,
+  title: 'Round corners',
+  defaults: { roughness: 0, corners: 'round' },
+  elements: [
+    PAGE,
+    {
+      id: 'bent',
+      type: 'arrow',
+      points: [
+        { x: 100, y: 480 },
+        { x: 250, y: 150 },
+        { x: 400, y: 420 },
+        { x: 500, y: 80 },
+      ],
+      heads: { start: 'none', end: 'none' },
+    },
+  ],
+};
+const ROUND_SOURCE = JSON.stringify(ROUND_SCENE, null, 2);
+
+/** The points of `ROUND_SCENE` as the file holds them: neither bend writes a corner. */
+const ROUND_POINTS: SavedPoint[] = [
+  { x: 100, y: 480 },
+  { x: 250, y: 150 },
+  { x: 400, y: 420 },
+  { x: 500, y: 80 },
+];
 
 /**
  * An arrow that leaves a box and comes back to it through one bend: the Scene
@@ -228,6 +263,7 @@ const SCENES = {
   A: {
     'zig.json': ZIG_SOURCE,
     'line.json': LINE_SOURCE,
+    'corners.json': ROUND_SOURCE,
     'loop.json': LOOP_SOURCE,
     'words.json': WORDS_SOURCE,
     'edge.json': EDGE_SOURCE,
@@ -245,9 +281,14 @@ function menu(ui: Ui) {
   return ui.screen.getByRole('menu', 'Bend point');
 }
 
-/** The menu's one row. */
+/** The menu's removal, the row it opens on. */
 function deletePoint(ui: Ui) {
   return ui.screen.getByRole('menuitem', 'Delete point');
+}
+
+/** The menu's corner row, named for the corner it would switch the point to. */
+function cornerRow(ui: Ui, corner: 'Round' | 'Sharp') {
+  return ui.screen.getByRole('menuitem', `${corner} corner`);
 }
 
 /** The points of the shaft a saved Scene holds, or null where it has no shaft. */
@@ -304,11 +345,21 @@ function atHandle(point: Point, view: View = ZIG): Rect {
   return { x: where.x - 2, y: where.y - 2, width: 4, height: 4 };
 }
 
-/** The ink of the row's words, inside a panel the pointer put at `where`. */
+/**
+ * The one pixel at a square handle's lower right corner: inside the square's
+ * fill, and beyond the reach of a circle of the same size.
+ */
+function handleCorner(point: Point, view: View = ZIG): Rect {
+  const where = pagePoint(point, view);
+  return { x: where.x + 3, y: where.y + 3, width: 1, height: 1 };
+}
+
+/** The ink of the rows' words, inside a panel the pointer put at `where`. */
 function rowInk(where: Point): Rect {
-  // Deep enough for the words and no deeper: the panel's shadow below them is
-  // dark enough to be counted, and it is not a word.
-  return { x: where.x + 6, y: where.y + 6, width: 130, height: 22 };
+  // Inside the panel's padding and deep enough for both of its rows: the panel's
+  // border and the shadow below it are dark enough to be counted, and they are
+  // not words.
+  return { x: where.x + 8, y: where.y + 8, width: 90, height: 40 };
 }
 
 describe('the point menu', () => {
@@ -362,6 +413,169 @@ describe('the point menu', () => {
 
     await expect(menu(ui)).toBeVisible();
     await expect(deletePoint(ui)).toBeVisible();
+  });
+
+  test('the corner row switches a round point sharp and back round', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'corners.json');
+    await selectShaft(ui);
+
+    await rightClick(ui, PEAK);
+
+    // Two rows, and the upper one names the corner this point would switch to:
+    // it takes the Element's round corner today, so what it offers is `sharp`.
+    await expect(menu(ui)).toBeVisible();
+    await expect(cornerRow(ui, 'Sharp')).toBeVisible();
+    await expect(deletePoint(ui)).toBeVisible();
+
+    // The arrows reach the row above the one the menu opens on, and Enter runs
+    // the row that holds the keys. The point's own corner is written, because it
+    // is not the Element's, and every other point is left as it was.
+    await browser.keyboard.press('ArrowUp');
+    await browser.keyboard.press('Enter');
+    await expect(menu(ui)).toBeHidden();
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    expect(pointsOf(await savedScene(ui, 'corners.json'))).toEqual([
+      ROUND_POINTS[0],
+      { x: 250, y: 150, corner: 'sharp' },
+      ROUND_POINTS[2],
+      ROUND_POINTS[3],
+    ]);
+
+    // The same point again: the row named the corner it came from, and running it
+    // leaves the key out, because round is the Element's own corner after all.
+    await rightClick(ui, PEAK);
+    await expect(cornerRow(ui, 'Round')).toBeVisible();
+    await browser.keyboard.press('ArrowUp');
+    await browser.keyboard.press('Enter');
+    await expect(menu(ui)).toBeHidden();
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    expect(pointsOf(await savedScene(ui, 'corners.json'))).toEqual(ROUND_POINTS);
+  });
+
+  test('the corner row on a point of a sharp Element writes round and then drops it', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await selectShaft(ui);
+
+    // The dip writes no corner and its Element is `sharp`, so the row offers the
+    // other one; taking it writes the point's own corner.
+    await rightClick(ui, DIP);
+    await expect(cornerRow(ui, 'Round')).toBeVisible();
+    await browser.keyboard.press('ArrowUp');
+    await browser.keyboard.press('Enter');
+    await expect(menu(ui)).toBeHidden();
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    expect(pointsOf(await savedScene(ui, 'zig.json'))).toEqual([
+      ZIG_POINTS[0],
+      ZIG_POINTS[1],
+      { x: 400, y: 420, corner: 'round' },
+      ZIG_POINTS[3],
+    ]);
+
+    // And back: sharp is the Element's own corner, so the point writes none.
+    await rightClick(ui, DIP);
+    await expect(cornerRow(ui, 'Sharp')).toBeVisible();
+    await browser.keyboard.press('ArrowUp');
+    await browser.keyboard.press('Enter');
+    await expect(menu(ui)).toBeHidden();
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    expect(pointsOf(await savedScene(ui, 'zig.json'))).toEqual(ZIG_POINTS);
+  });
+
+  test('undo takes a switched corner back, and redo switches it again', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'corners.json');
+    await selectShaft(ui);
+
+    await rightClick(ui, PEAK);
+    await browser.keyboard.press('ArrowUp');
+    await browser.keyboard.press('Enter');
+    await expect(menu(ui)).toBeHidden();
+    const switched = [
+      ROUND_POINTS[0],
+      { x: 250, y: 150, corner: 'sharp' },
+      ROUND_POINTS[2],
+      ROUND_POINTS[3],
+    ];
+    expect(pointsOf(await savedScene(ui, 'corners.json'))).toEqual(switched);
+
+    // One step, so one undo puts the corner the point wrote back to none at all.
+    await browser.keyboard.press('Meta+z');
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    expect(pointsOf(await savedScene(ui, 'corners.json'))).toEqual(ROUND_POINTS);
+
+    await browser.keyboard.press('ControlOrMeta+Shift+z');
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    expect(pointsOf(await savedScene(ui, 'corners.json'))).toEqual(switched);
+  });
+
+  test('the arrow keys move between the rows, and Enter runs the one it is on', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'corners.json');
+    await selectShaft(ui);
+
+    // The menu opens on the removal, the row Enter ran when it was the only one.
+    // Up is the corner row and down is the removal again: the point the removal
+    // is for goes, and no corner is touched.
+    await rightClick(ui, PEAK);
+    await expect(menu(ui)).toBeVisible();
+    await browser.keyboard.press('ArrowUp');
+    await expect(cornerRow(ui, 'Sharp')).toBeVisible();
+    await browser.keyboard.press('ArrowDown');
+    await browser.keyboard.press('Enter');
+    await expect(menu(ui)).toBeHidden();
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    expect(pointsOf(await savedScene(ui, 'corners.json'))).toEqual([
+      ROUND_POINTS[0],
+      ROUND_POINTS[2],
+      ROUND_POINTS[3],
+    ]);
+  });
+
+  test('the handle is a circle on a round point and a square once it turns sharp', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'corners.json');
+    await selectShaft(ui);
+
+    // The press picks the point, and it stays picked once the menu shuts, so the
+    // mark is filled and the shape it draws is what the pixels are measured on. A
+    // circle of this size leaves its lower right corner as paper (0.90 here), and
+    // a square fills it with the selection's colour (0.35): the threshold sits
+    // between them, clear of either drawing's antialiasing.
+    await rightClick(ui, PEAK);
+    await browser.keyboard.press('Escape');
+    await expect(menu(ui)).toBeHidden();
+    await settle(ui);
+    expect((await shot(ui)).meanLuminance(handleCorner(PEAK))).toBeGreaterThan(0.8);
+
+    // Switched sharp, the same mark inks the corner the circle could not reach.
+    await rightClick(ui, PEAK);
+    await browser.keyboard.press('ArrowUp');
+    await browser.keyboard.press('Enter');
+    await expect(menu(ui)).toBeHidden();
+    await settle(ui);
+    expect((await shot(ui)).meanLuminance(handleCorner(PEAK))).toBeLessThan(0.55);
   });
 
   test('the menu stays inside the editor at its right and bottom edges', async ({
@@ -587,6 +801,88 @@ describe('the point menu', () => {
     expect(pointsOf(await savedScene(ui, 'zig.json'))).toEqual(ZIG_POINTS);
     await settle(ui);
     expect((await shot(ui)).meanLuminance(atHandle(PEAK))).toBeLessThan(0.6);
+  });
+
+  test('Space runs no row, on either of them', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await selectShaft(ui);
+
+    // The menu opens on the removal, which is a button the browser's own Space
+    // would press. The menu holds the key instead: the point stays, nothing is
+    // written, and the menu is still open on it.
+    await rightClick(ui, PEAK);
+    await expect(deletePoint(ui)).toBeVisible();
+    await browser.keyboard.press('Space');
+    await expect(menu(ui)).toBeVisible();
+    expect(pointsOf(await savedScene(ui, 'zig.json'))).toEqual(ZIG_POINTS);
+
+    // And on the corner row: the keys move there, and Space still does nothing.
+    await browser.keyboard.press('ArrowUp');
+    await browser.keyboard.press('Space');
+    await expect(menu(ui)).toBeVisible();
+    expect(pointsOf(await savedScene(ui, 'zig.json'))).toEqual(ZIG_POINTS);
+  });
+
+  test('Tab is no way out of the menu, and Escape still shuts it', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await selectShaft(ui);
+
+    // The keys stay in the menu, so Escape still shuts it and leaves the point it
+    // was for selected.
+    await rightClick(ui, PEAK);
+    await expect(menu(ui)).toBeVisible();
+    await browser.keyboard.press('Tab');
+    await browser.keyboard.press('Escape');
+    await expect(menu(ui)).toBeHidden();
+    await settle(ui);
+    expect((await shot(ui)).meanLuminance(atHandle(PEAK))).toBeLessThan(0.6);
+    expect(pointsOf(await savedScene(ui, 'zig.json'))).toEqual(ZIG_POINTS);
+
+    // The same in the other direction, on a fresh open.
+    await rightClick(ui, PEAK);
+    await expect(menu(ui)).toBeVisible();
+    await browser.keyboard.press('Shift+Tab');
+    await browser.keyboard.press('Escape');
+    await expect(menu(ui)).toBeHidden();
+    expect(pointsOf(await savedScene(ui, 'zig.json'))).toEqual(ZIG_POINTS);
+  });
+
+  test('a press on a row runs it, as Enter does', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'corners.json');
+    await selectShaft(ui);
+
+    // The corner row by the pointer is the switch Enter makes on it: the point's
+    // own corner is written, and the menu shuts on the way.
+    await rightClick(ui, PEAK);
+    await expect(cornerRow(ui, 'Sharp')).toBeVisible();
+    await cornerRow(ui, 'Sharp').click();
+    await expect(menu(ui)).toBeHidden();
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    expect(pointsOf(await savedScene(ui, 'corners.json'))).toEqual([
+      ROUND_POINTS[0],
+      { x: 250, y: 150, corner: 'sharp' },
+      ROUND_POINTS[2],
+      ROUND_POINTS[3],
+    ]);
+
+    // And the removal by the pointer, on the point the next press is for.
+    await rightClick(ui, PEAK);
+    await expect(deletePoint(ui)).toBeEnabled();
+    await deletePoint(ui).click();
+    await expect(menu(ui)).toBeHidden();
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    expect(pointsOf(await savedScene(ui, 'corners.json'))).toEqual([
+      ROUND_POINTS[0],
+      ROUND_POINTS[2],
+      ROUND_POINTS[3],
+    ]);
   });
 
   test('a press outside shuts the menu and still does its own job', async ({

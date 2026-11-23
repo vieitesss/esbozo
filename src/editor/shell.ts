@@ -89,6 +89,7 @@ export const SHELL = `
 </div>
 <div class="style-note" role="dialog" aria-label="Style" hidden></div>
 <div class="point-menu" role="menu" aria-label="Bend point" tabindex="-1" hidden>
+  <button type="button" role="menuitem" data-act="corner"></button>
   <button type="button" role="menuitem" data-act="delete-point">Delete point</button>
 </div>
 <div class="note" role="dialog" aria-label="Scene files" hidden>

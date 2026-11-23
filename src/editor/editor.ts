@@ -9,7 +9,7 @@
  */
 import { elementBounds, elementsById } from '../renderer.js';
 import { emptyScene, parseFragment, parseScene, serialiseFragment, serialiseScene } from '../scene.js';
-import type { Element as SceneElement, Scene } from '../scene.js';
+import type { Corner, Element as SceneElement, Scene } from '../scene.js';
 import { PRIMARY_SCENE_EXTENSION, sceneFileNameFor, sceneStem } from '../paths.js';
 import { copies, idsOf, without } from './elements.js';
 import { arranged, movableCount } from './arrange.js';
@@ -18,7 +18,7 @@ import { actionById, actionFor } from './actions.js';
 import type { ActionHost, ActionState, ToolId } from './actions.js';
 import { exportPng } from './export.js';
 import { Gestures } from './gestures.js';
-import { mayRemove, PickedBend, shaftIn, withoutBend } from './bend-point.js';
+import { mayRemove, PickedBend, shaftIn, withCorner, withoutBend } from './bend-point.js';
 import type { Bend } from './bend-point.js';
 import { clipboardApi, copySelection, copyTo, cutSelection, pasteClipboard } from './clipboard.js';
 import type { ClipboardHost } from './clipboard.js';
@@ -232,6 +232,7 @@ class EsbozoEditorElement extends HTMLElement {
         this.#picked.pick(bend);
         this.#refresh();
       },
+      switchCorner: (bend, corner) => this.#switchCorner(bend, corner),
       remove: (bend) => this.#removeBend(bend),
     });
 
@@ -704,6 +705,29 @@ class EsbozoEditorElement extends HTMLElement {
       return;
     }
     this.#remove(new Set(this.#selected));
+  }
+
+  /**
+   * Switch the one bend point a press holds to `corner`: the point's own corner,
+   * written where it differs from the Element's own and left out where it is the
+   * same. Every other point keeps its place, its `corner` and its Snap, and the
+   * Element keeps its `corners`; the point stays the selection's, so the handle
+   * it draws is already the shape the switch made.
+   */
+  #switchCorner(bend: Bend, corner: Corner): void {
+    const scene = this.#scene;
+    const element = scene.elements.find((candidate) => candidate.id === bend.id);
+    if (element === undefined || !isShaft(element)) {
+      this.#refresh();
+      return;
+    }
+    const switched = withCorner(element, bend.index, corner);
+    this.#applyScene({
+      ...scene,
+      elements: scene.elements.map((candidate) =>
+        candidate.id === bend.id ? switched : candidate,
+      ),
+    });
   }
 
   /**
