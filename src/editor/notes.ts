@@ -1,19 +1,20 @@
 /**
  * The notes the editor opens over the Scene, and which one is on top.
  *
- * The palette, the shortcuts sheet and the Scenes note are one kind of thing: a
- * note a person asks for, draws over the page, and puts away. This module is the
- * one place that decides which of them is on top, and with it which note answers
- * Escape and keeps its own keys, which one a press outside shuts, and where the
- * focus goes when it shuts. The editor registers the three and asks; the note
- * that is not on top never answers for the page.
+ * The palette, the shortcuts sheet, the Scenes note and the point menu are one
+ * kind of thing: a note the page asks for or a press opens, draws over the page,
+ * and puts away. This module is the one place that decides which of them is on
+ * top, and with it which note answers Escape and keeps its own keys, which one a
+ * press opens and which one it shuts, and where the focus goes when it shuts.
+ * The editor registers them and asks; the note that is not on top never answers
+ * for the page.
  *
  * Ties to the editor are callbacks only, and a note's own element stays its own:
  * the stack shows and hides it, and the note draws what it holds.
  */
 
 /** The notes the page opens over the Scene, in no order of their own. */
-type NoteId = 'commands' | 'shortcuts' | 'scenes';
+type NoteId = 'commands' | 'shortcuts' | 'scenes' | 'point';
 
 /**
  * The layer the notes start at, over every mark the page draws itself: what a
@@ -35,6 +36,13 @@ interface Note {
    * is its own box.
    */
   readonly holds?: (target: Node) => boolean;
+  /**
+   * Takes a press the note opens on — the point menu's secondary press on the
+   * handle a bend point draws — and says whether the press was the note's. The
+   * stack shows the note it belongs to and shuts the one that was on top for it,
+   * so a note that opens on a press wires no listener of its own.
+   */
+  readonly press?: (event: PointerEvent) => boolean;
   /** Told once it is the page's again, so what it draws is drawn before it shows. */
   readonly shown?: () => void;
   /** Told once it is shut, so the marks it put on its own controls go back. */
@@ -206,6 +214,15 @@ export class Notes {
   }
 
   /**
+   * Whether the note on top keeps every key to itself, and the clipboard with
+   * them: nothing else edits the Scene from under it.
+   */
+  holding(): boolean {
+    const top = this.#open.at(-1);
+    return top !== undefined && this.#notes.get(top)?.keys === 'all';
+  }
+
+  /**
    * Take the note's presses while the element is on the page: the element hears
    * the ones inside it, even when the page keeps them from bubbling on, and the
    * document hears the ones that land outside the element. The page drops a
@@ -243,8 +260,20 @@ export class Notes {
     if (target === null) {
       return;
     }
-    const top = this.#open.at(-1);
-    const note = top === undefined ? undefined : this.#notes.get(top);
+    const opened = this.#opened(event);
+    if (opened !== null) {
+      // The press opens a note of its own: the one that was on top goes for it,
+      // the way a press beside that one would, and the note the press belongs to
+      // is the page's and on top. A note re-opened on a press of its own is
+      // drawn again where the press put it.
+      const held = this.#open.at(-1);
+      if (held !== undefined && held !== opened) {
+        this.#shut(held, false);
+      }
+      this.show(opened);
+      return;
+    }
+    const top = this.#open.at(-1);    const note = top === undefined ? undefined : this.#notes.get(top);
     if (top === undefined || note === undefined || this.#holds(note, target)) {
       return;
     }
@@ -253,6 +282,20 @@ export class Notes {
     // keys away from what the press was aimed at. Only an Escape hands them back.
     this.#shut(top, false);
   };
+
+  /**
+   * The note a press of its own opens, or null where the press is no note's. The
+   * notes are asked in the order they were registered, and one that takes the
+   * press has taken it: a press opens one note.
+   */
+  #opened(event: PointerEvent): NoteId | null {
+    for (const [id, note] of this.#notes) {
+      if (note.press?.(event) === true) {
+        return id;
+      }
+    }
+    return null;
+  }
 
   /** Whether a press on `target` is a press on this note rather than beside it. */
   #holds(note: Note, target: Node): boolean {

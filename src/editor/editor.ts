@@ -335,9 +335,12 @@ class EsbozoEditorElement extends HTMLElement {
       opener: () => this.querySelector('[data-act="open"]'),
     });
     // The point menu is the other note the pointer opens: a secondary press on a
-    // bend handle, held to the one removal the keys and the palette use.
+    // bend handle, held to the one removal the keys and the palette use. It is a
+    // note of the stack's like the others, so what shows, shuts and holds the keys
+    // for it is the stack, and nothing of it outlives this page.
+    const pointMenuRoot = this.querySelector<HTMLElement>('.point-menu')!;
     this.#pointMenu = new PointMenu({
-      root: this.querySelector('.point-menu')!,
+      root: pointMenuRoot,
       inside: this,
       canvas: this.#canvas,
       canOpen: () => this.#connection.writable() && this.#typing.text() === null,
@@ -348,6 +351,14 @@ class EsbozoEditorElement extends HTMLElement {
       },
       switchCorner: (bend, corner) => this.#switchCorner(bend, corner),
       remove: (bend) => this.#removeBend(bend),
+      shut: () => this.#notes.shut('point'),
+    });
+    this.#notes.add('point', {
+      root: pointMenuRoot,
+      keys: 'all',
+      press: (event) => this.#pointMenu.press(event),
+      shown: () => this.#pointMenu.reveal(),
+      shut: () => this.#pointMenu.conceal(),
     });
 
     // Each instance's Grid is its own pattern: two editors on one page would
@@ -702,7 +713,7 @@ class EsbozoEditorElement extends HTMLElement {
     // The point a press picked waits for the key that removes it: a page that may
     // only read, and another Scene, hold none of it.
     this.#picked.letGo();
-    this.#pointMenu.close();
+    this.#notes.clear('point');
     if (this.#tool !== 'select') {
       this.#setTool('select');
     }
@@ -759,7 +770,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#picked.letGo();
     // The menu was opened for the selection the press found: another one is
     // another point, or none at all.
-    this.#pointMenu.close();
+    this.#notes.shut('point');
   }
 
   /**
@@ -902,7 +913,7 @@ class EsbozoEditorElement extends HTMLElement {
    * promise racing the paste that follows it.
    */
   #onCopy = (event: ClipboardEvent): void => {
-    if (active !== this || !this.#takesKeys(event.target) || this.#gestures.holdsScene()) {
+    if (active !== this || !this.#takesClipboard(event.target) || this.#gestures.holdsScene()) {
       return;
     }
     if (copyTo(event.clipboardData, this.#scene, this.#selectedElements())) {
@@ -912,7 +923,7 @@ class EsbozoEditorElement extends HTMLElement {
 
   /** Paste Scene JSON text from the clipboard, with new ids, offset off what is here. */
   #onPaste = (event: ClipboardEvent): void => {
-    if (active !== this || !this.#takesKeys(event.target) || this.#gestures.holdsScene()) {
+    if (active !== this || !this.#takesClipboard(event.target) || this.#gestures.holdsScene()) {
       return;
     }
     const text = event.clipboardData?.getData('text/plain') ?? '';
@@ -921,25 +932,27 @@ class EsbozoEditorElement extends HTMLElement {
   };
 
   /**
-   * Whether a key or a clipboard event is this editor's to answer: not a field a
-   * person is typing in, and, for an embedded editor, only while the focus is
-   * inside it.
+   * Whether a key is this editor's to answer: not a field a person is typing in,
+   * and, for an embedded editor, only while the focus is inside it.
    */
   #takesKeys(target: EventTarget | null): boolean {
     if (this.#inField(target)) {
       return false;
     }
-    // The menu holds the keys while it is open, and with them the clipboard: no
-    // key edits the Scene except through the row the menu offers.
-    if (this.#pointMenu.open) {
-      return false;
-    }
     return !this.#ownsKeysWhenFocused || this.#focused;
+  }
+
+  /**
+   * Whether the clipboard is this editor's to answer: never while a note holds
+   * every key, and otherwise exactly where a key is answered.
+   */
+  #takesClipboard(target: EventTarget | null): boolean {
+    return !this.#notes.holding() && this.#takesKeys(target);
   }
 
   /** Cut is a copy the page also deletes: one event carries the text, one step edits. */
   #onCut = (event: ClipboardEvent): void => {
-    if (active !== this || !this.#takesKeys(event.target) || this.#gestures.holdsScene()) {
+    if (active !== this || !this.#takesClipboard(event.target) || this.#gestures.holdsScene()) {
       return;
     }
     const selected = this.#selectedElements();
@@ -1131,7 +1144,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#page.viewport.view = view;
     // A zoom carries the page away from the pointer the menu was placed by, so
     // the menu goes with the place it was opened on.
-    this.#pointMenu.close();
+    this.#notes.shut('point');
     // Zoom is not part of a double-click: the next press starts a new one.
     this.#gestures.forgetClicks();
     this.#page.clearOfNote();
