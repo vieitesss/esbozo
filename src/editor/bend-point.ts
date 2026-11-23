@@ -256,6 +256,21 @@ export function bendPoints(shaft: ArrowOrLineElement): BendPoint[] {
   );
 }
 
+/**
+ * The one corner a whole Shaft turns by, or null where its bend points disagree:
+ * each point's own `corner`, or the Element's where it writes none. A Shaft with
+ * no bend point yet has nothing to disagree with, so it turns by the Element's
+ * own `corners`.
+ */
+export function shaftCorner(shaft: ArrowOrLineElement): Corner | null {
+  const bends = bendPoints(shaft);
+  const first = bends[0];
+  if (first === undefined) {
+    return shaft.corners;
+  }
+  return bends.every((bend) => bend.corner === first.corner) ? first.corner : null;
+}
+
 /** A dot a lone Shaft shows: halfway along a segment of its ink, where a pull adds a bend point. */
 export interface MarkedDot {
   /** The `points` index a pull there inserts at. */
