@@ -177,14 +177,21 @@ export function copies(
   });
 }
 
+/**
+ * One point of a copy: moved by the offset, its Snap kept only where its target
+ * is copied too, and its Anchor only where that Snap is kept. An Anchor says
+ * where on its target's box the end sits, so a copy that carries no Snap has no
+ * box to name and drops both keys, like a fragment freed of an absent target.
+ */
 function movedPoint(point: Point, renamed: ReadonlyMap<string, string>, offset: Point): Point {
   const target = snapTargetId(point);
   const snap = target === null ? undefined : renamed.get(target);
+  const anchor = snap !== undefined && point.anchor !== undefined ? { anchor: point.anchor } : {};
   return {
     x: point.x + offset.x,
     y: point.y + offset.y,
     ...(snap === undefined ? (point.snap === false ? { snap: false } : {}) : { snap }),
-    ...(point.anchor === undefined ? {} : { anchor: point.anchor }),
+    ...anchor,
     ...(point.corner === undefined ? {} : { corner: point.corner }),
   };
 }
