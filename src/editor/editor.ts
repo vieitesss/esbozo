@@ -148,18 +148,18 @@ class EsbozoEditorElement extends HTMLElement {
    */
   #railWaiting = false;
   /**
+   * True once the strip was drawn in a box this editor had, which is the only box the
+   * frame around the diagram is measured in: an editor the page gave no box has none
+   * to measure, and nothing drawn with one (#64).
+   */
+  #drawn = false;
+  /**
    * The boxes the strip is drawn from and measured against, watched: its own, so an
    * editor the page gave no box draws the outline as soon as it has one (D11, #64),
    * and the status bar's corners, which are as wide and as tall as the words they
    * hold — a Scene's name, the mode the page is in and the answer a folder gave
    * (O2).
    */
-  /**
-   * True once the strip was drawn in a box this editor had, which is the only box the
-   * frame around the diagram is measured in: an editor the page gave no box has none
-   * to measure, and nothing drawn with one (#64).
-   */
-  #drawn = false;
   readonly #boxWatch = new ResizeObserver(() => this.#onBoxResize());
   /** True once the editor's listeners are on the page. */
   #wired = false;

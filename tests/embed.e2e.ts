@@ -1536,6 +1536,8 @@ const KEPT_BANDS: Record<'bottom' | 'right', Rect> = {
 };
 /** Clear paper at the top of the same box, where no kept side hangs a strip. */
 const TOP_BAND: Rect = { x: 400, y: 0, width: 480, height: 240 };
+/** The top of the box's middle, where a strip on the side a page starts on hangs. */
+const TOP_CENTRE: Rect = { x: 400, y: 0, width: 480, height: 240 };
 /**
  * Where the stylesheet falls back to with no dock to hang on: the strip standing
  * at the top's middle, 15 px down, seven tiles tall and nothing to turn it round
@@ -1622,7 +1624,7 @@ test('a host rule that shows its own glyphs cannot show the strip before it is d
 
     // The same page without the host's rule is the reading there is against: the
     // band holds the Grid's dots and nothing of the strip, because an undocked
-    // strip is drawn at all. What the host's rule adds to that band is the strip.
+    // strip is not drawn at all. What the host's rule adds to that band is the strip.
     const bare = (await shot(ui)).darkCount(UNDOCKED, 0.85);
     expect(bare, 'the band reads the bare paper and its Grid').toBeGreaterThan(0);
 
@@ -1705,13 +1707,13 @@ test('an editor a host reveals from display: none draws the strip’s outline at
     const strip = screen.getByRole('navigation', { name: 'Tools' });
 
     // A page that never hid the editor: the strip it draws is what a reveal owes,
-    // and the pencil above the tiles, inside the outline's own 7 px overhang, is
-    // the outline and nothing else.
+    // and the top five pixels of that ink, inside the outline's own 7 px overhang,
+    // are the pencil and nothing else.
     await app.open(`${embed.url}/embedded.html`);
     await expect(screen.getByRole('status')).toHaveText('saved');
     await strip.getByRole('button', 'Select').focus();
     await fullInk(ui);
-    const drawn = (await shot(ui)).darkBounds(TOP_BAND, 0.6);
+    const drawn = (await shot(ui)).darkBounds(TOP_CENTRE, 0.6);
     if (drawn === null) {
       throw new Error('the strip that was never hidden draws no ink');
     }
@@ -1743,7 +1745,7 @@ test('an editor a host reveals from display: none draws the strip’s outline at
     expect(shown, 'the page shows its editor').toBe(true);
     await strip.getByRole('button', 'Select').focus();
     await fullInk(ui);
-    const revealed = (await shot(ui)).darkBounds(TOP_BAND, 0.6);
+    const revealed = (await shot(ui)).darkBounds(TOP_CENTRE, 0.6);
     expect(revealed, 'the reveal draws the strip where the page that never hid it does').toEqual(drawn);
   } finally {
     await embed.stop();
