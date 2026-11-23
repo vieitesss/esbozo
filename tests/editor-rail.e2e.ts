@@ -740,6 +740,78 @@ test('a left dock moved clear of the bottom status stops clear of the Shortcuts 
   await expect(screen.getByRole('dialog', { name: 'Shortcuts' })).toBeHidden();
 });
 
+test('an open hangs the rail clear of the status that open leaves, as a dock there does', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  const long = `${'L'.repeat(37)}.json`;
+  await browser.setViewport({ width: 360, height: 330 });
+  await openEditor(ui, { A: { 'a.json': BARE_SOURCE, [long]: BARE_SOURCE } }, long);
+  await settle(ui);
+
+  /**
+   * How far down the page the strip's ink reaches. The Scene is bare paper, so the
+   * only ink above the band's floor is the strip's own and the words in the status
+   * corner: the strip is the lower of the two, and its foot is where it hangs.
+   */
+  const band: Rect = { x: 0, y: 0, width: 360, height: 240 };
+  const foot = async (): Promise<number> => {
+    const ink = await railInk(ui, band);
+    return ink.y + ink.height;
+  };
+
+  // The status the open leaves is part of the chrome the rail clears: a Scene's
+  // name adds the row the save message sits in, and a dock beside it measures the
+  // corner as it is afterwards. An open that measured the corner before its own
+  // save message arrived would hang the strip over that message.
+  const opened = await foot();
+  await dockRail(ui, 'top');
+  const docked = await foot();
+  expect(
+    Math.abs(opened - docked),
+    'a first open hangs the strip where the same dock hangs it',
+  ).toBeLessThan(3);
+
+  /** Make the page's folder picker answer with a long failure, or answer as the stub again. */
+  const failPicking = async (words: string | null): Promise<void> => {
+    await browser.evaluate((message) => {
+      const api = window as unknown as {
+        showDirectoryPicker: (() => Promise<unknown>) | undefined;
+        __picked: (() => Promise<unknown>) | undefined;
+      };
+      if (message === null) {
+        api.showDirectoryPicker = api.__picked;
+      } else {
+        api.__picked = api.showDirectoryPicker;
+        api.showDirectoryPicker = async () => {
+          throw new Error(message);
+        };
+      }
+      return true;
+    }, words);
+  };
+
+  // A folder that will not be picked says so in the same corner, at as many lines
+  // as the words take. The next good open must not keep the room that answer took.
+  await failPicking('Folder unavailable; the file provider cannot open the folder right now. '.repeat(4));
+  await screen.getByRole('button', { name: /Open folder/ }).click();
+  await expect(screen.getByRole('status').filter({ hasText: 'Folder unavailable' })).toBeVisible();
+  await failPicking(null);
+
+  await screen.getByRole('button', { name: /Open folder/ }).click();
+  await screen.getByRole('button', { name: 'a.json', exact: true }).click();
+  await expect(screen.getByRole('status').filter({ hasText: 'saved' })).toBeVisible();
+  const recovered = await foot();
+  await dockRail(ui, 'top');
+  const redocked = await foot();
+  expect(
+    Math.abs(recovered - redocked),
+    'an open after a failed pick hangs the strip where the same dock hangs it',
+  ).toBeLessThan(3);
+});
+
 test('the left dock stands the strip up, faint until it is looked at, its outline around all seven', async ({
   app,
   browser,
