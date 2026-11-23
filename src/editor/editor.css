@@ -208,8 +208,9 @@ esbozo-editor .sweep {
 
 /* tool rail: a rough, hand-drawn strip hung on the frame around the diagram */
 esbozo-editor .rail {
-  /* Where the editor hangs the dock, in screen pixels. Until a Scene opens and
-     its frame is measured, the strip waits at the editor's top edge. */
+  /* Where the editor hangs the dock, in screen pixels, set on the strip once a
+     measurement places it. Until then the strip is out of sight, so these are
+     the numbers the shape starts from rather than a place anyone sees. */
   --rail-left: 50%;
   --rail-top: 15px;
   position: absolute;
@@ -237,6 +238,14 @@ esbozo-editor .rail[data-side='left'],
 esbozo-editor .rail[data-side='right'] {
   transform: translateY(-50%) rotate(-1.1deg);
   flex-direction: column;
+}
+
+/* A strip the editor has not placed yet stays unseen: with no frame measured there
+   is no side it is docked on, and the fallback place above is not one of them, so
+   showing it there would put it on a side it does not belong to and jump it away
+   once the measurement lands (D11). */
+esbozo-editor .rail:not([data-placed]) {
+  visibility: hidden;
 }
 
 esbozo-editor .rail-art {

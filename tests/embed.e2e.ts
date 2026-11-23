@@ -29,6 +29,7 @@ import { test } from '@e2e-dev/web';
 import { afterAll, expect } from 'e2e';
 import { EMPTY, SCENE, SNAPPED_SCENE, VIEW, at, cliRender, clickScene, doubleClickScene, drag, settle } from './helpers.ts';
 import type { Ui, View } from './helpers.ts';
+import { fullInk } from './editor-shared.ts';
 import { blurPage, livePage } from './cdp.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
@@ -1520,6 +1521,65 @@ test('the pointer measures the paper the view draws on, not the host’s border 
           (JSON.parse(await embed.saved('link')) as SavedScene).elements[2]?.points?.[0]?.x,
       )
       .toBe(170);
+  } finally {
+    await embed.stop();
+  }
+});
+
+/** The font every page here names, as the server holds the path. */
+const FONT_PATH = `/${FONT}`;
+
+/** The strip's ink where a kept side hangs it, in a full-window editor's own box. */
+const KEPT_BANDS: Record<'bottom' | 'right', Rect> = {
+  bottom: { x: 400, y: 600, width: 480, height: 200 },
+  right: { x: 1080, y: 240, width: 200, height: 320 },
+};
+/** Clear paper at the top of the same box, where no kept side hangs a strip. */
+const TOP_BAND: Rect = { x: 400, y: 0, width: 480, height: 240 };
+
+test('an editor that starts on a kept side never shows its strip on another', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), { a: EMPTY_SOURCE });
+  try {
+    const ui: Ui = { app, browser, screen };
+    const strip = screen.getByRole('navigation', { name: 'Tools' });
+    await app.open(`${embed.url}/embedded.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+
+    for (const side of ['bottom', 'right'] as const) {
+      // The page keeps the side, and the font is held: the Scene's frame is not
+      // measured, so the strip has no dock to hang on yet and this is the paint
+      // a person would see before it has one.
+      await browser.evaluate((kept) => {
+        localStorage.setItem('esbozo.rail', kept);
+        return true;
+      }, side);
+      embed.hold(FONT_PATH);
+      const fetched = embed.requests(FONT_PATH);
+      await browser.goto(`${embed.url}/embedded.html`, { waitUntil: 'domcontentloaded' });
+      await expect.poll(() => embed.requests(FONT_PATH)).toBeGreaterThan(fetched);
+      await settle(ui);
+
+      // The rule: the strip is never seen on a side it is not docked on. With no
+      // dock yet it keeps out of sight, rather than wait at the place the
+      // stylesheet falls back to and jump from there (D11).
+      await expect(strip, `the strip kept on the ${side} waits for its dock`).toBeHidden();
+
+      embed.release(FONT_PATH);
+      await expect(screen.getByRole('status')).toHaveText('saved');
+      await settle(ui);
+
+      // And once it is docked, the strip's ink is on the side the page kept, with
+      // none of it left along the top.
+      await strip.getByRole('button', 'Select').focus();
+      await fullInk(ui);
+      const drawing = await shot(ui);
+      expect(drawing.darkCount(KEPT_BANDS[side], 0.6), `the strip hangs on the ${side}`).toBeGreaterThan(0);
+      expect(drawing.darkCount(TOP_BAND, 0.6), 'the strip lies along no other side').toBe(0);
+    }
   } finally {
     await embed.stop();
   }
