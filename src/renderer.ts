@@ -28,7 +28,7 @@ import {
   straight,
   uAt,
 } from './geometry.js';
-import type { ShaftPath, ShaftPiece } from './geometry.js';
+import type { EndTarget, ShaftPath, ShaftPiece } from './geometry.js';
 
 /**
  * The theme's variables, each with the light theme as its own fallback, so a
@@ -1079,7 +1079,7 @@ function snapTarget(
   element: ArrowOrLineElement,
   point: Point,
   byId: ReadonlyMap<string, Element>,
-): OutlinedElement | undefined {
+): EndTarget | undefined {
   const target = snapTargetId(point);
   if (target === null) {
     return undefined;
@@ -1094,7 +1094,7 @@ function snapTarget(
       `${element.id}: snap target "${target}" must be a rectangle, ellipse or diamond`,
     );
   }
-  return outlined;
+  return { outline: outlined, ...(point.anchor === undefined ? {} : { anchor: point.anchor }) };
 }
 
 /**

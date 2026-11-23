@@ -1,4 +1,4 @@
-import type { Corner, Point } from './scene.js';
+import type { Anchor, Corner, Point } from './scene.js';
 import type { Box } from './layout.js';
 
 export interface Outline {
@@ -8,6 +8,15 @@ export interface Outline {
   width: number;
   height: number;
   corners: 'sharp' | 'round';
+}
+
+/**
+ * The Element one end of a shaft is drawn on: its outline, and the Anchor that
+ * says where on it the end sits. An end with no Anchor aims as it always did.
+ */
+export interface EndTarget {
+  readonly outline: Outline;
+  readonly anchor?: Anchor;
 }
 
 const CORNER_RADIUS = 12;
@@ -108,30 +117,168 @@ const OUTLINE_WALK = 72;
 
 const CROSSING_WALK = 30;
 
+/** Angles the ellipse is walked at before the walk is narrowed. */
+const ELLIPSE_WALK = 360;
+
+/** Steps the ellipse walk is narrowed by, each a third of the span it has left. */
+const ELLIPSE_STEPS = 48;
+
+/**
+ * The point of an outline nearest a place in its box: the place an Anchored end
+ * is drawn at. A rectangle and a diamond are walked edge by edge and fillet by
+ * fillet, and an ellipse is walked around and then narrowed, because the
+ * nearest point of an ellipse has no closed form worth the arithmetic. Ties
+ * take the earlier piece of the outline, so a shot through the very middle of a
+ * box — the same distance from all four edges — lands on the top one.
+ */
+function nearestOnOutline(outline: Outline, spot: Point): Point {
+  if (outline.type === 'ellipse') {
+    return nearestOnEllipse(outline, spot);
+  }
+  const corners = fillets(outline);
+  // Replaced by the first candidate, which every convex outline has.
+  let best: Point = corners[0]!.vertex;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const [index, corner] of corners.entries()) {
+    const next = corners[(index + 1) % corners.length]!;
+    for (const candidate of [onSegment(corner.after, next.before, spot), onArc(corner, spot)]) {
+      if (candidate === null) {
+        continue;
+      }
+      const distance = Math.hypot(candidate.x - spot.x, candidate.y - spot.y);
+      if (distance < bestDistance) {
+        best = candidate;
+        bestDistance = distance;
+      }
+    }
+  }
+  return best;
+}
+
+/** The closest point of a segment to `spot`: the perpendicular foot, held to its ends. */
+function onSegment(from: Point, to: Point, spot: Point): Point {
+  const along = { x: to.x - from.x, y: to.y - from.y };
+  const squared = along.x * along.x + along.y * along.y;
+  if (squared === 0) {
+    return { x: from.x, y: from.y };
+  }
+  const raw = ((spot.x - from.x) * along.x + (spot.y - from.y) * along.y) / squared;
+  const along01 = Math.min(1, Math.max(0, raw));
+  return { x: from.x + along.x * along01, y: from.y + along.y * along01 };
+}
+
+/** The closest point of a fillet's arc to `spot`, or null where its foot is off the arc. */
+function onArc(fillet: Fillet, spot: Point): Point | null {
+  const offset = { x: spot.x - fillet.centre.x, y: spot.y - fillet.centre.y };
+  const length = Math.hypot(offset.x, offset.y);
+  if (fillet.radius === 0 || length === 0) {
+    return null;
+  }
+  const point = {
+    x: fillet.centre.x + (offset.x / length) * fillet.radius,
+    y: fillet.centre.y + (offset.y / length) * fillet.radius,
+  };
+  return withinArc(fillet, point) ? point : null;
+}
+
+function nearestOnEllipse(outline: Outline, spot: Point): Point {
+  const centre = centreOf(outline);
+  const a = outline.width / 2;
+  const b = outline.height / 2;
+  const at = (angle: number): Point => ({
+    x: centre.x + a * Math.cos(angle),
+    y: centre.y + b * Math.sin(angle),
+  });
+  const reach = (angle: number): number => {
+    const point = at(angle);
+    return Math.hypot(point.x - spot.x, point.y - spot.y);
+  };
+
+  let best = 0;
+  let bestReach = Number.POSITIVE_INFINITY;
+  for (let step = 0; step < ELLIPSE_WALK; step += 1) {
+    const angle = (2 * Math.PI * step) / ELLIPSE_WALK;
+    const distance = reach(angle);
+    if (distance < bestReach) {
+      best = angle;
+      bestReach = distance;
+    }
+  }
+
+  // One step either side of the nearest sample holds the nearest point: the
+  // walk is fine enough that the distance only ever falls towards it.
+  let low = best - 2 * Math.PI / ELLIPSE_WALK;
+  let high = best + 2 * Math.PI / ELLIPSE_WALK;
+  for (let step = 0; step < ELLIPSE_STEPS; step += 1) {
+    const left = low + (high - low) / 3;
+    const right = high - (high - low) / 3;
+    if (reach(left) < reach(right)) {
+      high = right;
+    } else {
+      low = left;
+    }
+  }
+  return at((low + high) / 2);
+}
+
+/**
+ * Where an Anchored end is drawn: the outline point nearest the place its
+ * Anchor names in the target's box.
+ */
+function anchoredPoint(target: EndTarget | undefined): Point | null {
+  if (target === undefined || target.anchor === undefined) {
+    return null;
+  }
+  const outline = target.outline;
+  return nearestOnOutline(outline, {
+    x: outline.x + target.anchor.x * outline.width,
+    y: outline.y + target.anchor.y * outline.height,
+  });
+}
+
 function settledEnds(
   points: readonly [Point, Point],
-  startTarget: Outline | undefined,
-  endTarget: Outline | undefined,
+  startTarget: EndTarget | undefined,
+  endTarget: EndTarget | undefined,
 ): [Point, Point] {
   const [start, end] = points;
-  const from = outlineEnd(start, startTarget, end, endTarget);
-  const to = outlineEnd(end, endTarget, start, startTarget);
+  const from = endOf(start, startTarget, end, endTarget);
+  const to = endOf(end, endTarget, start, startTarget);
   if (startTarget === undefined || endTarget === undefined) {
     return [from, to];
   }
-  const startCentre = centreOf(startTarget);
-  const endCentre = centreOf(endTarget);
+  if (startTarget.anchor !== undefined || endTarget.anchor !== undefined) {
+    return [from, to];
+  }
+  const startCentre = centreOf(startTarget.outline);
+  const endCentre = centreOf(endTarget.outline);
   const fits = (head: Point, tip: Point): boolean =>
-    !runsAgainst(head, tip, startCentre, endCentre) && entersTarget(head, tip, endTarget);
+    !runsAgainst(head, tip, startCentre, endCentre) && entersTarget(head, tip, endTarget.outline);
   if (fits(from, to)) {
     return [from, to];
   }
   const behind = { x: 2 * startCentre.x - endCentre.x, y: 2 * startCentre.y - endCentre.y };
-  const flipped = pointOnOutline(startTarget, behind);
+  const flipped = pointOnOutline(startTarget.outline, behind);
   if (fits(flipped, to)) {
     return [flipped, to];
   }
-  return anotherShaft(startTarget, endTarget) ?? [from, to];
+  return anotherShaft(startTarget.outline, endTarget.outline) ?? [from, to];
+}
+
+/**
+ * One end of a two-point shaft: where its Anchor draws it, or the rule an end
+ * with no Anchor has always taken — towards the other end's target centre, or
+ * towards the other end's own point when that end is free.
+ */
+function endOf(
+  point: Point,
+  target: EndTarget | undefined,
+  otherPoint: Point,
+  otherTarget: EndTarget | undefined,
+): Point {
+  return (
+    anchoredPoint(target) ?? outlineEnd(point, target?.outline, otherPoint, otherTarget?.outline)
+  );
 }
 
 function anotherShaft(startTarget: Outline, endTarget: Outline): [Point, Point] | null {
@@ -373,8 +520,8 @@ interface ShaftDot {
 
 function drawnPoints(
   points: readonly [Point, Point, ...Point[]],
-  startTarget: Outline | undefined,
-  endTarget: Outline | undefined,
+  startTarget: EndTarget | undefined,
+  endTarget: EndTarget | undefined,
 ): Point[] {
   const last = points.length - 1;
   if (last === 1) {
@@ -382,15 +529,27 @@ function drawnPoints(
   }
   const drawn = points.map((point) => ({ x: point.x, y: point.y }));
   const loop = points[0].snap !== undefined && points[0].snap === points[last]!.snap;
-  if (last === 2 && loop && startTarget !== undefined) {
-    [drawn[0], drawn[last]] = loopEnds(startTarget, points[1]);
+  const anchoredStart = anchoredPoint(startTarget);
+  const anchoredEnd = anchoredPoint(endTarget);
+  if (
+    last === 2 &&
+    loop &&
+    startTarget !== undefined &&
+    anchoredStart === null &&
+    anchoredEnd === null
+  ) {
+    [drawn[0], drawn[last]] = loopEnds(startTarget.outline, points[1]);
     return drawn;
   }
-  if (startTarget !== undefined) {
-    aimEnd(drawn, points, 0, startTarget, loop);
+  if (anchoredStart !== null) {
+    drawn[0] = anchoredStart;
+  } else if (startTarget !== undefined) {
+    aimEnd(drawn, points, 0, startTarget.outline, loop);
   }
-  if (endTarget !== undefined) {
-    aimEnd(drawn, points, last, endTarget, loop);
+  if (anchoredEnd !== null) {
+    drawn[last] = anchoredEnd;
+  } else if (endTarget !== undefined) {
+    aimEnd(drawn, points, last, endTarget.outline, loop);
   }
   return drawn;
 }
@@ -460,8 +619,8 @@ function loopEnds(target: Outline, bend: Point): [Point, Point] {
 
 export function shaftEnds(
   points: readonly [Point, Point, ...Point[]],
-  startTarget: Outline | undefined,
-  endTarget: Outline | undefined,
+  startTarget: EndTarget | undefined,
+  endTarget: EndTarget | undefined,
 ): [Point, Point] {
   const drawn = drawnPoints(points, startTarget, endTarget);
   return [drawn[0]!, drawn[drawn.length - 1]!];
@@ -474,8 +633,8 @@ export function carriesSnaps(points: readonly Point[]): boolean {
 export function shaftPath(
   points: readonly [Point, Point, ...Point[]],
   corners: Corner,
-  startTarget: Outline | undefined,
-  endTarget: Outline | undefined,
+  startTarget: EndTarget | undefined,
+  endTarget: EndTarget | undefined,
 ): ShaftPath {
   const drawn = drawnPoints(points, startTarget, endTarget);
   const { pieces, segments } = piecesOf(gathered(drawn, points, corners));

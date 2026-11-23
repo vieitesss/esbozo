@@ -183,7 +183,7 @@ export interface Point {
 }
 
 /** A Snapped end's place on its target's outline, as fractions of the target's box. */
-interface Anchor {
+export interface Anchor {
   /** Fraction across the box: `0` is its left edge, `1` its right. */
   x: number;
   /** Fraction down the box: `0` is its top edge, `1` its bottom. */
