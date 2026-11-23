@@ -57,8 +57,10 @@ The four `e2e` scripts also run one at a time per machine, through `scripts/queu
 Open the editor, pick stubbed folders, and create a new Scene:
 `Ui`, `Folders`, `openEditor`, `openNewScene`, `browseFolder`.
 
-Hold, release, or refuse stubbed disk and clipboard writes:
-`holdWrites`, `releaseWrite`, `refuseWrite`, `allowWrites`, `holdClipboardWrites`, `releaseClipboardWrite`.
+Hold, release, or refuse stubbed disk and clipboard writes, and hold a
+clipboard read: `holdWrites`, `releaseWrite`, `refuseWrite`, `allowWrites`,
+`holdClipboardWrites`, `releaseClipboardWrite`, `holdClipboardReads`,
+`releaseClipboardRead`, `refuseClipboardRead`.
 
 Read the stubbed folder files and the parsed saved Scene:
 `savedFiles`, `savedScene`, `SavedScene`.

@@ -1,8 +1,11 @@
 /**
  * Seam 2: copy, cut, paste and duplicate — a page that has no clipboard API,
  * the browser's own clipboard keys, a cut whose paste must not land in another
- * Scene, and a duplicate, which is a copy pasted in place. Asserted on the
- * Scene the editor saves and the words the status line shows.
+ * Scene, and a duplicate, which is a copy pasted in place. A clipboard answer
+ * belongs to the Scene it was asked in: the note can open another under the
+ * same connection while the answer is still on its way, and that answer lands
+ * in no Scene and says nothing. Asserted on the Scene the editor saves and the
+ * words the status line shows.
  */
 import { test } from '@e2e-dev/web';
 import { afterAll, expect } from 'e2e';
@@ -10,11 +13,16 @@ import {
   SNAPPED,
   SNAPPED_SCENE,
   THREE,
+  THREE_SCENE,
+  browseFolder,
   clickScene,
   cliCheckBytes,
   dragBy,
+  holdClipboardReads,
   holdClipboardWrites,
   openEditor,
+  refuseClipboardRead,
+  releaseClipboardRead,
   releaseClipboardWrite,
   savedFiles,
   savedScene,
@@ -77,6 +85,48 @@ function pointsOf(scene: SavedScene): unknown[] {
   return scene.elements.flatMap((element) =>
     element.points === undefined ? [] : [element.points],
   );
+}
+
+/**
+ * What a Copy of `THREE_SCENE`'s first box puts on the clipboard: the fragment
+ * text a paste parsed, with the id it was copied under.
+ */
+const COPIED = JSON.stringify(
+  {
+    version: 1,
+    elements: [{ id: 'p', type: 'rectangle', x: 40, y: 40, width: 100, height: 60 }],
+  },
+  null,
+  2,
+);
+
+/** The other Scene in the folder: the note's second row, and where a stale answer must not land. */
+const OTHER_SCENE = { ...THREE_SCENE, title: 'Other' };
+const OTHER_SOURCE = JSON.stringify(OTHER_SCENE, null, 2);
+
+/** Two Scenes in one folder, so the note can open one while a clipboard call is still answering. */
+const TWO_SCENES = { A: { 'scene.json': THREE_SOURCE, 'other.json': OTHER_SOURCE } };
+
+/**
+ * Wait for the page's turn after an answer it took: the promise a clipboard call
+ * settles on, and the microtasks behind it, are done before this task runs.
+ */
+async function afterAnswer(ui: Ui): Promise<void> {
+  await ui.browser.evaluate(
+    () => new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 0)),
+  );
+}
+
+/** The `x` of the Element with this id, from the files on disk. */
+async function savedX(ui: Ui, name: string, id: string): Promise<number | null> {
+  const source = (await savedFiles(ui))[name];
+  if (source === undefined) {
+    return null;
+  }
+  const scene = JSON.parse(source) as {
+    elements: Array<{ id: string; x?: number }>;
+  };
+  return scene.elements.find((element) => element.id === id)?.x ?? null;
 }
 
 /**
@@ -179,6 +229,82 @@ test('a cut deletes nothing when the Scene changed before the copy landed', asyn
     'q',
     'r',
   ]);
+});
+
+test('a paste asked in one Scene lands in no Scene when another opens meanwhile', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, TWO_SCENES, 'scene.json');
+  await clickScene(ui, { x: 90, y: 70 }, [], THREE);
+  await holdClipboardReads(ui, COPIED);
+
+  // The clipboard is still answering when the note opens another Scene: the
+  // connection holds, the Scene does not.
+  await palette(ui);
+  await browser.keyboard.type('paste');
+  await browser.keyboard.press('Enter');
+  await browseFolder(ui, 'A');
+  await screen.getByRole('button', 'other.json').click();
+  await expect(screen.getByText('A / other.json')).toBeVisible();
+  await releaseClipboardRead(ui);
+
+  // One edit of the Scene in hand, so its own write lands after any the paste
+  // would have queued: what is on disk is what this Scene holds. The press is
+  // on `p`'s corner, clear of where a pasted copy would sit.
+  await clickScene(ui, { x: 46, y: 46 }, [], THREE);
+  await browser.keyboard.press('Shift+ArrowRight');
+  await expect.poll(async () => savedX(ui, 'other.json', 'p')).toBe(50);
+
+  const scene = await savedScene(ui, 'other.json');
+  expect(scene.elements.map((element) => element.id)).toEqual(['p', 'q', 'r']);
+});
+
+test('a paste refused after another Scene opens says nothing in it', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, TWO_SCENES, 'scene.json');
+  await clickScene(ui, { x: 90, y: 70 }, [], THREE);
+  await holdClipboardReads(ui, COPIED);
+
+  await palette(ui);
+  await browser.keyboard.type('paste');
+  await browser.keyboard.press('Enter');
+  await browseFolder(ui, 'A');
+  await screen.getByRole('button', 'other.json').click();
+  await expect(screen.getByText('A / other.json')).toBeVisible();
+  await refuseClipboardRead(ui, 'the clipboard is empty');
+  await afterAnswer(ui);
+
+  // The word is the last Scene's, not this one's: nothing is said here.
+  await expect(screen.getByRole('status')).toHaveText('saved');
+});
+
+test('a cut asked in one Scene says nothing in another that opens meanwhile', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, TWO_SCENES, 'scene.json');
+  await clickScene(ui, { x: 90, y: 70 }, [], THREE);
+  await holdClipboardWrites(ui);
+
+  await palette(ui);
+  await browser.keyboard.type('cut');
+  await browser.keyboard.press('Enter');
+  await browseFolder(ui, 'A');
+  await screen.getByRole('button', 'other.json').click();
+  await expect(screen.getByText('A / other.json')).toBeVisible();
+  await releaseClipboardWrite(ui);
+  await afterAnswer(ui);
+
+  // The cut is not about this Scene: it says nothing, and deletes nothing here
+  // or in the one it came from.
+  await expect(screen.getByRole('status')).toHaveText('saved');
+  expect((await savedFiles(ui))['scene.json']).toBe(THREE_SOURCE);
+  expect((await savedFiles(ui))['other.json']).toBe(OTHER_SOURCE);
 });
 
 test('Duplicate copies a Snapped arrow alone as a free arrow, keeping its points', async ({
