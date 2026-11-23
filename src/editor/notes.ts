@@ -77,7 +77,7 @@ export class Notes {
   }
 
   /** Whether this note is one of the open ones. */
-  shows(id: NoteId): boolean {
+  #shows(id: NoteId): boolean {
     return this.#open.includes(id);
   }
 
@@ -97,7 +97,7 @@ export class Notes {
 
   /** Open the note, or put it away when it is already the page's. */
   toggle(id: NoteId): void {
-    if (this.shows(id)) {
+    if (this.#shows(id)) {
       this.shut(id);
     } else {
       this.show(id);
@@ -117,7 +117,7 @@ export class Notes {
   }
 
   #shut(id: NoteId | null, keysBack: boolean): void {
-    if (id === null || !this.shows(id)) {
+    if (id === null || !this.#shows(id)) {
       return;
     }
     const note = this.#notes.get(id)!;
