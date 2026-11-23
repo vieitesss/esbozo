@@ -98,7 +98,7 @@
  * Style menu offers exactly what a Scene may hold and keeps only the words a
  * person reads, so a control can never save a value the file would reject.
  */
-import { writtenFraction } from './geometry.js';
+import { anchorPoint, writtenFraction } from './geometry.js';
 import { sha256, sha256Hex } from './sha256.js';
 
 const SCENE_VERSION = 1;
@@ -781,12 +781,12 @@ function validateSnapTargets(
     const end = points[points.length - 1]!;
     const startId = snapTargetId(start);
     const endId = snapTargetId(end);
-    if (points.length === 2 && startId !== null && startId === endId && !apart(start, end)) {
-      problems.push({
-        elementId: element.id,
-        message: `both ends Snap to ${startId}`,
-      });
-      continue;
+    if (points.length === 2 && startId !== null && startId === endId) {
+      const refusal = bothEndsProblem(start, end, startId, byId.get(startId));
+      if (refusal !== null) {
+        problems.push({ elementId: element.id, message: refusal });
+        continue;
+      }
     }
     for (const point of points) {
       const target = snapTargetId(point);
@@ -812,16 +812,32 @@ function validateSnapTargets(
 }
 
 /**
- * Whether the two ends of a two-point shaft sit at different Anchors, which is
- * the one way both of them may Snap to one Element: two ends on one outline need
- * two places to be to have a direction between them.
+ * Why two ends Snapped to one Element cannot both be drawn there, or null when
+ * they can. Two ends on one outline need two places to be to have a direction to
+ * draw the shaft along, so they need two Anchors, and two outline points those
+ * Anchors name: a hair apart in the box may still be the same foot on the
+ * outline, and two ends drawn on one point have no direction either.
  */
-function apart(start: Point, end: Point): boolean {
-  return (
-    start.anchor !== undefined &&
-    end.anchor !== undefined &&
-    (start.anchor.x !== end.anchor.x || start.anchor.y !== end.anchor.y)
-  );
+function bothEndsProblem(
+  start: Point,
+  end: Point,
+  id: string,
+  target: Element | undefined,
+): string | null {
+  const one = start.anchor;
+  const other = end.anchor;
+  if (one === undefined || other === undefined || (one.x === other.x && one.y === other.y)) {
+    return `both ends Snap to ${id}`;
+  }
+  if (target === undefined || !isOutlined(target)) {
+    // The target's own problem is reported where every Snap is checked.
+    return null;
+  }
+  const first = anchorPoint(target, one);
+  const second = anchorPoint(target, other);
+  return Math.round(first.x) === Math.round(second.x) && Math.round(first.y) === Math.round(second.y)
+    ? `both ends Snap to ${id} at the same outline point`
+    : null;
 }
 
 function parseElement(

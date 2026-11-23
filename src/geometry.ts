@@ -222,6 +222,19 @@ function nearestOnEllipse(outline: Outline, spot: Point): Point {
 }
 
 /**
+ * Where an Anchor is drawn on an outline: the outline point nearest the place
+ * the fraction names in the box. The Renderer draws Anchored ends here and `ez
+ * check` asks the same function whether two ends of one shaft are drawn apart,
+ * so a refusal and a drawing cannot disagree about where an end lands.
+ */
+export function anchorPoint(outline: Outline, anchor: Anchor): Point {
+  return nearestOnOutline(outline, {
+    x: outline.x + anchor.x * outline.width,
+    y: outline.y + anchor.y * outline.height,
+  });
+}
+
+/**
  * Where an Anchored end is drawn: the outline point nearest the place its
  * Anchor names in the target's box.
  */
@@ -229,11 +242,7 @@ function anchoredPoint(target: EndTarget | undefined): Point | null {
   if (target === undefined || target.anchor === undefined) {
     return null;
   }
-  const outline = target.outline;
-  return nearestOnOutline(outline, {
-    x: outline.x + target.anchor.x * outline.width,
-    y: outline.y + target.anchor.y * outline.height,
-  });
+  return anchorPoint(target.outline, target.anchor);
 }
 
 function settledEnds(
