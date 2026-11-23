@@ -49,6 +49,7 @@ import type { ElementTool } from './elements.js';
 import type { Page, Shown } from './page.js';
 import { attachedTo, endPoint, isShaft, otherEnd, released, targetAt, withEnd } from './snap.js';
 import type { End } from './snap.js';
+import type { TextSession } from './text-session.js';
 import type { Typing } from './typing.js';
 import { wordAt } from './words.js';
 
@@ -603,7 +604,7 @@ export class Gestures {
         this.#capture(event);
         this.#press = null;
         this.#lastClick = null;
-        this.#pressWords(event, offset);
+        this.#pressWords(event, text, offset);
         return;
       }
       // Any other click takes the focus off the words and commits them, and
@@ -1539,11 +1540,7 @@ export class Gestures {
    * under the pointer; a second one in the same place selects the word there;
    * and dragging the pointer carries the other end of the selection with it.
    */
-  #pressWords(event: PointerEvent, offset: number): void {
-    const text = this.#host.typing.text();
-    if (text === null) {
-      return;
-    }
+  #pressWords(event: PointerEvent, text: Pick<TextSession, 'select' | 'state'>, offset: number): void {
     const press: Press = {
       id: null,
       at: this.#host.page.viewport.screenPoint(event),
