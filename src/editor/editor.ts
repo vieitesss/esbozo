@@ -33,8 +33,17 @@ import { nextRoughness, roughnessLabel, styled } from './style.js';
 import type { StyleKey } from './style.js';
 import { canPickFolder } from './files.js';
 import { servedFolder } from './server-folder.js';
-import { boxOf, clampedDock, fittedView, landingOffset, moved, railFrame, zoomedAt } from './geometry.js';
-import type { Point, RailSide, View } from './geometry.js';
+import {
+  boxOf,
+  clampedDock,
+  fittedView,
+  landingOffset,
+  leftDockEdge,
+  moved,
+  railFrame,
+  zoomedAt,
+} from './geometry.js';
+import type { Point, RailOutline, RailSide, View } from './geometry.js';
 import { History } from './history.js';
 import { railArt } from './rail.js';
 import { SHELL } from './shell.js';
@@ -76,6 +85,13 @@ class EsbozoEditorElement extends HTMLElement {
    * before any clamp: a resize carries it and growing back restores it (D3, I7).
    */
   #railDockOffset: Point | null = null;
+  /**
+   * Where the rail hangs now, in screen pixels: the strip's own left edge and the
+   * middle of the side it is on, as the last clamp left it, or null until the page
+   * has measured a frame. This is the one answer to where the rail is; nothing
+   * measures the frame again to ask it (D5).
+   */
+  #railDock: Point | null = null;
   /** The side of the frame the rail is docked on: the top until a palette move takes it elsewhere. */
   #railSide: RailSide = 'top';
   /** True once the editor's listeners are on the page. */
@@ -285,6 +301,7 @@ class EsbozoEditorElement extends HTMLElement {
         selected: () => this.#selected,
         bend: () => this.#picked.bend,
         drag: () => this.#gestures.drag,
+        railEdge: () => this.#railEdge(),
         writable: () => this.#connection.writable(),
         typing: this.#typing,
       },
@@ -467,6 +484,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#endEdits();
     // No Scene in the hand is no frame to hang the rail on either.
     this.#railDockOffset = null;
+    this.#railDock = null;
     // No Scene to hold in the hand either: the pan and the word it named go
     // with the Scene the page let go of.
     this.#gestures.endSpacePan();
@@ -1050,11 +1068,7 @@ class EsbozoEditorElement extends HTMLElement {
    * over the paper.
    */
   #placeRail(): void {
-    const outline = {
-      width: this.#rail.offsetWidth + RAIL_OUTLINE * 2,
-      height: this.#rail.offsetHeight + RAIL_OUTLINE * 2,
-      overhang: RAIL_OUTLINE,
-    };
+    const outline = this.#outline();
     const viewport = this.#page.viewport;
     const size = viewport.size();
     const { dock } = railFrame(
@@ -1102,8 +1116,28 @@ class EsbozoEditorElement extends HTMLElement {
       size,
       this.#railSide,
     );
+    this.#railDock = dock;
     this.#rail.style.setProperty('--rail-left', `${dock.x}px`);
     this.#rail.style.setProperty('--rail-top', `${dock.y}px`);
+  }
+
+  /** The pencil outline the rail wears, measured around the strip it hangs on. */
+  #outline(): RailOutline {
+    return {
+      width: this.#rail.offsetWidth + RAIL_OUTLINE * 2,
+      height: this.#rail.offsetHeight + RAIL_OUTLINE * 2,
+      overhang: RAIL_OUTLINE,
+    };
+  }
+
+  /**
+   * Where a left dock's own outline reaches, or null when the rail is held
+   * anywhere else: read from where the rail hangs, never measured again, so the
+   * view moves for the note alone (D5).
+   */
+  #railEdge(): number | null {
+    const dock = this.#railDock;
+    return dock === null ? null : leftDockEdge(dock, this.#outline(), this.#railSide);
   }
 
   // ------------------------------------------------------------------- menu

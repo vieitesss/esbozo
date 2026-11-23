@@ -96,6 +96,11 @@ interface PageHost {
   bend(): Bend | null;
   /** The gesture in flight, as the drawing and the overlay read it. */
   drag(): Drag | null;
+  /**
+   * Where a left dock's own outline reaches, in screen units, or null when the
+   * rail is held anywhere else: the room the note leaves cannot start before it.
+   */
+  railEdge(): number | null;
   /** True when this page may change the Scene at all: a page that may only read marks no ink a press could pull out. */
   writable(): boolean;
   /** The preview Element and the field whose caret the page draws. */
@@ -238,6 +243,7 @@ export class Page {
     }
     const { elements: shown } = this.#host.shown();
     const selected = new Set(this.#host.selected());
+    const rail = this.#host.railEdge();
     this.viewport.view = clearedView(this.viewport.view, {
       selection: boxOf(
         shown.filter((element) => selected.has(element.id)),
@@ -245,9 +251,10 @@ export class Page {
         this.#host.layout(),
       ),
       note: box,
-      // The rail is not a limit: it lies along the top edge, out of the way of a
-      // selection the note would cover, so the editor's own left edge is.
-      left: MENU_GAP,
+      // The rail is a limit only when a left dock is held inside the editor's own
+      // left edge: a rail floating beside the frame, and every other dock, leaves
+      // that edge as the leftmost the selection may sit at (O1).
+      left: rail === null ? MENU_GAP : rail + MENU_GAP,
       gap: MENU_GAP,
     });
   }

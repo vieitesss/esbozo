@@ -678,6 +678,24 @@ function dockOn(
 }
 
 /**
+ * Where a left dock reaches, in screen units, or null when the rail is held
+ * anywhere else: only a strip stopped at the editor's own left inset is a limit
+ * the note's clearance has to clear (O1), and a dock that hangs beside the frame
+ * — or on any other side — leaves the editor's edge as that limit.
+ *
+ * The answer comes from the dock the rail hangs at now, `clampedDock` included,
+ * so the frame is not measured a second time to ask the same question (D5).
+ */
+export function leftDockEdge(dock: Point, outline: RailOutline, side: RailSide): number | null {
+  if (side !== 'left' || dock.x !== RAIL_INSET) {
+    return null;
+  }
+  // The dock is the strip's own left edge, and its pencil outline hangs one
+  // overhang past the strip on the far side.
+  return dock.x + outline.width - outline.overhang;
+}
+
+/**
  * A dock pulled inside the editor's box: one whose pencilled outline already
  * fits is left exactly where the frame measured it, and one carried out of the
  * box is pulled to the top edge's own inset.
@@ -791,7 +809,11 @@ export interface Clearance {
   selection: Box | null;
   /** The docked note's box on the page, in screen units. */
   note: Box;
-  /** The leftmost the selection may sit on the page, in screen units: the editor's own left edge, with its gap. */
+  /**
+   * The leftmost the selection may sit on the page, in screen units: the editor's
+   * own left edge with its gap, or the rail's own edge with the same gap where a
+   * left dock is held inside it.
+   */
   left: number;
   /** Breathing room between the selection and the note. */
   gap: number;
