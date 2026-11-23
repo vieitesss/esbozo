@@ -181,6 +181,117 @@ test('a Scene that does not parse exits 3 before anything is measured', async ()
   }
 });
 
+test('an Anchor outside 0 to 1 exits 3 and names the end and the value', async () => {
+  const cases: { anchor: { x: number; y: number }; message: RegExp }[] = [
+    {
+      anchor: { x: 1.5, y: 0.5 },
+      message: /^arrow: points\[1\]\.anchor\.x must be between 0 and 1, got 1\.5$/m,
+    },
+    {
+      anchor: { x: 0.5, y: -0.25 },
+      message: /^arrow: points\[1\]\.anchor\.y must be between 0 and 1, got -0\.25$/m,
+    },
+  ];
+
+  for (const { anchor, message } of cases) {
+    const folder = await sceneFolder({
+      version: 1,
+      elements: [
+        { id: 'box', type: 'rectangle', x: 0, y: 0, width: 120, height: 80 },
+        {
+          id: 'arrow',
+          type: 'arrow',
+          points: [
+            { x: 300, y: 40 },
+            { x: 120, y: 40, snap: 'box', anchor },
+          ],
+        },
+      ],
+    });
+
+    const run = await ez(['check', 'scene.json'], folder);
+
+    assert.equal(run.code, 3, `the Anchor ${JSON.stringify(anchor)} is not a fraction`);
+    assert.match(run.stderr, message);
+  }
+});
+
+test('both ends of a two-point shaft may Snap to one Element only at different Anchors', async () => {
+  const onOneBox = (start: Record<string, unknown>, end: Record<string, unknown>): unknown => ({
+    version: 1,
+    elements: [
+      { id: 'box', type: 'rectangle', x: 0, y: 0, width: 120, height: 80 },
+      { id: 'arrow', type: 'arrow', points: [start, end] },
+    ],
+  });
+  const snapped = (point: Record<string, unknown>): Record<string, unknown> => ({
+    x: 60,
+    y: 40,
+    snap: 'box',
+    ...point,
+  });
+
+  const apart = await sceneFolder(
+    onOneBox(
+      snapped({ anchor: { x: 1, y: 0.25 } }),
+      snapped({ anchor: { x: 0, y: 0.75 } }),
+    ),
+  );
+  const apartRun = await ez(['check', 'scene.json'], apart);
+  assert.equal(apartRun.code, 0, apartRun.stderr);
+
+  const cases: { label: string; scene: unknown }[] = [
+    {
+      label: 'identical Anchors',
+      scene: onOneBox(
+        snapped({ anchor: { x: 1, y: 0.25 } }),
+        snapped({ anchor: { x: 1, y: 0.25 } }),
+      ),
+    },
+    {
+      label: 'only one Anchor',
+      scene: onOneBox(snapped({ anchor: { x: 1, y: 0.25 } }), snapped({})),
+    },
+    { label: 'no Anchors', scene: onOneBox(snapped({}), snapped({})) },
+  ];
+
+  for (const { label, scene } of cases) {
+    const folder = await sceneFolder(scene);
+    const run = await ez(['check', 'scene.json'], folder);
+    assert.equal(run.code, 3, label);
+    assert.match(run.stderr, /^arrow: both ends Snap to box$/m, label);
+  }
+});
+
+test('both ends of a two-point shaft need two outline places, not two Anchors', async () => {
+  // Two Anchors a hair apart are two places in the box, but the outline point
+  // nearest both is the same one: the shaft would be drawn with no direction at
+  // all, so the Scene has none and is refused like two identical Anchors.
+  const onOneBox = (start: Record<string, unknown>, end: Record<string, unknown>): unknown => ({
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [
+      { id: 'box', type: 'rectangle', x: 100, y: 100, width: 100, height: 100 },
+      { id: 'arrow', type: 'arrow', points: [{ x: 150, y: 150, snap: 'box', ...start }, { x: 150, y: 150, snap: 'box', ...end }] },
+    ],
+  });
+
+  const folder = await sceneFolder(
+    onOneBox({ anchor: { x: 0.5, y: 0 } }, { anchor: { x: 0.5, y: 0.01 } }),
+  );
+  const run = await ez(['check', 'scene.json'], folder);
+  assert.equal(run.code, 3, run.stderr);
+  assert.match(run.stderr, /^arrow: both ends Snap to box at the same outline point$/m);
+
+  // An Anchor the outline draws somewhere else is the direction the Scene needs,
+  // even when the difference is small: the bottom edge is not the top one.
+  const drawn = await sceneFolder(
+    onOneBox({ anchor: { x: 0.5, y: 0 } }, { anchor: { x: 0.5, y: 0.9 } }),
+  );
+  const ok = await ez(['check', 'scene.json'], drawn);
+  assert.equal(ok.code, 0, ok.stderr);
+});
+
 test('a bad Label does not make its Snap target look missing', async () => {
   const folder = await sceneFolder({
     version: 1,

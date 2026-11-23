@@ -285,6 +285,49 @@ test('Arrange offers a disabled action when nothing it can move is selected', as
   await expect(control(ui, 'Order: front')).toBeEnabled();
 });
 
+/**
+ * `TETHER_SCENE`'s frame and a line whose end writes `"snap": false`: a free end
+ * that remembers it carries no Snap, drawn exactly like one that says nothing.
+ */
+const LOOSE_SCENE = {
+  version: 1,
+  title: 'Loose',
+  defaults: { roughness: 1 },
+  elements: [
+    { id: 'frame', type: 'rectangle', x: 60, y: 40, width: 100, height: 60 },
+    {
+      id: 'tether',
+      type: 'line',
+      points: [
+        { x: 260, y: 70, snap: false },
+        { x: 420, y: 70 },
+      ],
+      heads: { start: 'none', end: 'none' },
+    },
+  ],
+};
+const LOOSE_SOURCE = JSON.stringify(LOOSE_SCENE, null, 2);
+
+test('Arrange moves a line whose end writes "snap": false, as it moves a free one', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'loose.json': LOOSE_SOURCE } }, 'loose.json');
+
+  // The box and the line: an end that draws like no Snap at all follows nothing,
+  // so the line is an Element Arrange may move and the action is offered.
+  await clickScene(ui, { x: 110, y: 70 }, [], TETHER);
+  await clickScene(ui, { x: 340, y: 70 }, ['Shift'], TETHER);
+  await expect(control(ui, 'Arrange: left')).toBeEnabled();
+  await control(ui, 'Arrange: left').click();
+
+  const scene = await savedScene(ui, 'loose.json');
+  const saved = new Map(scene.elements.map((element) => [element.id, element]));
+  expect(saved.get('frame')?.x).toBe(60);
+  expect(saved.get('tether')?.points).toEqual([
+    { x: 60, y: 70, snap: false },
+    { x: 220, y: 70 },
+  ]);
+});
+
 test('Arrange lines mixed types up, and spreads them without reordering them', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   const open = () => openEditor(ui, { A: { 'arrange.json': ARRANGE_SOURCE } }, 'arrange.json');

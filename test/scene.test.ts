@@ -365,6 +365,148 @@ test('labelAt is written after the Label it places, and an unwritten one is neve
   assert.equal(serialiseScene(parsed(JSON.parse(FILE))), FILE);
 });
 
+test('a Snapped end saves and reopens with the Anchor it carries', () => {
+  const scene = parsed({
+    version: 1,
+    elements: [
+      { id: 'box', type: 'rectangle', x: 40, y: 40, width: 80, height: 80 },
+      {
+        id: 'arrow',
+        type: 'arrow',
+        points: [
+          { x: 200, y: 40 },
+          { x: 120, y: 60, snap: 'box', anchor: { x: 1, y: 0.25 } },
+        ],
+      },
+    ],
+  });
+
+  assert.deepEqual(shaftOf(scene, 'arrow').points[1], {
+    x: 120,
+    y: 60,
+    snap: 'box',
+    anchor: { x: 1, y: 0.25 },
+  });
+
+  // The Anchor is written after the `snap` it hangs off, in the key order a
+  // person reads, so a saved Scene keeps the fraction it was given.
+  const saved = serialiseScene(scene);
+  assert.match(saved, /"snap": "box",\n\s+"anchor": \{\n\s+"x": 1,\n\s+"y": 0.25\n\s+\}/);
+  assert.equal(serialiseScene(parsed(JSON.parse(saved))), saved, 'saving it again changes nothing');
+});
+
+test('an end with no Snap target may carry "snap": false, which is a free end', () => {
+  const scene = parsed({
+    version: 1,
+    elements: [
+      { id: 'box', type: 'rectangle', x: 40, y: 40, width: 80, height: 80 },
+      {
+        id: 'arrow',
+        type: 'arrow',
+        points: [
+          { x: 200, y: 40 },
+          { x: 120, y: 60, snap: false },
+        ],
+      },
+    ],
+  });
+
+  assert.deepEqual(shaftOf(scene, 'arrow').points[1], { x: 120, y: 60, snap: false });
+  assert.match(serialiseScene(scene), /"snap": false/);
+});
+
+test('a point refuses an Anchor, or a "snap": false, where either does not belong', () => {
+  const refuses = (points: unknown, expected: RegExp): void => {
+    const result = parseScene(
+      JSON.stringify({
+        version: 1,
+        elements: [
+          { id: 'box', type: 'rectangle', x: 0, y: 0, width: 80, height: 80 },
+          { id: 'arrow', type: 'arrow', points },
+        ],
+      }),
+    );
+    assert.equal(result.ok, false, `expected a refusal for ${JSON.stringify(points)}`);
+    assert.ok(!result.ok);
+    const problems = result.problems.map((problem) => `${problem.elementId}: ${problem.message}`);
+    assert.equal(problems.length, 1, `one problem, got ${problems.join('; ')}`);
+    assert.match(problems[0]!, expected);
+  };
+
+  refuses(
+    [
+      { x: 200, y: 40 },
+      { x: 160, y: 60, anchor: { x: 0.5, y: 0.5 } },
+    ],
+    /^arrow: points\[1\]\.anchor applies only to an end that Snaps to an Element$/,
+  );
+  refuses(
+    [
+      { x: 200, y: 40 },
+      { x: 160, y: 60, snap: false, anchor: { x: 0.5, y: 0.5 } },
+    ],
+    /^arrow: points\[1\]\.anchor applies only to an end that Snaps to an Element$/,
+  );
+  refuses(
+    [
+      { x: 200, y: 40 },
+      { x: 100, y: 60, anchor: { x: 0.5, y: 0.5 } },
+      { x: 40, y: 60, snap: 'box', anchor: { x: 0.1, y: 0.9 } },
+    ],
+    /^arrow: points\[1\]\.anchor applies only to the first or last point$/,
+  );
+  refuses(
+    [
+      { x: 200, y: 40, anchor: { x: 0.5, y: 0.5 } },
+      { x: 100, y: 60, corner: 'sharp' },
+      { x: 40, y: 60, snap: 'box', anchor: { x: 0.1, y: 0.9 } },
+    ],
+    /^arrow: points\[0\]\.anchor applies only to an end that Snaps to an Element$/,
+  );
+  refuses(
+    [
+      { x: 200, y: 40 },
+      { x: 100, y: 60, anchor: { x: 0.5, y: 0.5 } },
+    ],
+    /^arrow: points\[1\]\.anchor applies only to an end that Snaps to an Element$/,
+  );
+  refuses(
+    [
+      { x: 200, y: 40 },
+      { x: 100, y: 60, snap: true },
+    ],
+    /^arrow: points\[1\]\.snap must be an Element id or false, got true$/,
+  );
+  refuses(
+    [
+      { x: 200, y: 40 },
+      { x: 100, y: 60, snap: 'box', anchor: { x: 0.5 } },
+    ],
+    /^arrow: points\[1\]\.anchor\.y must be a finite number, got nothing$/,
+  );
+  refuses(
+    [
+      { x: 200, y: 40 },
+      { x: 100, y: 60, snap: 'box', anchor: { x: 0.5, y: 'top' } },
+    ],
+    /^arrow: points\[1\]\.anchor\.y must be a finite number, got "top"$/,
+  );
+  refuses(
+    [
+      { x: 200, y: 40 },
+      { x: 100, y: 60, snap: 'box', anchor: { x: 0.5, y: 0.5, z: 1 } },
+    ],
+    /^arrow: points\[1\]\.anchor: unknown key "z"$/,
+  );
+  refuses(
+    [
+      { x: 200, y: 40 },
+      { x: 100, y: 60, snap: 'box', anchor: 0.5 },
+    ],
+    /^arrow: points\[1\]\.anchor must be a JSON object$/,
+  );
+});
+
 const CONNECTOR = {
   version: 1,
   title: 'One arrow',

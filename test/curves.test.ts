@@ -686,6 +686,242 @@ test('two targets that share an outline are two targets, not one loop', async ()
   assert.ok(near(start.y, 100) && near(end.y, 100), 'and land on the shared top edge');
 });
 
+/** A Scene of one box a Snap lands on and one shaft, at roughness 0. */
+function oneTarget(target: Record<string, unknown>, points: unknown[], type = 'line'): unknown {
+  return {
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [
+      { id: 'box', tone: 'muted', ...target },
+      { id: 'a', type, heads: { start: 'none', end: 'none' }, points },
+    ],
+  };
+}
+
+/** Where one shaft's ink starts and finishes, in the order it draws them. */
+async function drawnEnds(scene: unknown): Promise<[Point, Point]> {
+  const svg = await ink(scene);
+  const shaft = tags(svg, 'path').find((tag) => attribute(tag, 'stroke') === INK);
+  assert.ok(shaft !== undefined, 'the shaft is drawn');
+  const drawn = drawnPoints(firstPass(attribute(shaft, 'd') ?? ''));
+  return [drawn[0]!, drawn[drawn.length - 1]!];
+}
+
+test('an Anchored end is drawn at the outline point nearest its Anchor', async () => {
+  // The grid is 100×100 at (100,100) for every target, and the free end sits far
+  // outside it, so the only thing that decides where the ink stops is the
+  // Anchor: the fraction of the box, then the nearest piece of the outline.
+  const SHAPES: { label: string; target: Record<string, unknown>; anchor: Point; at: Point }[] = [
+    {
+      label: 'on the right edge',
+      target: { type: 'rectangle', x: 100, y: 100, width: 100, height: 100 },
+      anchor: { x: 1, y: 0.25 },
+      at: { x: 200, y: 125 },
+    },
+    {
+      // Inside the box, nearer the top edge than the right one: the nearest
+      // outline point is the foot on the top edge, not the corner a ray from
+      // the centre would reach.
+      label: 'inside a rectangle',
+      target: { type: 'rectangle', x: 100, y: 100, width: 100, height: 100 },
+      anchor: { x: 0.85, y: 0.1 },
+      at: { x: 185, y: 100 },
+    },
+    {
+      // The middle of the box is the same distance from all four edges: the
+      // walk takes the first piece of the outline, which is the top edge.
+      label: 'in the very middle',
+      target: { type: 'rectangle', x: 100, y: 100, width: 100, height: 100 },
+      anchor: { x: 0.5, y: 0.5 },
+      at: { x: 150, y: 100 },
+    },
+    {
+      // A diamond's first piece is the edge from its top corner to its right
+      // one, and the foot on it from the middle of the box is 25 in from both.
+      label: 'in the very middle of a diamond',
+      target: { type: 'diamond', x: 100, y: 100, width: 100, height: 100 },
+      anchor: { x: 0.5, y: 0.5 },
+      at: { x: 175, y: 125 },
+    },
+    {
+      label: 'on a circle',
+      target: { type: 'ellipse', x: 100, y: 100, width: 100, height: 100 },
+      anchor: { x: 0.5, y: 0 },
+      at: { x: 150, y: 100 },
+    },
+    {
+      // Inside the circle the nearest point is straight out from the centre:
+      // 50/√2 right of it and 50/√2 above it.
+      label: 'inside a circle',
+      target: { type: 'ellipse', x: 100, y: 100, width: 100, height: 100 },
+      anchor: { x: 0.9, y: 0.1 },
+      at: { x: 185.36, y: 114.64 },
+    },
+    {
+      label: 'on a diamond edge',
+      target: { type: 'diamond', x: 100, y: 100, width: 100, height: 100 },
+      anchor: { x: 0.7, y: 0.2 },
+      at: { x: 170, y: 120 },
+    },
+    {
+      // Inside the diamond the box fraction is nearer its top-right edge: 5√2
+      // off it, along the perpendicular.
+      label: 'inside a diamond',
+      target: { type: 'diamond', x: 100, y: 100, width: 100, height: 100 },
+      anchor: { x: 0.6, y: 0.2 },
+      at: { x: 165, y: 115 },
+    },
+    {
+      // A rounded corner's outline is the fillet, and the nearest point of it
+      // is 12/√2 in from the box corner the Anchor names.
+      label: 'the corner of a rounded rectangle',
+      target: { type: 'rectangle', x: 100, y: 100, width: 100, height: 100, corners: 'round' },
+      anchor: { x: 0, y: 0 },
+      at: { x: 103.51, y: 103.51 },
+    },
+  ];
+
+  for (const { label, target, anchor, at } of SHAPES) {
+    const [start, end] = await drawnEnds(
+      oneTarget(target, [{ x: 400, y: 400 }, { x: 150, y: 150, snap: 'box', anchor }]),
+    );
+    assert.deepEqual(start, { x: 400, y: 400 }, `${label}: the free end stays put`);
+    assert.ok(
+      near(end.x, at.x, 0.02) && near(end.y, at.y, 0.02),
+      `${label}: drawn at ${at.x},${at.y}, got ${end.x},${end.y}`,
+    );
+  }
+});
+
+test('the middle of an ellipse’s box is drawn on its outline, where no point is nearer', async () => {
+  // A circle puts the middle of its box the same distance from every point of
+  // its outline, and an oval the same distance from the two ends of its shorter
+  // axis: either way no one point is the nearest, so the drawing promises the
+  // outline it lands on and not a place along it.
+  const [, circle] = await drawnEnds(
+    oneTarget({ type: 'ellipse', x: 100, y: 100, width: 100, height: 100 }, [
+      { x: 400, y: 400 },
+      { x: 150, y: 150, snap: 'box', anchor: { x: 0.5, y: 0.5 } },
+    ]),
+  );
+  assert.ok(
+    near(Math.hypot(circle.x - 150, circle.y - 150), 50, 0.5),
+    `on the circle, got ${circle.x},${circle.y}`,
+  );
+
+  const [, oval] = await drawnEnds(
+    oneTarget({ type: 'ellipse', x: 100, y: 100, width: 100, height: 60 }, [
+      { x: 400, y: 400 },
+      { x: 150, y: 130, snap: 'box', anchor: { x: 0.5, y: 0.5 } },
+    ]),
+  );
+  assert.ok(
+    near(oval.x, 150, 0.5) && (near(oval.y, 100, 0.5) || near(oval.y, 160, 0.5)),
+    `at one end of the oval's shorter axis, got ${oval.x},${oval.y}`,
+  );
+});
+
+test('a two-point shaft may Snap both ends to one Element when the Anchors differ', async () => {
+  const [start, end] = await drawnEnds(
+    oneTarget({ type: 'rectangle', x: 100, y: 100, width: 100, height: 100 }, [
+      { x: 150, y: 150, snap: 'box', anchor: { x: 1, y: 0.25 } },
+      { x: 150, y: 150, snap: 'box', anchor: { x: 0, y: 0.75 } },
+    ]),
+  );
+
+  assert.ok(near(start.x, 200) && near(start.y, 125), `the start took its Anchor, got ${start.x},${start.y}`);
+  assert.ok(near(end.x, 100) && near(end.y, 175), `and so did the end, got ${end.x},${end.y}`);
+});
+
+test('an Anchored end is drawn where it says even inside another target', async () => {
+  // Two bars crossing at their middles: the pair the overlap rules cannot aim
+  // through, so an end with no Anchor takes another outline point entirely. An
+  // Anchored end ignores those rules and stops inside the other bar.
+  const bars = [
+    { id: 'bar', type: 'rectangle', x: 0, y: 40, width: 100, height: 20, tone: 'muted' },
+    { id: 'post', type: 'rectangle', x: 40, y: 0, width: 20, height: 100, tone: 'muted' },
+  ];
+  const shaft = (point: Record<string, unknown>): unknown => ({
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [
+      ...bars,
+      {
+        id: 'a',
+        type: 'line',
+        heads: { start: 'none', end: 'none' },
+        points: [{ x: 300, y: 300 }, { x: 50, y: 50, snap: 'post', ...point }],
+      },
+    ],
+  });
+
+  const [, anchored] = await drawnEnds(
+    shaft({ anchor: { x: 0.9, y: 0.5 } }),
+  );
+  assert.ok(
+    near(anchored.x, 60) && near(anchored.y, 50),
+    `the end sits at its Anchor, inside the bar, got ${anchored.x},${anchored.y}`,
+  );
+
+  // The same end with no Anchor keeps the rule it had: it aims from the
+  // post's centre towards the free end and stops on the near corner.
+  const [, free] = await drawnEnds(shaft({}));
+  assert.ok(
+    near(free.x, 60) && near(free.y, 60),
+    `no Anchor aims as it always did, got ${free.x},${free.y}`,
+  );
+});
+
+test('an arrow head follows the last segment into an Anchored end', async () => {
+  const { apex, wings } = await drawnHead({
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [
+      { id: 'box', type: 'rectangle', x: 0, y: 0, width: 100, height: 100, tone: 'muted' },
+      {
+        id: 'a',
+        type: 'arrow',
+        points: [
+          { x: 300, y: 300 },
+          { x: 200, y: 200, corner: 'sharp' },
+          // The stored point is nowhere near where the Anchor draws the end.
+          { x: 150, y: 150, snap: 'box', anchor: { x: 1, y: 0.5 } },
+        ],
+      },
+    ],
+  });
+
+  assert.ok(near(apex.x, 100) && near(apex.y, 50), `the head sits at the Anchor, got ${apex.x},${apex.y}`);
+  assert.ok(
+    wings.every((point) => point.x > 100),
+    `its wings sit behind it, out on the shaft's side, got ${JSON.stringify(wings)}`,
+  );
+});
+
+test('an end with no Anchor is drawn where the old rule put it', async () => {
+  // The rule unchanged, as the numbers a Scene has kept since before Anchors:
+  // the end of a two-point shaft aims at the other end's own point and stops
+  // where that line meets the outline.
+  const [, end] = await drawnEnds({
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [
+      { id: 'box', type: 'rectangle', x: 0, y: 0, width: 80, height: 80, tone: 'muted' },
+      {
+        id: 'a',
+        type: 'arrow',
+        heads: { start: 'none', end: 'none' },
+        points: [
+          { x: 200, y: 40 },
+          { x: 40, y: 40, snap: 'box' },
+        ],
+      },
+    ],
+  });
+
+  assert.ok(near(end.x, 80) && near(end.y, 40), `the end stopped at the box's right edge, got ${end.x},${end.y}`);
+});
+
 test('a bend a move puts inside its target keeps the head on the near edge', async () => {
   // The Review's 225px nudge of a three-point shaft, drawn: the target spans
   // x=0..100 and is painted over the arrow, and the move leaves the bend at

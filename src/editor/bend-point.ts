@@ -1,4 +1,5 @@
 import type { ArrowOrLineElement, Corner, Point, Scene } from '../scene.js';
+import { snapTargetId } from '../scene.js';
 import { cornerOf, shaftDots } from '../geometry.js';
 import type { ShaftPath } from '../geometry.js';
 import { isShaft, withPoint } from './snap.js';
@@ -148,13 +149,15 @@ export function withInsertedBend(
  * Snapped to one Element takes nothing, because the Scene has no such shaft: two
  * ends on one outline have no direction to aim along, and the point between them
  * is what gave it one. Only a three-point Shaft can become that two-point loop,
- * so the count and the two ends are the whole rule.
+ * so the count and the two ends are the whole rule. An end written
+ * `"snap": false` follows nothing, so it is the free end an Element id is not.
  */
 export function mayRemove(shaft: ArrowOrLineElement): boolean {
   const points = shaft.points;
   const start = points[0]!;
   const end = points[points.length - 1]!;
-  return !(points.length === 3 && start.snap !== undefined && start.snap === end.snap);
+  const target = snapTargetId(start);
+  return !(points.length === 3 && target !== null && target === snapTargetId(end));
 }
 
 /**
@@ -211,17 +214,23 @@ export function withCorner(
  * The shaft turning by `corner` at every point: the Element's own `corners`
  * set, and every point's own `corner` dropped, so one pick resets a shaft whose
  * bend points disagreed and the Scene stores only the corner it means. Every
- * point keeps its place and its Snap, and nothing else of the Element changes.
+ * point keeps its place, its Snap and its Anchor, and nothing else of the
+ * Element changes: its own `corner` is the only key a pick touches.
  */
 export function withShaftCorners(
   element: ArrowOrLineElement,
   corner: Corner,
 ): ArrowOrLineElement {
-  const points = element.points.map((point) => ({
-    x: point.x,
-    y: point.y,
-    ...(point.snap === undefined ? {} : { snap: point.snap }),
-  }));
+  const points = element.points.map((point) => {
+    if (point.corner === undefined) {
+      return point;
+    }
+    // Every key but the `corner` is the point's to keep; a rebuild that lists
+    // the keys by hand is how an Anchor stops being drawn by.
+    const kept = { ...point };
+    delete kept.corner;
+    return kept;
+  });
   return { ...element, corners: corner, points: points as ArrowOrLineElement['points'] };
 }
 

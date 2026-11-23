@@ -35,8 +35,9 @@ import {
   settle,
 } from './helpers.ts';
 import type { Point, SavedScene, Ui, View } from './helpers.ts';
+import { control } from './editor-shared.ts';
 import { shot } from './pixels.ts';
-import type { Rect } from './pixels.ts';
+import type { Rect, Shot } from './pixels.ts';
 import { removeTempFolders } from '../test/temp.ts';
 
 // `ez check` reads a saved Scene out of a temporary folder, as it does in every
@@ -243,6 +244,63 @@ async function savedAndChecked(ui: Ui, name: string): Promise<SavedScene> {
   return scene;
 }
 
+/**
+ * An arrow whose end carries an Anchor, a quarter of the way up `post`'s left
+ * edge as a fraction of the box: the Renderer draws the end there, so the shaft
+ * slopes up where an end with no Anchor would run level into (300,80).
+ */
+const PINNED_SCENE = {
+  version: 1,
+  title: 'Pinned',
+  defaults: { roughness: 0 },
+  elements: [
+    { id: 'post', type: 'rectangle', x: 300, y: 40, width: 120, height: 80 },
+    {
+      id: 'pinned',
+      type: 'arrow',
+      points: [
+        { x: 60, y: 80 },
+        { x: 300, y: 80, snap: 'post', anchor: { x: 0, y: 0.75 } },
+      ],
+      heads: { start: 'none', end: 'arrow' },
+    },
+  ],
+};
+const PINNED_SOURCE = JSON.stringify(PINNED_SCENE, null, 2);
+
+/**
+ * The same box and a line whose end writes `"snap": false`: a free end that
+ * remembers it carries no Snap, which no gesture can add to a free end and no
+ * edit may quietly drop.
+ */
+const LOOSE_SCENE = {
+  version: 1,
+  title: 'Loose',
+  defaults: { roughness: 0 },
+  elements: [
+    { id: 'post', type: 'rectangle', x: 300, y: 40, width: 120, height: 80 },
+    {
+      id: 'loose',
+      type: 'line',
+      points: [
+        { x: 60, y: 80 },
+        { x: 320, y: 80, snap: false },
+      ],
+      heads: { start: 'none', end: 'none' },
+    },
+  ],
+};
+const LOOSE_SOURCE = JSON.stringify(LOOSE_SCENE, null, 2);
+
+/** The view both of those Scenes land in: `post`'s bounds, at 1:1. */
+const PINNED: View = { zoom: 1, panX: 400, panY: 320 };
+
+/** Inside `post`, off its middle: where a press selects the box alone. */
+const IN_PINNED_BOX = { x: 360, y: 100 };
+
+/** A spot on the box's face, clear of its stroke: where the box is pressed to move it. */
+const PINNED_FACE = { x: 360, y: 80 };
+
 /** The Scene files the `snap.json` fixture folder holds, by the name a person opens. */
 const SCENES = {
   A: {
@@ -255,6 +313,8 @@ const SCENES = {
     'inside.json': INSIDE_SOURCE,
     'bentfree.json': BENT_FREE_SOURCE,
     'loop.json': LOOP_SOURCE,
+    'pinned.json': PINNED_SOURCE,
+    'loose.json': LOOSE_SOURCE,
   },
 };
 
@@ -1237,6 +1297,116 @@ describe('the two ends of a loop', () => {
       { x: 360, y: 140, snap: 'oval' },
       { x: 360, y: 320, corner: 'sharp' },
       { x: 362, y: 122, snap: 'oval' },
+    ]);
+  });
+});
+
+describe('an end that carries an Anchor', () => {
+  /** The ink of a small patch of page, too dark to be paper. */
+  function inked(drawn: Shot, point: Point): number {
+    return drawn.darkCount({ x: point.x - 8, y: point.y - 4, width: 16, height: 8 }, 0.6);
+  }
+
+  test('the end draws at its Anchor, and stays on it when its box moves', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'pinned.json');
+
+    // A quarter of the way up the box's left edge, measured on the page: the
+    // shaft reaches the box at (300,100) and not at the level (300,80).
+    const before = await shot(ui);
+    expect(inked(before, at({ x: 180, y: 90 }, PINNED))).toBeGreaterThan(0);
+    expect(inked(before, at({ x: 180, y: 80 }, PINNED))).toBe(0);
+
+    // The box moves down 40px with the pointer, and the end stays a quarter of
+    // the way up its left edge: the same fraction of the box it just left.
+    await dragBy(ui, PINNED_FACE, 0, 40, PINNED);
+
+    const scene = await savedAndChecked(ui, 'pinned.json');
+    expect({ y: scene.elements[0]?.y }).toEqual({ y: 80 });
+    // The stored point is untouched: the Anchor decides where the ink lands.
+    expect(scene.elements[1]?.points).toEqual([
+      { x: 60, y: 80 },
+      { x: 300, y: 80, snap: 'post', anchor: { x: 0, y: 0.75 } },
+    ]);
+
+    // The box's left edge now runs y=80..160, so its three-quarter point is
+    // (300,140) and the shaft's middle is at (180,110).
+    const after = await shot(ui);
+    expect(inked(after, at({ x: 180, y: 110 }, PINNED))).toBeGreaterThan(0);
+    expect(inked(after, at({ x: 180, y: 90 }, PINNED))).toBe(0);
+  });
+
+  test('a Corners pick leaves the Anchor where it is, and changes only the corners', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'pinned.json');
+    await clickScene(ui, { x: 180, y: 90 }, [], PINNED);
+
+    // The pick is about how the shaft turns, and a two-point shaft has no bend to
+    // turn: every point keeps the very keys it had, the Anchor included, so the
+    // ink stays on the place the Anchor names.
+    await control(ui, 'Corners: round').click();
+
+    const scene = await savedAndChecked(ui, 'pinned.json');
+    expect(scene.elements[1]?.corners).toBe('round');
+    expect(scene.elements[1]?.points).toEqual([
+      { x: 60, y: 80 },
+      { x: 300, y: 80, snap: 'post', anchor: { x: 0, y: 0.75 } },
+    ]);
+  });
+
+  test('Detach frees the end where its Anchor drew it, and drops the Anchor', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'pinned.json');
+    await clickScene(ui, { x: 180, y: 90 }, [], PINNED);
+    await screen.getByRole('button', { name: 'Detach: end' }).click();
+
+    const scene = await savedAndChecked(ui, 'pinned.json');
+    expect(scene.elements[1]?.points).toEqual([
+      { x: 60, y: 80 },
+      { x: 300, y: 100 },
+    ]);
+  });
+
+  test('an end that writes "snap": false stays free through an unrelated edit', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'loose.json');
+
+    await dragBy(ui, IN_PINNED_BOX, 0, 40, PINNED);
+
+    // The box moved under the free end, and the end neither attached itself to
+    // it nor forgot the Snap it wrote as false.
+    const scene = await savedAndChecked(ui, 'loose.json');
+    expect({ y: scene.elements[0]?.y }).toEqual({ y: 80 });
+    expect(scene.elements[1]?.points).toEqual([
+      { x: 60, y: 80 },
+      { x: 320, y: 80, snap: false },
+    ]);
+
+    // A copy is moved away from its source and keeps the word: the free end of
+    // the copy is still free, and still says so.
+    await clickScene(ui, { x: 190, y: 80 }, [], PINNED);
+    await browser.keyboard.press('Meta+d');
+    const copied = await savedAndChecked(ui, 'loose.json');
+    expect(copied.elements.map((element) => element.id)).toEqual(['post', 'loose', 'line-1']);
+    expect(copied.elements[2]?.points).toEqual([
+      { x: 76, y: 96 },
+      { x: 336, y: 96, snap: false },
     ]);
   });
 });

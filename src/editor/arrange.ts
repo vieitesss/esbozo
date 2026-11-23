@@ -1,4 +1,5 @@
 import type { Element } from '../scene.js';
+import { snapTargetId } from '../scene.js';
 import { moved, unionOf } from './geometry.js';
 import type { Box } from './geometry.js';
 
@@ -20,10 +21,14 @@ export type ArrangeAct =
 /** Where an Element covers, in Scene units; undefined when it was not measured. */
 export type BoundsOf = (element: Element) => Box | undefined;
 
-/** Whether Arrange may move this Element: a Snapped end follows its target by itself. */
+/**
+ * Whether Arrange may move this Element: a Snapped end follows its target by
+ * itself. An end written `"snap": false` follows nothing, so it is free to move
+ * like an end that writes no `snap` at all.
+ */
 function movable(element: Element): boolean {
   if (element.type === 'arrow' || element.type === 'line') {
-    return element.points.every((point) => point.snap === undefined);
+    return element.points.every((point) => snapTargetId(point) === null);
   }
   return true;
 }
