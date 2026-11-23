@@ -1034,3 +1034,53 @@ test('a drag in a read-only Scene docks the rail and leaves the Scene’s file a
   expect(await keptSide(ui), 'a read-only Scene keeps the side all the same').toBe('left');
   expect(await savedFiles(ui), 'a drag writes no file').toEqual(files);
 });
+
+test('a drag docks the rail without touching the Scene, the SVG, the undo history or the view', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await browser.setViewport({ width: 3440, height: 1440 });
+  await openEditor(
+    ui,
+    {
+      A: {
+        'big.json': BIG_SOURCE,
+        'big.svg': '<svg xmlns="http://www.w3.org/2000/svg"><rect width="8" height="8"/></svg>',
+      },
+    },
+    'big.json',
+  );
+  await settle(ui);
+  const files = await savedFiles(ui);
+  const before = (await shot(ui)).darkBounds(BIG_BOX, 0.6);
+  const opened = await railPlace(ui, { x: 1400, y: 0, width: 640, height: 364 });
+
+  // A write the drag would have to make waits on the test: nothing answers it, so
+  // a save the drag sent would stay held and the test would find it.
+  await holdWrites(ui, 'big.json');
+  // The Arrow tile, carried 220 px left of the 1220 px frame and released level
+  // with its middle, which is the nearest of the four docks.
+  await drag(ui, tileCentre(boxOfPlace(opened), 3), { x: 1000, y: 720 });
+  const held = await browser.evaluate(
+    () => ((window as unknown as { __esbozoGates?: unknown[] }).__esbozoGates ?? []).length,
+  );
+  expect(held, 'a drag sends no save').toBe(0);
+  await allowWrites(ui);
+
+  // The Scene's own file and the SVG beside it are the bytes they were, the view
+  // has not moved, and no tool was picked: the dock is the page's chrome.
+  expect(await savedFiles(ui), 'a drag writes nothing').toEqual(files);
+  expect((await shot(ui)).darkBounds(BIG_BOX, 0.6), 'a drag leaves the view alone').toEqual(before);
+  expect(await screen.getByRole('button', 'Arrow').getAttribute('aria-pressed'), 'the drag picked no tool').toBe(
+    'false',
+  );
+
+  // And no undo step: Undo is still greyed, saying there is nothing to undo.
+  await browser.keyboard.press('q');
+  await browser.keyboard.type('undo');
+  await expect(screen.getByRole('option', { name: 'Undo · ⌘Z' })).toBeDisabled();
+  await expect(screen.getByRole('option', { name: 'Undo · ⌘Z' })).toContainText('nothing to undo');
+  await browser.keyboard.press('Escape');
+});
