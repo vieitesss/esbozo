@@ -660,6 +660,29 @@ describe('a shaft placed by clicking', () => {
     expect((await savedScene(ui)).elements.length).toBe(2);
     expect((await savedFiles(ui))['scene.json']).toBe(SCENE_SOURCE);
   });
+
+  test('a double-click on the place’s first point ends it, and one point is no shaft', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    await browser.keyboard.press('a');
+    await doubleClickScene(ui, { x: 60, y: 200 });
+    // The double-click the shaft started with finishes it: one point is no
+    // shaft, so nothing is drawn and the Scene keeps the file it came from.
+    expect((await savedFiles(ui))['scene.json']).toBe(SCENE_SOURCE);
+
+    // The place is over and the tool is back to Select: the clicks after it pick
+    // no points, so Enter has no shaft to finish either.
+    await clickScene(ui, { x: 120, y: 260 });
+    await clickScene(ui, { x: 200, y: 200 });
+    await browser.keyboard.press('Enter');
+    expect((await savedScene(ui)).elements.length).toBe(2);
+    expect((await savedFiles(ui))['scene.json']).toBe(SCENE_SOURCE);
+  });
 });
 
 describe('Text typed in place', () => {

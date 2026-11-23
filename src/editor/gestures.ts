@@ -996,7 +996,7 @@ export class Gestures {
         return;
       }
       this.#drag = null;
-      this.#finishDrawing(drag, viewport.scenePoint(event), event.altKey);
+      this.#finishDrawing(drag, viewport.scenePoint(event), event);
       return;
     }
     if (drag.kind === 'end') {
@@ -1204,13 +1204,13 @@ export class Gestures {
    * What the new end attaches to is read from the release — where the pointer is
    * and whether Alt is held then — not from the last move.
    */
-  #finishDrawing(drag: Extract<Drag, { kind: 'draw' }>, at: Point, skipSnap: boolean): void {
+  #finishDrawing(drag: Extract<Drag, { kind: 'draw' }>, at: Point, event: PointerEvent): void {
     if (isClick(drag.from, at) && drawsStroke(drag.tool)) {
       // A stroke tool clicked rather than dragged places the shaft's first point:
       // the shaft stays in hand between presses until a double-click, Enter or
       // Escape ends it, so one gesture can put down as many points as a person
       // needs.
-      this.#startPlacing(drag, at, skipSnap);
+      this.#startPlacing(drag, at, event);
       return;
     }
     const placed = isClick(drag.from, at)
@@ -1223,7 +1223,12 @@ export class Gestures {
       return;
     }
     const settled = isShaft(placed)
-      ? withEnd(placed, 'end', endPoint(placed, 'end'), this.#attachTarget(drag.id, 'end', at, skipSnap))
+      ? withEnd(
+          placed,
+          'end',
+          endPoint(placed, 'end'),
+          this.#attachTarget(drag.id, 'end', at, event.altKey),
+        )
       : placed;
     this.#host.applyScene(
       { ...this.#host.scene(), elements: [...this.#host.scene().elements, settled] },
@@ -1237,15 +1242,26 @@ export class Gestures {
    * place is in the Scene yet — the preview is what the page draws until the
    * place is finished, and a place with fewer than two points never lands.
    */
-  #startPlacing(drag: Extract<Drag, { kind: 'draw' }>, at: Point, skipSnap: boolean): void {
+  #startPlacing(drag: Extract<Drag, { kind: 'draw' }>, at: Point, event: PointerEvent): void {
     const point = whole(at);
-    const { preview, target } = this.#placePreview(drag, [], point, skipSnap);
+    const { preview, target } = this.#placePreview(drag, [], point, event.altKey);
     this.#drag = {
       ...drag,
       from: at,
       preview,
       target,
-      placing: { points: [point], click: null, skipSnap },
+      placing: {
+        points: [point],
+        // The click that started the place is half of a double-click like any
+        // other: two clicks on that first point end the place, one point and all.
+        click: {
+          id: null,
+          at: this.#host.page.viewport.screenPoint(event),
+          time: event.timeStamp,
+          shift: event.shiftKey,
+        },
+        skipSnap: event.altKey,
+      },
     };
     this.#host.page.paint();
   }
