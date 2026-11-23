@@ -936,6 +936,14 @@ test('a press that moves 3 px on a tile picks that tool and leaves the rail wher
   );
   expect(await screen.getByRole('button', 'Select').getAttribute('aria-pressed')).toBe('false');
   expectHeld(opened, await railPlace(ui, band), 'a 3 px press-move');
+
+  // The keys a focused tile answers are still the tile's: a press on the rail is
+  // no part of picking a tool with the keyboard.
+  await screen.getByRole('button', 'Line').focus();
+  await browser.keyboard.press('Enter');
+  expect(await screen.getByRole('button', 'Line').getAttribute('aria-pressed'), 'the tile still answers Enter').toBe(
+    'true',
+  );
 });
 
 test('a mouse drag from a tile docks the rail on the nearest side and picks no tool', async ({
