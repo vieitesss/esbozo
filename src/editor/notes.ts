@@ -91,10 +91,18 @@ export class Notes {
   }
 
   /**
-   * Shut the note named, or the one on top when none is: Escape and a press
-   * outside answer the top alone, and the Scene's selection is never theirs.
+   * Shut the note named, or the one on top when none is: Escape and the palette's
+   * own actions answer the top alone, and the Scene's selection is never theirs.
+   *
+   * The keys are the canvas's again once it shuts — a note is a detour, not a
+   * place — and the focus is handed back without scrolling, because a scroll
+   * would move the Scene out from under the pointer that just shut it.
    */
   shut(id: NoteId | null = this.#open.at(-1) ?? null): void {
+    this.#shut(id, true);
+  }
+
+  #shut(id: NoteId | null, keysBack: boolean): void {
     if (id === null || !this.shows(id)) {
       return;
     }
@@ -106,10 +114,9 @@ export class Notes {
       focus.blur();
     }
     note.shut?.();
-    // The keys and the pointer are the canvas's again: a note is a detour, not
-    // a place. The focus is handed back without scrolling, because a scroll
-    // would move the Scene out from under the pointer that just shut it.
-    this.#canvas.focus({ preventScroll: true });
+    if (keysBack) {
+      this.#canvas.focus({ preventScroll: true });
+    }
   }
 
   /** Start reading for a note: what the page holds now is what its answer may land on. */
@@ -172,7 +179,10 @@ export class Notes {
     if (this.#holds(note, target)) {
       return;
     }
-    this.shut(top);
+    // The press itself says where the focus goes: it may have opened a note of
+    // its own, or a control of the page's, and a handback here would take the
+    // keys away from what the press was aimed at. Only an Escape hands them back.
+    this.#shut(top, false);
   };
 
   /** Whether a press on `target` is a press on this note rather than beside it. */
