@@ -76,6 +76,8 @@ const rounded = (element: Element): boolean =>
   element.type === 'rectangle' || element.type === 'diamond';
 const ended = (element: Element): element is ArrowOrLineElement =>
   element.type === 'arrow' || element.type === 'line';
+/** Anything whose drawn path turns: an outline's vertices, or a Shaft's points. */
+const cornered = (element: Element): boolean => rounded(element) || ended(element);
 
 /** The three looks roughness names: 0 architect, 1 artist, 2 cartoonist. */
 const ROUGHNESS_NAMES: Readonly<Record<string, string>> = {
@@ -195,7 +197,7 @@ const CONTROLS: readonly StyleControl[] = [
     key: 'corners',
     label: 'Corners',
     choices: choicesOf(CORNERS),
-    usable: rounded,
+    usable: cornered,
     read: (element) => element.corners,
     write: (element, value) => ({ ...element, corners: oneOf(CORNERS, value, element.corners) }),
   },
