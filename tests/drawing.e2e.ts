@@ -449,6 +449,79 @@ describe('a shaft placed by clicking', () => {
     // A finished shaft is selected, as a drawn one is.
     await expect(screen.getByRole('dialog', 'Style')).toBeVisible();
   });
+
+  test('Enter finishes the place at its last point, and the reach for the pointer goes', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    const walk: Point[] = [
+      { x: 60, y: 200 },
+      { x: 200, y: 200 },
+    ];
+    // The page under the segment the pointer would add, below both boxes and
+    // clear of the two points already clicked.
+    const reach: Rect = { x: 655, y: 520, width: 40, height: 90 };
+    const bare = await ink(ui, reach);
+
+    await browser.keyboard.press('a');
+    await clickScene(ui, walk[0]!);
+    await clickScene(ui, walk[1]!);
+    // Between clicks the segment follows the pointer: a place is not a Scene yet,
+    // so nothing of it is written while it is being made.
+    const hold = at({ x: 200, y: 320 });
+    await browser.mouse.move(hold.x, hold.y);
+    await settle(ui);
+    expect(await ink(ui, reach)).toBeGreaterThan(bare + 20);
+    expect((await savedFiles(ui))['scene.json']).toBe(SCENE_SOURCE);
+
+    await browser.keyboard.press('Enter');
+    await settle(ui);
+    // The two points a person clicked, and not the pointer's reach: Enter ends
+    // the place where it was, and the reach goes with the preview.
+    const placed = (await savedScene(ui)).elements[2];
+    expect(placed?.points).toEqual(walk);
+    expect(placed?.type).toBe('arrow');
+    expect(await ink(ui, reach)).toBe(bare);
+  });
+
+  test('Escape finishes a placed line, and one point on its own is no shaft', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    const walk: Point[] = [
+      { x: 60, y: 200 },
+      { x: 120, y: 260 },
+      { x: 200, y: 200 },
+    ];
+    // One point and then Escape: a shaft needs two distinct points to be seen, so
+    // the place leaves the Scene — and the file — exactly as it found them.
+    await browser.keyboard.press('s');
+    await clickScene(ui, walk[0]!);
+    await browser.keyboard.press('Escape');
+    expect((await savedFiles(ui))['scene.json']).toBe(SCENE_SOURCE);
+
+    // Three points and then Escape: the same shaft a double-click finishes, one
+    // point short of the pointer's reach.
+    await browser.keyboard.press('s');
+    await clickScene(ui, walk[0]!);
+    await clickScene(ui, walk[1]!);
+    await clickScene(ui, walk[2]!);
+    await browser.keyboard.press('Escape');
+
+    const placed = (await savedScene(ui)).elements[2];
+    expect(placed?.type).toBe('line');
+    expect(placed?.points).toEqual(walk);
+    expect(placed?.heads).toEqual({ start: 'none', end: 'none' });
+    expect((await savedScene(ui)).elements.length).toBe(3);
+  });
 });
 
 describe('Text typed in place', () => {
