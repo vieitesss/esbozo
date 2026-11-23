@@ -522,6 +522,110 @@ describe('a shaft placed by clicking', () => {
     expect(placed?.heads).toEqual({ start: 'none', end: 'none' });
     expect((await savedScene(ui)).elements.length).toBe(3);
   });
+
+  test('a drag with the arrow tool still draws a two-point shaft', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    await browser.keyboard.press('a');
+    await drag(ui, at({ x: 60, y: 200 }), at({ x: 160, y: 260 }));
+
+    // One gesture, two ends: dragging is not placing, and the release settles the
+    // shaft it drew.
+    const drawn = (await savedScene(ui)).elements[2];
+    expect(drawn?.type).toBe('arrow');
+    expect(drawn?.points).toEqual([
+      { x: 60, y: 200 },
+      { x: 160, y: 260 },
+    ]);
+  });
+
+  test('one undo removes a whole placed shaft, and the Scene it was drawn on stays', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    await browser.keyboard.press('a');
+    await clickScene(ui, { x: 60, y: 200 });
+    await clickScene(ui, { x: 120, y: 260 });
+    await doubleClickScene(ui, { x: 200, y: 200 });
+    expect((await savedScene(ui)).elements.length).toBe(3);
+
+    // Every point of the place is one step: undo takes the shaft and leaves the
+    // Scene it was drawn on, so a redo puts it back whole.
+    await browser.keyboard.press('Meta+z');
+    expect((await savedScene(ui)).elements.map((element) => element.type)).toEqual([
+      'rectangle',
+      'rectangle',
+    ]);
+    await browser.keyboard.press('Shift+Meta+z');
+    expect((await savedScene(ui)).elements[2]?.points).toEqual([
+      { x: 60, y: 200 },
+      { x: 120, y: 260 },
+      { x: 200, y: 200 },
+    ]);
+  });
+
+  test('a placed shaft’s last end Snaps to the Element it was clicked on', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, { A: { 'snapped.json': SNAPPED_SOURCE } }, 'snapped.json');
+
+    // Two clicks on paper, then a double-click inside the second box: the end
+    // Snaps to it as a dragged end does, and the point before it is a bend with
+    // no Snap and no `corner` of its own.
+    await browser.keyboard.press('a');
+    await clickScene(ui, { x: 60, y: 200 }, [], SNAPPED);
+    await clickScene(ui, { x: 200, y: 260 }, [], SNAPPED);
+    await doubleClickScene(ui, { x: 360, y: 80 }, SNAPPED);
+
+    const placed = (await savedScene(ui, 'snapped.json')).elements[3];
+    expect(placed?.type).toBe('arrow');
+    expect(placed?.points).toEqual([
+      { x: 60, y: 200 },
+      { x: 200, y: 260 },
+      { x: 360, y: 80, snap: 'to' },
+    ]);
+  });
+
+  test('a press on the rail finishes the place before it picks a tool', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    const walk: Point[] = [
+      { x: 60, y: 200 },
+      { x: 120, y: 260 },
+    ];
+    await browser.keyboard.press('a');
+    await clickScene(ui, walk[0]!);
+    await clickScene(ui, walk[1]!);
+
+    // The rail is not a point of the shaft in hand: the press ends the place at
+    // its last point, and the tool it picked draws nothing by itself — a rail
+    // press is no click on the canvas.
+    await screen.getByRole('button', { name: 'Rectangle' }).click();
+    const scene = await savedScene(ui);
+    expect(scene.elements.map((element) => element.type)).toEqual([
+      'rectangle',
+      'rectangle',
+      'arrow',
+    ]);
+    expect(scene.elements[2]?.points).toEqual(walk);
+  });
 });
 
 describe('Text typed in place', () => {

@@ -1238,11 +1238,7 @@ export class Gestures {
    * can finish a shaft. A release that dragged puts its point down too, so a
    * segment can be pulled out rather than clicked.
    */
-  #placePoint(
-    drag: Extract<Drag, { kind: 'draw' }>,
-    at: Point,
-    event: PointerEvent,
-  ): void {
+  #placePoint(drag: Extract<Drag, { kind: 'draw' }>, at: Point, event: PointerEvent): void {
     const placing = drag.placing;
     if (placing === null) {
       return;
