@@ -139,6 +139,18 @@ export class Notes {
     this.#shut(id, true);
   }
 
+  /**
+   * Put a note away because the page it opened over is gone: the Scene another
+   * one replaced, or a connection that reset. Nobody shut it, so the focus it
+   * had is not the stack's to hand anywhere — the canvas a note hands its keys
+   * back to is the next Scene's, and a ring on it would be a place nobody chose.
+   */
+  clear(id: NoteId | null = null): void {
+    for (const one of id === null ? [...this.#open] : [id]) {
+      this.#shut(one, false);
+    }
+  }
+
   #shut(id: NoteId | null, keysBack: boolean): void {
     if (id === null || !this.#shows(id)) {
       return;

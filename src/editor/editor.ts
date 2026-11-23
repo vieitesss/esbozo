@@ -576,8 +576,9 @@ class EsbozoEditorElement extends HTMLElement {
     this.#selectElements([]);
     this.#history.reset(serialiseScene(this.#scene));
     this.#menu.hidden = true;
-    this.#notes.shut('scenes');
-    this.#notes.shut('shortcuts');
+    // The Scenes the notes named are not this page's any more: they leave with
+    // it, and the focus is nobody's to move.
+    this.#notes.clear();
     this.#whereLabel.textContent = '';
     this.#setSaved('idle');
     this.#page.paint();
@@ -704,7 +705,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#page.viewport.view = fittedView(scene, this.#page.viewport.size(), this.#connection.layout);
     this.#placeRail();
     this.#whereLabel.textContent = `${target.folder.name} / ${target.name}`;
-    this.#notes.shut('scenes');
+    this.#notes.clear('scenes');
     // Another Scene: the tool in hand and the words half-typed into the last
     // one belong to that one, not this, and the note shows its defaults. A Space
     // press holds the page in the hand, and another Scene is another page, so
