@@ -1392,7 +1392,10 @@ class EsbozoEditorElement extends HTMLElement {
       return;
     }
     this.#railDragged = false;
-    const at = { x: event.clientX, y: event.clientY };
+    // The frame is measured from the editor's own corner, so the pointer is read
+    // there too: a press in an editor the host set somewhere else in the page is
+    // the same place in the frame whether the page moved it or not.
+    const at = this.#page.viewport.screenPoint(event);
     this.#railDrag = {
       pointer: event.pointerId,
       from: at,
@@ -1413,7 +1416,7 @@ class EsbozoEditorElement extends HTMLElement {
     if (drag === null || event.pointerId !== drag.pointer) {
       return;
     }
-    drag.at = { x: event.clientX, y: event.clientY };
+    drag.at = this.#page.viewport.screenPoint(event);
     if (drag.moved || isClick(drag.from, drag.at)) {
       return;
     }
