@@ -312,6 +312,14 @@ interface Gesture {
   /** The one hand this gesture is taken with, where a mouse is the only one for it. */
   readonly pointer?: 'mouse';
   /**
+   * The fresh press the page gets once a save it queued was refused, where the
+   * gesture's own press is one a page that may only read still takes. Such a page
+   * keeps what is the page's — a sweep still selects and a pan still carries it —
+   * and refuses what would change the Scene. A row that names none reads the
+   * sweep and the refused tool every read-only page answers to.
+   */
+  readonly readOnly?: (ui: Ui, before: Record<string, string>) => Promise<void>;
+  /**
    * The cells this gesture's own contract answers differently, because the exit
    * does not end it. A cell not named here is over when its exit is over, which
    * is every Scene edit's contract.
@@ -942,6 +950,12 @@ const MIDDLE_PAN: Gesture = {
     });
   },
   proves: provesPan,
+  // A pan is the page's and not the Scene's, so a page that may only read still
+  // carries it: the button takes the paper, and every mark on it moves.
+  readOnly: readOnlyAndPan(async (ui) => {
+    await carry(ui, PAN_FROM, PAN_TO, 'middle');
+    await letMiddleGo();
+  }),
 };
 
 /**
@@ -981,6 +995,13 @@ const SPACE_PAN: Gesture = {
     });
   },
   proves: provesPan,
+  // The key is the person's and the paper is the page's: a read-only page pans
+  // for Space as it does for the button.
+  readOnly: readOnlyAndPan(async (ui) => {
+    await ui.browser.keyboard.down('Space');
+    await drag(ui, PAN_FROM, PAN_TO);
+    await ui.browser.keyboard.up('Space');
+  }),
 };
 
 /** Where a Text session is opened, and where the next one is: bare paper, clear of every other press here. */
@@ -1250,6 +1271,21 @@ async function expectReadOnly(ui: Ui, before: Record<string, string>): Promise<v
   await expectFiles(ui, before, 'same');
 }
 
+/**
+ * A page that may only read, and the press it still takes after that: the sweep
+ * and the refused tool every such page answers to, then the pan this row is
+ * taken with, which carries the whole page and writes nothing.
+ */
+function readOnlyAndPan(
+  carryIt: (ui: Ui) => Promise<void>,
+): (ui: Ui, before: Record<string, string>) => Promise<void> {
+  return async (ui, before) => {
+    await expectReadOnly(ui, before);
+    await landPan(ui, carryIt);
+    await expectFiles(ui, before, 'same');
+  };
+}
+
 /** The rows of the table: every gesture a person can be in the middle of. */
 for (const gesture of [
   DRAW,
@@ -1334,7 +1370,7 @@ for (const gesture of [
         // sweeps and selects and refuses the tool that would change it; every
         // other exit leaves a page the row's own landed gesture proves.
         if (exit.fresh === 'refused') {
-          await expectReadOnly(ui, before);
+          await (gesture.readOnly ?? expectReadOnly)(ui, before);
         } else {
           await gesture.again(ui);
           gesture.proves(await savedScene(ui, exit.scene));
