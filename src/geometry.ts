@@ -1234,6 +1234,19 @@ export function labelAtFor(
     };
   }
   const t = writtenFraction(nearestFraction(path, anchor));
+  // One straight run has one heading all the way along, so its offset is read
+  // from the shaft's start as a straight shaft always was: reading it from the
+  // rounded place instead subtracts two nearly equal numbers and can land an
+  // exact half pixel on the other side of the tie the save rounds on, which
+  // would write bytes a drag never asked to change.
+  const only = path.pieces.length === 1 ? path.pieces[0] : undefined;
+  if (only !== undefined && only.kind === 'straight') {
+    const side = shaftSide({ x: only.to.x - only.from.x, y: only.to.y - only.from.y });
+    return {
+      t,
+      offset: (anchor.x - path.start.x) * side.x + (anchor.y - path.start.y) * side.y,
+    };
+  }
   // The side is read at the fraction a Scene keeps, not at the inkless float the
   // search lands on: where the ink turns upright, a place a hair inside the end
   // faces the other way from the end itself, and the words would be drawn on the
@@ -1291,11 +1304,14 @@ function nearestFraction(path: ShaftPath, anchor: Point): number {
 }
 
 /**
- * How many places along a curve the nearest one is looked for before the lobe
- * each one starts is narrowed: enough that a sample lands in every lobe a curve
- * turning back on itself has, and short enough to walk on every pointer move.
- * The narrowed lobes are then compared, because the best sample alone cannot say
- * which lobe holds the closest ink.
+ * How many places along a curve the nearest one is looked for before the
+ * interval around each sample is narrowed: short enough to walk on every pointer
+ * move, and spread widely enough that a curve turning back on itself usually
+ * leaves a sample in each of its lobes. It refines candidate intervals and
+ * promises no more: two dips of the distance inside one coarse step leave the
+ * single sample between them, and the interval narrowed around that sample is all
+ * the search sees. The narrowed intervals are then compared, because the best
+ * sample alone cannot say which of them holds the closest ink.
  */
 const NEAREST_STEPS = 64;
 
@@ -1305,8 +1321,9 @@ const NEAREST_TURNS = 40;
 /**
  * How far along one piece the point nearest `point` falls, as the piece's own
  * parameter. A straight run answers where the point projects onto it; a curve is
- * sampled, every lobe of its distance narrowed, and the nearest of those kept,
- * because a curve's distance to a point is not a share of its own parameter.
+ * sampled, the interval around each sample narrowed, and the nearest of those
+ * kept, because a curve's distance to a point is not a share of its own
+ * parameter.
  */
 function nearestU(piece: ShaftPiece, point: Point): number {
   if (piece.kind === 'straight') {
