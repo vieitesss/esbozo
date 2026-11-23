@@ -1019,6 +1019,79 @@ test('a corner that grows over a dragged strip hangs it clear, and the corner th
   ).toBeLessThan(3);
 });
 
+test('a resize hangs the strip on the frame again, clear of the corners that stayed behind', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await browser.setViewport({ width: 360, height: 330 });
+  await openBare(ui);
+  await dockRail(ui, 'bottom');
+
+  // The bottom dock of this short window hangs 45 px in to clear its two bottom
+  // corners. A wider window sets those corners back from the strip's own middle,
+  // and the frame's dock there needs none of that room: the resize hangs the
+  // strip where a dock on the same side hangs it.
+  await browser.setViewport({ width: 900, height: 330 });
+  await settle(ui);
+  const wide: Rect = { x: 300, y: 230, width: 300, height: 100 };
+  const resized = await railPlace(ui, wide);
+  await dockRail(ui, 'bottom');
+  const redocked = await railPlace(ui, wide);
+  expect(
+    Math.abs(resized.top - redocked.top),
+    'a wider window hangs the strip where the same dock hangs it',
+  ).toBeLessThan(3);
+  expect(
+    Math.abs(resized.centreX - redocked.centreX),
+    'the resize keeps the strip’s place along its side',
+  ).toBeLessThan(3);
+
+  // The window back to its short size brings those corners over the place the
+  // wide dock hangs on, and a dock measured here clears them: every tile of the
+  // strip the resize left takes its own press.
+  await browser.setViewport({ width: 360, height: 330 });
+  await settle(ui);
+  await eachTileTakesItsPress(ui, 'on the bottom dock a shrunken window left under the status');
+});
+
+test('a shorter window keeps the strip clear of the corner its lost height brings over it', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  const long = `${'L'.repeat(37)}.json`;
+  await browser.setViewport({ width: 360, height: 550 });
+  await openEditor(ui, { A: { 'a.json': BARE_SOURCE, [long]: BARE_SOURCE } }, long);
+  await settle(ui);
+  await failPicking(ui, 'Folder unavailable; the file provider cannot open the folder right now. '.repeat(4));
+  await screen.getByRole('button', { name: /Open folder/ }).click();
+  await expect(screen.getByRole('status').filter({ hasText: 'Folder unavailable' })).toBeVisible();
+  await failPicking(ui, null);
+
+  // The top dock hangs below the Scene's name and the folder's answer, which are
+  // the corner nearest it. A window 100 px shorter puts the frame's own dock 15 px
+  // inside the top edge, under that corner: the room the strip needed was measured
+  // in a window that is gone.
+  const band: Rect = { x: 0, y: 0, width: 360, height: 240 };
+  const foot = async (): Promise<number> => {
+    const ink = await railInk(ui, band);
+    return ink.y + ink.height;
+  };
+  await browser.setViewport({ width: 360, height: 450 });
+  await settle(ui);
+  const shrunk = await foot();
+  await eachTileTakesItsPress(ui, 'on the top dock a shorter window brought a corner over');
+  await dockRail(ui, 'top');
+  const redocked = await foot();
+  expect(
+    Math.abs(shrunk - redocked),
+    'a shorter window hangs the strip where the same dock hangs it',
+  ).toBeLessThan(3);
+});
+
 test('the left dock stands the strip up, faint until it is looked at, its outline around all seven', async ({
   app,
   browser,
