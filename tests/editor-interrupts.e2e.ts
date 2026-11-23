@@ -737,9 +737,9 @@ const BOX_SELECT: Gesture = {
 /**
  * The arrow's Label, taken by the words as they draw — their middle is Scene
  * (168,254): three quarters along the arrow's drawn path, 20px to the side of
- * its second run — and carried 32 right and 16 down. The arrow's drawn ends are
- * level, (60,240) to (220,240), so the place the drag lands reads back as the
- * point the pointer left the words' middle on.
+ * its second run — and carried 32 right and 16 down, to Scene (200,270). The
+ * place the drag lands is read on that second run, the ink the words ride, and
+ * not on the level chord between the arrow's two ends.
  */
 const LABEL_MOVED = { from: at({ x: 168, y: 254 }, VIEW), to: at({ x: 200, y: 270 }, VIEW) };
 
@@ -763,15 +763,16 @@ const LABEL_DRAG: Gesture = {
     await drag(ui, LABEL_MOVED.from, LABEL_MOVED.to);
   },
   proves: (scene) => {
-    // The arrow's drawn ends are level, from (60,240) to (220,240): the place it
-    // saves is the fraction along that line and the distance below it, so it
-    // reads back as the point the release left the words' middle on. The words
-    // are the page's measured ink, so the middle a press took is theirs, a
-    // fraction of a pixel from the arrow's own anchor: half a pixel is the
-    // tolerance, and a gesture that carried nothing misses by tens.
+    // The words ride the arrow's drawn ink, so the place a release leaves them on
+    // is read along that ink and not across the level chord the two ends make
+    // (#60): the fraction is past the bend the pointer crossed — the Scene's own
+    // is 0.75 — and the distance is the 12px between the pointer at (200,270)
+    // and the second run, from (140,300) to (220,240), that it left them beside.
+    // A drag that carried nothing misses both by tens.
     const place = scene.elements.find((element) => element.id === 'bent')?.labelAt;
-    expect(60 + (place?.t ?? 0) * 160).toBeCloseTo(200, 0);
-    expect(240 - (place?.offset ?? 0)).toBeCloseTo(270, 0);
+    expect(place?.t).toBeGreaterThan(0.75);
+    expect(place?.t).toBeLessThan(1);
+    expect(place?.offset).toBeCloseTo(-12, 0);
   },
 };
 
