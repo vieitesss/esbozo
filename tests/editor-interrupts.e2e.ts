@@ -47,6 +47,7 @@ import {
   settle,
 } from './helpers.ts';
 import type { Folders, Point, SavedScene, Ui, View } from './helpers.ts';
+import { shaftLabelAnchor, shaftPath } from '../src/geometry.ts';
 import { blurPage, cancelTouch, cursorAt, livePage, touchCarry } from './cdp.ts';
 import { command, palette } from './editor-shared.ts';
 import { shot } from './pixels.ts';
@@ -764,15 +765,19 @@ const LABEL_DRAG: Gesture = {
   },
   proves: (scene) => {
     // The words ride the arrow's drawn ink, so the place a release leaves them on
-    // is read along that ink and not across the level chord the two ends make
-    // (#60): the fraction is past the bend the pointer crossed — the Scene's own
-    // is 0.75 — and the distance is the 12px between the pointer at (200,270)
-    // and the second run, from (140,300) to (220,240), that it left them beside.
-    // A drag that carried nothing misses both by tens.
+    // is read back through the same `shaftLabelAnchor` the Renderer draws them
+    // with, and has to land on the point the pointer let go at — in x and in y
+    // alike, within the half Scene pixel the chord row held. The ink runs from
+    // (60,240) through the bend at (140,300) to (220,240), so a drag read along
+    // the level chord (#60), or one that carried nothing, misses by tens.
     const place = scene.elements.find((element) => element.id === 'bent')?.labelAt;
-    expect(place?.t).toBeGreaterThan(0.75);
-    expect(place?.t).toBeLessThan(1);
-    expect(place?.offset).toBeCloseTo(-12, 0);
+    expect(place).toBeDefined();
+    const drawn = shaftLabelAnchor(
+      shaftPath(BENT.points as [Point, Point, ...Point[]], 'sharp', undefined, undefined),
+      place as { t: number; offset: number },
+    );
+    expect(drawn.x).toBeCloseTo(200, 0);
+    expect(drawn.y).toBeCloseTo(270, 0);
   },
 };
 
