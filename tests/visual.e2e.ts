@@ -21,6 +21,7 @@
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import {
+  BENT_SCENE,
   BROKEN_SCENE,
   EDGE,
   EDGE_1366,
@@ -57,6 +58,7 @@ const WIDE_SOURCE = JSON.stringify(WIDE_SCENE, null, 2);
 const SNAP_SOURCE = JSON.stringify(SNAP_SCENE, null, 2);
 const SNAPPED_SOURCE = JSON.stringify(SNAPPED_SCENE, null, 2);
 const OVERFLOW_SOURCE = JSON.stringify(OVERFLOW_SCENE, null, 2);
+const BENT_SOURCE = JSON.stringify(BENT_SCENE, null, 2);
 
 /** A Label long enough that the box it is typed into has to grow for it. */
 const LONG_LABEL = 'words that wrap and grow';
@@ -377,6 +379,66 @@ test('a box grows for the Label typed into it, and the words wrap inside its out
   await label.press('Escape');
   await ui.agent.assert(
     'the same three lines of words are still inside the left-hand rectangle, every line within its outline. The Element is still selected, so a thin dashed selection box with small square handles sits just outside the rectangle',
+    { vision: 'only' },
+  );
+});
+
+test('a round bend sweeps one arc, and the head arrives along it rather than along the chord', async ({
+  agent,
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { agent, app, browser, screen };
+  await openEditor(ui, { A: { 'bent.json': BENT_SOURCE } }, 'bent.json');
+
+  await ui.agent.assert(
+    'in the upper left of the canvas, one arrow is a single smooth arc: it rises in a sweeping curve from the left, crests near the top and comes down to the right, with no straight leg and no corner anywhere along it; the arrowhead at its right-hand end is tilted steeply down and to the right, following the curve it arrives on rather than lying flat along a straight line between the two ends of the shaft',
+    { vision: 'only' },
+  );
+});
+
+test('sharp bends turn the shaft at corners softened a little, not swept into a curve or left sharp', async ({
+  agent,
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { agent, app, browser, screen };
+  await openEditor(ui, { A: { 'bent.json': BENT_SOURCE } }, 'bent.json');
+
+  await ui.agent.assert(
+    'in the upper right of the canvas, one arrow runs right along the top, turns down at a corner, and then runs right again at a second corner. Each leg is a straight line that runs into its corner without bowing, and each corner is softened by a short, tight rounding barely wider than the shaft itself — the way a hand-drawn corner is rounded off — and not by a broad sweeping arc like the one the arrow in the upper left draws, nor a bare point',
+    { vision: 'only' },
+  );
+});
+
+test('one arrow carries a softened corner and a round sweep, and the corner stays a corner', async ({
+  agent,
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { agent, app, browser, screen };
+  await openEditor(ui, { A: { 'bent.json': BENT_SOURCE } }, 'bent.json');
+
+  await ui.agent.assert(
+    'in the lower left of the canvas, one arrow runs right along the bottom, turns up at a corner rounded off by only a few pixels, and then, with no second corner, sweeps over to the right in one smooth curve and ends in an arrowhead pointing right: one softened corner and one smooth sweep on the same shaft',
+    { vision: 'only' },
+  );
+});
+
+test('a three-point self-loop stands out from its box, and its head comes back at the box', async ({
+  agent,
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { agent, app, browser, screen };
+  await openEditor(ui, { A: { 'bent.json': BENT_SOURCE } }, 'bent.json');
+
+  await ui.agent.assert(
+    'in the lower right of the canvas, one arrow forms a closed loop that stands out to the right of the box beside it, away from the box’s own outline, in a rounded triangle whose ink encloses a patch of empty paper; the arrowhead on the loop’s upper leg points back to the left, at the box',
     { vision: 'only' },
   );
 });
