@@ -1254,7 +1254,7 @@ class EsbozoEditorElement extends HTMLElement {
       event.preventDefault();
       return;
     }
-    const note = this.#notes.answer(event);
+    const note = this.#notes.answerKey(event);
     if (note === 'shut') {
       // The note on top answers Escape, and the note alone: it takes nothing of
       // the Scene with it, so what a person selected stays selected.
@@ -1644,8 +1644,8 @@ class EsbozoEditorElement extends HTMLElement {
       return;
     }
     // The listing is a read, and a read answers late: the note it is for may be
-    // shut, or another note may have come over it, while the folder answers.
-    const ask = this.#notes.asking('scenes');
+    // shut while the folder answers.
+    const ask = this.#notes.ask('scenes');
     this.#note.querySelector('.folder')!.textContent = folder.name;
     let names: string[];
     try {
@@ -1654,7 +1654,7 @@ class EsbozoEditorElement extends HTMLElement {
       this.#setSaved('failed', (error as Error).message);
       return;
     }
-    if (!this.#notes.waits(ask)) {
+    if (!this.#notes.wants(ask)) {
       // The person put the note away while the folder was answering: its answer
       // is not news, and neither the list it read nor the note is painted.
       return;

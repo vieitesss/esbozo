@@ -36,18 +36,15 @@ export interface Note {
 }
 
 /**
- * A note being read for: a listing whose answer is still on its way. It carries
- * the note it is for, the open that held the page when the read began, and the
- * number of the ask, so an answer that is no longer the one waited for lands
- * nowhere.
+ * A note being read for: the ticket its answer is checked against. The answer
+ * belongs to the note's own life, not to whichever note was on top when the read
+ * began, so the ticket carries the note alone and dies with the note's shut.
  */
-export interface Ask {
+interface Ask {
   readonly id: NoteId;
-  readonly at: NoteId | null;
-  readonly n: number;
 }
 
-export interface NotesOptions {
+interface NotesOptions {
   /**
    * The element the notes open inside. A press there is the stack's wherever the
    * page keeps it from bubbling to, because a host may hold its own presses.
@@ -63,8 +60,11 @@ export class Notes {
   readonly #notes = new Map<NoteId, Note>();
   /** The open notes, the one on top last. */
   #open: NoteId[] = [];
-  /** The last ask each note made, so a slow answer can tell it is no longer the one. */
-  #asks = new Map<NoteId, number>();
+  /**
+   * The read on its way, if there is one, so a slow answer can tell it is no
+   * longer the one the note waits for.
+   */
+  #ask: Ask | null = null;
   /** True once the stack's press is on the page, so it is taken off once. */
   #listening = false;
 
@@ -115,6 +115,10 @@ export class Notes {
     }
     const note = this.#notes.get(id)!;
     this.#open = this.#open.filter((one) => one !== id);
+    if (this.#ask?.id === id) {
+      // The note shut before its read answered: nothing waits for that answer.
+      this.#ask = null;
+    }
     note.root.hidden = true;
     const focus = document.activeElement;
     if (focus instanceof HTMLElement && note.root.contains(focus)) {
@@ -127,26 +131,26 @@ export class Notes {
   }
 
   /** Start reading for a note: what the page holds now is what its answer may land on. */
-  asking(id: NoteId): Ask {
-    const ask: Ask = { id, at: this.#open.at(-1) ?? null, n: (this.#asks.get(id) ?? 0) + 1 };
-    this.#asks.set(id, ask.n);
+  ask(id: NoteId): Ask {
+    const ask: Ask = { id };
+    this.#ask = ask;
     return ask;
   }
 
   /**
-   * Whether an answer still belongs to the page: nothing has asked again since,
-   * and nothing else has taken the top. A listing that answers after its note
-   * shut, or after another note came over it, paints nothing and opens nothing.
+   * Whether an answer is the one waited for: no newer read has replaced it, and
+   * the note that asked has not been shut since. A note opened over it is not
+   * the person putting this one away, so it leaves the read alone.
    */
-  waits(ask: Ask): boolean {
-    return this.#asks.get(ask.id) === ask.n && (this.#open.at(-1) ?? null) === ask.at;
+  wants(ask: Ask): boolean {
+    return this.#ask === ask;
   }
 
   /**
    * What the note on top does with this key: shut itself, keep the key to
    * itself, or leave it to the Scene.
    */
-  answer(event: KeyboardEvent): 'shut' | 'hold' | null {
+  answerKey(event: KeyboardEvent): 'shut' | 'hold' | null {
     const top = this.#open.at(-1);
     if (top === undefined) {
       return null;
