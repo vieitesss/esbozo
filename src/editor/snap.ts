@@ -16,7 +16,7 @@
  * bends of its own to move.
  */
 import { anchorOf, anchorPoint, carriesSnaps, insideOutline } from '../geometry.js';
-import { drawnShaft } from '../renderer.js';
+import { drawnShaft, elementsById } from '../renderer.js';
 import type { Anchor, ArrowOrLineElement, Element, OutlinedElement, Point } from '../scene.js';
 import { isOutlined, snapTargetId } from '../scene.js';
 
@@ -135,6 +135,65 @@ function targetOutline(byId: ReadonlyMap<string, Element>, target: string): Outl
     throw new Error(`snap target "${target}" must be a rectangle, ellipse or diamond`);
   }
   return found;
+}
+
+/**
+ * Every Anchored end stored where its Anchor draws it, so a Scene's numbers
+ * follow its drawing. The editor lands this on every edit with the Scene it is
+ * replacing, because a target that moved or resized leaves the ends that hold
+ * it behind: one pass, not a rule each gesture remembers. Only an end whose
+ * target's outline changed is rewritten, so an edit elsewhere leaves a
+ * hand-written `x`, `y` where it is — the Anchor draws the end either way. An
+ * end with a Snap and no Anchor keeps the point it has.
+ */
+export function anchoredEnds(
+  elements: readonly Element[],
+  before: readonly Element[],
+): Element[] {
+  const byId = elementsById(elements);
+  const was = elementsById(before);
+  return elements.map((element) => {
+    if (!isShaft(element)) {
+      return element;
+    }
+    const last = element.points.length - 1;
+    let changed = false;
+    const points = element.points.map((point, index) => {
+      const target = snapTargetId(point);
+      if ((index !== 0 && index !== last) || target === null || point.anchor === undefined) {
+        return point;
+      }
+      const outline = targetOutline(byId, target);
+      if (sameOutline(outline, was.get(target))) {
+        return point;
+      }
+      const drawn = anchorPoint(outline, point.anchor);
+      const x = Math.round(drawn.x);
+      const y = Math.round(drawn.y);
+      if (x === point.x && y === point.y) {
+        return point;
+      }
+      changed = true;
+      return { ...point, x, y };
+    });
+    return changed
+      ? { ...element, points: points as ArrowOrLineElement['points'] }
+      : element;
+  });
+}
+
+/** Whether a target's outline is the one an Anchored end was last written against. */
+function sameOutline(outline: OutlinedElement, before: Element | undefined): boolean {
+  return (
+    before !== undefined &&
+    isOutlined(before) &&
+    before.type === outline.type &&
+    before.x === outline.x &&
+    before.y === outline.y &&
+    before.width === outline.width &&
+    before.height === outline.height &&
+    before.corners === outline.corners
+  );
 }
 
 /**
