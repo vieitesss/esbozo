@@ -253,6 +253,34 @@ esbozo-editor .rail button svg {
 esbozo-editor .rail button svg .ghost { opacity: 0.3; transform: translate(0.8px, 0.7px); }
 esbozo-editor .rail button[aria-pressed="true"] svg .ghost { opacity: 0.45; }
 
+/* The four docks a drag of the rail draws before it lets go: the outline the strip
+   would wear on each side of the frame the press measured, in that side's own
+   orientation, and the one a release would take filled in behind a darker pencil.
+   Quiet and hand-drawn like the strip's own outline, and it takes no pointer: a
+   press on the paper inside a dock is the paper's (D5, D6, D12). */
+esbozo-editor .docks {
+  position: absolute;
+  inset: 0;
+  z-index: 18;
+  pointer-events: none;
+}
+
+esbozo-editor .dock {
+  position: absolute;
+  overflow: visible;
+  color: var(--muted);
+}
+
+esbozo-editor .dock[data-near] {
+  color: var(--ink);
+  background: var(--line-strong);
+  border-radius: 18px;
+}
+
+/* The one a release would take is drawn with a firmer pencil than the three quiet
+   ones, so the mark is the same hand as the strip and not a block of colour. */
+esbozo-editor .dock[data-near] path { stroke-width: 2.4; }
+
 /* the field words are typed in: a real textarea, so the focus, the keys, the
    selection, the clipboard, undo, an input method and the accessibility tree
    keep working, and nothing of what it holds is ever seen. The canvas draws the

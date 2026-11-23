@@ -942,6 +942,29 @@ function dockOf(box: Point, strip: { width: number; height: number }, side: Rail
     : { x: box.x, y: box.y + strip.height / 2 };
 }
 
+/**
+ * The box one of the frame's four docks covers: the strip's pencil outline where a
+ * release on that side puts it, in that dock's own orientation.
+ *
+ * A drag draws one of these for each side while the pointer is down, so the four
+ * places a person may let go of the rail are the four they see (D6). The side
+ * drawn highlighted is the side the release then takes, because both read the same
+ * dock: the frame the press measured, the side's own inset, and the status corners
+ * the strip has to clear (O2).
+ */
+export function dockOutline(
+  frame: Box,
+  editor: { width: number; height: number },
+  side: RailSide,
+  outline: RailOutline,
+  chrome: readonly Box[],
+): Box {
+  const strip = { width: outline.width - outline.overhang * 2, height: outline.height - outline.overhang * 2 };
+  const placed = clearedDock(dockOnFrame(frame, editor, side, outline), side, outline, chrome, editor);
+  const box = stripBox(placed.dock, strip, side);
+  return { x: box.x - outline.overhang, y: box.y - outline.overhang, width: outline.width, height: outline.height };
+}
+
 /** One axis of a dock: where the strip sits on it, and whether an inset stopped it there. */
 interface Placed {
   readonly at: number;

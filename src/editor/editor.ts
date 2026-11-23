@@ -29,6 +29,7 @@ import {
   clearedDock,
   clampedDock,
   dockOnFrame,
+  dockOutline,
   fittedView,
   leftDockEdge,
   nearestDock,
@@ -56,6 +57,9 @@ const NUDGE_BURST_MS = 800;
  * drawn `-7px` out, and `rail.ts` draws it in a box `2 × 7` bigger.
  */
 const RAIL_OUTLINE = 7;
+
+/** The frame's four sides: each dock a drag draws is one of them. */
+const DOCK_SIDES: readonly RailSide[] = ['top', 'bottom', 'left', 'right'];
 
 /**
  * The instance the keys and the clipboard belong to: the last one a person
@@ -184,6 +188,8 @@ class EsbozoEditorElement extends HTMLElement {
   #canvas!: SVGSVGElement;
   #rail!: HTMLElement;
   #railArt!: SVGSVGElement;
+  /** The four docks a drag of the rail draws, and the layer that shows them together. */
+  #docks!: HTMLElement;
   /** The words being typed: the field, the Element it grows and the step to its glyphs. */
   #typing!: Typing;
   #note!: HTMLElement;
@@ -278,6 +284,7 @@ class EsbozoEditorElement extends HTMLElement {
     const pattern = this.querySelector<SVGPatternElement>('.canvas pattern')!;
     this.#rail = this.querySelector('.rail')!;
     this.#railArt = this.querySelector('.rail-art')!;
+    this.#docks = this.querySelector('.docks')!;
     // The side this origin's editor was last moved to is read once, here, before
     // the frame is measured for the first time: the first placement is already on
     // that side, and a move made in another tab is waited for, not followed (D10).
@@ -1165,6 +1172,85 @@ class EsbozoEditorElement extends HTMLElement {
   }
 
   /**
+   * Draw the four places the rail would hang on the frame the press measured, and
+   * mark the one a release would take (D6).
+   *
+   * The frame and the editor's room are the ones the press found, so these are
+   * exactly the docks a release takes: the release reads `nearestDock` of the same
+   * frame at the same place, and hangs the strip on the same dock. The outlines are
+   * drawn once per drag — nothing under it resizes them — and the mark is what
+   * moves with the pointer.
+   */
+  #showDocks(drag: RailDrag): void {
+    const near = nearestDock(drag.frame, drag.at);
+    if (this.#docks.hidden) {
+      this.#drawDocks(drag);
+      this.#docks.hidden = false;
+    }
+    for (const side of DOCK_SIDES) {
+      const mark = this.#dockMark(side);
+      if (side === near) {
+        mark.dataset['near'] = '';
+      } else {
+        delete mark.dataset['near'];
+      }
+    }
+  }
+
+  /** The four docks' outlines, drawn where a release on that side puts the strip. */
+  #drawDocks(drag: RailDrag): void {
+    const outlines = this.#outlineEachWay();
+    // The corners are the page's chrome as it stands: the release clears them at
+    // the same places (O2), and a drag of the strip moves none of them.
+    const chrome = this.#statusChrome();
+    for (const side of DOCK_SIDES) {
+      const lying = side === 'top' || side === 'bottom';
+      const box = dockOutline(
+        drag.frame,
+        drag.editor,
+        side,
+        lying ? outlines.lying : outlines.standing,
+        chrome,
+      );
+      const mark = this.#dockMark(side);
+      mark.setAttribute('width', String(box.width));
+      mark.setAttribute('height', String(box.height));
+      mark.setAttribute('viewBox', `0 0 ${box.width} ${box.height}`);
+      mark.style.left = `${box.x}px`;
+      mark.style.top = `${box.y}px`;
+      mark.innerHTML = railArt(box.width, box.height);
+    }
+  }
+
+  /** The mark that stands for one side of the frame: the markup names it, so no list has to. */
+  #dockMark(side: RailSide): SVGSVGElement {
+    return this.#docks.querySelector<SVGSVGElement>(`.dock[data-side="${side}"]`)!;
+  }
+
+  /** Take the four docks off the page: nothing a drag drew outlives the drag. */
+  #hideDocks(): void {
+    this.#docks.hidden = true;
+  }
+
+  /**
+   * The outline the rail wears lying along the top and standing up the left, the
+   * two orientations a dock can have: a dock is drawn in its own, and the strip is
+   * not the same size both ways. The one this editor is not docked on is measured
+   * on the strip itself — its side is switched, read and switched back before
+   * anything can be painted, so the rail is never seen in an orientation it is not
+   * docked on.
+   */
+  #outlineEachWay(): { lying: RailOutline; standing: RailOutline } {
+    const kept = this.#railSide;
+    const lying = kept === 'top' || kept === 'bottom';
+    const here = this.#outline();
+    this.#rail.dataset['side'] = lying ? 'left' : 'top';
+    const there = this.#outline();
+    this.#rail.dataset['side'] = kept;
+    return lying ? { lying: here, standing: there } : { lying: there, standing: here };
+  }
+
+  /**
    * Hang the rail on the frame around the diagram, measured when the Scene
    * opens, when the palette docks it, or when a drag presses it: the side's
    * outline a gap outside the frame, or the strip just inside the editor's edge
@@ -1642,15 +1728,20 @@ class EsbozoEditorElement extends HTMLElement {
       return;
     }
     drag.at = this.#page.viewport.screenPoint(event);
-    if (drag.moved || isClick(drag.from, drag.at)) {
-      return;
+    if (!drag.moved) {
+      if (isClick(drag.from, drag.at)) {
+        return;
+      }
+      // Past the click's slop this is a drag of the rail. The capture is taken
+      // here rather than on the press so that a press which never leaves the slop
+      // keeps its own click on the tile it landed on, and so that a release far
+      // from the rail still arrives.
+      drag.moved = true;
+      this.#rail.setPointerCapture(event.pointerId);
     }
-    // Past the click's slop this is a drag of the rail. The capture is taken
-    // here rather than on the press so that a press which never leaves the slop
-    // keeps its own click on the tile it landed on, and so that a release far
-    // from the rail still arrives.
-    drag.moved = true;
-    this.#rail.setPointerCapture(event.pointerId);
+    // A drag shows the four places it may end in, and moves the highlight to the
+    // one this pointer would take (D6). Under the slop nothing is drawn.
+    this.#showDocks(drag);
   };
 
   /**
@@ -1727,7 +1818,10 @@ class EsbozoEditorElement extends HTMLElement {
     }
   }
 
-  /** Drop the press on the rail, its capture and the listeners it put on the page. */
+  /**
+   * Drop the press on the rail, its capture, the listeners it put on the page and
+   * the docks it drew.
+   */
   #endRailDrag(): void {
     const drag = this.#railDrag;
     if (drag === null) {
@@ -1740,6 +1834,9 @@ class EsbozoEditorElement extends HTMLElement {
     if (this.#rail.hasPointerCapture(drag.pointer)) {
       this.#rail.releasePointerCapture(drag.pointer);
     }
+    // Every way a drag ends — the release, Escape, a lost focus, a hidden tab, a
+    // cancelled pointer, a Scene leaving — takes the four docks with it (D7, I6).
+    this.#hideDocks();
   }
 
   #onStatusClick = (event: Event): void => {
