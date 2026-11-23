@@ -152,12 +152,13 @@ class EsbozoEditorElement extends HTMLElement {
 
   /**
    * What the clipboard commands may ask of the editor: the Scene, its selection,
-   * the connection their answer speaks for, and the one way it becomes an edit.
+   * the Scene their answer speaks for, and the one way it becomes an edit.
    */
   readonly #clipboard: ClipboardHost = {
     scene: () => this.#scene,
     selected: () => this.#selectedElements(),
     token: () => this.#connection.token,
+    target: () => this.#connection.target,
     insert: (elements) => this.#insertCopies(elements),
     remove: (ids) => this.#remove(ids),
     status: (detail) => this.#setSaved('failed', detail),

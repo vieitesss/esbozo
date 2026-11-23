@@ -1218,6 +1218,63 @@ export async function holdClipboardWrites(ui: Ui): Promise<void> {
   });
 }
 
+/** The clipboard stub, with a read that answers with `copied` when the test says so. */
+interface ClipboardReadStub {
+  __esbozoClipboardReads: number;
+  /** Answer the oldest read: with its copied text, or with a problem. */
+  __esbozoClipboardRead: (problem: string | null) => void;
+}
+
+/**
+ * Hold every clipboard read open, so a test can open another Scene while the
+ * clipboard is still answering. `releaseClipboardRead` hands back `copied`, and
+ * `refuseClipboardRead` answers with a problem instead.
+ */
+export async function holdClipboardReads(ui: Ui, copied: string): Promise<void> {
+  await ui.browser.evaluate((text: string) => {
+    const stub = window as unknown as ClipboardReadStub;
+    const pending: Array<(problem: string | null) => void> = [];
+    stub.__esbozoClipboardReads = 0;
+    stub.__esbozoClipboardRead = (problem) => pending.shift()?.(problem);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        readText: () => {
+          stub.__esbozoClipboardReads += 1;
+          return new Promise<string>((resolve, reject) => {
+            pending.push((problem) =>
+              problem === null ? resolve(text) : reject(new Error(problem)),
+            );
+          });
+        },
+        writeText: async () => {},
+      },
+    });
+    return true;
+  }, copied);
+}
+
+/** Let the clipboard read that is waiting answer with its copied text. */
+export async function releaseClipboardRead(ui: Ui): Promise<void> {
+  await answerClipboardRead(ui, null);
+}
+
+/** Answer the clipboard read that is waiting with a problem, as a denied clipboard does. */
+export async function refuseClipboardRead(ui: Ui, message: string): Promise<void> {
+  await answerClipboardRead(ui, message);
+}
+
+/** Hand the oldest waiting read its answer, once the page has asked for one. */
+async function answerClipboardRead(ui: Ui, problem: string | null): Promise<void> {
+  await expect
+    .poll(() => ui.browser.evaluate(() => (window as unknown as ClipboardReadStub).__esbozoClipboardReads))
+    .toBeGreaterThan(0);
+  await ui.browser.evaluate((reason) => {
+    (window as unknown as ClipboardReadStub).__esbozoClipboardRead(reason);
+    return true;
+  }, problem);
+}
+
 /** Let the clipboard write that is waiting land. */
 export async function releaseClipboardWrite(ui: Ui): Promise<void> {
   await expect
