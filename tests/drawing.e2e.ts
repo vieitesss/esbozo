@@ -750,6 +750,76 @@ describe('a shaft placed by clicking', () => {
     expect(placed?.points?.[1]).toEqual(walk[1]);
     expect(placed?.points?.[2]).toEqual({ x: 124, y: walk[1]!.y });
   });
+
+  test('a Shift press that lets go before the release is no half of a click pair', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    // Shift is the press's own while it is down, not the release's: letting go of
+    // it before the button comes up still makes this a Shift press, and a Shift
+    // press pairs with nothing. The place stays in hand, so the click a pixel
+    // later — inside the click's slop — is its second point, not the pair that
+    // ends it.
+    await browser.keyboard.press('a');
+    const first = at({ x: 60, y: 200 });
+    await browser.keyboard.down('Shift');
+    await browser.mouse.move(first.x, first.y);
+    await browser.mouse.down();
+    await browser.keyboard.up('Shift');
+    await browser.mouse.up();
+
+    const near = at({ x: 62, y: 201 });
+    await browser.mouse.move(near.x, near.y);
+    await browser.mouse.down();
+    await browser.mouse.up();
+    await browser.keyboard.press('Enter');
+
+    const placed = (await savedScene(ui)).elements[2];
+    expect(placed?.type).toBe('arrow');
+    expect(placed?.points).toEqual([
+      { x: 60, y: 200 },
+      { x: 62, y: 201 },
+    ]);
+  });
+});
+
+describe('a refused press', () => {
+  test('a refused mouse press leaves a touch drag’s own release to the touch', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    // Two pointers on one page: a finger carrying `a`, and the mouse, whose right
+    // press is the point menu's and settles nothing. The refusal belongs to the
+    // mouse alone, so the finger's release still settles its drag where it came
+    // up — (80,80) carried to (95,100) moves `a` by (15,20) — and the mouse's own
+    // release puts down nothing after it.
+    const page = livePage();
+    const cdp = await page.context().newCDPSession(page);
+    const from = at({ x: 80, y: 80 });
+    const to = at({ x: 95, y: 100 });
+    await page.mouse.move(to.x, to.y);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [from] });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [to] });
+    await page.mouse.down({ button: 'right' });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await settle(ui);
+
+    const moved = (await saved(ui)).get('a');
+    expect([moved?.x, moved?.y]).toEqual([55, 60]);
+
+    await page.mouse.up({ button: 'right' });
+    await settle(ui);
+    const after = (await saved(ui)).get('a');
+    expect([after?.x, after?.y]).toEqual([55, 60]);
+  });
 });
 
 describe('Text typed in place', () => {
