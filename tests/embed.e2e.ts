@@ -1694,6 +1694,62 @@ test('the keys are the editor’s while the font is still on its way', async ({ 
   }
 });
 
+test('an editor a host reveals from display: none draws the strip’s outline at once', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), { a: EMPTY_SOURCE });
+  try {
+    const ui: Ui = { app, browser, screen };
+    const strip = screen.getByRole('navigation', { name: 'Tools' });
+
+    // A page that never hid the editor: the strip it draws is what a reveal owes,
+    // and the pencil above the tiles, inside the outline's own 7 px overhang, is
+    // the outline and nothing else.
+    await app.open(`${embed.url}/embedded.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    await strip.getByRole('button', 'Select').focus();
+    await fullInk(ui);
+    const drawn = (await shot(ui)).darkBounds(TOP_BAND, 0.6);
+    if (drawn === null) {
+      throw new Error('the strip that was never hidden draws no ink');
+    }
+    const outline: Rect = { x: drawn.x + 12, y: drawn.y, width: drawn.width - 24, height: 5 };
+    expect(
+      (await shot(ui)).darkCount(outline, 0.6),
+      'the strip that was never hidden wears its outline',
+    ).toBeGreaterThan(0);
+
+    // The host's page starts its editor off the page, so the Scene and the font
+    // arrive while the strip has no box to be measured from: the outline is drawn
+    // from a measure of nothing, and a measure that is nothing draws nothing.
+    await app.open(`${embed.url}/hidden.html`);
+    await expect.poll(() => embed.requests('/api/a'), { timeout: 5000 }).toBeGreaterThan(0);
+    await settle(ui);
+    await settle(ui);
+
+    // The host shows its editor. Nothing about the window changed, so no resize
+    // reaches the strip: what came back is the editor's own box, and a reveal is
+    // the whole of it — a person is not asked to resize a window to see the rail.
+    const shown = await browser.evaluate(() => {
+      const element = document.querySelector('esbozo-editor');
+      if (!(element instanceof HTMLElement)) {
+        return false;
+      }
+      element.style.display = 'block';
+      return true;
+    });
+    expect(shown, 'the page shows its editor').toBe(true);
+    await strip.getByRole('button', 'Select').focus();
+    await fullInk(ui);
+    const revealed = (await shot(ui)).darkBounds(TOP_BAND, 0.6);
+    expect(revealed, 'the reveal draws the strip where the page that never hid it does').toEqual(drawn);
+  } finally {
+    await embed.stop();
+  }
+});
+
 // ----------------------------------- two editors of different sizes, one page
 //
 // `two-sizes.html` gives each element a height of its own: 50vh and 40vh of a
@@ -2064,6 +2120,12 @@ async function writeBundle(): Promise<string> {
     // nothing here names esbozo (issue #62).
     'host-glyphs.html': page(
       `${FULL} svg { visibility: visible } button { visibility: visible }`,
+      `<esbozo-editor scene="api/a" save="api/a" font="${FONT}"></esbozo-editor>`,
+      bundle,
+    ),
+    // The host keeps its editor off the page until it shows it (issue #64).
+    'hidden.html': page(
+      'body { margin: 0 } esbozo-editor { height: 100vh; display: none }',
       `<esbozo-editor scene="api/a" save="api/a" font="${FONT}"></esbozo-editor>`,
       bundle,
     ),
