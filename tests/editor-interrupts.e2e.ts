@@ -839,8 +839,9 @@ const panHeld = (letGo: (ui: Ui) => Promise<void>): Ending => ({
   shows: async (ui) => {
     await expect(ui.screen.getByText('Panning')).toBeVisible();
     expect(await pointerHeld(ui)).toBe(true);
-    // Still in the hand: the board shows a pan's own hand, not the idle pointer.
-    expect(['grab', 'grabbing']).toContain(await cursorAt(IDLE));
+    // Still in the hand: the board shows the grabbing hand a pan in flight has,
+    // and not the open one a held key shows with no drag under it.
+    expect(await cursorAt(IDLE)).toBe('grabbing');
   },
   letGo,
   cursor: 'idle',
