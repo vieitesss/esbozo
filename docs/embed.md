@@ -32,9 +32,19 @@ The focus is the page's until a person clicks into the editor. The element is fo
 
 A load, a save or a font that fails is the server's or the browser's own words in the status line; the editor stays on screen.
 
+## The tool rail
+
+The rail floats over the paper at the top of the element. Drag it — from a tile or from the padding around them — and it docks on the nearest of four sides: top, bottom, left or right, lying along the top and bottom and standing up the left and right. A press that moves less than a few pixels is still a click, and picks that tool. A longer press docks the rail and picks none. <kbd>Escape</kbd>, losing the window's focus or a cancelled pointer puts the rail back where it hung. None of this touches the Scene: the rail moves in a read-only embed too, and a move writes no file and adds no undo step.
+
+The page keeps the side the last move took in `localStorage`, under `esbozo.rail`, as one of `top`, `bottom`, `left` and `right`. That key belongs to the page, not to the element or the Scene, so every editor on the page starts on the side the last move kept. An editor that is already open does not follow it: each reads the key once, when it starts, and a reload is what picks a new side up. A browser that blocks storage, or holds a word that is not one of the four, starts the rail at the top and still moves it for that visit.
+
+The command palette's four `Tool rail:` rows move it too, and no key does. In a window too small for the rail, the rail is clipped rather than shrunk, wrapped or turned: the keys <kbd>V</kbd> <kbd>R</kbd> <kbd>E</kbd> <kbd>D</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>T</kbd> and <kbd>1</kbd>–<kbd>7</kbd>, and the palette, still reach every tool and every dock from there.
+
+The rail used to hang at the element's left edge. A host page that takes a new bundle sees it at the top, with the behaviour above, and needs no change of its own: no attribute sets, locks or reports the dock, and there is no new attribute to add.
+
 ## Two elements on one page
 
-Each element is an editor of its own: its own Scene, its own font, its own save URL and its own dot Grid — the Grid is a pattern of its own, so two editors never fill their dots from each other. The keyboard and the clipboard go to the element the focus is inside, so a nudge in one is never a save in the other, and a page nobody has clicked into keeps its own keys.
+Each element is an editor of its own: its own Scene, its own font, its own save URL and its own dot Grid — the Grid is a pattern of its own, so two editors never fill their dots from each other. The keyboard and the clipboard go to the element the focus is inside, so a nudge in one is never a save in the other, and a page nobody has clicked into keeps its own keys. Each rail measures its own element's box and moves inside it, so two editors of two sizes hang and dock their rails apart.
 
 ## What it is, and what it is not
 
