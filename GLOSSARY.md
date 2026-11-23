@@ -26,7 +26,12 @@ _Avoid_: label (for free-standing text)
 **Snap**:
 An arrow or line end attached to an Element, so it follows that Element when
 it moves. Can be turned off.
-_Avoid_: binding, grid snap
+_Avoid_: binding, attachment, grid snap
+
+**Anchor**:
+The place on a Snap target's outline where a Snapped end sits. It moves and
+scales with the target.
+_Avoid_: fixed point, attachment point
 
 **Shaft**:
 The drawn path of an arrow or line between its two ends, and the points it
