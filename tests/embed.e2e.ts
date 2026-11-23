@@ -1616,17 +1616,25 @@ test('a host rule that shows its own glyphs cannot show the strip before it is d
     });
     embed.hold(FONT_PATH);
     const fetched = embed.requests(FONT_PATH);
-    await browser.goto(`${embed.url}/host-glyphs.html`, { waitUntil: 'domcontentloaded' });
+    await browser.goto(`${embed.url}/embedded.html`, { waitUntil: 'domcontentloaded' });
     await expect.poll(() => embed.requests(FONT_PATH)).toBeGreaterThan(fetched);
     await settle(ui);
 
-    // The rule: until it has a dock the strip puts no ink on the page at all, and
-    // the place the stylesheet falls back to is as bare as the rest of the top.
-    // Faint ink still passes the ink threshold nowhere here: an undocked strip is
-    // drawn at the 0.58 opacity it wears until it is looked at, and that is well
-    // clear of bare paper (the ink a person reads is `0.6`, below).
+    // The same page without the host's rule is the reading there is against: the
+    // band holds the Grid's dots and nothing of the strip, because an undocked
+    // strip is drawn at all. What the host's rule adds to that band is the strip.
+    const bare = (await shot(ui)).darkCount(UNDOCKED, 0.85);
+    expect(bare, 'the band reads the bare paper and its Grid').toBeGreaterThan(0);
+
+    const again = embed.requests(FONT_PATH);
+    await browser.goto(`${embed.url}/host-glyphs.html`, { waitUntil: 'domcontentloaded' });
+    await expect.poll(() => embed.requests(FONT_PATH)).toBeGreaterThan(again);
+    await settle(ui);
+
+    // The rule: until it has a dock the strip puts no ink on the page at all,
+    // whatever the host's rule says about what is inside it.
     const undocked = await shot(ui);
-    expect(undocked.darkCount(UNDOCKED, 0.85), 'no ink waits at the fallback place').toBe(0);
+    expect(undocked.darkCount(UNDOCKED, 0.85), 'the host’s rule shows no ink of the strip').toBe(bare);
     await expect(strip, 'the strip kept on the right waits for its dock').toBeHidden();
 
     // And a press there is no dock's either: a glyph can take the press a tile
@@ -1634,6 +1642,7 @@ test('a host rule that shows its own glyphs cannot show the strip before it is d
     // on the nearest side — the top — so the page would remember another side.
     await browser.mouse.move(UNDOCKED.x + 30, 40);
     await browser.mouse.down();
+    await browser.mouse.move(UNDOCKED.x + 30, 120);
     await browser.mouse.move(UNDOCKED.x + 30, 300);
     await browser.mouse.up();
     await settle(ui);
@@ -1649,6 +1658,36 @@ test('a host rule that shows its own glyphs cannot show the strip before it is d
     const docked = await shot(ui);
     expect(docked.darkCount(KEPT_BANDS.right, 0.6), 'the strip hangs on the right').toBeGreaterThan(0);
     expect(docked.darkCount(UNDOCKED, 0.6), 'and shows nothing at the fallback place').toBe(0);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('the keys are the editor’s while the font is still on its way', async ({ app, browser, screen }) => {
+  const embed = await startEmbed(await bundleFolder(), { a: EMPTY_SOURCE });
+  try {
+    const ui: Ui = { app, browser, screen };
+    embed.hold(FONT_PATH);
+    await browser.goto(`${embed.url}/embedded.html`, { waitUntil: 'domcontentloaded' });
+    await expect.poll(() => embed.requests(FONT_PATH)).toBeGreaterThan(0);
+    await settle(ui);
+
+    // A press into the editor is what makes its keys its own on someone else's
+    // page, and no font has to be measured to know that: the keys the editor
+    // offers are its from the moment it can take a press (#63). The font is
+    // still on its way, so nothing has been measured and nothing is placed.
+    await clickScene(ui, { x: PAPER.x, y: PAPER.y }, [], EMPTY);
+    await browser.keyboard.press('Meta+k');
+    await expect(
+      screen.getByRole('dialog', 'Commands'),
+      'the Commands answer while the font is held',
+    ).toBeVisible();
+
+    // And the keys the note holds are the note's: Escape shuts it, and the note
+    // hands the keys back with nothing of the Scene touched.
+    await browser.keyboard.press('Escape');
+    await expect(screen.getByRole('dialog', 'Commands')).toBeHidden();
+    expect(embed.writes('a'), 'a key changed no Scene on the way').toBe(0);
   } finally {
     await embed.stop();
   }
