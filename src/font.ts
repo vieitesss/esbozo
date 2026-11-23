@@ -1,31 +1,3 @@
-/**
- * Font: the bytes a Scene is measured and drawn with.
- *
- * Layout measures with a font file and the Renderer draws in whatever family
- * the host resolves `--font-hand` to, so the CLI has to make the two agree: the
- * font it measures with is the font it hands resvg. This module is the one
- * place a font file is read, checked and chosen, so `ez render`, `ez check` and
- * `ez png` cannot disagree about which bytes are used or what a broken file
- * says — and check and png measure the same bytes for the same inputs.
- *
- * Precedence, one resolver (`chooseFont`): `--font` wins, then a local
- * `@font-face` in the stylesheet whose family matches the effective
- * `--font-hand`, then the bundled Kalam. Only files on this machine can be
- * read: a remote `@font-face` is ignored with a note. The stylesheet's
- * `--font-hand` only matters, and only has to resolve, when the font comes from
- * there; `--font` never needs it.
- *
- * Kalam (OFL) is bundled, so a Scene needs no font file to be measured and
- * drawn in the CLI. A font file is parsed once (`parseFontFile`): its advances,
- * its family, its vertical metrics and its glyph count all come from that one
- * parse, so validating a font and measuring with it reads the file once. A file
- * that does not parse, or has no glyphs, is a plain-text problem rather than a
- * drawing with no words. WOFF and WOFF2 are named and rejected, because resvg
- * draws no glyphs from them.
- *
- * Only the CLI imports this: the bytes of the bundled font are an asset, and
- * the editor bundle takes its font from the URL the host passes it instead.
- */
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fontFaces, resolveVariables, themeVariables } from './css.js';
@@ -34,20 +6,15 @@ import kalam from '../fonts/Kalam-Regular.ttf';
 import { createLayout, parseFontFile } from './layout.js';
 import type { Layout, ParsedFont } from './layout.js';
 
-/** The name the bundled font draws as. */
 const BUNDLED_FONT_NAME = 'Kalam';
 
-/** Kalam, bundled so the CLI needs no font file to work. */
 const BUNDLED_FONT: Uint8Array = kalam;
 
-/** Only files on this machine can be read; a URL is not one. */
 const REMOTE_URL = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
 
-/** A font read once: the bytes it came from, the family it draws as and how to measure and outline with it. */
 export interface FontFile {
   bytes: Uint8Array;
   family: string;
-  /** The file parsed once: Layout measures with it and draws its words from it. */
   parsed: ParsedFont;
 }
 
@@ -55,28 +22,19 @@ type FontResult =
   | { ok: true; value: FontFile }
   | { ok: false; problems: string[] };
 
-/**
- * A font chosen for a command, with the notes worth saying that did not stop
- * it. `family` is the effective `--font-hand` the command draws in, or null
- * when the drawing takes the family from the file itself: `--font` wins, so a
- * stylesheet family is only read, and only has to resolve, without one.
- */
 export type ChosenFont =
   | { ok: true; value: FontFile; family: string | null; notes: string[] }
   | { ok: false; problems: string[] };
 
-/** The Layout for a font file, so measuring and drawing use the same bytes. */
 export function layoutFor(font: FontFile): Layout {
   return createLayout(font.parsed);
 }
 
-/** A stylesheet read once: its text and the path a relative `@font-face` resolves against. */
 export interface Stylesheet {
   css: string;
   path: string;
 }
 
-/** Reads a stylesheet, or returns null when the command was given none. */
 export async function readStylesheet(
   path: string | undefined,
 ): Promise<{ ok: true; value: Stylesheet | null } | { ok: false; problems: string[] }> {
@@ -90,12 +48,6 @@ export async function readStylesheet(
   }
 }
 
-/**
- * The `--font-hand` a stylesheet sets for a theme, or null when it leaves the
- * font to the file. Only `chooseFont` reads it, so the precedence cannot be
- * split across callers: it decides which `@font-face` a stylesheet font comes
- * from, and is the family the drawing names.
- */
 function stylesheetFamily(
   stylesheet: Stylesheet | null,
   theme: Theme,
@@ -118,14 +70,6 @@ function stylesheetFamily(
   return { ok: true, value: resolved.value.trim() === '' ? null : resolved.value.trim() };
 }
 
-/**
- * The font a command measures and draws with: `--font`, then a local
- * `@font-face` for the stylesheet's `--font-hand`, then the bundled Kalam.
- * This is the one place the precedence lives: an explicit `--font` returns
- * before the stylesheet's family is resolved at all, so `check` and `png`
- * cannot disagree about it. `theme` decides which `@font-face` blocks belong
- * to the theme.
- */
 export async function chooseFont(
   fontPath: string | undefined,
   stylesheet: Stylesheet | null,
@@ -143,8 +87,6 @@ export async function chooseFont(
 
   const notes: string[] = [];
   if (stylesheet !== null) {
-    // A `@font-face` inside dark scope belongs to the dark theme alone, so the
-    // light theme never reads it. A later rule wins, as in CSS.
     const face = fontFaces(stylesheet.css)
       .filter((candidate) => theme === 'dark' || !candidate.dark)
       .findLast((candidate) => familyMatches(candidate.family, family.value));
@@ -167,7 +109,6 @@ export async function chooseFont(
     : bundled;
 }
 
-/** Whether `family` names the `@font-face` family, allowing a font stack. */
 function familyMatches(faceFamily: string, fontFamily: string | null): boolean {
   if (fontFamily === null) {
     return false;

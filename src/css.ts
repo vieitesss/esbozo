@@ -34,10 +34,8 @@
 export const THEMES = ['light', 'dark'] as const;
 export type Theme = (typeof THEMES)[number];
 
-/** Custom properties that apply to one theme, in the order the cascade left them. */
 export type Variables = Readonly<Record<string, string>>;
 
-/** A colour in gamma-encoded sRGB: 0–255 channels, alpha 0–255. */
 export interface Rgba {
   r: number;
   g: number;
@@ -45,13 +43,8 @@ export interface Rgba {
   a: number;
 }
 
-/** A `var()`/`color-mix()` result, or the smallest expression that would not resolve. */
 export type Resolution = { ok: true; value: string } | { ok: false; unresolved: string };
 
-/**
- * A `@font-face` rule: the family it declares, the first source it lists, and
- * whether the rule only applies to the dark theme.
- */
 export interface FontFace {
   family: string;
   url: string;
@@ -62,11 +55,6 @@ const LIGHT_ROOT = /^(?::root|html)$/i;
 const DARK_ROOT = /^(?::root|html)(?:\.dark|\[data-theme\s*=\s*(?:"dark"|'dark'|dark)\])$/i;
 const DARK_MEDIA = /@media[^{]*prefers-color-scheme\s*:\s*dark/i;
 
-/**
- * The custom properties that apply to `theme`. Dark starts from the light
- * declarations, so a stylesheet that only declares `:root` describes both
- * themes and a dark block only has to name what changes.
- */
 export function themeVariables(css: string, theme: Theme): Variables {
   const base: Record<string, string> = {};
   const dark: Record<string, string> = {};
@@ -87,7 +75,6 @@ export function themeVariables(css: string, theme: Theme): Variables {
   return theme === 'dark' ? { ...base, ...dark } : base;
 }
 
-/** Every `@font-face` rule in a stylesheet, in source order, with its theme scope. */
 export function fontFaces(css: string): FontFace[] {
   const faces: FontFace[] = [];
   eachRule(stripComments(css), (prelude, body, inDarkBlock) => {
@@ -107,16 +94,10 @@ export function fontFaces(css: string): FontFace[] {
   return faces;
 }
 
-/**
- * Resolves every `var()` and `color-mix()` in a value. Recursion carries the
- * names already expanded, so `--a: var(--b); --b: var(--a)` is reported as
- * unresolved instead of looping.
- */
 export function resolveVariables(value: string, variables: Variables): Resolution {
   return resolveText(value, variables, [], 0);
 }
 
-/** A colour in the subset's grammar, or null when `text` is not one. */
 export function readColour(text: string): Rgba | null {
   const trimmed = text.trim();
   const hex = /^#([0-9a-f]{3,8})$/i.exec(trimmed);
@@ -153,15 +134,10 @@ export function readColour(text: string): Rgba | null {
   return NAMED_COLOURS.get(trimmed.toLowerCase()) ?? null;
 }
 
-/**
- * `rgb()` text for a colour. Only a palette colour is ever written this way,
- * and a palette colour is opaque.
- */
 export function colourText(colour: Rgba): string {
   return `rgb(${colour.r}, ${colour.g}, ${colour.b})`;
 }
 
-/** The longest nesting `resolveText` follows before calling a value unresolved. */
 const MAX_DEPTH = 32;
 
 const FUNCTIONS = ['color-mix', 'var'] as const;
@@ -202,7 +178,6 @@ function resolveText(
   return { ok: true, value: out };
 }
 
-/** `var(` or `color-mix(` starting at `index`, at a word boundary. */
 function functionAt(text: string, index: number): { name: (typeof FUNCTIONS)[number]; open: number } | null {
   if (index > 0 && /[-\w]/.test(text[index - 1] ?? '')) {
     return null;
@@ -215,7 +190,6 @@ function functionAt(text: string, index: number): { name: (typeof FUNCTIONS)[num
   return null;
 }
 
-/** The index of the `)` matching the `(` at `open`, or -1 when it is unclosed. */
 function closingParen(text: string, open: number): number {
   let depth = 0;
   for (let index = open; index < text.length; index += 1) {
@@ -232,7 +206,6 @@ function closingParen(text: string, open: number): number {
   return -1;
 }
 
-/** Splits on `separator`, ignoring any inside parentheses. */
 function splitTopLevel(text: string, separator: string): string[] {
   const parts: string[] = [];
   let depth = 0;
@@ -291,11 +264,6 @@ function resolveMix(
   return { ok: true, value: mixed };
 }
 
-/**
- * `in srgb, <colour> p%, <colour>` into `rgb()`. The one weight is the whole
- * grammar: a second weight, or none, is reported as unresolved rather than
- * guessed at. The result is opaque, because every palette colour is.
- */
 function mixColours(arguments_: string): string | null {
   const parts = splitTopLevel(arguments_, ',').map((part) => part.trim());
   if (parts.length !== 3 || !/^in\s+srgb$/i.test(parts[0] ?? '')) {
@@ -316,11 +284,6 @@ function mixColours(arguments_: string): string | null {
   });
 }
 
-/**
- * One `color-mix` operand: the first carries the percentage, the second does
- * not. A weight where the grammar has none, or no weight where it has one, is
- * not a shape this subset reads.
- */
 function readMixOperand(text: string, weighted: boolean): { colour: Rgba; weight: number } | null {
   const match = /^(.*?)(?:\s+([\d.]+)%)?$/.exec(text.trim());
   if (match === null) {
@@ -385,7 +348,6 @@ function clamp(value: number): number {
   return Math.min(255, Math.max(0, value));
 }
 
-/** The CSS named colours, as the hex they are defined by. */
 const NAMED_HEX: Readonly<Record<string, string>> = {
   aliceblue: 'f0f8ff',
   antiquewhite: 'faebd7',
@@ -538,12 +500,10 @@ const NAMED_HEX: Readonly<Record<string, string>> = {
   transparent: '00000000',
 };
 
-/** The names above, as colours. A Map, so only own keys are ever looked up. */
 const NAMED_COLOURS: ReadonlyMap<string, Rgba> = new Map(
   Object.entries(NAMED_HEX).map(([name, hex]) => [name, readColour(`#${hex}`) as Rgba]),
 );
 
-/** Every `selector { body }` and `@rule { body }` at this level of a stylesheet. */
 function topLevelBlocks(css: string): { prelude: string; body: string }[] {
   const blocks: { prelude: string; body: string }[] = [];
   let depth = 0;
@@ -570,13 +530,6 @@ function topLevelBlocks(css: string): { prelude: string; body: string }[] {
   return blocks;
 }
 
-/**
- * Calls `visit` for every rule that carries declarations, telling it whether
- * the rule sits in dark scope. Only `@media (prefers-color-scheme: dark)` is a
- * group this subset enters; `@media print`, `@supports`, `@layer`, `@container`
- * and the rest are skipped for both themes rather than guessed at. A block that
- * holds rules carries its own dark scope down to them.
- */
 function eachRule(
   css: string,
   visit: (prelude: string, body: string, inDarkBlock: boolean) => void,
@@ -588,7 +541,6 @@ function eachRule(
       if (DARK_MEDIA.test(prelude)) {
         eachRule(block.body, visit, true);
       } else if (!block.body.includes('{')) {
-        // `@font-face` carries declarations of its own, so it is visited as is.
         visit(prelude, block.body, inDarkBlock);
       }
       continue;
@@ -601,12 +553,10 @@ function eachRule(
   }
 }
 
-/** Whether a rule's prelude lists a dark root scope, such as `:root.dark`. */
 function namesDarkRoot(prelude: string): boolean {
   return prelude.split(',').some((selector) => DARK_ROOT.test(selector.trim()));
 }
 
-/** Every declaration in a block, in source order. */
 function declarationsOf(body: string): { name: string; value: string }[] {
   const declarations: { name: string; value: string }[] = [];
   for (const raw of body.split(';')) {
@@ -623,7 +573,6 @@ function declarationsOf(body: string): { name: string; value: string }[] {
   return declarations;
 }
 
-/** Adds a block's custom properties to a table; a later declaration wins. */
 function assign(table: Record<string, string>, body: string): void {
   for (const declaration of declarationsOf(body)) {
     if (declaration.name.startsWith('--')) {
@@ -667,8 +616,6 @@ export function resolveSvgColours(
         problems.push(`the SVG colour ${name} is not one this subset reads: ${resolution.value.trim()}`);
         return match;
       }
-      // A font stack may arrive quoted — `"Kalam", cursive` — so the quotes
-      // have to be escaped before they land inside a double-quoted attribute.
       return `${name}="${resolution.value.replace(/"/g, '&quot;')}"`;
     },
   );

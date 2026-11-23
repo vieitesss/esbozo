@@ -8,7 +8,6 @@
  * OpenSSL's sha256 for the same bytes.
  */
 
-/** Round constants: the first 32 bits of the fractional parts of the cube roots of the first 64 primes. */
 const ROUND_CONSTANTS = new Uint32Array([
   0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
   0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
@@ -20,7 +19,6 @@ const ROUND_CONSTANTS = new Uint32Array([
   0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
 ]);
 
-/** SHA-256 of a UTF-8 string, as lowercase hex. */
 export function sha256Hex(text: string): string {
   return toHex(sha256(new TextEncoder().encode(text)));
 }
@@ -40,7 +38,6 @@ export async function sha256HexAsync(text: string): Promise<string> {
   return toHex(new Uint8Array(await subtle.digest('SHA-256', bytes)));
 }
 
-/** SHA-256 of a byte string, as 32 raw bytes. */
 export function sha256(input: Uint8Array): Uint8Array {
   const message = pad(input);
   const words = new Uint32Array(64);
@@ -117,7 +114,6 @@ export function sha256(input: Uint8Array): Uint8Array {
   return digest;
 }
 
-/** Append the 0x80 marker and the 64-bit big-endian bit length, in 512-bit blocks. */
 function pad(input: Uint8Array): Uint8Array {
   const bitLength = input.length * 8;
   const length = Math.ceil((input.length + 9) / 64) * 64;

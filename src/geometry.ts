@@ -1,55 +1,21 @@
-/**
- * Geometry: the two pieces of maths the Renderer needs and the Scene does not.
- *
- * An Element's outline is where a Snapped arrow or line end lands. The end is
- * placed where the line from the other end, through the target's centre,
- * crosses that outline: an arrow that points at a box points at its middle and
- * stops on its edge. Rectangles (round corners included), ellipses and
- * diamonds are the Elements with an outline; everything else cannot be a Snap
- * target.
- *
- * The arrow head maths is here too: a head is a triangle whose apex is the
- * end and whose base sits behind it along the arrow, so a head points into its
- * target rather than away from it.
- *
- * Where a shaft's Label sits is the same kind of pure arithmetic, and it lives
- * here so the drawing and the editor's drag place the words with one rule.
- *
- * A shaft of two or more points resolves here too: the ends a Snap moves, the
- * runs that bend `round` into one smooth curve, the corners that `sharp`
- * softens with a small fillet, and the arc-length measure the Label, the arrow
- * heads and the page bounds all read. One owner for that path is what keeps the
- * ink, the heads pointing along it and the words on it from drifting apart.
- *
- * A shaft's Label cuts the gap it needs out of that path here as well, so a
- * drawing cuts its own ink with the same pieces it measured it with.
- */
 import type { Corner, Point } from './scene.js';
 import type { Box } from './layout.js';
 
-/** The outline of an Element, as a Snap target. */
 export interface Outline {
   type: 'rectangle' | 'ellipse' | 'diamond';
   x: number;
   y: number;
   width: number;
   height: number;
-  /** A rectangle's and a diamond's corner rounding; an ellipse has no corners. */
   corners: 'sharp' | 'round';
 }
 
-/** The corner radius of an Element with round corners, in pixels. */
 const CORNER_RADIUS = 12;
 
 function centreOf(outline: Outline): Point {
   return { x: outline.x + outline.width / 2, y: outline.y + outline.height / 2 };
 }
 
-/**
- * One rounded vertex: the two points where the outline leaves the straight
- * edges, the arc's centre, and its radius. A sharp corner has radius 0 and both
- * points on the vertex itself.
- */
 export interface Fillet {
   vertex: Point;
   before: Point;
@@ -58,12 +24,6 @@ export interface Fillet {
   radius: number;
 }
 
-/**
- * The radius a rounded Element actually draws with: one shared rule for the
- * Renderer's paths and for Snap, so the two cannot drift. A rectangle is
- * limited by its half-width and half-height; a diamond also by its edges, so
- * neighbouring fillets never meet. An ellipse has no corners to round.
- */
 function cornerRadius(outline: Outline): number {
   if (outline.corners === 'sharp' || outline.type === 'ellipse') {
     return 0;
@@ -78,7 +38,6 @@ function cornerRadius(outline: Outline): number {
   return Math.min(fit, (a * edge) / (2 * b), (b * edge) / (2 * a));
 }
 
-/** The four corners of an outline, in boundary order. */
 function cornersOf(outline: Outline): Point[] {
   const { x, y, width, height } = outline;
   if (outline.type === 'rectangle') {
@@ -98,12 +57,6 @@ function cornersOf(outline: Outline): Point[] {
   ];
 }
 
-/**
- * Every vertex rounded by `cornerRadius`, in boundary order. A fillet of radius
- * r sits on the interior bisector where the two edges are r away from it, and
- * meets each edge where the arc is tangent to it, so a rectangle and a diamond
- * round the same way and at the same radius.
- */
 export function fillets(outline: Outline): Fillet[] {
   const radius = cornerRadius(outline);
   const corners = cornersOf(outline);
@@ -131,19 +84,11 @@ export function fillets(outline: Outline): Fillet[] {
   });
 }
 
-/**
- * Where the ray from the outline's centre towards `from` leaves the outline.
- * `from` is the other end of the arrow, so the returned point is where the
- * line between the two ends meets the target's real edge: an edge, or the arc
- * that rounds a corner.
- */
 function pointOnOutline(outline: Outline, from: Point): Point {
   const centre = centreOf(outline);
   const dx = from.x - centre.x;
   const dy = from.y - centre.y;
   if (dx === 0 && dy === 0) {
-    // Degenerate: the other end sits on the centre, so aim up and let the
-    // outline decide where that lands.
     return pointOnOutline(outline, { x: centre.x, y: centre.y - outline.height });
   }
   if (outline.type === 'ellipse') {
@@ -159,34 +104,10 @@ function pointOnOutline(outline: Outline, from: Point): Point {
   return { x: centre.x + direction.x * reach, y: centre.y + direction.y * reach };
 }
 
-/**
- * How many points one walk around an outline samples. Fine enough that two bars
- * crossing at their middles find a pairing, and short enough to stay a cheap
- * loop in a Renderer.
- */
 const OUTLINE_WALK = 72;
 
-/**
- * How many times the walk that finds where a shaft crosses an outline halves
- * the span it has left: 30 halves a thousand pixels to a millionth of one, and
- * keeps the answer the outline itself gives rather than a shape's own algebra.
- */
 const CROSSING_WALK = 30;
 
-/**
- * The two ends an arrow or line draws, each Snapped end moved onto its target's
- * outline. An end aims at the other end's target centre when that end is
- * Snapped too, or at the other end itself when it is free.
- *
- * Two targets may overlap, so the two outline points can land the wrong way
- * round along the line between their centres, or on the same point. The start
- * end then leaves its own outline on the far side from the end target; if even
- * that point cannot reach the end target, another pair of true outline points
- * is walked out, so the shaft still runs into the end target and its head still
- * points into it. Only a target drawn wholly inside the other has no such pair:
- * then the two ends keep the points on the line between the centres, which is
- * all the two outlines offer.
- */
 function settledEnds(
   points: readonly [Point, Point],
   startTarget: Outline | undefined,
@@ -213,13 +134,6 @@ function settledEnds(
   return anotherShaft(startTarget, endTarget) ?? [from, to];
 }
 
-/**
- * Another pair of true outline points for two targets the centre line cannot
- * join: the start target's outline is walked from its right-hand point and on
- * clockwise, with the end aiming at each point in turn, and the first point the
- * end can be reached from outside wins. Two crossed bars land on a shaft from
- * one bar's outer edge into the other's, rather than a stub.
- */
 function anotherShaft(startTarget: Outline, endTarget: Outline): [Point, Point] | null {
   const centre = centreOf(startTarget);
   const reach = Math.hypot(startTarget.width, startTarget.height) + 1;
@@ -237,14 +151,6 @@ function anotherShaft(startTarget: Outline, endTarget: Outline): [Point, Point] 
   return null;
 }
 
-/**
- * Whether a shaft from one outline point to another arrives inside the end
- * target, so the head the Renderer builds on it points into the target: the
- * start is outside the target, and a step past the end point is inside it while
- * a step back from it is not. A shaft that lands and stops — the two outlines
- * meeting, or a stub inside the target — fails, because its step back is inside
- * too.
- */
 function entersTarget(head: Point, tip: Point, target: Outline): boolean {
   const length = Math.hypot(tip.x - head.x, tip.y - head.y);
   if (length === 0 || insideOutline(target, head)) {
@@ -257,7 +163,6 @@ function entersTarget(head: Point, tip: Point, target: Outline): boolean {
   return insideOutline(target, ahead) && !insideOutline(target, behind);
 }
 
-/** One end, moved onto its target's outline, aiming at the other end. */
 function outlineEnd(
   point: Point,
   target: Outline | undefined,
@@ -270,17 +175,12 @@ function outlineEnd(
   return pointOnOutline(target, otherTarget === undefined ? otherPoint : centreOf(otherTarget));
 }
 
-/** Whether the drawn shaft runs against the line from the first centre to the second. */
 function runsAgainst(from: Point, to: Point, fromCentre: Point, toCentre: Point): boolean {
   const along = { x: to.x - from.x, y: to.y - from.y };
   const between = { x: toCentre.x - fromCentre.x, y: toCentre.y - fromCentre.y };
   return along.x * between.x + along.y * between.y < 0;
 }
 
-/**
- * Whether a point is inside an outline: the Element's shape, not the box around
- * it, so an ellipse's empty bounding-box corner is not under the pointer.
- */
 export function insideOutline(outline: Outline, point: Point): boolean {
   const centre = centreOf(outline);
   const dx = point.x - centre.x;
@@ -298,11 +198,6 @@ export function insideOutline(outline: Outline, point: Point): boolean {
   return length <= reach + 1e-9;
 }
 
-/**
- * How far from `centre` along the unit `direction` a ray crosses the boundary
- * of a rounded outline: the nearest crossing of any straight run between two
- * fillets and any fillet arc.
- */
 function boundaryReach(centre: Point, direction: Point, corners: Fillet[]): number {
   let nearest = Number.POSITIVE_INFINITY;
   for (const [index, corner] of corners.entries()) {
@@ -319,7 +214,6 @@ function boundaryReach(centre: Point, direction: Point, corners: Fillet[]): numb
   return nearest;
 }
 
-/** How far along `direction` a ray from `origin` meets the segment `from`-`to`. */
 function rayToSegment(origin: Point, direction: Point, from: Point, to: Point): number | null {
   const edge = { x: to.x - from.x, y: to.y - from.y };
   const denominator = direction.x * edge.y - direction.y * edge.x;
@@ -335,7 +229,6 @@ function rayToSegment(origin: Point, direction: Point, from: Point, to: Point): 
   return along;
 }
 
-/** How far along `direction` a ray from `origin` meets a fillet's arc, if it meets it at all. */
 function rayToFillet(origin: Point, direction: Point, fillet: Fillet): number | null {
   if (fillet.radius === 0) {
     return null;
@@ -360,7 +253,6 @@ function rayToFillet(origin: Point, direction: Point, fillet: Fillet): number | 
   return null;
 }
 
-/** Whether a point on a fillet's circle lies on the arc between its two tangent points. */
 function withinArc(fillet: Fillet, point: Point): boolean {
   const sweep = halfTurn(arcAngle(fillet, fillet.after) - arcAngle(fillet, fillet.before));
   const reached = halfTurn(arcAngle(fillet, point) - arcAngle(fillet, fillet.before));
@@ -371,14 +263,12 @@ function arcAngle(fillet: Fillet, point: Point): number {
   return Math.atan2(point.y - fillet.centre.y, point.x - fillet.centre.x);
 }
 
-/** An angle folded into (-pi, pi]. */
 function halfTurn(angle: number): number {
   const turn = 2 * Math.PI;
   const folded = angle - turn * Math.floor((angle + Math.PI) / turn);
   return folded === -Math.PI ? Math.PI : folded;
 }
 
-/** Unit vector from `from` to `to`; a zero-length line points right, so it still draws the same every run. */
 function unit(from: Point, to: Point): Point {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
@@ -386,7 +276,6 @@ function unit(from: Point, to: Point): Point {
   return length === 0 ? { x: 1, y: 0 } : { x: dx / length, y: dy / length };
 }
 
-/** A head triangle: the apex on the end, its base behind it, along the arrow. */
 export function arrowHeadTriangle(
   apex: Point,
   direction: Point,
@@ -402,52 +291,24 @@ export function arrowHeadTriangle(
   ];
 }
 
-/**
- * The side of a shaft a Label sits on, as a unit normal: up where the shaft has
- * an upper side, and left where it is vertical. The rule depends on the
- * heading, not on which way the arrow points, so two arrows along one line keep
- * their words on the same side.
- */
 export function shaftSide(along: Point): Point {
   const length = Math.hypot(along.x, along.y);
   if (length === 0) {
-    // A shaft with no length has no heading, so it keeps the upper side it
-    // would have had: its words stay where a level shaft's do.
     return { x: 0, y: -1 };
   }
-  // The perpendicular that points up for a level shaft. On a diagonal only one
-  // of the two perpendiculars points up, so take that one; a vertical shaft
-  // points neither up nor down, so it takes the left.
   const normal = { x: along.y / length, y: -along.x / length };
   return normal.y > 0 || (normal.y === 0 && normal.x > 0)
     ? { x: -normal.x, y: -normal.y }
     : normal;
 }
 
-/**
- * The radius a `sharp` bend point is softened by, in pixels, and the most it
- * may take from either neighbouring segment. Small enough that an angled route
- * still reads as a corner, large enough that it never looks mechanically cut —
- * at `roughness: 0` as much as at 2.
- */
 const FILLET_RADIUS = 7;
 
-/**
- * How far a chord of a curve may sit from the ink it measures, in pixels. The
- * chords are as many as a curve needs to stay inside it, so a short gentle bend
- * is measured by a handful and a long sweeping one by hundreds.
- */
 const CURVE_FLATNESS = 0.1;
 
-/** The fewest and the most steps one curve is measured in. */
 const CURVE_MIN_STEPS = 16;
 const CURVE_MAX_STEPS = 1024;
 
-/**
- * How many times the arc inside one step is halved to find where a distance
- * lands in it: enough that the bracket is a float's own resolution, and cheap
- * enough to solve for every Label and every head a Scene draws.
- */
 const CURVE_SOLVE_STEPS = 40;
 
 /**
@@ -457,23 +318,18 @@ const CURVE_SOLVE_STEPS = 40;
  */
 const QUADRATIC_EPSILON = 1e-12;
 
-/** How far along a curve the direction at a cusp is read from, as a fraction of the piece. */
 const CURVE_TOUCH = 1e-3;
 
-/** What every piece of a resolved shaft measures: an arc length from `from` to `to`. */
 interface ShaftPieceBase {
   readonly from: Point;
   readonly to: Point;
-  /** Arc length from `from` to `to`, so a caller never has to guess how long a piece is. */
   readonly length: number;
 }
 
-/** A straight run between two points. */
 interface StraightPiece extends ShaftPieceBase {
   readonly kind: 'straight';
 }
 
-/** A cubic curve between two points, drawn by its two control points. */
 interface CurvedPiece extends ShaftPieceBase {
   readonly kind: 'curved';
   readonly control1: Point;
@@ -486,10 +342,8 @@ interface CurvedPiece extends ShaftPieceBase {
   readonly arcs: readonly number[];
 }
 
-/** One piece of a resolved shaft: a straight run, or the cubic curve it bends by. */
 export type ShaftPiece = StraightPiece | CurvedPiece;
 
-/** The box a resolved shaft covers, its bulge extremes included. */
 interface ShaftBounds {
   x: number;
   y: number;
@@ -497,59 +351,26 @@ interface ShaftBounds {
   height: number;
 }
 
-/**
- * An arrow's or line's shaft as it is really drawn: two or more points resolved
- * into straight runs, smooth curves and softened corners, measured once so the
- * ink, the heads and the words cannot disagree about where the shaft is.
- */
 export interface ShaftPath {
-  /** The end the shaft starts at, after Snap moved it. */
   readonly start: Point;
-  /** The end it finishes at, after Snap moved it. */
   readonly end: Point;
-  /** The pieces in drawing order: `start` to `end`, with nothing between them. */
   readonly pieces: readonly ShaftPiece[];
-  /**
-   * The ink of each segment of the stored points, in their order: where the
-   * segments' halfway places are read from, so the dots drawn on them and the
-   * ink they sit on cannot disagree.
-   */
   readonly segments: readonly ShaftSegment[];
-  /** Total arc length of every piece: how far the ink runs from `start` to `end`. */
   readonly length: number;
   readonly bounds: ShaftBounds;
 }
 
-/**
- * One segment of a shaft's stored points, as the ink between it and the point
- * after it runs: a corner's fillet is the corner's ink, so a segment stops where
- * the fillet starts.
- */
 interface ShaftSegment {
-  /** The `points` index the segment ends at: the index a bend inserted on it takes. */
   readonly index: number;
-  /** How far along the whole drawn shaft the segment's own ink starts. */
   readonly from: number;
-  /** And where it ends. */
   readonly to: number;
 }
 
-/** A dot on a selected shaft: the press that pulls a new bend point out of its ink. */
 interface ShaftDot {
-  /** Halfway along the segment's drawn ink, so the dot sits on the curve, not on its chord. */
   readonly at: Point;
-  /** The `points` index the bend it pulls out takes. */
   readonly index: number;
 }
 
-/**
- * Every point an arrow or line draws through: the two ends, each Snapped end
- * moved onto its target's outline, and every bend point where the Scene put it.
- *
- * An end with a bend point beside it aims at that point, which is the direction
- * the shaft actually leaves in; a two-point shaft has no bend point to aim at,
- * so it keeps the two-target arithmetic that settles overlapping outlines.
- */
 function drawnPoints(
   points: readonly [Point, Point, ...Point[]],
   startTarget: Outline | undefined,
@@ -560,13 +381,8 @@ function drawnPoints(
     return settledEnds([points[0], points[1]], startTarget, endTarget);
   }
   const drawn = points.map((point) => ({ x: point.x, y: point.y }));
-  // A loop is one Snap held at both ends — the same Element — and not two
-  // Elements that happen to land in the same place: those two ends are two
-  // Snaps, each aiming at the bend point beside it.
   const loop = points[0].snap !== undefined && points[0].snap === points[last]!.snap;
   if (last === 2 && loop && startTarget !== undefined) {
-    // Both ends Snap to the same target, so both aim at the one bend point
-    // between them and would land on one point of its outline.
     [drawn[0], drawn[last]] = loopEnds(startTarget, points[1]);
     return drawn;
   }
@@ -579,20 +395,6 @@ function drawnPoints(
   return drawn;
 }
 
-/**
- * Where one Snapped end draws, and what the ink beside it does. An end beside a
- * bend outside its target aims at that bend, which is the direction the shaft
- * leaves in. An end beside a bend the target covers has no such direction to
- * aim at — the ray through the bend leaves on the far edge, and a head drawn
- * there points out of the target with its wings under the fill — so it aims at
- * the nearest point of the shaft outside the target instead, and lands where
- * the ink between them crosses the outline. That ink is the edge the shaft
- * reaches from outside, and it is the last ink of the shaft: what ran on past
- * the crossing hangs behind the head inside the target, so it is not drawn.
- *
- * A loop keeps aiming at the bend it shares: its two ends aim at one point, and
- * the ink between them is the loop itself rather than a leg behind either head.
- */
 function aimEnd(
   drawn: Point[],
   points: readonly [Point, Point, ...Point[]],
@@ -614,8 +416,6 @@ function aimEnd(
     }
   }
   if (outside === -1) {
-    // Every point of the shaft sits inside the target: there is no ink outside
-    // it to aim from, and the ray through the bend beside the end stands.
     return;
   }
   const tip = crossingInto(target, points[outside]!, points[outside - step]!);
@@ -644,18 +444,6 @@ function crossingInto(target: Outline, from: Point, to: Point): Point {
   return lerp(from, to, inside);
 }
 
-/**
- * The two outline points a three-point loop leaves and returns at. Both ends
- * aim past the one bend point, spread either side of it across the direction the
- * loop leaves in, so the shaft leaves the outline at one point, loops through
- * the bend and comes back at another instead of retracing one line.
- *
- * The spread is the box's own half-width only while the bend is as close as
- * that; a bend further away spreads as far as it sits, so the angle between the
- * two aims never falls below a right angle. A 2px box with a bend 400px off
- * would otherwise put both ends on the same point of its outline and draw the
- * loop as one line retraced.
- */
 function loopEnds(target: Outline, bend: Point): [Point, Point] {
   const centre = centreOf(target);
   const through = unit(centre, bend);
@@ -670,11 +458,6 @@ function loopEnds(target: Outline, bend: Point): [Point, Point] {
   ];
 }
 
-/**
- * The two ends a shaft draws between, each Snapped end moved onto its target's
- * outline: the ends the editor picks by, settled without measuring a single
- * curve between them.
- */
 export function shaftEnds(
   points: readonly [Point, Point, ...Point[]],
   startTarget: Outline | undefined,
@@ -684,23 +467,10 @@ export function shaftEnds(
   return [drawn[0]!, drawn[drawn.length - 1]!];
 }
 
-/**
- * Whether a shaft of these points keeps its Snapped ends when it moves: a shaft
- * with a bend point between its ends carries them, and a straight one of two
- * points lets them go where they draw first, so a drag of it is not a no-op
- * (`released`, in the editor's `snap.ts`).
- */
 export function carriesSnaps(points: readonly Point[]): boolean {
   return points.length > 2;
 }
 
-/**
- * The path a shaft draws through. Each middle point turns by its own `corner`:
- * consecutive `round` points form one continuous smooth curve, and a `sharp`
- * point breaks that curve into a corner softened by a short fillet. A point
- * that writes no corner takes the Element's, resolved here once so the ink, the
- * heads and the words cannot each fall back on their own answer.
- */
 export function shaftPath(
   points: readonly [Point, Point, ...Point[]],
   corners: Corner,
@@ -711,8 +481,6 @@ export function shaftPath(
   const { pieces, segments } = piecesOf(gathered(drawn, points, corners));
   const start = drawn[0]!;
   const end = drawn[drawn.length - 1]!;
-  // A shaft whose points all sit on one another still draws its one point, so
-  // the ends it reports and the ink it makes stay the same thing.
   const inked = pieces.length === 0 ? [straight(start, end)] : pieces;
   return {
     start: { x: start.x, y: start.y },
@@ -724,12 +492,6 @@ export function shaftPath(
   };
 }
 
-/**
- * The halfway dot of every segment of a drawn shaft, in the stored points'
- * order: where a drag pulls a new bend point out of the ink, and the index that
- * point takes. `shaftPath` is the one owner of where a shaft's ink runs, so a
- * dot and the ink it sits on cannot disagree about where halfway is.
- */
 export function shaftDots(path: ShaftPath): ShaftDot[] {
   return path.segments.map((segment) => ({
     at: pointAt(path, (segment.from + segment.to) / 2),
@@ -737,28 +499,16 @@ export function shaftDots(path: ShaftPath): ShaftDot[] {
   }));
 }
 
-/** One point a shaft draws through, and the corner it turns by; an end has no bend to style. */
 interface ShaftPoint {
   readonly at: Point;
   readonly corner: Corner;
-  /** The `points` index it is stored at: the index a segment ending here inserts at. */
   readonly index: number;
 }
 
-/**
- * The corner one point turns by: its own `corner`, or the Element's when it
- * writes none. One owner for that rule, so what a bend is drawn by and what its
- * handle looks like cannot disagree.
- */
 export function cornerOf(point: Point | undefined, corners: Corner): Corner {
   return point?.corner ?? corners;
 }
 
-/**
- * The points to draw through, each with the corner it turns by, in drawing
- * order: a repeated point adds no ink and no direction, so it is dropped, and a
- * point that writes no corner takes the Element's.
- */
 function gathered(
   drawn: readonly Point[],
   scene: readonly Point[],
@@ -774,12 +524,6 @@ function gathered(
   return points;
 }
 
-/**
- * The pieces a shaft is drawn as, and the segments its stored points mark on
- * them: each `sharp` middle point is cut out of the run it sits in and comes
- * back as a fillet, so the runs between corners are smooth curves when they have
- * a `round` point to bend by and straight lines when they do not.
- */
 function piecesOf(points: readonly ShaftPoint[]): {
   pieces: ShaftPiece[];
   segments: ShaftSegment[];
@@ -789,8 +533,6 @@ function piecesOf(points: readonly ShaftPoint[]): {
   if (points.length < 2) {
     return { pieces, segments };
   }
-  // A run is the stretch of ink one flush draws: the points it passes through —
-  // or, cut short by a fillet, the point on the segment it stops at.
   let run: ShaftPoint[] = [points[0]!];
   let walked = 0;
   const flush = (): void => {
@@ -823,7 +565,6 @@ function piecesOf(points: readonly ShaftPoint[]): {
   return { pieces, segments };
 }
 
-/** The pieces one run is drawn by: straight between two points, and a smooth curve through three or more. */
 function piecesThrough(run: readonly Point[]): ShaftPiece[] {
   if (run.length === 2) {
     return [straight(run[0]!, run[1]!)];
@@ -831,16 +572,6 @@ function piecesThrough(run: readonly Point[]): ShaftPiece[] {
   return smoothThrough(run);
 }
 
-/**
- * The curves one run of three or more points is drawn by: one centripetal
- * Catmull-Rom spline through every point of it.
- *
- * Knots are spaced by the square root of each chord (α = 0.5), and a point's
- * tangent is the tangent of the parabola through the three points around it, in
- * those knots. Spacing is the whole point: a bend point 1px from its neighbour
- * pulls with the weight of that short span instead of swinging the curve like a
- * lever, so a run of clustered points never stops and doubles back on itself.
- */
 function smoothThrough(run: readonly Point[]): ShaftPiece[] {
   const spans = run.slice(0, -1).map((point, index) => span(point, run[index + 1]!));
   const tangents = run.map((point, index) => tangentAt(run, index, spans));
@@ -861,7 +592,6 @@ function smoothThrough(run: readonly Point[]): ShaftPiece[] {
   return pieces;
 }
 
-/** The centripetal knot spacing of one chord: its length to the power α = 0.5. */
 function span(from: Point, to: Point): number {
   return Math.sqrt(Math.hypot(to.x - from.x, to.y - from.y));
 }
@@ -891,17 +621,14 @@ function tangentAt(run: readonly Point[], index: number, spans: readonly number[
   };
 }
 
-/** How far along one knot spacing the run moves from one point to the next. */
 function secant(from: Point, to: Point, knot: number): Point {
   return { x: (to.x - from.x) / knot, y: (to.y - from.y) / knot };
 }
 
-/** A straight piece, measured by the distance it spans. */
 export function straight(from: Point, to: Point): StraightPiece {
   return { kind: 'straight', from, to, length: Math.hypot(to.x - from.x, to.y - from.y) };
 }
 
-/** A curve piece, measured along its own arc, once. */
 export function curve(
   from: Point,
   control1: Point,
@@ -912,10 +639,6 @@ export function curve(
   return { kind: 'curved', from, control1, control2, to, arcs, length: arcs[arcs.length - 1]! };
 }
 
-/**
- * The arc length of one curve at each of its own steps, from 0 at `from` to the
- * whole piece at `to`.
- */
 function arcsOf(from: Point, control1: Point, control2: Point, to: Point): number[] {
   const steps = curveSteps(from, control1, control2, to);
   const arcs = [0];
@@ -927,20 +650,11 @@ function arcsOf(from: Point, control1: Point, control2: Point, to: Point): numbe
   return arcs;
 }
 
-/**
- * The Gauss-Legendre nodes and weights on `[-1, 1]` a curve is integrated with,
- * five points of them: a cubic's speed is a square root of a quintic, smooth
- * enough that five samples of it per span measure the span to the last bit a
- * float holds. The chord between a span's two ends does not: it falls short of
- * the ink by the span's own curvature, and a long curve's dozen hundred of them
- * fall short by more than a pixel.
- */
 const GAUSS_NODES = [-0.906179845938664, -0.5384693101056831, 0, 0.5384693101056831, 0.906179845938664];
 const GAUSS_WEIGHTS = [
   0.2369268850561891, 0.4786286704993665, 0.5688888888888889, 0.4786286704993665, 0.2369268850561891,
 ];
 
-/** The arc length of one curve between two of its own parameters, integrated over the span. */
 function arcOf(
   from: Point,
   control1: Point,
@@ -958,19 +672,11 @@ function arcOf(
   return total * half;
 }
 
-/** How fast one curve moves along its own parameter at `u`: how long its derivative is. */
 function curveSpeed(from: Point, control1: Point, control2: Point, to: Point, u: number): number {
   const tangent = curveTangent(from, control1, control2, to, u);
   return Math.hypot(tangent.x, tangent.y);
 }
 
-/**
- * How many steps one curve's arc is measured in: as many as it takes for a step
- * to be as flat as `CURVE_FLATNESS`, so a short gentle bend is measured in a
- * handful and a long sweeping one in hundreds. Each step is integrated over its
- * own span, so the count is how finely the table brackets a distance, not how
- * closely it follows the ink.
- */
 function curveSteps(from: Point, control1: Point, control2: Point, to: Point): number {
   const tight = Math.max(
     Math.hypot(from.x - 2 * control1.x + control2.x, from.y - 2 * control1.y + control2.y),
@@ -995,17 +701,14 @@ function filletEnds(previous: Point, vertex: Point, next: Point): [Point, Point]
   return [along(vertex, previous, pullback), along(vertex, next, pullback)];
 }
 
-/** The point `distance` from `from` towards `to`, which are never the same point here. */
 function along(from: Point, to: Point, distance: number): Point {
   return lerp(from, to, distance / Math.hypot(to.x - from.x, to.y - from.y));
 }
 
-/** `fraction` of the way from `from` to `to`. */
 function lerp(from: Point, to: Point, fraction: number): Point {
   return { x: from.x + (to.x - from.x) * fraction, y: from.y + (to.y - from.y) * fraction };
 }
 
-/** A point moved `fraction` of the way along a vector. */
 function plus(point: Point, vector: Point, fraction: number): Point {
   return { x: point.x + vector.x * fraction, y: point.y + vector.y * fraction };
 }
@@ -1014,22 +717,15 @@ function samePoint(left: Point | undefined, right: Point): boolean {
   return left !== undefined && left.x === right.x && left.y === right.y;
 }
 
-/**
- * Where a fraction of the way along the drawn shaft lands: `t = 0` on its start,
- * `t = 1` on its end, and every fraction of its arc length in between, so a
- * curve and a straight shaft are measured by the same rule.
- */
 function placedOn(path: ShaftPath, t: number): { at: Point; direction: Point } {
   const found = placeOn(path, t);
   return { at: pointOf(found.piece, found.u), direction: directionAt(found.piece, found.u) };
 }
 
-/** The unit direction the shaft points in at a fraction of the way along it. */
 export function shaftTangentAt(path: ShaftPath, t: number): Point {
   return placedOn(path, t).direction;
 }
 
-/** The unit direction one placed piece points in. */
 function directionAt(piece: ShaftPiece, u: number): Point {
   if (piece.kind === 'straight') {
     return unit(piece.from, piece.to);
@@ -1048,18 +744,15 @@ function directionAt(piece: ShaftPiece, u: number): Point {
   return u > CURVE_TOUCH ? unit(there, here) : unit(here, there);
 }
 
-/** A piece and how far along it a fraction of the shaft lands. */
 function placeOn(path: ShaftPath, t: number): { piece: ShaftPiece; u: number } {
   return placeAt(path, Math.min(1, Math.max(0, t)) * path.length);
 }
 
-/** The point a distance along the drawn shaft reaches. */
 function pointAt(path: ShaftPath, distance: number): Point {
   const found = placeAt(path, distance);
   return pointOf(found.piece, found.u);
 }
 
-/** A piece and how far along it a distance from the shaft's start lands. */
 function placeAt(path: ShaftPath, distance: number): { piece: ShaftPiece; u: number } {
   let remained = distance;
   for (const [index, piece] of path.pieces.entries()) {
@@ -1071,13 +764,6 @@ function placeAt(path: ShaftPath, distance: number): { piece: ShaftPiece; u: num
   return { piece: path.pieces[0]!, u: 0 };
 }
 
-/**
- * How far along a piece, as its own parameter, a distance from its start lands:
- * a bisection over the piece's own arc lengths to the step the distance falls
- * in, then the fraction of that step solved for on the curve. A fraction of a
- * step is not a fraction of the arc it holds, and on a long curve the two are
- * far enough apart to move the words off the ink's middle.
- */
 export function uAt(piece: ShaftPiece, distance: number): number {
   if (piece.kind === 'straight') {
     return piece.length === 0 ? 0 : Math.min(1, Math.max(0, distance / piece.length));
@@ -1106,11 +792,6 @@ export function uAt(piece: ShaftPiece, distance: number): number {
   return whereOnCurve(piece, from, to, within);
 }
 
-/**
- * Where along one curve between two of its own parameters an arc of `distance`
- * from the first reaches: a bisection over the arc itself, so the answer is the
- * ink's own place rather than a share of the bracket.
- */
 function whereOnCurve(piece: CurvedPiece, from: number, to: number, distance: number): number {
   let short = from;
   let long = to;
@@ -1126,7 +807,6 @@ function whereOnCurve(piece: CurvedPiece, from: number, to: number, distance: nu
   return (short + long) / 2;
 }
 
-/** The point a piece reaches at its own parameter `u`. */
 function pointOf(piece: ShaftPiece, u: number): Point {
   if (piece.kind === 'straight') {
     return lerp(piece.from, piece.to, u);
@@ -1134,7 +814,6 @@ function pointOf(piece: ShaftPiece, u: number): Point {
   return pointOnCurve(piece.from, piece.control1, piece.control2, piece.to, u);
 }
 
-/** The point one cubic reaches at its own parameter `u`. */
 function pointOnCurve(
   from: Point,
   control1: Point,
@@ -1153,12 +832,10 @@ function pointOnCurve(
   };
 }
 
-/** The derivative of a curve piece at its own parameter `u`, before it is normalised. */
 function tangentOf(piece: CurvedPiece, u: number): Point {
   return curveTangent(piece.from, piece.control1, piece.control2, piece.to, u);
 }
 
-/** The derivative of one cubic at its own parameter `u`, before it is normalised. */
 function curveTangent(
   from: Point,
   control1: Point,
@@ -1176,7 +853,6 @@ function curveTangent(
   };
 }
 
-/** The box every piece covers, at the extremes its curves really reach. */
 function boundsOf(pieces: readonly ShaftPiece[]): ShaftBounds {
   let left = Number.POSITIVE_INFINITY;
   let top = Number.POSITIVE_INFINITY;
@@ -1204,10 +880,6 @@ function boundsOf(pieces: readonly ShaftPiece[]): ShaftBounds {
   return { x: left, y: top, width: right - left, height: bottom - top };
 }
 
-/**
- * Where a curve piece turns back on one axis: the roots of its derivative that
- * fall inside the piece, so a bulge past its ends is measured and never clipped.
- */
 function curveTurns(piece: CurvedPiece, axis: 'x' | 'y'): number[] {
   const start = piece.from[axis];
   const control1 = piece.control1[axis];
@@ -1252,13 +924,6 @@ export function quadraticRoots(a: number, b: number, c: number): number[] {
   return roots;
 }
 
-/**
- * Where a shaft's Label is centred: `t` of the way along the drawn shaft by arc
- * length, then `offset` pixels to its side. The offset is signed: a positive one
- * is the local perpendicular side of the tangent where the words land — up while
- * the run is level, left while it runs down — and 0 is on the shaft. The side is
- * the local one, so the words follow the curve they sit on.
- */
 export function shaftLabelAnchor(
   path: ShaftPath,
   labelAt: { t: number; offset: number },
@@ -1271,11 +936,6 @@ export function shaftLabelAnchor(
   };
 }
 
-/**
- * How far along a segment a point falls, held inside it: 0 at `start`, 1 at
- * `end`. A segment with no length has no direction to fall along, so it answers
- * its own start.
- */
 export function alongSegment(start: Point, end: Point, point: Point): number {
   const across = end.x - start.x;
   const down = end.y - start.y;
@@ -1287,18 +947,6 @@ export function alongSegment(start: Point, end: Point, point: Point): number {
   return Math.min(1, Math.max(0, travelled / lengthSquared));
 }
 
-/**
- * The `labelAt` that puts a shaft's Label centre on a point: the place along the
- * drawn shaft nearest to that point, as a fraction of its arc length, and how far
- * to the point's side — signed along the side `shaftLabelAnchor` measures from at
- * that place, so 0 is on the shaft and a positive offset is the side the words
- * ride above. The inverse of `shaftLabelAnchor`, so a drag reads back the place
- * the ink would show, on a bent or curved shaft as much as on a straight one.
- *
- * A shaft with no length has no direction to travel, so its fraction stays the
- * one it had (`whenFlat`), rather than being erased where it cannot be read and
- * lost when the shaft reopens.
- */
 export function labelAtFor(
   path: ShaftPath,
   anchor: Point,
@@ -1337,18 +985,8 @@ export function labelAtFor(
   };
 }
 
-/**
- * How many decimals of a Label's fraction along its shaft a Scene keeps: fine
- * enough that a Label slides along even a long shaft, short enough that the
- * saved file stays readable.
- */
 const LABEL_AT_T_DECIMALS = 4;
 
-/**
- * A fraction along a shaft as a Scene keeps it: the decimals it writes, with no
- * negative zero. The place a drag reads back is this one, because a side read at
- * a fraction the save rounds could face the other way from the side drawn there.
- */
 export function writtenFraction(t: number): number {
   const scale = 10 ** LABEL_AT_T_DECIMALS;
   const kept = Math.min(1, Math.max(0, t));
@@ -1356,7 +994,6 @@ export function writtenFraction(t: number): number {
   return rounded === 0 ? 0 : rounded;
 }
 
-/** How far along the drawn shaft a point falls, as a fraction of its own length. */
 function nearestFraction(path: ShaftPath, anchor: Point): number {
   let walked = 0;
   let found: { piece: ShaftPiece; u: number; from: number } | null = null;
@@ -1381,28 +1018,10 @@ function nearestFraction(path: ShaftPath, anchor: Point): number {
   return along / path.length;
 }
 
-/**
- * How many places along a curve the nearest one is looked for before the
- * interval around each sample is narrowed: short enough to walk on every pointer
- * move, and spread widely enough that a curve turning back on itself usually
- * leaves a sample in each of its lobes. It refines candidate intervals and
- * promises no more: two dips of the distance inside one coarse step leave the
- * single sample between them, and the interval narrowed around that sample is all
- * the search sees. The narrowed intervals are then compared, because the best
- * sample alone cannot say which of them holds the closest ink.
- */
 const NEAREST_STEPS = 64;
 
-/** How many turns a golden-section search takes to close on the place it hunts. */
 const NEAREST_TURNS = 40;
 
-/**
- * How far along one piece the point nearest `point` falls, as the piece's own
- * parameter. A straight run answers where the point projects onto it; a curve is
- * sampled, the interval around each sample narrowed, and the nearest of those
- * kept, because a curve's distance to a point is not a share of its own
- * parameter.
- */
 function nearestU(piece: ShaftPiece, point: Point): number {
   if (piece.kind === 'straight') {
     return alongSegment(piece.from, piece.to, point);
@@ -1415,9 +1034,6 @@ function nearestU(piece: ShaftPiece, point: Point): number {
   const to = squaredAway(piece.to, point);
   let best = from <= to ? 0 : 1;
   let closest = Math.min(from, to);
-  // The two intervals the samples leave at the ends are narrowed like any other:
-  // a dip between the last sample and the end lies below both, where the samples
-  // alone see only that the ink keeps coming nearer.
   const head = narrowest(piece, point, 0, margin);
   const headAway = squaredAway(pointOf(piece, head), point);
   if (headAway < closest) {
@@ -1430,10 +1046,6 @@ function nearestU(piece: ShaftPiece, point: Point): number {
     closest = tailAway;
     best = tail;
   }
-  // One pass over the samples: a place nearer the point than both its neighbours
-  // is a bottom, and a curve that doubles back has more than one, so every bottom
-  // is narrowed and the narrowed places compared — the best sample alone cannot
-  // say which lobe holds the closest ink.
   let before = from;
   let here = squaredAway(pointOf(piece, margin), point);
   for (let step = 1; step < NEAREST_STEPS; step += 1) {
@@ -1452,10 +1064,6 @@ function nearestU(piece: ShaftPiece, point: Point): number {
   return best;
 }
 
-/**
- * The place inside one bracket a curve comes nearest `point`: a golden-section
- * search, which needs no derivative and shrinks the bracket on every turn.
- */
 function narrowest(piece: CurvedPiece, point: Point, from: number, to: number): number {
   const golden = (Math.sqrt(5) - 1) / 2;
   let short = from;
@@ -1472,17 +1080,10 @@ function narrowest(piece: CurvedPiece, point: Point, from: number, to: number): 
   return (short + long) / 2;
 }
 
-/** The square of the distance between two points, for comparing distances only. */
 function squaredAway(from: Point, to: Point): number {
   return (from.x - to.x) ** 2 + (from.y - to.y) ** 2;
 }
 
-/**
- * How far along one piece its parameter `u` reaches, measured the way `uAt`
- * measures it: the whole steps before it, plus the arc inside the step it falls
- * in. So the fraction a drag reads back and the fraction the drawing places are
- * the same measure of the same ink.
- */
 function arcAt(piece: ShaftPiece, u: number): number {
   if (piece.kind === 'straight') {
     return piece.length * u;
@@ -1496,7 +1097,6 @@ function arcAt(piece: ShaftPiece, u: number): number {
   );
 }
 
-/** A bar head: a short stroke across the end, perpendicular to the arrow. */
 export function barThrough(
   apex: Point,
   direction: Point,
@@ -1509,10 +1109,8 @@ export function barThrough(
   ];
 }
 
-/** One run of a shaft a gap leaves whole: the pieces it draws, and where it starts. */
 export interface CutPath {
   readonly pieces: readonly ShaftPiece[];
-  /** How far along the whole drawn path this run starts, for the dash to carry on. */
   readonly start: number;
 }
 
@@ -1528,12 +1126,6 @@ export function pathMeetsGap(pieces: readonly ShaftPiece[], gap: Box): boolean {
   });
 }
 
-/**
- * The runs a gap leaves of the path it cuts: each maximal stretch that stays
- * outside it, as the pieces it is drawn by, with the distance along the whole
- * path each stretch starts at. A piece the gap does not touch comes back whole,
- * so the ink outside the gap keeps every wobble it was drawn with.
- */
 export function cutAtGap(pieces: readonly ShaftPiece[], gap: Box): CutPath[] {
   const cut: CutPath[] = [];
   let open: { pieces: ShaftPiece[]; start: number } | null = null;
@@ -1561,7 +1153,6 @@ export function cutAtGap(pieces: readonly ShaftPiece[], gap: Box): CutPath[] {
   return cut;
 }
 
-/** The parts of one piece outside the gap, as spans of its own parameter, in order. */
 function outsideSpans(piece: ShaftPiece, gap: Box): [number, number][] {
   const stops = [0, ...edgeCrossings(piece, gap), 1];
   const spans: [number, number][] = [];
@@ -1581,7 +1172,6 @@ function outsideSpans(piece: ShaftPiece, gap: Box): [number, number][] {
   return spans;
 }
 
-/** The parameters where a piece crosses one of the gap's four edges, in order, without repeats. */
 function edgeCrossings(piece: ShaftPiece, gap: Box): number[] {
   const found = [
     ...crossingsOn(piece, 'x', gap.x),
@@ -1594,12 +1184,6 @@ function edgeCrossings(piece: ShaftPiece, gap: Box): number[] {
   return found.filter((u, index) => index === 0 || u !== found[index - 1]);
 }
 
-/**
- * Where one axis of a piece reaches `value`, as the parameters that do. A
- * straight run is solved directly; a curve is read as the monotonic runs its own
- * turning points leave, and each run is halved to its crossing the way an arc
- * distance is.
- */
 function crossingsOn(piece: ShaftPiece, axis: 'x' | 'y', value: number): number[] {
   if (piece.kind === 'straight') {
     const from = piece.from[axis];
@@ -1632,7 +1216,6 @@ function crossingsOn(piece: ShaftPiece, axis: 'x' | 'y', value: number): number[
   return found;
 }
 
-/** Whether a point lies strictly inside the gap: a run that only touches an edge is not cut. */
 function insideGap(point: Point, gap: Box): boolean {
   return (
     point.x > gap.x &&
@@ -1642,7 +1225,6 @@ function insideGap(point: Point, gap: Box): boolean {
   );
 }
 
-/** The part of one piece between two of its own parameters, measured as the piece was. */
 function sliceOf(piece: ShaftPiece, from: number, to: number): ShaftPiece {
   if (from === 0 && to === 1) {
     return piece;
@@ -1654,7 +1236,6 @@ function sliceOf(piece: ShaftPiece, from: number, to: number): ShaftPiece {
   return to === 1 ? rest : splitCurve(rest, (to - from) / (1 - from))[0];
 }
 
-/** One curve, split at its own parameter into the part before and the part after. */
 function splitCurve(piece: CurvedPiece, u: number): [CurvedPiece, CurvedPiece] {
   const first = lerp(piece.from, piece.control1, u);
   const second = lerp(piece.control1, piece.control2, u);

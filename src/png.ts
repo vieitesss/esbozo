@@ -8,30 +8,6 @@
  * in a stylesheet and in the drawing. A colour that does not resolve is a
  * problem with exit 5 naming it, never a silent black.
  *
- * The stylesheet subset, also printed by `ez --help`:
- *
- *   - Light theme: custom properties declared in `:root` or `html` blocks.
- *   - Dark theme: those values, overridden by declarations in
- *     `@media (prefers-color-scheme: dark)` blocks and in the explicit dark
- *     scopes on the root only — `:root.dark`, `:root[data-theme="dark"]`,
- *     `html.dark`, `html[data-theme="dark"]`. A later declaration wins, and
- *     dark values always win over base ones.
- *   - `--ink`, `--paper`, `--muted` and `--font-hand` are the only properties
- *     read. Other selectors — `.dark-card`, `.dark`, `body` — are ignored, so
- *     a component's colours never become the page's palette. So is every other
- *     grouping at-rule: only `@media (prefers-color-scheme: dark)` is entered.
- *   - Values may use recursive `var()` with fallbacks and
- *     `color-mix(in srgb, A p%, B)`, whose operands may be hex, `rgb()`/
- *     `rgba()` or a CSS named colour. Anything else is reported, not guessed.
- *   - Palette colours are opaque: a colour with alpha below 1 is a problem, so
- *     nothing is mixed unpremultiplied. A wash is an ink mixed into the paper.
- *   - `--font-hand` follows the same cascade per theme: light never reads the
- *     dark font.
- *   - A palette is complete when every colour of the chosen theme has a value;
- *     dark inherits the light values, so a `:root`-only stylesheet covers both
- *     themes. Nothing is filled in from the built-ins once a stylesheet is
- *     given.
- *
  * Fonts: `./font.ts` chooses them, and the precedence is the same for every
  * command that measures — `--font`, then a local `@font-face` for the
  * stylesheet's `--font-hand`, then the bundled Kalam — so `ez check` and
@@ -59,21 +35,17 @@ import type { Scene } from './scene.js';
 export { THEMES } from './css.js';
 export type { Theme } from './css.js';
 
-/** The three colours a theme is made of, each a resolved `rgb()`/`rgba()` value. */
 interface Palette {
   ink: string;
   paper: string;
   muted: string;
 }
 
-/** The colour variables a stylesheet may set. */
 const COLOUR_VARIABLES = ['--ink', '--paper', '--muted'] as const;
 type ColourVariable = (typeof COLOUR_VARIABLES)[number];
 
-/** The font family variable a stylesheet may set. */
 const FONT_VARIABLE = '--font-hand';
 
-/** Built-in themes: the same ink, paper and muted sb's converter falls back to. */
 const DEFAULT_COLOURS: Readonly<Record<Theme, Readonly<Record<ColourVariable, Rgba>>>> = {
   light: {
     '--ink': { r: 0x1a, g: 0x1a, b: 0x1a, a: 255 },
@@ -87,7 +59,6 @@ const DEFAULT_COLOURS: Readonly<Record<Theme, Readonly<Record<ColourVariable, Rg
   },
 };
 
-/** What the `png` command asks for, after the CLI has read the arguments. */
 export interface PngOptions {
   theme: Theme;
   cssPath?: string;
@@ -97,16 +68,10 @@ export interface PngOptions {
   fontPath?: string;
 }
 
-/**
- * A PNG, or the plain-text problems that stopped one being drawn. `notes` are
- * the things worth saying that did not stop the render, such as a remote font
- * being ignored.
- */
 type PngResult =
   | { ok: true; png: Uint8Array; notes: string[] }
   | { ok: false; problems: string[] };
 
-/** Resolves the theme, measures and renders the Scene, and rasterises it in one step. */
 export async function renderPng(scene: Scene, options: PngOptions): Promise<PngResult> {
   const stylesheet = await readStylesheet(options.cssPath);
   if (!stylesheet.ok) {
@@ -125,9 +90,6 @@ export async function renderPng(scene: Scene, options: PngOptions): Promise<PngR
   const notes = font.notes;
 
   const family = font.family ?? font.value.family;
-  // The words are measured with the font the glyphs are drawn with, so the PNG
-  // wraps exactly as that font makes it wrap, and every line is drawn as that
-  // same font's outlines: no text engine sees the drawing.
   const layout = layoutFor(font.value);
   const svg = renderScene(scene, layout);
   const resolved = resolveSvgColours(svg, {
@@ -235,7 +197,6 @@ async function rasterise(svg: string, palette: Palette): Promise<Uint8Array> {
   }
 }
 
-/** `initWasm` may only run once per process, so it is memoised. */
 let wasmReady: Promise<void> | null = null;
 
 function readyWasm(): Promise<void> {

@@ -19,12 +19,9 @@ export type OutlinedSvg =
   | { ok: true; svg: string }
   | { ok: false; problems: string[] };
 
-/** One `<text>` element of the Renderer's SVG, as the pass reads it. */
 const TEXT = /<text([^>]*)>([\s\S]*?)<\/text>/g;
-/** The attributes a line is placed by, as the Renderer writes them. */
 const ATTRIBUTE = /([\w:-]+)="([^"]*)"/g;
 
-/** The words of a Renderer's SVG, as the glyph outlines of the font. */
 export function outlineText(svg: string, glyphs: Glyphs): OutlinedSvg {
   const drawn: string[] = [];
   let problem: string | null = null;
@@ -74,7 +71,6 @@ function anchorOf(anchor: string | undefined): TextAnchor {
   return anchor === 'middle' || anchor === 'end' ? anchor : 'start';
 }
 
-/** The text of an element, as the author wrote it. */
 function unescapeXml(text: string): string {
   return text
     .replace(/&lt;/g, '<')

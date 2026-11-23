@@ -87,13 +87,10 @@ const PNG_USAGE =
   ' [--ink <colour>] [--paper <colour>] [--muted <colour>] [--font <file>]';
 const SERVE_USAGE = 'usage: ez serve <dir> [--host 127.0.0.1] [--port N] [--read-only]';
 const BUNDLE_USAGE = 'usage: ez bundle <dir>';
-/** The port `ez serve` takes when nothing says otherwise. */
 const DEFAULT_PORT = 4320;
 
-/** The built page's files and the bundle, beside the bundled CLI. */
 const BUILT = fileURLToPath(new URL('.', import.meta.url));
 
-/** Every exit code `ez` returns, so a caller can tell the failures apart. */
 const EXIT_CODES = [
   'exit codes:',
   '  0  the Scene is clean, was rendered, the PNG or the bundle was written, or the server stopped',
@@ -104,7 +101,6 @@ const EXIT_CODES = [
   '  6  a Label that does not fit its Element (see `ez check`)',
 ].join('\n');
 
-/** The stylesheet subset `png` reads, the same one documented in `src/css.ts`. */
 const CSS_SUBSET = [
   'css: `:root` and `html` declarations are the light theme; dark is those values',
   'overridden by `@media (prefers-color-scheme: dark)` blocks and by `:root.dark`,',
@@ -168,11 +164,6 @@ async function runRender(argv: readonly string[]): Promise<number> {
   return EXIT.ok;
 }
 
-/**
- * What an author has to fix before drawing the Scene, measured with the font
- * the SVG will be drawn for: `ez check` reports it and exits 6. A Scene that
- * does not parse gets exit 3 first, because there is nothing to measure.
- */
 async function runCheck(argv: readonly string[]): Promise<number> {
   const parsed = parseSceneArguments(argv, CHECK_FLAGS);
   if (parsed === null) {
@@ -200,21 +191,18 @@ async function runCheck(argv: readonly string[]): Promise<number> {
   return overflowed ? EXIT.labelOverflow : EXIT.ok;
 }
 
-/** `<scene> [--font <file>] [--css <stylesheet>]`, the arguments `render` and `check` read. */
 interface SceneArguments {
   scenePath: string;
   fontPath?: string;
   cssPath?: string;
 }
 
-/** The flags `render` reads; `check` reads the same plus the stylesheet. */
 const SCENE_FLAGS = { '--font': 'fontPath' } as const;
 
 const CHECK_FLAGS = { ...SCENE_FLAGS, '--css': 'cssPath' } as const;
 
 type SceneOption = 'fontPath' | 'cssPath';
 
-/** Space-separated flags only: `--font kalam.ttf`, never `--font=kalam.ttf`. */
 function parseSceneArguments(
   argv: readonly string[],
   flags: Readonly<Record<string, SceneOption>>,
@@ -247,17 +235,6 @@ function parseSceneArguments(
   return { scenePath, ...values };
 }
 
-/**
- * The Layout for the font a command measures with: `--font`, then a local
- * `@font-face` in the stylesheet, then the bundled Kalam — the same resolver
- * `png` uses, so both commands measure the same bytes for the same inputs. A
- * font or stylesheet that cannot be read is exit 5, like a missing theme: the
- * Scene cannot be measured without it.
- *
- * `check` has no `--theme`, so it reads the light theme. A font declared in
- * dark scope belongs to `png --theme dark`. It draws nothing, so it does not
- * ask the chosen font for the family to draw in.
- */
 async function loadLayout(
   fontPath: string | undefined,
   cssPath: string | undefined,
@@ -276,7 +253,6 @@ async function loadLayout(
   return { ok: true, value: layoutFor(font.value) };
 }
 
-/** Reports why a font could not be chosen, and the exit code that says so. */
 function failed(problems: readonly string[]): { ok: false; exitCode: number } {
   for (const problem of problems) {
     process.stderr.write(`${problem}\n`);
@@ -319,11 +295,6 @@ async function runPng(argv: readonly string[]): Promise<number> {
   return EXIT.ok;
 }
 
-/**
- * Serve the editor on a folder of Scenes until the process is asked to stop.
- * A folder that cannot be listed, page files that are not built and a port
- * already taken are startup problems, so they take the write-failure code.
- */
 async function runServe(argv: readonly string[]): Promise<number> {
   const parsed = parseServeArguments(argv);
   if (parsed === null) {
@@ -347,8 +318,6 @@ async function runServe(argv: readonly string[]): Promise<number> {
   }
 
   const mode = running.readOnly ? ' (read-only)' : '';
-  // The build, and when it was made: two builds of one commit are told apart by
-  // their time. A run from source is no build, so it dates nothing.
   const build = BUILT_AT === null ? `build ${BUILD}` : `build ${BUILD}, ${BUILT_AT}`;
   process.stdout.write(`serving ${running.folder} on ${running.url}/${mode} (${build})\n`);
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
@@ -358,7 +327,6 @@ async function runServe(argv: readonly string[]): Promise<number> {
   return EXIT.ok;
 }
 
-/** One folder, and space-separated flags: `--port 4320`, never `--port=4320`. */
 function parseServeArguments(argv: readonly string[]): ServeOptions | null {
   let folder: string | undefined;
   let host = '127.0.0.1';
@@ -400,12 +368,6 @@ function parseServeArguments(argv: readonly string[]): ServeOptions | null {
   return { folder, host, port, readOnly };
 }
 
-/**
- * Write the editor as one versioned ES module into `folder`: the file a page
- * pins with a single script tag. The bytes are the ones `pnpm build` made, so a
- * bundle is the editor this CLI was built with, and a second run replaces the
- * file rather than adding another.
- */
 async function runBundle(argv: readonly string[]): Promise<number> {
   const folder = argv.length === 1 ? argv[0] : undefined;
   if (folder === undefined || folder === '' || folder.startsWith('--')) {
@@ -442,10 +404,6 @@ async function runBundle(argv: readonly string[]): Promise<number> {
   return EXIT.ok;
 }
 
-/**
- * The version a bundle is named after: the one in the package the CLI was
- * installed from, so `esbozo-0.3.0.js` says which editor a page pinned.
- */
 async function packageVersion(): Promise<string> {
   const path = fileURLToPath(new URL('../package.json', import.meta.url));
   let parsed: { version?: unknown };
@@ -460,7 +418,6 @@ async function packageVersion(): Promise<string> {
   return parsed.version;
 }
 
-/** Every `png` flag and the option it sets: one table for both jobs. */
 const PNG_FLAGS = {
   '--theme': 'theme',
   '--css': 'cssPath',
@@ -481,7 +438,6 @@ function isTheme(value: string): value is Theme {
   return (THEMES as readonly string[]).includes(value);
 }
 
-/** Space-separated flags only: `--theme dark`, never `--theme=dark`. */
 function parsePngArguments(argv: readonly string[]): PngArguments | null {
   let scenePath: string | undefined;
   const values: { [K in PngOption]?: string } = {};
@@ -536,12 +492,10 @@ async function loadScene(scenePath: string): Promise<LoadedScene> {
   return { ok: true, value: parsed.scene };
 }
 
-/** `<name>.svg` beside the Scene, named by the rule the editor's autosave uses. */
 function svgPathFor(scenePath: string): string {
   return resolve(dirname(scenePath), svgFileName(basename(scenePath)));
 }
 
-/** `<name>.<theme>.png` beside the Scene: `sketch.esbozo --theme dark` gives `sketch.dark.png`. */
 function pngPathFor(scenePath: string, theme: Theme): string {
   return resolve(dirname(scenePath), `${sceneStem(basename(scenePath))}.${theme}.png`);
 }
