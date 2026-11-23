@@ -329,7 +329,8 @@ export class Gestures {
   #spaceDown = false;
   /**
    * The pointers whose press the board refused: a secondary press or a Ctrl+click
-   * is a menu's, so its release settles nothing — no point of a place, no end of a
+   * is a menu's, and a contact that lands while a rail drag owns a pointer is the
+   * drag's, so its release settles nothing — no point of a place, no end of a
    * shaft, no pan. The refusal is the pointer's own: another pointer may be
    * carrying a gesture at the same time, and its release is still its own.
    */
@@ -473,8 +474,15 @@ export class Gestures {
   /**
    * Let go of the pointer and discard its preview. Whether the browser or
    * the editor cancels the gesture, only a finished gesture changes the Scene.
+   *
+   * A cancelled pointer the board refused cancels its own press and nothing
+   * more: another pointer may be carrying a gesture at the same time, and this
+   * pointer never put a point down for it to drop.
    */
-  cancel = (): void => {
+  cancel = (event?: PointerEvent): void => {
+    if (event !== undefined && this.#refused.delete(event.pointerId)) {
+      return;
+    }
     const drag = this.#drag;
     this.#drag = null;
     this.#releasePointer();
@@ -553,6 +561,16 @@ export class Gestures {
       // before that press edits anything.
       this.finishPlacing();
     }
+  };
+
+  /**
+   * A press the board kept for itself is refused as a menu's press is: a rail
+   * drag owns a pointer, so a contact that lands under it must not become half of
+   * a gesture. Its move, release and cancel are its own, and settling another
+   * pointer's gesture at its coordinates is exactly what a refusal prevents.
+   */
+  refuse = (event: PointerEvent): void => {
+    this.#refused.add(event.pointerId);
   };
 
   down = (event: PointerEvent): void => {
@@ -775,6 +793,12 @@ export class Gestures {
   };
 
   move = (event: PointerEvent): void => {
+    // A refused pointer's move is no part of a gesture: it is its own refusal,
+    // and a pointer carrying a drag at the same time keeps it. Carrying it here
+    // would end that pointer's click pairing and pull its drag with this one.
+    if (this.#refused.has(event.pointerId)) {
+      return;
+    }
     const { page } = this.#host;
     const { viewport } = page;
     // A press that carries the pointer somewhere is a drag: whatever it started

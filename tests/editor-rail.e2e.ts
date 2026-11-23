@@ -19,10 +19,12 @@ import {
   settle,
   holdWrites,
   allowWrites,
+  releaseWrite,
   refuseWrite,
 } from './helpers.ts';
 import type { Ui } from './helpers.ts';
-import { fullInk } from './editor-shared.ts';
+import { fullInk, zoomReadout } from './editor-shared.ts';
+import { livePage } from './cdp.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
 
@@ -896,4 +898,564 @@ test('a move in a read-only Scene keeps the side and leaves the Scene’s file a
   await dockRail(ui, 'left');
   expect(await keptSide(ui), 'a read-only Scene keeps the side all the same').toBe('left');
   expect(await savedFiles(ui), 'a move writes no file').toEqual(files);
+});
+
+/**
+ * The middle of one of the strip's seven tiles, as the ink of a strip lying along
+ * the top says: its outline hangs 7 px outside the strip, the strip pads 9 px top
+ * and bottom and 8 px across, and its 30 px tiles are 1 px apart. The tilt leans
+ * the far tiles a couple of pixels, which a tile's own 30 px holds.
+ */
+function tileCentre(outline: Rect, index: number): { x: number; y: number } {
+  return { x: outline.x + 7 + 8 + index * 31 + 15, y: outline.y + 7 + 9 + 16 };
+}
+
+/** A strip's ink as the box it is measured in. */
+function boxOfPlace(place: Place): Rect {
+  return { x: place.centreX - place.width / 2, y: place.top, width: place.width, height: place.height };
+}
+
+test('a press that moves 3 px on a tile picks that tool and leaves the rail where it was', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+  const band: Rect = { x: 400, y: 0, width: 480, height: 240 };
+  const opened = await railPlace(ui, band);
+
+  // The third tile is Ellipse, and a 3 px move is under the click's own 4 px.
+  const tile = tileCentre(boxOfPlace(opened), 2);
+  await drag(ui, tile, { x: tile.x + 3, y: tile.y + 2 });
+  await settle(ui);
+
+  // The press is a click: the tile it landed on is the tool in hand, and the rail
+  // has not moved — a drag of the rail docks, and picks no tool at all.
+  expect(await screen.getByRole('button', 'Ellipse').getAttribute('aria-pressed'), 'the tile picked its tool').toBe(
+    'true',
+  );
+  expect(await screen.getByRole('button', 'Select').getAttribute('aria-pressed')).toBe('false');
+  expectHeld(opened, await railPlace(ui, band), 'a 3 px press-move');
+
+  // The keys a focused tile answers are still the tile's: a press on the rail is
+  // no part of picking a tool with the keyboard.
+  await screen.getByRole('button', 'Line').focus();
+  await browser.keyboard.press('Enter');
+  expect(await screen.getByRole('button', 'Line').getAttribute('aria-pressed'), 'the tile still answers Enter').toBe(
+    'true',
+  );
+});
+
+test('a mouse drag from a tile docks the rail on the nearest side and picks no tool', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+  const band: Rect = { x: 400, y: 0, width: 480, height: 240 };
+  const opened = await railPlace(ui, band);
+
+  // Rectangle, carried 340 px left of the empty Scene's frame and released level
+  // with its middle: the left side is the nearest of the four by far.
+  await drag(ui, tileCentre(boxOfPlace(opened), 1), { x: 300, y: 400 });
+  await settle(ui);
+
+  // The release docks, so no tool was picked: Select is still the one in hand.
+  expect(await screen.getByRole('button', 'Select').getAttribute('aria-pressed'), 'no tool was picked').toBe('true');
+  expect(await screen.getByRole('button', 'Rectangle').getAttribute('aria-pressed')).toBe('false');
+
+  // Standing up the frame's left side, which the empty Scene's 960×600 frame puts
+  // 160 px in: the 60 px outline hangs one 16 px gap outside it, at about 84.
+  const ink = await railInk(ui, { x: 0, y: 200, width: 240, height: 400 });
+  expect(ink.height, 'the strip stands up the left side').toBeGreaterThan(ink.width * 2);
+  expect(ink.x, 'the outline hangs one gap outside the frame').toBeGreaterThan(76);
+  expect(ink.x, 'the outline hangs one gap outside the frame').toBeLessThan(92);
+  expect(Math.abs(ink.y + ink.height / 2 - 800 / 2), 'the strip is centred on the frame’s side').toBeLessThan(4);
+});
+
+test('a touch drag from the strip’s padding docks the rail on the nearest side and picks no tool', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+  const band: Rect = { x: 400, y: 0, width: 480, height: 240 };
+  const opened = await railPlace(ui, band);
+  const strip = boxOfPlace(opened);
+
+  // A finger on the strip's own padding rather than on a tile: 10 px in from the
+  // outline's left edge, where the tiles start at 15. It is carried down past the
+  // frame's bottom side, which is the nearest dock by 80 px against the top's 680.
+  const page = livePage();
+  const cdp = await page.context().newCDPSession(page);
+  const from = { x: strip.x + 10, y: strip.y + 11 };
+  const to = { x: 640, y: 780 };
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [from] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 400, y: 400 }] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [to] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await settle(ui);
+
+  // Nothing was picked — a press on the padding picks nothing anyway — and the
+  // strip is docked along the bottom, a gap under the empty Scene's 700 px frame.
+  expect(await screen.getByRole('button', 'Select').getAttribute('aria-pressed')).toBe('true');
+  const ink = await railInk(ui, { x: 400, y: 700, width: 480, height: 100 });
+  expect(ink.width, 'the strip lies along the bottom').toBeGreaterThan(ink.height * 2);
+  expect(ink.y, 'the outline hangs one gap under the frame').toBeGreaterThan(706);
+  expect(ink.y, 'the outline hangs one gap under the frame').toBeLessThan(726);
+  expect(Math.abs(ink.x + ink.width / 2 - 1280 / 2), 'the strip is centred').toBeLessThan(4);
+});
+
+test('a drag in a read-only Scene docks the rail and leaves the Scene’s file alone', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+
+  // A box asks the folder to write and the folder answers `403`, so the editor
+  // pages from then on may only read.
+  await holdWrites(ui, 'bare.json');
+  await browser.keyboard.press('r');
+  await drag(ui, { x: 200, y: 200 }, { x: 260, y: 260 });
+  await refuseWrite(ui, 'this folder is served read-only');
+  await allowWrites(ui);
+  await expect(screen.getByText('read-only')).toBeVisible();
+  await settle(ui);
+  const files = await savedFiles(ui);
+
+  // A drag is the page's chrome, not an edit: it docks on the left like any
+  // other, keeps the side, and writes nothing (D9). The box the refused draw left
+  // in the page frames the diagram at 0..710 across, so a release at (60, 265) is
+  // 60 px from the left side and 265 px from the frame's top and bottom.
+  const band: Rect = { x: 400, y: 0, width: 480, height: 240 };
+  const opened = await railPlace(ui, band);
+  await drag(ui, tileCentre(boxOfPlace(opened), 1), { x: 60, y: 265 });
+  await settle(ui);
+
+  const ink = await railInk(ui, { x: 0, y: 100, width: 190, height: 400 });
+  expect(ink.height, 'the strip stands up the left side').toBeGreaterThan(ink.width * 2);
+  expect(ink.x, 'the strip stops inside the editor’s left edge').toBeLessThan(70);
+  expect(await keptSide(ui), 'a read-only Scene keeps the side all the same').toBe('left');
+  expect(await savedFiles(ui), 'a drag writes no file').toEqual(files);
+});
+
+test('a drag docks the rail without touching the Scene, the SVG, the undo history or the view', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await browser.setViewport({ width: 3440, height: 1440 });
+  await openEditor(
+    ui,
+    {
+      A: {
+        'big.json': BIG_SOURCE,
+        'big.svg': '<svg xmlns="http://www.w3.org/2000/svg"><rect width="8" height="8"/></svg>',
+      },
+    },
+    'big.json',
+  );
+  await settle(ui);
+  const files = await savedFiles(ui);
+  const before = (await shot(ui)).darkBounds(BIG_BOX, 0.6);
+  const opened = await railPlace(ui, { x: 1400, y: 0, width: 640, height: 364 });
+
+  // A write the drag would have to make waits on the test: nothing answers it, so
+  // a save the drag sent would stay held and the test would find it.
+  await holdWrites(ui, 'big.json');
+  // The Arrow tile, carried 220 px left of the 1220 px frame and released level
+  // with its middle, which is the nearest of the four docks.
+  await drag(ui, tileCentre(boxOfPlace(opened), 3), { x: 1000, y: 720 });
+  const held = await browser.evaluate(
+    () => ((window as unknown as { __esbozoGates?: unknown[] }).__esbozoGates ?? []).length,
+  );
+  expect(held, 'a drag sends no save').toBe(0);
+  await allowWrites(ui);
+
+  // The Scene's own file and the SVG beside it are the bytes they were, the view
+  // has not moved, and no tool was picked: the dock is the page's chrome. It is a
+  // dock, though — the strip stands up the frame's left side, one gap outside it —
+  // so a drag that did nothing at all cannot satisfy this test either.
+  expect(await savedFiles(ui), 'a drag writes nothing').toEqual(files);
+  expect((await shot(ui)).darkBounds(BIG_BOX, 0.6), 'a drag leaves the view alone').toEqual(before);
+  expect(await screen.getByRole('button', 'Arrow').getAttribute('aria-pressed'), 'the drag picked no tool').toBe(
+    'false',
+  );
+  const docked = await railInk(ui, DOCK_BANDS.left);
+  expect(docked.height, 'the strip stands up the left side').toBeGreaterThan(docked.width * 2);
+  // The frame's left side is 1,220 px in, and the strip's outline hangs one gap
+  // outside it: somewhere between 6 and 24 px of paper between the ink and the box.
+  const gap = 1220 - (docked.x + docked.width);
+  expect(gap, 'the outline hangs one gap outside the frame').toBeGreaterThan(6);
+  expect(gap, 'the outline hangs one gap outside the frame').toBeLessThan(24);
+  expect(Math.abs(docked.y + docked.height / 2 - 720), 'the strip is centred on the frame’s side').toBeLessThan(4);
+
+  // And no undo step: Undo is still greyed, saying there is nothing to undo.
+  await browser.keyboard.press('q');
+  await browser.keyboard.type('undo');
+  await expect(screen.getByRole('option', { name: 'Undo · ⌘Z' })).toBeDisabled();
+  await expect(screen.getByRole('option', { name: 'Undo · ⌘Z' })).toContainText('nothing to undo');
+  await browser.keyboard.press('Escape');
+});
+
+test('a drag’s side is kept, so the next editor starts there on a frame of its own', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+  const band: Rect = { x: 400, y: 0, width: 480, height: 240 };
+  const opened = await railPlace(ui, band);
+
+  // Released 40 px right of the empty Scene's frame, whose right side is 1,120
+  // px in: the right dock is the nearest by far.
+  await drag(ui, tileCentre(boxOfPlace(opened), 1), { x: 1080, y: 400 });
+  await settle(ui);
+  expect(await keptSide(ui), 'the drag is kept for the next start').toBe('right');
+  const docked = await railInk(ui, { x: 1000, y: 200, width: 280, height: 400 });
+  expect(docked.height, 'the strip stands up the right side').toBeGreaterThan(docked.width * 2);
+  expect(docked.x, 'the outline hangs one gap outside the frame').toBeGreaterThan(1128);
+  expect(docked.x, 'the outline hangs one gap outside the frame').toBeLessThan(1144);
+
+  // The page starts again in a window the first dock was never measured in: the
+  // empty Scene's frame is the 960×600 minimum about the new middle, so its right
+  // side is 2,200 px in and the 60 px outline hangs one gap outside it at 2,216.
+  // A side kept as a place would still be the 1,136 px one.
+  await openBare(ui, { width: 3440, height: 1440 });
+  const ink = await railInk(ui, { x: 2100, y: 500, width: 340, height: 440 });
+  expect(ink.x, 'the outline hangs one gap outside the newly measured frame').toBeGreaterThan(2208);
+  expect(ink.x, 'the outline hangs one gap outside the newly measured frame').toBeLessThan(2224);
+  expect(ink.height, 'the strip stands up the side it was left on').toBeGreaterThan(ink.width * 2);
+  expect(Math.abs(ink.y + ink.height / 2 - 1440 / 2), 'the strip is centred on the frame’s side').toBeLessThan(4);
+});
+
+test('a drag in an editor set inside the page docks on the side the release is nearest it', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+
+  // The editor sits 480 px right and 80 px down inside the page, as a host page
+  // places it. The pointer arrives in the page's pixels, and the frame is
+  // measured from the editor's own corner: a drag that reads one as the other
+  // docks on the side across the editor.
+  const placed = await browser.evaluate(() => {
+    const editor = document.querySelector('esbozo-editor');
+    if (!(editor instanceof HTMLElement)) return false;
+    editor.style.cssText = 'position:absolute;left:480px;top:80px;width:600px;height:650px';
+    return true;
+  });
+  expect(placed, 'the editor is the one this test places').toBe(true);
+  // The move measures where the editor now is: the empty Scene's frame is the
+  // 960×600 minimum cut to the 600×650 editor, whose middle is its own (300, 325).
+  await dockRail(ui, 'top');
+  const opened = await railPlace(ui, { x: 700, y: 80, width: 180, height: 120 });
+
+  // Released 20 px in from the editor's left edge and level with the frame's
+  // middle: 20 px from the left side, and 300 from the top and the bottom.
+  await drag(ui, tileCentre(boxOfPlace(opened), 1), { x: 500, y: 405 });
+  await settle(ui);
+
+  expect(await screen.getByRole('button', 'Select').getAttribute('aria-pressed'), 'the drag picked no tool').toBe(
+    'true',
+  );
+  expect(await keptSide(ui), 'the release is nearest the editor’s left side').toBe('left');
+  const ink = await railInk(ui, { x: 482, y: 280, width: 140, height: 260 });
+  expect(ink.height, 'the strip stands up the left side').toBeGreaterThan(ink.width * 2);
+  expect(ink.x, 'the outline stops inside the editor’s left edge').toBeGreaterThan(484);
+  expect(ink.x, 'the outline stops inside the editor’s left edge').toBeLessThan(500);
+  expect(Math.abs(ink.y + ink.height / 2 - 405), 'the strip is centred on the frame’s side').toBeLessThan(4);
+});
+
+/**
+ * A mouse whose press, moves and release are three separate places, as
+ * Chromium's own protocol sends them: `browser.mouse` always releases where it
+ * last moved, and a release the page must read on its own cannot be faked by an
+ * event a test dispatched.
+ */
+async function protocolMouse() {
+  const page = livePage();
+  const client = await page.context().newCDPSession(page);
+  return async (type: 'mouseMoved' | 'mousePressed' | 'mouseReleased', x: number, y: number): Promise<void> => {
+    await client.send('Input.dispatchMouseEvent', {
+      type,
+      x,
+      y,
+      button: type === 'mouseMoved' ? 'none' : 'left',
+      buttons: type === 'mouseReleased' ? 0 : 1,
+      clickCount: 1,
+    });
+  };
+}
+
+test('a rail released past the slop with no move before it docks on the release’s side', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+  const band: Rect = { x: 400, y: 0, width: 480, height: 240 };
+  const opened = await railPlace(ui, band);
+  const mouse = await protocolMouse();
+  const from = tileCentre(boxOfPlace(opened), 1);
+
+  // Pressed on the tile and let go 650 px down, with no move between: the release
+  // is the whole gesture, and it is past the click's 4 px slop, so it docks. The
+  // empty Scene's frame ends 700 px down, so the bottom side is the nearest by
+  // far: 4 px against the top's 604.
+  await mouse('mouseMoved', from.x, from.y);
+  await mouse('mousePressed', from.x, from.y);
+  await mouse('mouseReleased', from.x, from.y + 650);
+  await settle(ui);
+
+  expect(await keptSide(ui), 'the release past the slop is a drag of the rail').toBe('bottom');
+  expect(await screen.getByRole('button', 'Select').getAttribute('aria-pressed'), 'the drag picked no tool').toBe(
+    'true',
+  );
+  expect(await screen.getByRole('button', 'Rectangle').getAttribute('aria-pressed')).toBe('false');
+});
+
+test('a rail whose last move went the other way docks where it is released', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+  const band: Rect = { x: 400, y: 0, width: 480, height: 240 };
+  const opened = await railPlace(ui, band);
+  const mouse = await protocolMouse();
+  const from = tileCentre(boxOfPlace(opened), 1);
+
+  // The pointer moves 5 px right with the button down, then the button is let go
+  // 650 px below the press: the release is 600 px nearer the frame's bottom side
+  // than its top, and that is the side the rail docks on. A drag that docked at
+  // its last move would take the top, level with the top side.
+  await mouse('mouseMoved', from.x, from.y);
+  await mouse('mousePressed', from.x, from.y);
+  await mouse('mouseMoved', from.x + 5, from.y);
+  await mouse('mouseReleased', from.x, from.y + 650);
+  await settle(ui);
+
+  expect(await keptSide(ui), 'the release decides the side, not the last move').toBe('bottom');
+  expect(await screen.getByRole('button', 'Select').getAttribute('aria-pressed'), 'the drag picked no tool').toBe(
+    'true',
+  );
+});
+
+test('a zoom in the middle of a rail drag leaves the dock where the press measured it', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  // A window a wide diagram is fitted into, so its frame's bottom side is 200 px
+  // above the editor's own edge and the bottom dock hangs clear of its ink.
+  await browser.setViewport({ width: 1280, height: 1000 });
+  await openEditor(ui, { A: { 'wide.json': WIDE_SOURCE } }, 'wide.json');
+  await settle(ui);
+  const band: Rect = { x: 400, y: 0, width: 480, height: 300 };
+
+  // The same press and the same release twice, and the second drag zooms the page
+  // while the button is still down. The frame was measured at the press (D3), so
+  // the zoom moves the diagram and not the dock: a release that measured the
+  // frame again would hang the strip 30 px right of where the first drag left it.
+  const zoom = await zoomReadout(ui).textContent();
+  const opened = await railPlace(ui, band);
+  await drag(ui, tileCentre(boxOfPlace(opened), 1), { x: 200, y: 780 });
+  await settle(ui);
+  expect(await keptSide(ui), 'the release is nearest the frame’s bottom side').toBe('bottom');
+  expect(await zoomReadout(ui).textContent(), 'nothing zoomed the first drag').toBe(zoom);
+  const still = await railInk(ui, { x: 400, y: 700, width: 480, height: 300 });
+
+  await dockRail(ui, 'top');
+  const again = await railPlace(ui, band);
+  await drag(ui, tileCentre(boxOfPlace(again), 1), { x: 200, y: 780 }, 'left', async () => {
+    await ui.browser.mouse.wheel(0, -100);
+  });
+  await settle(ui);
+
+  expect(await zoomReadout(ui).textContent(), 'the wheel zoomed the page mid-drag').not.toBe(zoom);
+  expect(await keptSide(ui), 'the release is still nearest the frame’s bottom side').toBe('bottom');
+  const zoomed = await railInk(ui, { x: 400, y: 700, width: 480, height: 300 });
+  const middle = (ink: Rect): number => ink.x + ink.width / 2;
+  expect(Math.abs(middle(zoomed) - middle(still)), 'the dock is the one the press measured').toBeLessThan(4);
+});
+
+test('a pinch that spans the rail and the paper draws nothing on the paper', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+  const band: Rect = { x: 400, y: 0, width: 480, height: 240 };
+  const opened = await railPlace(ui, band);
+  const files = await savedFiles(ui);
+
+  // A finger presses a tile and carries the rail left; a second finger lands on
+  // the paper and the two are drawn apart, which is how a pinch begins. The rail
+  // drag owns its pointer, so the paper is no place for the second contact to
+  // start a Rectangle on (D9, criterion 10).
+  await screen.getByRole('button', { name: 'Rectangle', exact: true }).click();
+  await holdWrites(ui, 'bare.json');
+  const page = livePage();
+  const cdp = await page.context().newCDPSession(page);
+  const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', points: Array<{ x: number; y: number; id: number }>) =>
+    cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points });
+  const grip = tileCentre(boxOfPlace(opened), 1);
+  const railFinger = { x: grip.x, y: grip.y, id: 0 };
+  const boardFinger = { x: 920, y: 250, id: 1 };
+  await touch('touchStart', [railFinger]);
+  await touch('touchMove', [{ x: 250, y: 400, id: 0 }]);
+  await touch('touchStart', [{ x: 250, y: 400, id: 0 }, boardFinger]);
+  await touch('touchMove', [{ x: 200, y: 400, id: 0 }, { x: 1020, y: 350, id: 1 }]);
+  await touch('touchEnd', []);
+  await settle(ui);
+
+  const held = await browser.evaluate(
+    () => ((window as unknown as { __esbozoGates?: unknown[] }).__esbozoGates ?? []).length,
+  );
+  expect(held, 'a pinch on the paper sends no save').toBe(0);
+  await allowWrites(ui);
+  expect(await savedFiles(ui), 'a pinch on the paper writes no file').toEqual(files);
+  expect(await keptSide(ui), 'the rail drag it started still docks').toBe('left');
+});
+
+/**
+ * The browser protocol with a pointer of its own: a pen, a touch and the mouse,
+ * each pressed and let go when the test says so. e2e's fixtures each drive the
+ * primary pointer, and the gestures below are one pointer's while another holds
+ * the rail — a pen dragging the strip with a finger still on the paper, which no
+ * fixture can produce.
+ */
+async function mixedPointers() {
+  const page = livePage();
+  const client = await page.context().newCDPSession(page);
+  /** A press, a move or a release of the pen's or the mouse's own pointer. */
+  const press = async (
+    pointerType: 'pen' | 'mouse',
+    type: 'mousePressed' | 'mouseMoved' | 'mouseReleased',
+    x: number,
+    y: number,
+  ): Promise<void> => {
+    await client.send('Input.dispatchMouseEvent', {
+      pointerType,
+      type,
+      x,
+      y,
+      button: type === 'mouseMoved' ? 'none' : 'left',
+      buttons: type === 'mouseReleased' ? 0 : 1,
+      clickCount: 1,
+    });
+  };
+  return {
+    pen: (type: 'mousePressed' | 'mouseMoved' | 'mouseReleased', x: number, y: number) => press('pen', type, x, y),
+    mouse: (type: 'mousePressed' | 'mouseMoved' | 'mouseReleased', x: number, y: number) =>
+      press('mouse', type, x, y),
+    /** The touch's contacts, every one of them on every call, as the protocol takes them. */
+    touch: async (
+      type: 'touchStart' | 'touchMove' | 'touchEnd',
+      points: Array<{ x: number; y: number; id: number }>,
+    ): Promise<void> => {
+      await client.send('Input.dispatchTouchEvent', { type, touchPoints: points });
+    },
+  };
+}
+
+/** How many writes the page has asked the stubbed folder for, held or landed. */
+async function writeCount(ui: Ui): Promise<number> {
+  return ui.browser.evaluate(
+    () => ((window as unknown as { __esbozoGates?: unknown[] }).__esbozoGates ?? []).length,
+  );
+}
+
+test('a finger a rail drag ignored ends as ignored, so its release leaves the mouse’s Rectangle alone', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+  const band: Rect = { x: 400, y: 0, width: 480, height: 240 };
+  const opened = await railPlace(ui, band);
+  await screen.getByRole('button', { name: 'Rectangle', exact: true }).click();
+  await holdWrites(ui, 'bare.json');
+  const { pen, mouse, touch } = await mixedPointers();
+  const grip = tileCentre(boxOfPlace(opened), 1);
+
+  // A pen presses the rail and carries it left; a finger lands on the paper and
+  // stays there; the pen lets go, so the rail docks with the finger still down.
+  // Neither contact carries Ctrl: the board ignores the finger because a rail
+  // drag owns a pointer, not because a menu owns its press.
+  await pen('mousePressed', grip.x, grip.y);
+  await pen('mouseMoved', 250, 400);
+  await touch('touchStart', [{ x: 1000, y: 360, id: 0 }]);
+  await pen('mouseReleased', 250, 400);
+  await settle(ui);
+  expect(await keptSide(ui), 'the pen’s release docked the rail').toBe('left');
+
+  // A mouse draws a 100×80 Rectangle while the finger is still down, and the
+  // finger is lifted first: its release is its own, so the Rectangle the mouse is
+  // still drawing is not the finger's to settle (criterion 10).
+  await mouse('mouseMoved', 700, 200);
+  await mouse('mousePressed', 700, 200);
+  await mouse('mouseMoved', 750, 240);
+  await mouse('mouseMoved', 800, 280);
+  await touch('touchEnd', []);
+  await settle(ui);
+  expect(await writeCount(ui), 'the ignored finger’s release saves nothing').toBe(0);
+
+  // The mouse's own release is the one that finishes the Rectangle it drew.
+  await mouse('mouseReleased', 800, 280);
+  await expect.poll(() => writeCount(ui), { timeout: 5000 }).toBe(1);
+  await releaseWrite(ui);
+  const drawn = (await savedScene(ui, 'bare.json')).elements[0];
+  expect([drawn?.width, drawn?.height], 'the mouse’s own Rectangle is what was saved').toEqual([100, 80]);
+});
+
+test('a mouse a held rail drag ignored ends as ignored, so an in-flight touch draw saves itself', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+  const band: Rect = { x: 400, y: 0, width: 480, height: 240 };
+  const opened = await railPlace(ui, band);
+  await screen.getByRole('button', { name: 'Rectangle', exact: true }).click();
+  await holdWrites(ui, 'bare.json');
+  const { pen, mouse, touch } = await mixedPointers();
+  const grip = tileCentre(boxOfPlace(opened), 1);
+
+  // A finger draws a 200×60 Rectangle on the paper and stays down; a pen then
+  // presses the rail and carries it left, so a drag owns a pointer while the
+  // draw is still in flight.
+  await touch('touchStart', [{ x: 900, y: 300, id: 0 }]);
+  await touch('touchMove', [{ x: 1000, y: 330, id: 0 }]);
+  await touch('touchMove', [{ x: 1100, y: 360, id: 0 }]);
+  await pen('mousePressed', grip.x, grip.y);
+  await pen('mouseMoved', 250, 400);
+
+  // The mouse presses the paper and lets go while the rail is still held: the
+  // board ignores both, and neither is the touch draw's to settle.
+  await mouse('mouseMoved', 700, 200);
+  await mouse('mousePressed', 700, 200);
+  await mouse('mouseReleased', 700, 200);
+  await settle(ui);
+  expect(await writeCount(ui), 'the ignored mouse’s release saves nothing').toBe(0);
+
+  // The finger's own release is the one that finishes its Rectangle, and the pen
+  // still docks the rail it is holding.
+  await touch('touchEnd', []);
+  await expect.poll(() => writeCount(ui), { timeout: 5000 }).toBe(1);
+  await releaseWrite(ui);
+  const drawn = (await savedScene(ui, 'bare.json')).elements[0];
+  expect([drawn?.width, drawn?.height], 'the touch’s own Rectangle is what was saved').toEqual([200, 60]);
+
+  await pen('mouseReleased', 250, 400);
+  await settle(ui);
+  expect(await keptSide(ui), 'the pen’s release docks the rail').toBe('left');
 });
