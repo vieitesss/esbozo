@@ -21,6 +21,7 @@ import {
   drag,
   settle,
   openEditor,
+  saveSettled,
   savedFiles,
   savedScene,
 } from './helpers.ts';
@@ -721,6 +722,7 @@ test('a press on the rail draws and selects nothing, and the press below it reac
   await drag(ui, { x: 600, y: 32 }, { x: 700, y: 140 });
   await settle(ui);
   expect((await shot(ui)).darkCount({ x: 596, y: 84, width: 120, height: 60 }, 0.6)).toBe(before);
+  await saveSettled(ui);
   expect((await savedFiles(ui))['scene.json']).toBe(SCENE_SOURCE);
 
   // Select in hand, the press on the strip's own padding selects nothing,
@@ -736,6 +738,7 @@ test('a press on the rail draws and selects nothing, and the press below it reac
   await expect(screen.getByRole('dialog', 'Style')).toBeVisible();
 
   // Two presses on a stroke and a sweep with a pencil: neither edited the Scene.
+  await saveSettled(ui);
   expect((await savedFiles(ui))['scene.json']).toBe(SCENE_SOURCE);
 });
 
