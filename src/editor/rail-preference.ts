@@ -41,7 +41,9 @@ export function writeRailSide(side: RailSide, into: Storage | null = pageStorage
   try {
     into?.setItem(KEY, side);
   } catch {
-    // A blocked or full storage keeps no side: this visit still moves, and the
-    // next one starts at the top (D10).
+    // A blocked or full storage keeps no side of this move: this visit still moves
+    // and the Scene is untouched. The next editor starts on whatever the storage
+    // still holds, which is the side kept before when it took one, and the top
+    // when it took none (D10).
   }
 }
