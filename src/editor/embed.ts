@@ -42,7 +42,7 @@ import type { SceneFolder } from './files.js';
 import { sceneFolder } from './scene-url.js';
 import STYLES from './editor.css';
 
-defineEditorElement(pageFont, folderAt, { focusInside: true, pngExport: false });
+defineEditorElement(pageFont, folderAt, { focusInside: true });
 addStylesheet();
 
 /**
