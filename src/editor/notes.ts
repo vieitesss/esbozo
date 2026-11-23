@@ -71,6 +71,11 @@ export class Notes {
    * longer the one the note waits for.
    */
   #ask: Ask | null = null;
+  /**
+   * The presses already answered, so the element's listener and the page's are
+   * one press and not two.
+   */
+  readonly #answered = new WeakSet<Event>();
 
   constructor(options: NotesOptions) {
     this.#inside = options.inside;
@@ -210,10 +215,15 @@ export class Notes {
 
   /** A press outside the note on top shuts it, and is otherwise the press it was. */
   #onPress = (event: PointerEvent): void => {
+    // One press answers once: the element hears the ones on it, the page hears
+    // the ones beyond it, and whichever hears this one first settles it. A host
+    // that moves or takes the target away between the two hears no second note.
+    if (this.#answered.has(event)) {
+      return;
+    }
+    this.#answered.add(event);
     const target = event.target as Node | null;
-    // The element already answered this press, and the page's listener is for the
-    // presses that land beyond it.
-    if (target === null || (event.currentTarget !== this.#inside && this.#inside.contains(target))) {
+    if (target === null) {
       return;
     }
     const top = this.#open.at(-1);
