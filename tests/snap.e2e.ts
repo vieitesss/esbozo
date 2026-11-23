@@ -35,6 +35,7 @@ import {
   settle,
 } from './helpers.ts';
 import type { Point, SavedScene, Ui, View } from './helpers.ts';
+import { control } from './editor-shared.ts';
 import { shot } from './pixels.ts';
 import type { Rect, Shot } from './pixels.ts';
 import { removeTempFolders } from '../test/temp.ts';
@@ -1337,6 +1338,28 @@ describe('an end that carries an Anchor', () => {
     const after = await shot(ui);
     expect(inked(after, at({ x: 180, y: 110 }, PINNED))).toBeGreaterThan(0);
     expect(inked(after, at({ x: 180, y: 90 }, PINNED))).toBe(0);
+  });
+
+  test('a Corners pick leaves the Anchor where it is, and changes only the corners', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'pinned.json');
+    await clickScene(ui, { x: 180, y: 90 }, [], PINNED);
+
+    // The pick is about how the shaft turns, and a two-point shaft has no bend to
+    // turn: every point keeps the very keys it had, the Anchor included, so the
+    // ink stays on the place the Anchor names.
+    await control(ui, 'Corners: round').click();
+
+    const scene = await savedAndChecked(ui, 'pinned.json');
+    expect(scene.elements[1]?.corners).toBe('round');
+    expect(scene.elements[1]?.points).toEqual([
+      { x: 60, y: 80 },
+      { x: 300, y: 80, snap: 'post', anchor: { x: 0, y: 0.75 } },
+    ]);
   });
 
   test('Detach frees the end where its Anchor drew it, and drops the Anchor', async ({
