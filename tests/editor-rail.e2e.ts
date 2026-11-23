@@ -719,6 +719,27 @@ test('a dock in a very small editor clears the status, so every tile takes its o
   await pressEveryTile('right', { width: 360, height: 330 });
 });
 
+test('a left dock moved clear of the bottom status stops clear of the Shortcuts box too', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await browser.setViewport({ width: 1280, height: 800 });
+  await openBare(ui);
+  await browser.setViewport({ width: 280, height: 266 });
+  await settle(ui);
+  await dockRail(ui, 'left');
+
+  // The strip stopped at the editor's inset meets the bottom left corner first, and
+  // the room it takes to clear that corner is the room the Shortcuts button stands
+  // in: a move measured against the one corner it met would stop under the other.
+  // The press says which control got it, and the pointer is a person's.
+  await rail(ui).getByRole('button', 'Text').click({ timeout: PRESS_TIMEOUT });
+  await expect(rail(ui).getByRole('button', 'Text', { pressed: true })).toBeVisible();
+  await expect(screen.getByRole('dialog', { name: 'Shortcuts' })).toBeHidden();
+});
+
 test('the left dock stands the strip up, faint until it is looked at, its outline around all seven', async ({
   app,
   browser,
