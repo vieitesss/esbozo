@@ -428,6 +428,36 @@ test('a listing that lands after the note shut neither reopens it nor shows what
   await expect(screen.getByRole('button', 'z.json')).toBeHidden();
 });
 
+test('a listing held while another note opens still shows the Scenes it read', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui: Ui = { app, browser, screen };
+  await openPage(ui, folderWith());
+  const note = screen.getByRole('dialog', 'Scene files');
+  const sheet = screen.getByRole('dialog', 'Shortcuts');
+
+  // The note is put away, and the folder asked what it holds: the listing waits,
+  // and nobody has seen the note it is for yet.
+  await browser.keyboard.press('Escape');
+  await expect(note).toBeHidden();
+  await holdListing(ui);
+  await browseFolder(ui, 'A');
+  await listingWaiting(ui);
+
+  // Another note opens over it while the folder is still answering. That is not
+  // the person putting the Scenes note away, so what the folder reads is still
+  // the list they asked for.
+  await screen.getByRole('button', 'Shortcuts').click();
+  await expect(sheet).toBeVisible();
+  await landListing(ui);
+  await settle(ui);
+
+  await expect(note).toBeVisible();
+  await expect(screen.getByRole('button', 'b.json')).toBeVisible();
+});
+
 test('a press outside the Scenes note shuts it and still lands where it was aimed', async ({
   app,
   browser,
