@@ -8,6 +8,7 @@ import { expect } from 'e2e';
 import {
   clickScene,
   doubleClickScene,
+  drag,
   dragBy,
   openEditor,
   savedFiles,
@@ -64,6 +65,43 @@ describe('labels ime', () => {
     await screen.getByRole('dialog', { name: 'Style' }).click({ position: { x: 4, y: 4 } });
     await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveCount(0);
     expect(await savedFiles(ui)).toEqual(before);
+  });
+
+  test('a drag of the rail docks it and finishes the words, as any outside press does', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+    const before = await savedFiles(ui);
+
+    // Where the strip hangs, read before the words open: focusing a tile finishes
+    // a composition the moment one starts. This Scene's diagram is far smaller
+    // than the frame's 960×600 minimum, so the strip lies across the top.
+    await screen.getByRole('navigation', { name: 'Tools' }).getByRole('button', 'Select').focus();
+    const band: Rect = { x: 300, y: 0, width: 680, height: 200 };
+    await expect
+      .poll(async () => (await shot(ui)).darkBounds(band, 0.6) !== null, { timeout: 5000 })
+      .toBe(true);
+    const strip = (await shot(ui)).darkBounds(band, 0.6)!;
+    const grip = { x: strip.x + strip.width / 2, y: strip.y + 31 };
+
+    // A press on the strip takes the focus off the field as any outside press
+    // does, and the drag carries the rail 340 px left of the frame: it docks on
+    // the left and picks no tool.
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    await imeCompose('にほん');
+    await drag(ui, grip, { x: 300, y: 400 });
+
+    // The preedit never became words: the session ended on the press, before the
+    // composition could confirm it, and nothing on disk changed.
+    await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveCount(0);
+    expect(await savedFiles(ui)).toEqual(before);
+
+    // The press was the rail's and not the paper's: the side it docked on is the
+    // one it kept for the next start, which only a move of the rail writes.
+    expect(await browser.evaluate(() => localStorage.getItem('esbozo.rail'))).toBe('left');
   });
 
   test('a middle or right press finishes the words before an input method can confirm them', async ({
