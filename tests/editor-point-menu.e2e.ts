@@ -382,6 +382,59 @@ function handleCorner(point: Point, view: View = ZIG): Rect {
   return { x: where.x + 3, y: where.y + 3, width: 1, height: 1 };
 }
 
+/**
+ * Counts the presses the page hears from the document, installed as the page's
+ * first script so the editor's own registration is the one counted: a listener
+ * that is added and never given back is a listener the editor left behind.
+ */
+const COUNT_PRESSES = (): void => {
+  type Listener = EventListenerOrEventListenerObject;
+  interface Entry {
+    type: string;
+    listener: Listener;
+    capture: boolean;
+  }
+  const live: Entry[] = [];
+  const add = document.addEventListener.bind(document) as (
+    type: string,
+    listener: Listener,
+    options?: boolean | EventListenerOptions,
+  ) => void;
+  const remove = document.removeEventListener.bind(document) as (
+    type: string,
+    listener: Listener,
+    options?: boolean | EventListenerOptions,
+  ) => void;
+  const captureOf = (options?: boolean | EventListenerOptions): boolean =>
+    typeof options === 'boolean' ? options : options?.capture === true;
+  const same = (entry: Entry, type: string, capture: boolean, listener: unknown): boolean =>
+    entry.type === type && entry.capture === capture && entry.listener === listener;
+  document.addEventListener = ((type: string, listener: Listener, options?: boolean | EventListenerOptions): void => {
+    const capture = captureOf(options);
+    if (live.every((entry) => !same(entry, type, capture, listener))) {
+      live.push({ type, listener, capture });
+    }
+    add(type, listener, options);
+  }) as Document['addEventListener'];
+  document.removeEventListener = ((type: string, listener: Listener, options?: boolean | EventListenerOptions): void => {
+    const capture = captureOf(options);
+    const at = live.findIndex((entry) => same(entry, type, capture, listener));
+    if (at !== -1) {
+      live.splice(at, 1);
+    }
+    remove(type, listener, options);
+  }) as Document['removeEventListener'];
+  (window as unknown as { __esbozoPresses: () => number }).__esbozoPresses = () =>
+    live.filter((entry) => entry.type === 'pointerdown').length;
+};
+
+/** The presses the page hears from the document, as `COUNT_PRESSES` counts them. */
+async function presses(ui: Ui): Promise<number> {
+  return ui.browser.evaluate(
+    () => (window as unknown as { __esbozoPresses?: () => number }).__esbozoPresses?.() ?? -1,
+  );
+}
+
 /** The ink of the rows' words, inside a panel the pointer put at `where`. */
 function rowInk(where: Point): Rect {
   // Inside the panel's padding and deep enough for both of its rows: the panel's
@@ -785,6 +838,56 @@ describe('the point menu', () => {
     }, { ...pagePoint(ON_INK) });
 
     expect(cancelled).toEqual([true, false, true, false, true]);
+  });
+
+  test('an editor taken off the page and put back leaves no point-menu listener behind', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    await browser.addInitScript(COUNT_PRESSES);
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    // Everything the editor hears the page's presses with is the document's: the
+    // gestures' press, the notes', and the point menu's own.
+    const onPage = await presses(ui);
+    expect(onPage).toBeGreaterThan(0);
+
+    // Off the page it hears none of them: every listener it wired goes with it,
+    // so no menu answers for a press on a page the editor has left.
+    await browser.evaluate(() => {
+      const kept = window as unknown as { __esbozoEditor?: Element; __esbozoHost?: Element };
+      const editor = document.querySelector('esbozo-editor');
+      const host = editor === null ? null : editor.parentElement;
+      if (editor === null || host === null) {
+        throw new Error('no editor on the page');
+      }
+      kept.__esbozoEditor = editor;
+      kept.__esbozoHost = host;
+      editor.remove();
+      return true;
+    });
+    expect(await presses(ui)).toBe(0);
+
+    // Put back, it hears them again — one each, not one more for every move — and
+    // the menu still opens on the handle a secondary press aims at, and shuts on
+    // the Escape the note on top answers.
+    await browser.evaluate(() => {
+      const kept = window as unknown as { __esbozoEditor?: Element; __esbozoHost?: Element };
+      if (kept.__esbozoEditor === undefined || kept.__esbozoHost === undefined) {
+        throw new Error('no editor to put back');
+      }
+      kept.__esbozoHost.append(kept.__esbozoEditor);
+      return true;
+    });
+    expect(await presses(ui)).toBe(onPage);
+
+    await selectShaft(ui);
+    await rightClick(ui, PEAK);
+    await expect(menu(ui)).toBeVisible();
+    await browser.keyboard.press('Escape');
+    await expect(menu(ui)).toBeHidden();
   });
 
   test('a point a self-loop must keep is offered as a disabled row', async ({

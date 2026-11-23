@@ -9,9 +9,12 @@
  * one, and running it switches the point to it. Enter runs the row that holds the
  * keys, ArrowUp and ArrowDown move them between the rows, Escape shuts the menu
  * and leaves the point selected, and a press anywhere else shuts it and then does
- * the work that press already does. While it is open it holds the keys, so
- * nothing else edits the Scene from under it; every key that would is the menu's
- * or nobody's.
+ * the work that press already does.
+ *
+ * The menu is one of the Notes stack's notes: the stack is what decides that this
+ * press opens it, that it is on top, that it holds every key while it is, and
+ * that Escape and a press beside it shut it. This module wires no listener of the
+ * page's own, so nothing of it outlives the editor it is drawn in.
  *
  * The removal is `#removeBend`'s and the corner is `#switchCorner`'s: this module
  * names no change of its own, and asks the Bend point module — the one rule the
@@ -33,7 +36,7 @@ export interface PointMenuOptions {
   readonly root: HTMLElement;
   /** The editor the menu opens in: the box it stays inside. */
   readonly inside: HTMLElement;
-  /** The canvas, which the presses are on and which takes the keys back. */
+  /** The canvas, whose handles the presses are on. */
   readonly canvas: SVGSVGElement;
   /**
    * Whether a secondary press may open a menu at all: a page that may only read
@@ -49,6 +52,8 @@ export interface PointMenuOptions {
   readonly switchCorner: (bend: Bend, corner: Corner) => void;
   /** Remove the point, through the editor's one removal: a step and a write. */
   readonly remove: (bend: Bend) => void;
+  /** Shut the menu, through the stack that owns which note the page answers with. */
+  readonly shut: () => void;
 }
 
 /** The row that switches the point's corner, and the one that removes it. */
@@ -66,8 +71,10 @@ export class PointMenu {
   readonly #options: PointMenuOptions;
   /** The rows this menu holds, in the order they are drawn: corner, then removal. */
   readonly #rows: ReadonlyMap<Row, HTMLButtonElement>;
-  /** The point the menu was opened on, for as long as it is open. */
+  /** The point the menu is drawn for, while it is the page's. */
   #bend: Bend | null = null;
+  /** Where the press that opened it put the pointer, until the panel is drawn there. */
+  #at: Point | null = null;
 
   constructor(options: PointMenuOptions) {
     this.#options = options;
@@ -77,22 +84,54 @@ export class PointMenu {
     ]);
     options.root.addEventListener('keydown', this.#onKeyDown);
     options.root.addEventListener('click', this.#onClick);
-    // The press that opens the menu and the press that shuts it are the same
-    // one, seen from the page: a press on the panel is the panel's own.
-    document.addEventListener('pointerdown', this.#onPress);
   }
 
-  get open(): boolean {
-    return !this.#options.root.hidden;
-  }
+  /**
+   * Take the press the menu opens on, and say whether it was the menu's: a
+   * secondary press on the handle a bend point draws, on a page that may open a
+   * menu at all. It picks the point and holds the place; the stack is what shows
+   * the note, and `reveal` is what draws it.
+   */
+  press = (event: PointerEvent): boolean => {
+    const target = event.target as Node | null;
+    // A press on the panel is the panel's own: a row runs on its own click.
+    if (target === null || this.#options.root.contains(target)) {
+      return false;
+    }
+    const secondary = event.button === 2 || (event.button === 0 && event.ctrlKey);
+    if (!secondary || !this.#options.canOpen()) {
+      return false;
+    }
+    // A handle is the mark a point draws, so a dot — a press pulling a new point
+    // out of the ink — leaves the menu shut.
+    const point = this.#options.canvas.contains(target)
+      ? (bendFromHandle(target, this.#options.shaft)?.bend ?? null)
+      : null;
+    if (point === null) {
+      return false;
+    }
+    // The press is the menu's: the canvas would take the focus with it, and the
+    // row the person means to read would lose it before it could be read.
+    event.preventDefault();
+    this.#bend = point;
+    this.#at = { x: event.clientX, y: event.clientY };
+    // The point is the selection's before the panel is drawn, so the handle the
+    // menu opens over is painted the way the rows act on it.
+    this.#options.selectBend(point);
+    return true;
+  };
 
-  /** Open over a point, by the pointer, wholly inside the editor. */
-  show(bend: Bend, at: Point): void {
+  /** The note is on top: draw the rows for the point and put the panel by the press. */
+  reveal(): void {
     const { root, inside } = this.#options;
-    const shaft = this.#options.shaft(bend.id);
-    this.#bend = bend;
+    const bend = this.#bend;
+    const at = this.#at;
+    if (bend === null || at === null) {
+      return;
+    }
     // The removal's own rule, so the row is disabled on exactly the points the
     // key cannot remove.
+    const shaft = this.#options.shaft(bend.id);
     const removal = this.#rows.get('delete')!;
     removal.disabled = shaft === null || !mayRemove(shaft);
     // The corner the point turns by today names the one its row offers: the
@@ -103,8 +142,6 @@ export class PointMenu {
     if (next !== null) {
       switchTo.textContent = CORNER_NAMES[next];
     }
-    this.#options.selectBend(bend);
-    root.hidden = false;
     // The panel has a size only once it is on the page, and the editor's box is
     // where it has to fit: the pointer's place is clamped into that box, so a
     // press at the window's own corner still shows the whole row.
@@ -124,71 +161,31 @@ export class PointMenu {
   }
 
   /**
-   * Shut the menu. The point stays selected — Escape is a menu leaving, not a
-   * selection changing — and the keys go back to the paper that holds them.
+   * The note is the page's no more. The point stays selected — a menu leaving is
+   * not a selection changing — and the keys went back with the note, through the
+   * stack that shut it.
    */
-  close(): void {
-    if (!this.open) {
-      return;
-    }
+  conceal(): void {
     this.#bend = null;
-    this.#options.root.hidden = true;
-    this.#options.canvas.focus({ preventScroll: true });
+    this.#at = null;
   }
 
   /**
-   * A press anywhere on the page. A secondary press on a bend handle opens the
-   * menu over that point; every press outside the panel shuts the menu the page
-   * had open and goes on to do what it already does.
-   */
-  #onPress = (event: PointerEvent): void => {
-    const target = event.target as Node | null;
-    if (target !== null && this.#options.root.contains(target)) {
-      return;
-    }
-    const secondary = event.button === 2 || (event.button === 0 && event.ctrlKey);
-    if (!secondary || !this.#options.canOpen()) {
-      this.close();
-      return;
-    }
-    // A handle is the mark a point draws, so a dot — a press pulling a new point
-    // out of the ink — leaves the menu shut.
-    const point = this.#options.canvas.contains(target)
-      ? (bendFromHandle(target, this.#options.shaft)?.bend ?? null)
-      : null;
-    if (point === null) {
-      this.close();
-      return;
-    }
-    // The press is the menu's: the canvas would take the focus with it, and the
-    // row the person means to read would lose it before it could be read.
-    event.preventDefault();
-    this.show(point, { x: event.clientX, y: event.clientY });
-  };
-
-  /**
-   * The keys the menu holds while it is open: Escape shuts it, the arrows move
-   * between its rows, and Enter runs the row that holds the keys. Every key is
-   * the menu's, so not one of them keeps a default of its own: Space would press
-   * the row that holds the keys, and Tab would carry them out of the panel. And
-   * nothing else on the page hears the key at all.
+   * The keys the menu holds while it is open, but for the two it leaves alone:
+   * Escape shuts the note on top, and Enter presses the row that holds the keys
+   * in the browser's own way. Every other key is the menu's, so not one of them
+   * keeps a default of its own: Space would press the row that holds the keys,
+   * and Tab would carry them out of the panel. ArrowUp and ArrowDown move them
+   * between the rows.
    */
   #onKeyDown = (event: KeyboardEvent): void => {
+    if (event.key === 'Escape' || event.key === 'Enter') {
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
-    if (event.key === 'Escape') {
-      this.close();
-      return;
-    }
     if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
       this.#step(event.key === 'ArrowDown' ? 1 : -1);
-      return;
-    }
-    if (event.key === 'Enter') {
-      const row = this.#held();
-      if (row !== null) {
-        this.#run(row);
-      }
     }
   };
 
@@ -244,7 +241,7 @@ export class PointMenu {
       return;
     }
     const corner = row === 'corner' ? this.#switchTo(bend) : null;
-    this.close();
+    this.#options.shut();
     if (row === 'corner') {
       if (corner !== null) {
         this.#options.switchCorner(bend, corner);
