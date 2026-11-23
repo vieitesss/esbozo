@@ -47,6 +47,7 @@ import {
   settle,
 } from './helpers.ts';
 import type { Folders, Point, SavedScene, Ui, View } from './helpers.ts';
+import { shaftLabelAnchor, shaftPath } from '../src/geometry.ts';
 import { blurPage, cancelTouch, cursorAt, livePage, touchCarry } from './cdp.ts';
 import { command, palette } from './editor-shared.ts';
 import { shot } from './pixels.ts';
@@ -737,9 +738,9 @@ const BOX_SELECT: Gesture = {
 /**
  * The arrow's Label, taken by the words as they draw — their middle is Scene
  * (168,254): three quarters along the arrow's drawn path, 20px to the side of
- * its second run — and carried 32 right and 16 down. The arrow's drawn ends are
- * level, (60,240) to (220,240), so the place the drag lands reads back as the
- * point the pointer left the words' middle on.
+ * its second run — and carried 32 right and 16 down, to Scene (200,270). The
+ * place the drag lands is read on that second run, the ink the words ride, and
+ * not on the level chord between the arrow's two ends.
  */
 const LABEL_MOVED = { from: at({ x: 168, y: 254 }, VIEW), to: at({ x: 200, y: 270 }, VIEW) };
 
@@ -763,15 +764,20 @@ const LABEL_DRAG: Gesture = {
     await drag(ui, LABEL_MOVED.from, LABEL_MOVED.to);
   },
   proves: (scene) => {
-    // The arrow's drawn ends are level, from (60,240) to (220,240): the place it
-    // saves is the fraction along that line and the distance below it, so it
-    // reads back as the point the release left the words' middle on. The words
-    // are the page's measured ink, so the middle a press took is theirs, a
-    // fraction of a pixel from the arrow's own anchor: half a pixel is the
-    // tolerance, and a gesture that carried nothing misses by tens.
+    // The words ride the arrow's drawn ink, so the place a release leaves them on
+    // is read back through the same `shaftLabelAnchor` the Renderer draws them
+    // with, and has to land on the point the pointer let go at — in x and in y
+    // alike, within the half Scene pixel the chord row held. The ink runs from
+    // (60,240) through the bend at (140,300) to (220,240), so a drag read along
+    // the level chord (#60), or one that carried nothing, misses by tens.
     const place = scene.elements.find((element) => element.id === 'bent')?.labelAt;
-    expect(60 + (place?.t ?? 0) * 160).toBeCloseTo(200, 0);
-    expect(240 - (place?.offset ?? 0)).toBeCloseTo(270, 0);
+    expect(place).toBeDefined();
+    const drawn = shaftLabelAnchor(
+      shaftPath(BENT.points as [Point, Point, ...Point[]], 'sharp', undefined, undefined),
+      place as { t: number; offset: number },
+    );
+    expect(drawn.x).toBeCloseTo(200, 0);
+    expect(drawn.y).toBeCloseTo(270, 0);
   },
 };
 

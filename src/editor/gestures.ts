@@ -30,6 +30,7 @@ import { canonicalElement, isOutlined } from '../scene.js';
 import type { ArrowOrLineElement, Element as SceneElement, Scene } from '../scene.js';
 import type { Layout } from '../layout.js';
 import { labelAtFor } from '../geometry.js';
+import type { ShaftPath } from '../geometry.js';
 import { boxBetween, elementsInBox, moved, pickAt, resized, resizedBox } from './geometry.js';
 import type { Box, Handle, Point, Pointer, View } from './geometry.js';
 import {
@@ -144,8 +145,8 @@ export type Drag =
   | {
       kind: 'label';
       id: string;
-      /** The drawn shaft the Label rides, as the press found it. */
-      shaft: { start: Point; end: Point };
+      /** The drawn shaft the Label rides, as the press found it, ink and bends and all. */
+      path: ShaftPath;
       /** Where the press landed on the page: the click's own slop is measured from here. */
       from: Point;
       /** How far off the words' middle the press landed: the words keep that hold. */
@@ -741,15 +742,17 @@ export class Gestures {
       const label = pick.label;
       if (label !== null && isShaft(pick.element)) {
         // The words are taken by the hold the press took, and placed from it:
-        // a press on them never moves the shaft they are written about.
-        const [start, end] = drawnShaft(
+        // a press on them never moves the shaft they are written about. The ink
+        // itself is what the place on the shaft is read back from, so a bent
+        // shaft's words stay on the bend the drawing put them on.
+        const path = shaftInk(
           pick.element,
           elementsById(this.#host.scene().elements),
-        );
+        ).path;
         this.#drag = {
           kind: 'label',
           id: pick.element.id,
-          shaft: { start, end },
+          path,
           from: viewport.screenPoint(event),
           grab: {
             x: point.x - (label.x + label.width / 2),
@@ -872,7 +875,7 @@ export class Gestures {
       if (isShaft(drag.shown)) {
         drag.shown = {
           ...drag.shown,
-          labelAt: labelAtFor(drag.shaft, anchor, drag.shown.labelAt?.t ?? 0),
+          labelAt: labelAtFor(drag.path, anchor, drag.shown.labelAt?.t ?? 0),
         };
         drag.moved = true;
       }
