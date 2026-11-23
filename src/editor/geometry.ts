@@ -558,6 +558,11 @@ export function fittedView(
 export interface RailFrame extends RailDock {
   /** The diagram's frame on screen: what a dock sits outside of. */
   readonly frame: Box;
+  /**
+   * The dock the frame alone asked for, before any status corner moved it in: the
+   * place a corner that shrinks gives back (O2).
+   */
+  readonly frameDock: RailDock;
 }
 
 /** A dock the sheet hangs the strip by, and whether the editor's inset is what stopped it there. */
@@ -634,7 +639,26 @@ export function railFrame(
   const diagram = boxOf(scene.elements, elementsById(scene.elements), layout);
   const shown = diagram === null ? null : grown(onScreen(diagram, view));
   const frame = (shown === null ? null : cutTo(shown, editor)) ?? emptyFrame(editor);
-  return { frame, ...clearOfStatus(dockOnFrame(frame, editor, side, outline), side, outline, chrome, editor) };
+  const frameDock = dockOnFrame(frame, editor, side, outline);
+  return { frame, frameDock, ...clearedDock(frameDock, side, outline, chrome, editor) };
+}
+
+/**
+ * A dock moved inward just far enough to clear the page's status chrome (O2), from
+ * the dock the frame asked for.
+ *
+ * The frame is the one measured when the rail was placed and is not measured here:
+ * a pan or a zoom of the page moves the diagram and leaves the rail where it hangs,
+ * and a corner that grows over the strip moves nothing but the strip.
+ */
+export function clearedDock(
+  frameDock: RailDock,
+  side: RailSide,
+  outline: RailOutline,
+  chrome: readonly Box[],
+  viewport: { width: number; height: number },
+): RailDock {
+  return clearOfStatus(frameDock, side, outline, chrome, viewport);
 }
 
 /**

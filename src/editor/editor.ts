@@ -27,6 +27,7 @@ import type { StyleKey } from './style.js';
 import { canPickFolder } from './files.js';
 import { servedFolder } from './server-folder.js';
 import {
+  clearedDock,
   clampedDock,
   dockOnFrame,
   fittedView,
@@ -135,6 +136,30 @@ class EsbozoEditorElement extends HTMLElement {
    * fresh press by the same pointer pays it (D6, D7).
    */
   #railClickOwed: number | null = null;
+  /**
+   * The dock the frame asked for before the status corners moved the strip in, as an
+   * offset from the editor's middle: what a corner that shrinks gives back, and what a
+   * corner that grows is cleared from (O2).
+   */
+  #frameOffset: Point | null = null;
+  /**
+   * Whether the strip hangs where a person's own drag let it go, rather than
+   * where a measure of the frame put it (D6): a status corner that grows later
+   * leaves that place alone, and a dock by name takes the question back.
+   */
+  #railOwn = false;
+  /**
+   * Whether a status corner changed size while a press held the strip, so the
+   * placement it asks for waits for that press to end rather than moving the
+   * strip out from under the pointer (D6, O2).
+   */
+  #railWaiting = false;
+  /**
+   * The status bar's corners, watched for the size the rail has to clear: a
+   * corner is as wide and as tall as the words it holds, and those change with a
+   * Scene's name, the mode the page is in and the answer a folder gave (O2).
+   */
+  readonly #cornerWatch = new ResizeObserver(() => this.#onCornerResize());
   /** True once the editor's listeners are on the page. */
   #wired = false;
   /**
@@ -463,6 +488,9 @@ class EsbozoEditorElement extends HTMLElement {
     this.#rail.addEventListener('pointerdown', this.#onRailDown);
     this.#rail.addEventListener('click', this.#onRailClick);
     this.querySelector('.status')!.addEventListener('click', this.#onStatusClick);
+    for (const corner of this.#statusCorners()) {
+      this.#cornerWatch.observe(corner);
+    }
     document.addEventListener('copy', this.#onCopy);
     document.addEventListener('cut', this.#onCut);
     document.addEventListener('paste', this.#onPaste);
@@ -522,6 +550,7 @@ class EsbozoEditorElement extends HTMLElement {
     // the DOM it was pressed on — the pan is the page's, and it goes too.
     this.#endEdits();
     this.#endRailDrag();
+    this.#cornerWatch.disconnect();
     this.#gestures.endSpacePan();
     this.#gestures.drop();
     this.#wired = false;
@@ -1109,6 +1138,30 @@ class EsbozoEditorElement extends HTMLElement {
     this.#page.paint();
   }
 
+  /**
+   * A status corner changed the size of the words it holds, in the middle of a
+   * Scene as much as at its open: the rail was measured against the corner as it
+   * was then, and a corner that grows over the strip prints its words over the
+   * tiles and takes the press of the nearest of them (O2). The strip is measured
+   * again on its own side, which is also what puts it back when a corner only
+   * shrinks.
+   *
+   * Two places are not the measure's to take. A strip a person dragged is the place
+   * they chose, and a corner arriving over it is theirs to move (D6). A press on
+   * the strip keeps it under the pointer it was pressed with, and asks for the
+   * placement when that press ends (D6, O2).
+   */
+  #onCornerResize = (): void => {
+    if (this.#railOwn) {
+      return;
+    }
+    if (this.#railDrag !== null) {
+      this.#railWaiting = true;
+      return;
+    }
+    this.#clearRail();
+  };
+
   #drawRailArt(): void {
     const width = this.#rail.offsetWidth + RAIL_OUTLINE * 2;
     const height = this.#rail.offsetHeight + RAIL_OUTLINE * 2;
@@ -1131,14 +1184,51 @@ class EsbozoEditorElement extends HTMLElement {
    * never moves it: the rail floats over the paper.
    */
   #placeRail(pressed?: MeasuredFrame): void {
+    // The measure is made, so no press is still owed one: a press that ends as a
+    // drag docks on the frame it measured instead (D3, O2).
+    this.#railWaiting = false;
     const size = pressed?.editor ?? this.#page.viewport.size();
-    const { dock, stopped } =
-      pressed === undefined
-        ? this.#dockOn(this.#railSide)
-        : dockOnFrame(pressed.frame, pressed.editor, this.#railSide, this.#outline());
-    this.#railHeld = stopped;
-    this.#railDockOffset = { x: dock.x - size.width / 2, y: dock.y - size.height / 2 };
+    const placed = pressed === undefined ? this.#dockOn(this.#railSide) : this.#dockOnFrame(pressed);
+    this.#railHeld = placed.stopped;
+    this.#frameOffset = this.#offsetOf(placed.frameDock.dock, size);
+    this.#railDockOffset = this.#offsetOf(placed.dock, size);
     this.#hangRail();
+  }
+
+  /**
+   * The strip moved in clear of the status corners as they are now, from the dock
+   * the frame asked for (O2). The frame is not measured again: a pan or a zoom has
+   * moved the diagram, and neither moves the rail. A dock no corner meets is the
+   * place the frame asked for, so a corner that shrinks gives the room back.
+   */
+  #clearRail(): void {
+    const offset = this.#frameOffset;
+    if (offset === null) {
+      return;
+    }
+    const size = this.#page.viewport.size();
+    const frameDock = { dock: this.#pointOf(offset, size), stopped: this.#railHeld };
+    const cleared = clearedDock(frameDock, this.#railSide, this.#outline(), this.#statusChrome(), size);
+    this.#railDockOffset = this.#offsetOf(cleared.dock, size);
+    // Nothing a corner does to the place the strip already hangs on writes a style
+    // or paints: only the strip the corners actually reach moves (O2).
+    this.#hangRail();
+  }
+
+  /** The point an offset from the editor's middle names, at the size the editor has now. */
+  #pointOf(offset: Point, size: { width: number; height: number }): Point {
+    return { x: size.width / 2 + offset.x, y: size.height / 2 + offset.y };
+  }
+
+  /** An editor point as the offset a resize carries: from the editor's middle (D3, I7). */
+  #offsetOf(at: Point, size: { width: number; height: number }): Point {
+    return { x: at.x - size.width / 2, y: at.y - size.height / 2 };
+  }
+
+  /** A drag's dock: the frame the press measured, and no status corner to clear (D3, D6). */
+  #dockOnFrame(pressed: MeasuredFrame): RailFrame {
+    const frameDock = dockOnFrame(pressed.frame, pressed.editor, this.#railSide, this.#outline());
+    return { frame: pressed.frame, frameDock, ...frameDock };
   }
 
   /** The frame around the diagram as the page shows it now, and this side's dock on it. */
@@ -1164,7 +1254,7 @@ class EsbozoEditorElement extends HTMLElement {
    */
   #statusChrome(): Box[] {
     const page = this.#page.viewport.box();
-    return [...this.querySelectorAll<HTMLElement>('.status > div')]
+    return this.#statusCorners()
       .map((corner) => corner.getBoundingClientRect())
       .map((corner) => ({
         x: corner.left - page.left,
@@ -1173,6 +1263,11 @@ class EsbozoEditorElement extends HTMLElement {
         height: corner.height,
       }))
       .filter((corner) => corner.width > 0 && corner.height > 0);
+  }
+
+  /** The bars the status bar is drawn in, one per corner: what the rail clears and the page resizes. */
+  #statusCorners(): HTMLElement[] {
+    return [...this.querySelectorAll<HTMLElement>('.status > div')];
   }
 
   /**
@@ -1184,6 +1279,10 @@ class EsbozoEditorElement extends HTMLElement {
    * records no step (D9).
    */
   #dockRail(side: RailSide, pressed?: MeasuredFrame): void {
+    // A release that carries the strip docks on the frame the press measured, and
+    // the place it reaches is the person's: only a dock by name measures one now
+    // (D3, D6).
+    this.#railOwn = pressed !== undefined;
     this.#railSide = side;
     this.#rail.dataset['side'] = side;
     // Laying the strip along another edge is another size, so the outline is
@@ -1210,14 +1309,26 @@ class EsbozoEditorElement extends HTMLElement {
     }
     const size = this.#page.viewport.size();
     const rail = clampedDock(
-      { x: size.width / 2 + kept.x, y: size.height / 2 + kept.y },
+      this.#pointOf(kept, size),
       { width: this.#rail.offsetWidth, height: this.#rail.offsetHeight, overhang: RAIL_OUTLINE },
       size,
       this.#railSide,
     );
     // Stopped by the frame's own measure or by this window's clamp, the rail is
     // at the editor's edge either way; a place it reaches unaided is not (O1).
+    const before = this.#railDock;
     this.#railDock = { dock: rail.dock, stopped: rail.stopped || this.#railHeld };
+    // The place it already hangs on: written again, the same two numbers are a
+    // style change with nothing to paint, and a corner that grows without reaching
+    // the strip must leave it where it stands (O2).
+    if (
+      before !== null &&
+      before.dock.x === rail.dock.x &&
+      before.dock.y === rail.dock.y &&
+      this.#rail.dataset['placed'] === ''
+    ) {
+      return;
+    }
     this.#rail.style.setProperty('--rail-left', `${rail.dock.x}px`);
     this.#rail.style.setProperty('--rail-top', `${rail.dock.y}px`);
     // Measured and placed, so the strip has a side to hang on and the page may
@@ -1566,6 +1677,9 @@ class EsbozoEditorElement extends HTMLElement {
     drag.at = this.#page.viewport.screenPoint(event);
     this.#endRailDrag();
     if (!drag.moved && isClick(drag.from, drag.at)) {
+      // The press that stayed a click picks its tile, and the placement a corner
+      // asked for while it was held runs now (O2).
+      this.#settleRail();
       return;
     }
     this.#railDragged = true;
@@ -1574,7 +1688,10 @@ class EsbozoEditorElement extends HTMLElement {
 
   #onRailCancel = (event: PointerEvent): void => {
     if (this.#railDrag?.pointer === event.pointerId) {
+      // The press is called off, so the strip goes back where it hung (D7, I6), and
+      // the placement a corner asked for while the press held it runs now (O2).
       this.#callOffRailDrag();
+      this.#settleRail();
     }
   };
 
@@ -1609,6 +1726,13 @@ class EsbozoEditorElement extends HTMLElement {
     this.#gestures.release();
     this.#callOffRailDrag();
   };
+
+  /** The placement a press held back, made now that no press holds the strip (O2). */
+  #settleRail(): void {
+    if (this.#railWaiting) {
+      this.#clearRail();
+    }
+  }
 
   /** Drop the press on the rail, its capture and the listeners it put on the page. */
   #endRailDrag(): void {
