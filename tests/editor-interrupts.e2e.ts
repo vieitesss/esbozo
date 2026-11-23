@@ -1465,3 +1465,44 @@ test('an editor taken off the page and put back answers one press per note', asy
   await browser.keyboard.press('Escape');
   await expect(note).toBeHidden();
 });
+
+/**
+ * One press answers once: the element hears the presses on it and the page hears
+ * the presses beyond it, and both are the same press. A host that takes the
+ * pressed target off the page on its own way through the press leaves the page's
+ * listener a target that is no longer inside the element, and the note under the
+ * one the press shut must still be there.
+ */
+test('a host that takes the pressed target off the page still answers one press', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui: Ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+  const help = screen.getByRole('button', 'Shortcuts');
+  const sheet = screen.getByRole('dialog', 'Shortcuts');
+  const commands = screen.getByRole('dialog', 'Commands');
+
+  // Two notes the page opened, one over the other: the sheet first, and the
+  // Commands felt the keys ask for over it. No press put either one there, so
+  // the press below is the only one the notes have to answer.
+  await help.click();
+  await expect(sheet).toBeVisible();
+  await palette(ui);
+  await expect(commands).toBeVisible();
+
+  // A press on a target the host's own listener takes off the page: the editor
+  // has heard it inside before the page hears it outside, and it is one press.
+  await browser.evaluate(() => {
+    const editor = document.querySelector('esbozo-editor')!;
+    const span = document.createElement('span');
+    editor.append(span);
+    editor.addEventListener('pointerdown', () => span.remove(), { once: true });
+    span.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    return true;
+  });
+
+  await expect(commands).toBeHidden();
+  await expect(sheet).toBeVisible();
+});
