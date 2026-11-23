@@ -1143,6 +1143,10 @@ class EsbozoEditorElement extends HTMLElement {
     this.#railDock = { dock: rail.dock, stopped: rail.stopped || this.#railHeld };
     this.#rail.style.setProperty('--rail-left', `${rail.dock.x}px`);
     this.#rail.style.setProperty('--rail-top', `${rail.dock.y}px`);
+    // Measured and placed, so the strip has a side to hang on and the page may
+    // show it: an unplaced one stays out of sight rather than wait at the place
+    // the stylesheet falls back to, which is no side it was docked on (D11).
+    this.#rail.dataset['placed'] = '';
   }
 
   /** The pencil outline the rail wears, measured around the strip it hangs on. */
