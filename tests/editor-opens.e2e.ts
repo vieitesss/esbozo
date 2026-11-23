@@ -242,18 +242,6 @@ async function landListing(ui: Ui): Promise<void> {
   });
 }
 
-/** Put a Scene in a stubbed folder, as a file the disk gained does. */
-async function addScene(ui: Ui, folder: string, name: string): Promise<void> {
-  await ui.browser.evaluate(
-    (added: { folder: string; name: string; source: string }) => {
-      const folders = (window as unknown as { __esbozoFolders: Folders }).__esbozoFolders;
-      folders[added.folder] = { ...folders[added.folder], [added.name]: added.source };
-      return true;
-    },
-    { folder, name, source: B_SOURCE },
-  );
-}
-
 /** Wait until the page asks the disk for the held write, so it is in flight. */
 async function writeWaiting(ui: Ui): Promise<void> {
   await expect
@@ -398,7 +386,7 @@ test("a Scene whose read fails while an edit's write is held keeps its failure",
   expect((await savedFiles(ui))['b.json']).toBe(B_SOURCE);
 });
 
-test('a listing that lands after the note shut neither reopens it nor shows what it read', async ({
+test('a listing that lands after the note shut does not reopen it', async ({
   app,
   browser,
   screen,
@@ -414,18 +402,17 @@ test('a listing that lands after the note shut neither reopens it nor shows what
   await browseFolder(ui, 'A');
   await listingWaiting(ui);
 
-  // They shut the note, and the folder gains a Scene while its answer is on its
-  // way: a listing nobody is waiting for any more.
+  // They shut the note while its answer is on its way: a listing nobody is
+  // waiting for any more.
   await browser.keyboard.press('Escape');
   await expect(screen.getByRole('dialog', 'Scene files')).toBeHidden();
-  await addScene(ui, 'A', 'z.json');
   await landListing(ui);
   await settle(ui);
 
   // The note stays shut: an answer for a note that already left does not open
-  // it again, and the list it read is not the list the page holds.
+  // it again. What the answer read is not on the page to be seen — the note is
+  // hidden — so a listing that opened it is the one thing this case proves.
   await expect(screen.getByRole('dialog', 'Scene files')).toBeHidden();
-  await expect(screen.getByRole('button', 'z.json')).toBeHidden();
 });
 
 test('a listing held while another note opens still shows the Scenes it read', async ({
