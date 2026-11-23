@@ -790,12 +790,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#land(deleted(this.#scene, this.#selected, ids));
   }
 
-  /**
-   * A duplicate is a copy pasted in place, offset so the copy reads as a copy:
-   * one step. It goes through the fragment Copy writes and Paste reads, so a
-   * Snap to an Element outside the selection is dropped and the stored point is
-   * kept, and a Snap to an Element inside the selection follows its copy.
-   */
+  /** Duplicate the selected Elements: Paste of what Copy would write. */
   #duplicate(): void {
     this.#land(duplicated(this.#scene, this.#selectedElements(), this.#landing()));
   }
@@ -999,11 +994,8 @@ class EsbozoEditorElement extends HTMLElement {
   }
 
   /**
-   * Reorder, align or spread the selected Elements. Arrange asks for the bounds
-   * of what it can move as it needs them, so Order measures nothing and the id
-   * index is built only when something is measured at all. The bounds are the
-   * Renderer's own, so an alignment lands where the drawing is rather than where
-   * a stored box says: a Snapped end and a Label are measured, not guessed.
+   * Reorder, align or spread the selected Elements. The rule and every bound it
+   * measures belong to the edit.
    */
   #arrangeSelection(act: ArrangeAct): void {
     this.#land(rearranged(this.#scene, this.#selected, act, this.#connection.layout));
@@ -1421,11 +1413,7 @@ class EsbozoEditorElement extends HTMLElement {
     }
   };
 
-  /**
-   * Free one end of the selected arrow or line, where it draws now: the end
-   * stops following its Element but does not move. One undo step, like every
-   * other Scene change.
-   */
+  /** Free one end of the selected arrow or line where it draws, as one step. */
   #detachEnd(end: End): void {
     this.#land(detached(this.#scene, this.#selectedElements(), end));
   }

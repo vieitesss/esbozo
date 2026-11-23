@@ -208,10 +208,10 @@ export function selectedFrom(elements: readonly Element[], ids: readonly string[
 
 /**
  * The Element list with each Element the ids name replaced by what `changed`
- * makes of it, the rest left exactly as they are. Every edit that rewrites one
- * Element in place — a style pick, a nudge, a Snap end let go, a bend point
- * switched or removed — goes through this, so the find-by-id-and-replace shape
- * is written once rather than once per edit.
+ * makes of it, the rest left exactly as they are. Every edit to the selection or
+ * to one bend point that rewrites one Element in place — a style pick, a nudge,
+ * a Snap end let go, a bend point switched or removed — goes through this, so the
+ * find-by-id-and-replace shape is written once rather than once per edit.
  */
 export function replaced(
   elements: readonly Element[],
