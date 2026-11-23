@@ -231,6 +231,14 @@ esbozo-editor .rail {
 
 esbozo-editor .rail:hover, esbozo-editor .rail:focus-within { opacity: 1; }
 
+/* A dock on the frame's left or right side lays the strip up it instead of along
+   it: the dock's point is then the strip's own left edge and its middle. */
+esbozo-editor .rail[data-side='left'],
+esbozo-editor .rail[data-side='right'] {
+  transform: translateY(-50%) rotate(-1.1deg);
+  flex-direction: column;
+}
+
 esbozo-editor .rail-art {
   position: absolute;
   left: -7px;

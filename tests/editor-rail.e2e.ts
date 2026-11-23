@@ -3,13 +3,14 @@
  *
  * A Scene opens with the rail docked on the frame around its diagram: the
  * diagram's box on screen, at least 960×600 about its centre and cut to the
- * editor's box, with the rail's pencil outline one gap above the frame's top
- * side — or just inside the editor's top edge when the frame leaves no room for
- * it. Asserted on the ink a screenshot holds, never on a box the page reports.
+ * editor's box, with the rail's pencil outline one gap outside the side it hangs
+ * on — the top, or any of the four once the palette moves it — and just inside
+ * the editor's own edge when the frame leaves no room for it. Asserted on the ink
+ * a screenshot holds, never on a box the page reports.
  */
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import { openEditor, browseFolder, drag, savedScene, settle } from './helpers.ts';
+import { openEditor, browseFolder, drag, savedFiles, savedScene, settle, holdWrites, allowWrites } from './helpers.ts';
 import type { Ui } from './helpers.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
@@ -78,6 +79,20 @@ const TALL_SOURCE = JSON.stringify(
 /** The tool rail, as the accessibility tree offers it. */
 function rail(ui: Ui) {
   return ui.screen.getByRole('navigation', { name: 'Tools' });
+}
+
+/** The seven tiles, in rail order: the order the strip draws them in on any side. */
+const TILES = ['Select', 'Rectangle', 'Ellipse', 'Diamond', 'Arrow', 'Line', 'Text'];
+
+/** A dock by name, the way a person moves it: the palette has no key, button or grip (D8). */
+async function dockRail(ui: Ui, side: 'top' | 'bottom' | 'left' | 'right'): Promise<void> {
+  const commands = ui.screen.getByRole('dialog', { name: 'Commands' });
+  await ui.browser.keyboard.press('q');
+  await expect(commands).toBeVisible();
+  await ui.browser.keyboard.type(`tool rail ${side}`);
+  await ui.browser.keyboard.press('Enter');
+  await expect(commands).toBeHidden();
+  await settle(ui);
 }
 
 /** Where the page hung the rail: the strip's middle, its top edge and its size. */
@@ -345,6 +360,21 @@ test('a resize keeps the rail’s offset from the middle, pulls it inside, and g
   expect(squeezed.top).toBeLessThan(16);
   expect(Math.abs(squeezed.centreX - 1720)).toBeLessThan(4);
 
+  // A window that holds the whole 246 px outline, with the same dock: the strip
+  // sits 15 px in and its ink runs 8..254, all of it on screen. This is the
+  // strip the narrower window below has to be a cut of.
+  await browser.setViewport({ width: 262, height: 500 });
+  await settle(ui);
+  const whole = await railPlace(ui, { x: 0, y: 0, width: 262, height: 240 });
+  expect(whole.centreX - whole.width / 2, 'the whole outline starts at the inset').toBeGreaterThan(2);
+  expect(whole.centreX + whole.width / 2, 'the whole outline is on screen').toBeLessThan(258);
+  const edge: Rect = { x: 0, y: 0, width: 196, height: 240 };
+  const part = (await shot(ui)).darkBounds(edge, 0.6)!;
+  // The pressed Select tile is the 30 px tile main draws, filled with the ink a
+  // tool in hand wears: the strip's contents are at their real size.
+  const tile = (await shot(ui)).darkBounds({ x: 18, y: 20, width: 34, height: 44 }, 0.6)!;
+  expect(tile.width, 'the tile is main’s own tile').toBeGreaterThan(26);
+
   // A window narrower than the strip's own 246 px outline: no place keeps it in,
   // so the left inset wins and the far edge clips it. What the window shows is the
   // strip's whole width from that inset to the edge — 200 − 15, so its ink runs on
@@ -358,6 +388,25 @@ test('a resize keeps the rail’s offset from the middle, pulls it inside, and g
   expect(Math.abs(narrow.height - before.height)).toBeLessThan(3);
   expect(200 - (narrow.centreX + narrow.width / 2), 'the strip runs on to the far edge').toBeLessThan(
     4,
+  );
+
+  // Cut, not shrunk. The tile the narrow window holds is still main's own 30 px
+  // tile, at its own size, so the strip is the same rail with its far end off
+  // screen; and the width it shows plus the part the edge takes away is the whole
+  // strip's width, measured in the window that holds it.
+  const cutTile = (await shot(ui)).darkBounds({ x: 18, y: 20, width: 34, height: 44 }, 0.6)!;
+  expect(Math.abs(cutTile.width - tile.width), 'the tiles keep main’s own size').toBeLessThan(2);
+  const beyond = whole.centreX + whole.width / 2 - 200;
+  expect(narrow.width + beyond, 'the strip is cut, not shrunk').toBeGreaterThan(whole.width - 4);
+  expect(narrow.width + beyond, 'the strip is cut, not shrunk').toBeLessThan(whole.width + 4);
+  const rounded = (rect: Rect): Rect => ({
+    x: Math.round(rect.x),
+    y: Math.round(rect.y),
+    width: Math.round(rect.width),
+    height: Math.round(rect.height),
+  });
+  expect(rounded((await shot(ui)).darkBounds(edge, 0.6)!), 'the window shows the strip’s own left part').toEqual(
+    rounded(part),
   );
 
   // Growing the window back puts the rail back where the measurement had it: the
@@ -521,4 +570,197 @@ test('opening another Scene measures the frame again instead of keeping the last
   expect(tall.top).toBeGreaterThan(0);
   expect(tall.top).toBeLessThan(20);
   expect(Math.abs(tall.centreX - 1720), 'the strip is centred on the new frame').toBeLessThan(4);
+});
+
+/** Where the 1000×700 diagram of `BIG_SOURCE` draws, in two bands its ink can be measured in. */
+const BIG_BOX: Rect = { x: 1210, y: 470, width: 1020, height: 200 };
+const BIG_TOP: Rect = { x: 1400, y: 340, width: 640, height: 740 };
+/** Where each dock's strip is measured, in a band the diagram's own ink is not in. */
+const DOCK_BANDS: Record<'top' | 'bottom' | 'left' | 'right', Rect> = {
+  top: { x: 1400, y: 0, width: 640, height: 364 },
+  bottom: { x: 1400, y: 1076, width: 640, height: 360 },
+  left: { x: 1000, y: 380, width: 208, height: 680 },
+  right: { x: 2232, y: 380, width: 400, height: 680 },
+};
+
+test('an empty Scene’s left dock at 3440×1440 stands up, its outline about 1,160 px in', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui, { width: 3440, height: 1440 });
+  await dockRail(ui, 'left');
+
+  // The empty Scene's frame is the 960×600 minimum about the middle: its left
+  // side is 1,240 px in, so the 60 px outline stands one 16 px gap outside it and
+  // starts at about 1,164. A couple of pixels either way is the strip's tilt.
+  const ink = await railInk(ui, { x: 1000, y: 300, width: 400, height: 840 });
+  expect(ink.x, 'the outline starts about 1,160 px in').toBeGreaterThan(1150);
+  expect(ink.x, 'the outline starts about 1,160 px in').toBeLessThan(1180);
+
+  // Standing up the side, not lying along it: one tile wide, seven tiles tall.
+  expect(ink.height, 'the strip stands up').toBeGreaterThan(ink.width * 2);
+
+  // Centred on the frame's side, which is the editor's own middle here.
+  expect(Math.abs(ink.y + ink.height / 2 - 1440 / 2), 'the strip is centred').toBeLessThan(4);
+});
+
+test('a diagram larger than the frame keeps every dock outside its box by the gap, centred', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await browser.setViewport({ width: 3440, height: 1440 });
+  await openEditor(ui, { A: { 'big.json': BIG_SOURCE } }, 'big.json');
+  await settle(ui);
+
+  // The box the frame is, on screen: 1,220..2,220 across and 370..1,070 down. Its
+  // left and right edges are measured in a band no dock reaches into, its top and
+  // bottom in a band across the middle of it.
+  const wide = (await shot(ui)).darkBounds(BIG_BOX, 0.6);
+  const tall = (await shot(ui)).darkBounds(BIG_TOP, 0.6);
+  if (wide === null || tall === null) {
+    throw new Error('the diagram draws no ink in its own box');
+  }
+  expect(Math.abs(wide.x - 1220), 'the diagram is where the fitted view puts it').toBeLessThan(4);
+  expect(Math.abs(wide.x + wide.width - 2220), 'the diagram is where the fitted view puts it').toBeLessThan(4);
+  expect(Math.abs(tall.y - 370), 'the diagram is where the fitted view puts it').toBeLessThan(4);
+  expect(Math.abs(tall.y + tall.height - 1070), 'the diagram is where the fitted view puts it').toBeLessThan(4);
+  const box = { x: wide.x, y: tall.y, width: wide.width, height: tall.height };
+
+  for (const side of ['top', 'bottom', 'left', 'right'] as const) {
+    await dockRail(ui, side);
+    const strip = await railInk(ui, DOCK_BANDS[side]);
+    const across = side === 'top' || side === 'bottom' ? strip.x + strip.width / 2 : strip.y + strip.height / 2;
+    const centre = side === 'top' || side === 'bottom' ? box.x + box.width / 2 : box.y + box.height / 2;
+    const gaps = {
+      top: box.y - (strip.y + strip.height),
+      bottom: strip.y - (box.y + box.height),
+      left: box.x - (strip.x + strip.width),
+      right: strip.x - (box.x + box.width),
+    };
+    expect(gaps[side], `the ${side} dock clears the box by the gap`).toBeGreaterThan(6);
+    expect(gaps[side], `the ${side} dock clears the box by the gap`).toBeLessThan(24);
+    expect(Math.abs(across - centre), `the ${side} dock is centred on the box’s side`).toBeLessThan(4);
+    // The side sets the orientation: horizontal along the top and bottom.
+    const standing = side === 'left' || side === 'right';
+    expect(
+      standing ? strip.height > strip.width * 2 : strip.width > strip.height * 2,
+      `the ${side} dock ${standing ? 'stands up' : 'lies along'} the side`,
+    ).toBe(true);
+  }
+});
+
+test('the left dock stands the strip up, faint until it is looked at, its outline around all seven', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+  await dockRail(ui, 'left');
+
+  // Faint, the strip's washes and glyphs are lighter than the ink a person reads
+  // as drawn, so the strip's own band holds no dark pixel at all: what shows
+  // there is the emptiness the rail leaves until it is looked at. The band starts
+  // below the Select tile, which wears the ink a tool in hand does.
+  const TILES_BAND: Rect = { x: 40, y: 340, width: 160, height: 190 };
+  expect((await shot(ui)).darkCount(TILES_BAND, 0.6), 'the rail is faint until it is looked at').toBe(0);
+  const ink = await railInk(ui, { x: 0, y: 240, width: 200, height: 320 });
+  await expect
+    .poll(async () => (await shot(ui)).darkCount(TILES_BAND, 0.6), { timeout: 5000 })
+    .toBeGreaterThan(100);
+
+  // Standing up the side the frame put it on.
+  expect(ink.height, 'the strip stands up').toBeGreaterThan(ink.width * 2);
+
+  // The pencil outline is a closed strip around the seven tiles: ink on each of
+  // its four mid-edges, in the padding around them, so no glyph can answer for it.
+  const picture = await shot(ui);
+  const surround: Array<[string, Rect]> = [
+    ['top', { x: ink.x + 12, y: ink.y - 4, width: ink.width - 24, height: 10 }],
+    ['bottom', { x: ink.x + 12, y: ink.y + ink.height - 5, width: ink.width - 24, height: 9 }],
+    ['left', { x: ink.x - 4, y: ink.y + 12, width: 10, height: ink.height - 24 }],
+    ['right', { x: ink.x + ink.width - 6, y: ink.y + 12, width: 10, height: ink.height - 24 }],
+  ];
+  for (const [side, band] of surround) {
+    expect(picture.darkCount(band, 0.6), `the outline is drawn along the ${side} edge`).toBeGreaterThan(0);
+  }
+
+  // Seven tiles, in the rail's order: the accessibility tree lists them top to
+  // bottom, which is the order the standing strip shows them in.
+  const tiles = await rail(ui).getByRole('button').all();
+  expect(tiles.length).toBe(TILES.length);
+  expect(await Promise.all(tiles.map((tile) => tile.getAttribute('aria-label')))).toEqual(TILES);
+});
+
+test('a palette move docks the rail without touching the Scene, the folder or the undo history', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await browser.setViewport({ width: 3440, height: 1440 });
+  await openEditor(
+    ui,
+    { A: { 'big.json': BIG_SOURCE, 'big.svg': '<svg xmlns="http://www.w3.org/2000/svg"><rect width="8" height="8"/></svg>' } },
+    'big.json',
+  );
+  await settle(ui);
+  const files = await savedFiles(ui);
+  const before = (await shot(ui)).darkBounds(BIG_BOX, 0.6);
+
+  // A write the move would have to make waits on the test: nothing answers it, so
+  // a save the move sent would stay held and the test would find it.
+  await holdWrites(ui, 'big.json');
+  await dockRail(ui, 'left');
+  const held = await browser.evaluate(
+    () => ((window as unknown as { __esbozoGates?: unknown[] }).__esbozoGates ?? []).length,
+  );
+  expect(held, 'a move sends no save').toBe(0);
+  await allowWrites(ui);
+
+  // The Scene's own file and the SVG beside it are the bytes they were, and the
+  // view has not moved: the dock is the page's chrome, not the diagram's ink.
+  expect(await savedFiles(ui), 'a move writes nothing').toEqual(files);
+  expect((await shot(ui)).darkBounds(BIG_BOX, 0.6), 'a move leaves the view alone').toEqual(before);
+
+  // And no undo step: Undo is still greyed, saying there is nothing to undo.
+  await ui.browser.keyboard.press('q');
+  await ui.browser.keyboard.type('undo');
+  await expect(screen.getByRole('option', { name: 'Undo · ⌘Z' })).toBeDisabled();
+  await expect(screen.getByRole('option', { name: 'Undo · ⌘Z' })).toContainText('nothing to undo');
+  await ui.browser.keyboard.press('Escape');
+});
+
+test('a palette move measures the frame even for the side already in use', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await browser.setViewport({ width: 3440, height: 1440 });
+  await openEditor(ui, { A: { 'big.json': BIG_SOURCE } }, 'big.json');
+  await settle(ui);
+
+  // The box's top side is 370 px down, so the strip's outline hangs at 291.
+  const band: Rect = { x: 1400, y: 0, width: 640, height: 364 };
+  const opened = await railPlace(ui, band);
+  expect(opened.top).toBeGreaterThan(280);
+  expect(opened.top).toBeLessThan(310);
+
+  // A pan draws the page 100 px lower and the rail stays where it was: a pan is
+  // not a measurement (D3).
+  await drag(ui, { x: 1500, y: 900 }, { x: 1500, y: 1000 }, 'middle');
+  await settle(ui);
+  expectHeld(opened, await railPlace(ui, band), 'a pan');
+
+  // Choosing the side already in use measures the frame again, so the rail
+  // follows the diagram the pan moved (I4).
+  await dockRail(ui, 'top');
+  const moved = await railPlace(ui, { x: 1400, y: 0, width: 640, height: 464 });
+  expect(moved.top - opened.top, 'the move measured the panned frame').toBeGreaterThan(90);
+  expect(moved.top - opened.top, 'the move measured the panned frame').toBeLessThan(110);
 });
