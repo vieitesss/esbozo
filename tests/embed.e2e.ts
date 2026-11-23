@@ -1536,6 +1536,13 @@ const KEPT_BANDS: Record<'bottom' | 'right', Rect> = {
 };
 /** Clear paper at the top of the same box, where no kept side hangs a strip. */
 const TOP_BAND: Rect = { x: 400, y: 0, width: 480, height: 240 };
+/**
+ * Where the stylesheet falls back to with no dock to hang on: the strip standing
+ * at the top's middle, 15 px down, seven tiles tall and nothing to turn it round
+ * (D11). Its pencil outline hangs 7 px outside that, and its tilt leans a couple
+ * of pixels either way.
+ */
+const UNDOCKED: Rect = { x: 615, y: 0, width: 100, height: 160 };
 
 test('an editor that starts on a kept side never shows its strip on another', async ({
   app,
@@ -1580,6 +1587,68 @@ test('an editor that starts on a kept side never shows its strip on another', as
       expect(drawing.darkCount(KEPT_BANDS[side], 0.6), `the strip hangs on the ${side}`).toBeGreaterThan(0);
       expect(drawing.darkCount(TOP_BAND, 0.6), 'the strip lies along no other side').toBe(0);
     }
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('a host rule that shows its own glyphs cannot show the strip before it is docked', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), { a: EMPTY_SOURCE });
+  try {
+    const ui: Ui = { app, browser, screen };
+    const strip = screen.getByRole('navigation', { name: 'Tools' });
+    await app.open(`${embed.url}/embedded.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+
+    // The page keeps the right side and holds the font back, so the frame is
+    // never measured and the strip has no dock to hang on. `host-glyphs.html` is
+    // this page with one rule of the host's own, which says nothing about esbozo:
+    // `svg { visibility: visible }` reaches every glyph inside the strip, and
+    // visibility is inherited, so a descendant of the strip can lift the strip's
+    // own hiding (issue #62).
+    await browser.evaluate(() => {
+      localStorage.setItem('esbozo.rail', 'right');
+      return true;
+    });
+    embed.hold(FONT_PATH);
+    const fetched = embed.requests(FONT_PATH);
+    await browser.goto(`${embed.url}/host-glyphs.html`, { waitUntil: 'domcontentloaded' });
+    await expect.poll(() => embed.requests(FONT_PATH)).toBeGreaterThan(fetched);
+    await settle(ui);
+
+    // The rule: until it has a dock the strip puts no ink on the page at all, and
+    // the place the stylesheet falls back to is as bare as the rest of the top.
+    // Faint ink still passes the ink threshold nowhere here: an undocked strip is
+    // drawn at the 0.58 opacity it wears until it is looked at, and that is well
+    // clear of bare paper (the ink a person reads is `0.6`, below).
+    const undocked = await shot(ui);
+    expect(undocked.darkCount(UNDOCKED, 0.85), 'no ink waits at the fallback place').toBe(0);
+    await expect(strip, 'the strip kept on the right waits for its dock').toBeHidden();
+
+    // And a press there is no dock's either: a glyph can take the press a tile
+    // takes, which starts a drag of the strip, and a release up the page docks it
+    // on the nearest side — the top — so the page would remember another side.
+    await browser.mouse.move(UNDOCKED.x + 30, 40);
+    await browser.mouse.down();
+    await browser.mouse.move(UNDOCKED.x + 30, 300);
+    await browser.mouse.up();
+    await settle(ui);
+    expect(await keptSide(ui), 'the press was no dock’s').toBe('right');
+
+    // Once the font lands the strip has its dock, and its ink is on the side the
+    // page kept, with none of it left at the fallback place.
+    embed.release(FONT_PATH);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    await settle(ui);
+    await strip.getByRole('button', 'Select').focus();
+    await fullInk(ui);
+    const docked = await shot(ui);
+    expect(docked.darkCount(KEPT_BANDS.right, 0.6), 'the strip hangs on the right').toBeGreaterThan(0);
+    expect(docked.darkCount(UNDOCKED, 0.6), 'and shows nothing at the fallback place').toBe(0);
   } finally {
     await embed.stop();
   }
@@ -1949,6 +2018,13 @@ async function writeBundle(): Promise<string> {
       `<esbozo-editor scene="api/a" save="api/a" font="${FONT}"></esbozo-editor>
 <p class="after">words after the editor</p>
 <div class="tall"></div>`,
+      bundle,
+    ),
+    // The host's own rule about its own glyphs, which reaches into the strip:
+    // nothing here names esbozo (issue #62).
+    'host-glyphs.html': page(
+      `${FULL} svg { visibility: visible }`,
+      `<esbozo-editor scene="api/a" save="api/a" font="${FONT}"></esbozo-editor>`,
       bundle,
     ),
     'label-kalam.html': page(FULL, `<esbozo-editor scene="api/l" save="api/l" font="${FONT}"></esbozo-editor>`, bundle),
