@@ -15,6 +15,12 @@
 /** The notes the page opens over the Scene, in no order of their own. */
 type NoteId = 'commands' | 'shortcuts' | 'scenes';
 
+/**
+ * The layer the notes start at, over every mark the page draws itself: what a
+ * person sees on top is over the paper, and the stack orders the notes above it.
+ */
+const LAYER = 50;
+
 /** One note: what it draws, the keys it keeps, and what its own marks do. */
 interface Note {
   /** The element the note draws, which the stack shows and hides. */
@@ -91,8 +97,20 @@ export class Notes {
       return;
     }
     this.#open = [...this.#open.filter((one) => one !== id), id];
+    this.#paint();
     note.root.hidden = false;
     note.shown?.();
+  }
+
+  /**
+   * Paint the notes in the order they were asked for: the one on top is over the
+   * ones under it, so the note a person sees is the note Escape shuts and the
+   * press outside reaches. The roots are siblings, so their layer is the order.
+   */
+  #paint(): void {
+    this.#open.forEach((id, rank) => {
+      this.#notes.get(id)!.root.style.zIndex = String(LAYER + rank);
+    });
   }
 
   /** Open the note, or put it away when it is already the page's. */
@@ -122,6 +140,8 @@ export class Notes {
     }
     const note = this.#notes.get(id)!;
     this.#open = this.#open.filter((one) => one !== id);
+    this.#paint();
+    note.root.style.removeProperty('z-index');
     if (this.#ask?.id === id) {
       // The note shut before its read answered: nothing waits for that answer.
       this.#ask = null;

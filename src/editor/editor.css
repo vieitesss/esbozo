@@ -493,12 +493,13 @@ esbozo-editor .status .corner-help > button {
 
 esbozo-editor .status .corner-help > button:hover { background: var(--line); }
 
-/* a taped note, like every other note the page lays over the paper */
-esbozo-editor .status .shortcuts {
+/* a taped note, like every other note the page lays over the paper: 8px off the
+   right of the page in the button's own 78px row, 46px up from its bottom edge
+   (the button's 14px and its 22px) */
+esbozo-editor .shortcuts {
   position: absolute;
-  right: 0;
-  bottom: 32px;
-  z-index: 40;
+  right: 78px;
+  bottom: 46px;
   width: 246px;
   /* The 78px the button sits in from the right, and 8px of page to the sheet's
      left: below 332 CSS px the sheet gives up width rather than its left edge. */
@@ -513,14 +514,14 @@ esbozo-editor .status .shortcuts {
   transform: rotate(-0.6deg);
 }
 
-esbozo-editor .status .shortcuts h4 {
+esbozo-editor .shortcuts h4 {
   margin: 0 0 8px;
   font-family: var(--font-hand);
   font-weight: 400;
   font-size: 14px;
 }
 
-esbozo-editor .status .shortcuts .keys {
+esbozo-editor .shortcuts .keys {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 5px 9px;
@@ -528,7 +529,7 @@ esbozo-editor .status .shortcuts .keys {
   margin: 0;
 }
 
-esbozo-editor .status .shortcuts dt {
+esbozo-editor .shortcuts dt {
   justify-self: start;
   font-family: var(--font-mono);
   font-size: 9.5px;
@@ -537,7 +538,7 @@ esbozo-editor .status .shortcuts dt {
   padding: 1px 4px;
 }
 
-esbozo-editor .status .shortcuts dd {
+esbozo-editor .shortcuts dd {
   margin: 0;
   font-family: var(--font-hand);
   font-size: 12px;
@@ -550,10 +551,10 @@ esbozo-editor .status .shortcuts dd {
   esbozo-editor .status .corner-mode { bottom: 40px; }
 }
 
-/* Scenes to open: a note taped to the page */
+/* Scenes to open: a note taped to the page. The notes' own layers are the
+   stack's, so what is painted on top is what Escape shuts; see notes.ts. */
 esbozo-editor .note {
   position: absolute;
-  z-index: 40;
   left: 50%;
   top: 10vh;
   transform: translateX(-50%) rotate(-0.45deg);
@@ -571,7 +572,7 @@ esbozo-editor .note {
 esbozo-editor .note::before,
 esbozo-editor .style-note::before,
 esbozo-editor .point-menu::before,
-esbozo-editor .status .shortcuts::before {
+esbozo-editor .shortcuts::before {
   content: "";
   position: absolute;
   left: 50%;
@@ -782,7 +783,6 @@ esbozo-editor .point-menu button:disabled { opacity: 0.45; cursor: default; bord
 esbozo-editor .palette {
   position: absolute;
   inset: 0;
-  z-index: 50;
   display: flex;
   flex-direction: column;
   align-items: center;
