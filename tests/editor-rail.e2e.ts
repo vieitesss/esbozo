@@ -23,6 +23,7 @@ import {
 } from './helpers.ts';
 import type { Ui } from './helpers.ts';
 import { fullInk } from './editor-shared.ts';
+import { livePage } from './cdp.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
 
@@ -963,4 +964,38 @@ test('a mouse drag from a tile docks the rail on the nearest side and picks no t
   expect(ink.x, 'the outline hangs one gap outside the frame').toBeGreaterThan(76);
   expect(ink.x, 'the outline hangs one gap outside the frame').toBeLessThan(92);
   expect(Math.abs(ink.y + ink.height / 2 - 800 / 2), 'the strip is centred on the frame’s side').toBeLessThan(4);
+});
+
+test('a touch drag from the strip’s padding docks the rail on the nearest side and picks no tool', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+  const band: Rect = { x: 400, y: 0, width: 480, height: 240 };
+  const opened = await railPlace(ui, band);
+  const strip = boxOfPlace(opened);
+
+  // A finger on the strip's own padding rather than on a tile: 10 px in from the
+  // outline's left edge, where the tiles start at 15. It is carried down past the
+  // frame's bottom side, which is the nearest dock by 80 px against the top's 680.
+  const page = livePage();
+  const cdp = await page.context().newCDPSession(page);
+  const from = { x: strip.x + 10, y: strip.y + 11 };
+  const to = { x: 640, y: 780 };
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [from] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 400, y: 400 }] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [to] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await settle(ui);
+
+  // Nothing was picked — a press on the padding picks nothing anyway — and the
+  // strip is docked along the bottom, a gap under the empty Scene's 700 px frame.
+  expect(await screen.getByRole('button', 'Select').getAttribute('aria-pressed')).toBe('true');
+  const ink = await railInk(ui, { x: 400, y: 700, width: 480, height: 100 });
+  expect(ink.width, 'the strip lies along the bottom').toBeGreaterThan(ink.height * 2);
+  expect(ink.y, 'the outline hangs one gap under the frame').toBeGreaterThan(706);
+  expect(ink.y, 'the outline hangs one gap under the frame').toBeLessThan(726);
+  expect(Math.abs(ink.x + ink.width / 2 - 1280 / 2), 'the strip is centred').toBeLessThan(4);
 });
