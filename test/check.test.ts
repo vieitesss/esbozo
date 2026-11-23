@@ -263,6 +263,35 @@ test('both ends of a two-point shaft may Snap to one Element only at different A
   }
 });
 
+test('both ends of a two-point shaft need two outline places, not two Anchors', async () => {
+  // Two Anchors a hair apart are two places in the box, but the outline point
+  // nearest both is the same one: the shaft would be drawn with no direction at
+  // all, so the Scene has none and is refused like two identical Anchors.
+  const onOneBox = (start: Record<string, unknown>, end: Record<string, unknown>): unknown => ({
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [
+      { id: 'box', type: 'rectangle', x: 100, y: 100, width: 100, height: 100 },
+      { id: 'arrow', type: 'arrow', points: [{ x: 150, y: 150, snap: 'box', ...start }, { x: 150, y: 150, snap: 'box', ...end }] },
+    ],
+  });
+
+  const folder = await sceneFolder(
+    onOneBox({ anchor: { x: 0.5, y: 0 } }, { anchor: { x: 0.5, y: 0.01 } }),
+  );
+  const run = await ez(['check', 'scene.json'], folder);
+  assert.equal(run.code, 3, run.stderr);
+  assert.match(run.stderr, /^arrow: both ends Snap to box at the same outline point$/m);
+
+  // An Anchor the outline draws somewhere else is the direction the Scene needs,
+  // even when the difference is small: the bottom edge is not the top one.
+  const drawn = await sceneFolder(
+    onOneBox({ anchor: { x: 0.5, y: 0 } }, { anchor: { x: 0.5, y: 0.9 } }),
+  );
+  const ok = await ez(['check', 'scene.json'], drawn);
+  assert.equal(ok.code, 0, ok.stderr);
+});
+
 test('a bad Label does not make its Snap target look missing', async () => {
   const folder = await sceneFolder({
     version: 1,
