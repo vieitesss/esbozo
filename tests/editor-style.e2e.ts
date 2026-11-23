@@ -6,7 +6,7 @@
 import { test } from '@e2e-dev/web';
 import { afterAll, expect } from 'e2e';
 import { MIXED, clickScene, expectSvgMatchesCli, openEditor, savedScene } from './helpers.ts';
-import type { Ui } from './helpers.ts';
+import type { Ui, View } from './helpers.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
 import { SCENE_SOURCE, MIXED_SOURCE, control } from './editor-shared.ts';
@@ -195,6 +195,58 @@ test('the roughness label stays quiet and the value is in ink', async ({ app, br
   const page = await shot(ui);
   expect(page.darkCount(LABEL, 0.3)).toBe(0);
   expect(page.darkCount(VALUE, 0.3)).toBeGreaterThan(0);
+});
+
+/**
+ * A box that holds the page still: its 800×560 page fits 1:1 into a 1280×800
+ * window, so a Scene point is its own page point in the views below.
+ */
+const PAGE = { id: 'page', type: 'rectangle', x: 0, y: 0, width: 800, height: 560 };
+
+/** An arrow and a line through two points each, and an ellipse beside them. */
+const CORNERS_SCENE = {
+  version: 1,
+  title: 'Two shafts',
+  defaults: { roughness: 1 },
+  elements: [
+    PAGE,
+    {
+      id: 'flat',
+      type: 'arrow',
+      points: [
+        { x: 100, y: 120 },
+        { x: 500, y: 120 },
+      ],
+      heads: { start: 'none', end: 'none' },
+    },
+    {
+      id: 'plain',
+      type: 'line',
+      points: [
+        { x: 100, y: 220 },
+        { x: 500, y: 220 },
+      ],
+    },
+    { id: 'oval', type: 'ellipse', x: 100, y: 320, width: 120, height: 80 },
+  ],
+};
+const CORNERS_SOURCE = JSON.stringify(CORNERS_SCENE, null, 2);
+
+/** The view `CORNERS_SCENE` lands in: its page centred at 1:1. */
+const CORNERS: View = { zoom: 1, panX: 240, panY: 120 };
+
+
+test('Corners is offered for a two-point arrow and for a line', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': CORNERS_SOURCE } }, 'scene.json');
+
+  await clickScene(ui, { x: 300, y: 120 }, [], CORNERS);
+  await expect(control(ui, 'Corners: sharp')).toBeVisible();
+  await expect(control(ui, 'Corners: round')).toBeVisible();
+
+  await clickScene(ui, { x: 250, y: 220 }, [], CORNERS);
+  await expect(control(ui, 'Corners: sharp')).toBeVisible();
+  await expect(control(ui, 'Corners: round')).toBeVisible();
 });
 
 test('undoing the Scene default roughness puts the status bar back', async ({ app, browser, screen }) => {
