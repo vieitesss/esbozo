@@ -15,9 +15,9 @@
  * a shaft with a bend between its ends carries them, because there a drag has
  * bends of its own to move.
  */
-import { carriesSnaps, insideOutline } from '../geometry.js';
+import { anchorOf, anchorPoint, carriesSnaps, insideOutline } from '../geometry.js';
 import { drawnShaft } from '../renderer.js';
-import type { ArrowOrLineElement, Element, Point } from '../scene.js';
+import type { Anchor, ArrowOrLineElement, Element, OutlinedElement, Point } from '../scene.js';
 import { isOutlined, snapTargetId } from '../scene.js';
 
 /** Which end of an arrow or line: the first point, or the last. */
@@ -94,19 +94,47 @@ export function targetAt(
  * The arrow or line with one end stored where the pointer put it: attached to
  * `target`, or free when that is null. The stored point is kept whole-pixel
  * like every other coordinate in a Scene.
+ *
+ * An attached end also writes its Anchor, the nearest point of the target's
+ * outline to the drop, so the end stays on the spot the person chose rather than
+ * re-aiming at the target's centre. The stored `x`, `y` are where that Anchor
+ * draws it, so the JSON reads true; `byId` is the Scene the target is found in,
+ * the same one the Renderer resolves it against.
  */
 export function withEnd(
   element: ArrowOrLineElement,
   end: End,
   point: Point,
   target: string | null,
+  byId: ReadonlyMap<string, Element>,
 ): ArrowOrLineElement {
+  const anchor = target === null ? undefined : anchorFor(byId, target, point);
+  const drawn = anchor === undefined ? point : anchorPoint(targetOutline(byId, target!), anchor);
   const stored: Point = {
-    x: Math.round(point.x),
-    y: Math.round(point.y),
+    x: Math.round(drawn.x),
+    y: Math.round(drawn.y),
     ...(target === null ? {} : { snap: target }),
+    ...(anchor === undefined ? {} : { anchor }),
   };
   return withPoint(element, endIndex(element, end), stored);
+}
+
+/** The Anchor a drop on this target writes: the outline point nearest the drop, as fractions of the box. */
+function anchorFor(
+  byId: ReadonlyMap<string, Element>,
+  target: string,
+  point: Point,
+): Anchor {
+  return anchorOf(targetOutline(byId, target), point);
+}
+
+/** The outlined Element a Snap names, refusing an id the Scene cannot draw an outline for. */
+function targetOutline(byId: ReadonlyMap<string, Element>, target: string): OutlinedElement {
+  const found = byId.get(target);
+  if (found === undefined || !isOutlined(found)) {
+    throw new Error(`snap target "${target}" must be a rectangle, ellipse or diamond`);
+  }
+  return found;
 }
 
 /**
@@ -148,7 +176,7 @@ export function freedEnd(
     return element;
   }
   const [start, finish] = drawnEnds(element, byId);
-  return withEnd(element, end, end === 'start' ? start : finish, null);
+  return withEnd(element, end, end === 'start' ? start : finish, null, byId);
 }
 
 /** Both ends as the Renderer draws them, Snap resolved and stored whole-pixel. */

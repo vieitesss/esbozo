@@ -762,7 +762,9 @@ export class Gestures {
         : null;
       drag.target = target;
       const preview = drawn(drag.tool, drag.from, point, drag.id, this.#host.scene().defaults);
-      drag.preview = isShaft(preview) ? withEnd(preview, 'end', point, target) : preview;
+      drag.preview = isShaft(preview)
+        ? withEnd(preview, 'end', point, target, elementsById(this.#host.scene().elements))
+        : preview;
       page.paint();
       return;
     }
@@ -805,7 +807,13 @@ export class Gestures {
       const { to, target } = this.#resolveEnd(drag, point, event.altKey);
       drag.moved = drag.moved || dx !== 0 || dy !== 0;
       drag.target = target;
-      drag.shown = withEnd(element, drag.which, to, target);
+      drag.shown = withEnd(
+        element,
+        drag.which,
+        to,
+        target,
+        elementsById(this.#host.scene().elements),
+      );
       page.paint();
       return;
     }
@@ -1177,6 +1185,7 @@ export class Gestures {
           'end',
           endPoint(placed, 'end'),
           this.#attachTarget(drag.id, 'end', at, event.altKey),
+          elementsById(this.#host.scene().elements),
         )
       : placed;
     this.#host.applyScene(
@@ -1282,6 +1291,7 @@ export class Gestures {
       'end',
       end,
       this.#attachTarget(drag.id, 'end', release, skipSnap),
+      elementsById(this.#host.scene().elements),
     );
     this.#host.applyScene(
       { ...this.#host.scene(), elements: [...this.#host.scene().elements, settled] },
@@ -1310,7 +1320,16 @@ export class Gestures {
         : this.#attachTarget(drag.id, 'end', cursor, skipSnap);
     const end = whole(cursor);
     const path = this.#pathOf(drag.tool, [...points, end], drag.id);
-    return { preview: withEnd(path, 'end', end, target), target };
+    return {
+      preview: withEnd(
+        path,
+        'end',
+        end,
+        target,
+        elementsById(this.#host.scene().elements),
+      ),
+      target,
+    };
   }
 
   /**
@@ -1375,7 +1394,15 @@ export class Gestures {
       elements: this.#host
         .scene()
         .elements.map((candidate) =>
-          candidate.id === drag.id ? withEnd(element, drag.which, to, target) : candidate,
+          candidate.id === drag.id
+            ? withEnd(
+                element,
+                drag.which,
+                to,
+                target,
+                elementsById(this.#host.scene().elements),
+              )
+            : candidate,
         ),
     });
   }
