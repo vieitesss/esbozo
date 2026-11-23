@@ -275,6 +275,48 @@ async function carryBentLabel(ui: Ui, corner: 'round' | 'sharp'): Promise<void> 
   expect(Math.abs(kept.y - left.y)).toBeLessThan(1.5);
 }
 
+/**
+ * A line whose drawn end runs upright, with its words a hundred pixels left of
+ * that end. The side a Label rides faces right a hair inside an upright end and
+ * left at the end itself, so a release carried past the end is where the two
+ * meet: the place it saves is the end's own, and the words stay on the side the
+ * pointer left them.
+ */
+function uprightEndScene(
+  points: ReadonlyArray<{ x: number; y: number }>,
+  labelAt: { t: number; offset: number },
+): string {
+  return JSON.stringify(
+    {
+      version: 1,
+      title: 'Upright end',
+      defaults: { roughness: 0 },
+      elements: [
+        { id: 'page', type: 'rectangle', x: 0, y: 0, width: 800, height: 560 },
+        {
+          id: 'bent',
+          type: 'line',
+          corners: 'round',
+          points,
+          heads: { start: 'none', end: 'none' },
+          label: 'end',
+          labelAt,
+        },
+      ],
+    },
+    null,
+    2,
+  );
+}
+
+/** The same line with its points the other way, so the upright end is the start. */
+const UPRIGHT_ENDS: ReadonlyArray<
+  readonly [string, ReadonlyArray<{ x: number; y: number }>, number]
+> = [
+  ['head', [{ x: 500, y: 100 }, { x: 400, y: 200 }, { x: 400, y: 300 }], 1],
+  ['start', [{ x: 400, y: 300 }, { x: 400, y: 200 }, { x: 500, y: 100 }], 0],
+];
+
 describe('labels drag', () => {
   test('dragging a shaft Label places it where the pointer leaves it, and the Scene keeps that place', async ({
     app,
@@ -336,6 +378,91 @@ describe('labels drag', () => {
   }) => {
     await carryBentLabel({ app, browser, screen }, 'sharp');
   });
+
+  for (const [end, points, t] of UPRIGHT_ENDS) {
+    test(`a Label dragged past an upright ${end} keeps the side the ink shows`, async ({
+      app,
+      browser,
+      screen,
+    }) => {
+      const ui = { app, browser, screen };
+      const name = `upright-${end}.json`;
+      await openEditor(
+        ui,
+        { A: { [name]: uprightEndScene(points, { t, offset: 100 }) } },
+        name,
+      );
+
+      // The words where the Scene puts them, a hundred pixels left of the upright
+      // end, measured the way they are measured after the release.
+      const opened = (await shot(ui)).darkBounds(
+        onPage({ x: 270, y: 280, width: 60, height: 40 }, BENT_LABEL),
+        DARK,
+      );
+      expect(opened).not.toBeNull();
+      const was = middleOf(opened as Rect);
+
+      // Taken by their own middle and carried 60 right, 10 past the end: the
+      // release clamps onto the end, so the words come back to 40px left of it
+      // and level with it — not to the far side of it, which is where a fraction
+      // read a hair inside the end signs them.
+      const taken = at({ x: 300, y: 300 }, BENT_LABEL);
+      const carried = { x: taken.x + 60, y: taken.y + 10 };
+      await drag(ui, taken, carried, 'left', async () => {
+        await settle(ui);
+        const carrying = await shot(ui);
+        const near = carrying.darkCount(
+          onPage({ x: 340, y: 288, width: 40, height: 24 }, BENT_LABEL),
+          DARK,
+        );
+        const far = carrying.darkCount(
+          onPage({ x: 420, y: 288, width: 40, height: 24 }, BENT_LABEL),
+          DARK,
+        );
+        expect(
+          near,
+          `the words are drawn on the side the pointer left them (far side ink: ${far})`,
+        ).toBeGreaterThan(20);
+        expect(
+          far,
+          'the words are not drawn on the far side of the end',
+        ).toBe(0);
+      });
+
+      // The place the file keeps is the end's own fraction and the 40px between
+      // the pointer and the ink beside it.
+      const placed = await savedScene(ui, name);
+      const bent = placed.elements.find((element) => element.id === 'bent');
+      expect(bent?.labelAt).toEqual({ t, offset: 40 });
+
+      // The words the release leaves: the 60px the pointer carried them, with the
+      // 10px past the end taken back by the clamp.
+      await browser.keyboard.press('Escape');
+      const dropped = (await shot(ui)).darkBounds(
+        onPage({ x: 330, y: 280, width: 60, height: 40 }, BENT_LABEL),
+        DARK,
+      );
+      expect(dropped).not.toBeNull();
+      const left = middleOf(dropped as Rect);
+      expect(left.x, 'the words carried 60px right').toBeLessThan(was.x + 61.5);
+      expect(left.x).toBeGreaterThan(was.x + 58.5);
+      expect(left.y, 'the clamp took back the 10px past the end').toBeLessThan(was.y + 1.5);
+      expect(left.y).toBeGreaterThan(was.y - 1.5);
+
+      // A page that opens the Scene the save wrote draws them where the release
+      // left them: the side is the file's own.
+      const saved = await savedFiles(ui);
+      await openEditor(ui, { A: saved }, name);
+      const reopened = await savedWords(ui, name.replace(/\.json$/, '.svg'), BENT_LABEL);
+      const again = (await shot(ui)).darkBounds(
+        { x: reopened.x - 30, y: reopened.baseline - 24, width: 60, height: 40 },
+        DARK,
+      );      expect(again).not.toBeNull();
+      const kept = middleOf(again as Rect);
+      expect(Math.abs(kept.x - left.x)).toBeLessThan(1.5);
+      expect(Math.abs(kept.y - left.y)).toBeLessThan(1.5);
+    });
+  }
 
   test('dragging the shaft itself carries the shaft and leaves the placed words where they are', async ({
     app,
