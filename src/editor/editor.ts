@@ -279,6 +279,11 @@ class EsbozoEditorElement extends HTMLElement {
     const gridRect = this.querySelector<SVGRectElement>('.grid-rect')!;
     const pattern = this.querySelector<SVGPatternElement>('.canvas pattern')!;
     this.#rail = this.querySelector('.rail')!;
+    // Nothing in the strip is a press or a focus until it has a dock to hang on:
+    // `inert` is what a host's rule about what is inside the strip cannot undo, so
+    // an undocked tile takes no press whatever the page says about its glyphs
+    // (#62). `#hangRail` lifts it with the dock.
+    this.#rail.inert = true;
     this.#railArt = this.querySelector('.rail-art')!;
     this.#docks = this.querySelector('.docks')!;
     // The side this origin's editor was last moved to is read once, here, before
@@ -1357,6 +1362,7 @@ class EsbozoEditorElement extends HTMLElement {
     // Measured and placed, so the strip has a side to hang on and the page may
     // show it: an unplaced one stays out of sight rather than wait at the place
     // the stylesheet falls back to, which is no side it was docked on (D11).
+    this.#rail.inert = false;
     this.#rail.dataset['placed'] = '';
   }
 
