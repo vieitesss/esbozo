@@ -75,6 +75,31 @@ const BENT_SCENE = {
 };
 const BENT_SOURCE = JSON.stringify(BENT_SCENE, null, 2);
 
+/**
+ * `BENT_SCENE` beside a straight line Snapped at one end to a third box: one
+ * drag can hold both shafts, so each follows its own rule for a Snapped end.
+ */
+const MIXED_SNAPPED_SCENE = {
+  ...BENT_SCENE,
+  title: 'Mixed snapped',
+  elements: [
+    ...BENT_SCENE.elements,
+    { id: 'e', type: 'rectangle', x: 0, y: 350, width: 100, height: 100 },
+    {
+      id: 'd',
+      type: 'line',
+      points: [
+        { x: 150, y: 400, snap: 'e' },
+        { x: 450, y: 400 },
+      ],
+    },
+  ],
+};
+const MIXED_SNAPPED_SOURCE = JSON.stringify(MIXED_SNAPPED_SCENE, null, 2);
+
+/** The view `MIXED_SNAPPED_SCENE` lands in, worked out the same way as `VIEW`. */
+const MIXED_SNAPPED: View = { zoom: 1, panX: 340, panY: 175 };
+
 /** The view `BENT_SCENE` lands in, worked out the same way as `VIEW`. */
 const BENT: View = { zoom: 1, panX: 340, panY: 275 };
 
@@ -177,6 +202,7 @@ const SCENES = {
     'hyphen.json': HYPHEN_SOURCE,
     'crossing.json': CROSSING_SOURCE,
     'bent.json': BENT_SOURCE,
+    'mixed.json': MIXED_SNAPPED_SOURCE,
     'bentfree.json': BENT_FREE_SOURCE,
     'loop.json': LOOP_SOURCE,
   },
@@ -912,6 +938,79 @@ describe('a bent shaft keeps its bend', () => {
       return first !== undefined && reaches(first, { x: 100, y: 150 }, 1);
     });
     expect(start, 'the start still leaves a’s right edge, beside a’s new place').toBeTruthy();
+  });
+
+  test('a shaft Snapped at one end carries it and moves its free end', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'bent.json');
+    await clickScene(ui, BENT_ON, [], BENT);
+    // One Snap left: the start still follows `a`, and the freed end is a point of
+    // the shaft like the bend between them.
+    await screen.getByRole('button', { name: 'Detach: end' }).click();
+    await dragBy(ui, { x: 150, y: 130 }, 0, 60, BENT);
+
+    const scene = await savedAndChecked(ui, 'bent.json');
+    expect(scene.elements[2]?.points).toEqual([
+      { x: 50, y: 110, snap: 'a' },
+      { x: 300, y: 310, corner: 'sharp' },
+      { x: 500, y: 150 },
+    ]);
+  });
+
+  test('a three-point loop carries both Snaps when its shaft moves', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'loop.json');
+    // Down the loop's long leg, clear of the dots halfway along either of them: a
+    // press on a dot pulls a new bend point out instead of moving the shaft.
+    await clickScene(ui, { x: 350, y: 280 }, [], LOOP);
+    await dragBy(ui, { x: 350, y: 280 }, -40, 0, LOOP);
+
+    // Both ends Snap to one Element, and the bend between them is what moves: the
+    // loop keeps leaving and returning to the oval, from where the drag put it.
+    const scene = await savedAndChecked(ui, 'loop.json');
+    expect(scene.elements[1]?.points).toEqual([
+      { x: 320, y: 140, snap: 'oval' },
+      { x: 320, y: 320, corner: 'sharp' },
+      { x: 320, y: 60, snap: 'oval' },
+    ]);
+  });
+
+  test('a drag of a bent shaft and a straight one gives each its own rule', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'mixed.json');
+
+    // One gesture, both shafts: `c` has a bend to carry its Snaps with, and `d`
+    // has two points, so it lets its one Snap go where it drew first. A box sweeps
+    // up both shafts and nothing else.
+    await drag(
+      ui,
+      at({ x: 620, y: 470 }, MIXED_SNAPPED),
+      at({ x: 20, y: 10 }, MIXED_SNAPPED),
+    );
+    await dragBy(ui, { x: 150, y: 130 }, 0, -20, MIXED_SNAPPED);
+
+    const scene = await savedAndChecked(ui, 'mixed.json');
+    expect(scene.elements[2]?.points).toEqual([
+      { x: 50, y: 30, snap: 'a' },
+      { x: 300, y: 230, corner: 'sharp' },
+      { x: 550, y: 30, snap: 'b' },
+    ]);
+    expect(scene.elements[4]?.points).toEqual([
+      { x: 100, y: 380 },
+      { x: 450, y: 380 },
+    ]);
   });
 
   test('dragging the start keeps the bend and the end', async ({ app, browser, screen }) => {
