@@ -27,7 +27,7 @@ import {
 import type { Point, Ui } from './helpers.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
-import { SCENE_SOURCE, GRID, control, zoomReadout } from './editor-shared.ts';
+import { SCENE_SOURCE, GRID, command, control, palette, zoomReadout } from './editor-shared.ts';
 
 const EDGE_SOURCE = JSON.stringify(EDGE_SCENE, null, 2);
 
@@ -385,6 +385,142 @@ test('the docked note fits a 1366×768 window', async ({ app, browser, screen })
   await expect(control(ui, 'Order: front')).toBeVisible();
   await expect(ui.screen.getByText(/^\d+%$/)).toHaveText('100%');
 });
+
+// ------------------------------------------ a docked rail and the note's room
+
+/**
+ * One filled band the note covers: 900 units wide at 1:1, wider than the room
+ * left of the note, so the view has to make room it cannot pan for.
+ */
+const CLEAR_SCENE = {
+  version: 1,
+  title: 'Clear',
+  defaults: { roughness: 1 },
+  elements: [
+    { id: 'band', type: 'rectangle', x: 0, y: 0, width: 900, height: 120, fill: { kind: 'solid', grey: 6 } },
+  ],
+};
+const CLEAR_SOURCE = JSON.stringify(CLEAR_SCENE, null, 2);
+
+/** The side of the frame a dock asks the rail for. */
+type Dock = 'top' | 'bottom' | 'left' | 'right';
+
+/**
+ * The band's rows on the page, on the window's own middle: the note and a left
+ * dock's strip are centred there too, so this is the room the two share.
+ */
+const BAND_ROWS = { y: 350, height: 100 };
+
+/**
+ * The room between a strip held at the editor's left inset and the band the
+ * clearance has to put beside it: the strip's pencil outline ends at 68, the
+ * note's own gap puts the band's box at 84, and the selection's dashed outline
+ * stands a padding outside that box. So this window, clear of the page's border
+ * and of that outline, holds ink only when the rail is no limit at all.
+ */
+const RAIL_LIMIT: Rect = { x: 8, y: BAND_ROWS.y, width: 66, height: BAND_ROWS.height };
+
+/**
+ * The foot of a left dock's strip, below the rows the band is drawn in: the
+ * strip's own ink and nothing else.
+ */
+const STRIP_FOOT: Rect = { x: 8, y: 470, width: 300, height: 45 };
+
+/** Where the strip's ink reaches: the rail's own place, which no dock or clearance may change (D4). */
+async function stripInk(ui: Ui): Promise<Rect> {
+  // Pointing at the strip brings it up from 58% to full ink, transition and all.
+  await ui.browser.mouse.move(38, 470);
+  const foot = async (): Promise<Rect | null> => (await shot(ui)).darkBounds(STRIP_FOOT, 0.6);
+  await expect.poll(foot, { timeout: 5000 }).not.toBeNull();
+  const ink = (await foot())!;
+  // Off the rail again: the page is read as a hand that is not pointing reads it.
+  await ui.browser.mouse.move(640, 700);
+  await settle(ui);
+  return ink;
+}
+
+/** Move the rail to one of the frame's sides, through the palette's own row for it. */
+async function dockRail(ui: Ui, side: Dock): Promise<void> {
+  await palette(ui);
+  await ui.browser.keyboard.type(`tool rail ${side}`);
+  await expect(command(ui, `Tool rail: ${side}`)).toBeVisible();
+  await ui.browser.keyboard.press('Enter');
+  await expect(ui.screen.getByRole('dialog', { name: 'Commands' })).toBeHidden();
+  await settle(ui);
+}
+
+/**
+ * The band's page, carried `carried` pixels sideways before the rail is docked
+ * on `side`: the frame the dock measures is the carried one.
+ */
+async function openDock(ui: Ui, side: Dock, carried = 0): Promise<void> {
+  await openEditor(ui, { A: { 'clear.json': CLEAR_SOURCE } }, 'clear.json');
+  // The Grid off: the only ink this paper holds is the Scene's own.
+  await ui.browser.keyboard.press('g');
+  await settle(ui);
+  if (carried !== 0) {
+    await ui.browser.keyboard.down('Space');
+    await drag(ui, { x: 600, y: 700 }, { x: 600 + carried, y: 700 });
+    await ui.browser.keyboard.up('Space');
+    await settle(ui);
+  }
+  await dockRail(ui, side);
+}
+
+/**
+ * A press on the band the note covers: the note opens, and the view makes room
+ * for it and for whatever the rail's own dock puts in the way.
+ */
+async function pressBand(ui: Ui): Promise<void> {
+  await drag(ui, { x: 600, y: 400 }, { x: 600, y: 400 }, 'left');
+  await expect(ui.screen.getByRole('dialog', 'Style')).toBeVisible();
+  await settle(ui);
+}
+
+test('a left dock held inside the editor’s left edge is cleared with the note', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  // The page carried left until the diagram's frame crosses the editor's left
+  // edge, which is the one place a left dock stops at the 15 px inset instead of
+  // hanging beside the frame.
+  await openDock(ui, 'left', -120);
+  const strip = await stripInk(ui);
+  await pressBand(ui);
+
+  // Opening the note never moves the rail (D4), and it never edits the Scene.
+  expect(await stripInk(ui)).toEqual(strip);
+  expect((await savedFiles(ui))['clear.json']).toBe(CLEAR_SOURCE);
+
+  // The band is wider than the room the note leaves beside the rail, so the view
+  // zooms out to fit, and no part of the band is drawn left of the rail's own
+  // outline and the gap off it.
+  expect(await zoomPercent(ui)).toBeLessThan(100);
+  expect((await shot(ui)).darkCount(RAIL_LIMIT, 0.6)).toBe(0);
+  // And the band is on the page beside the note, not clipped away.
+  expect((await shot(ui)).darkCount({ x: 120, ...BAND_ROWS, width: 300 }, 0.6)).toBeGreaterThan(10000);
+});
+
+for (const side of ['left', 'top', 'bottom', 'right'] as const) {
+  test(`a ${side} dock clear of the editor’s left edge leaves the editor’s own edge as the limit`, async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await openDock(ui, side);
+    await pressBand(ui);
+
+    // The view pans to the editor's own edge, which the rail floats over, and
+    // the zoom a person set stands: a rail that is not held at that edge is no
+    // limit at all (O1).
+    expect(await zoomPercent(ui)).toBe(100);
+    expect((await shot(ui)).darkCount(RAIL_LIMIT, 0.6)).toBeGreaterThan(500);
+    expect((await savedFiles(ui))['clear.json']).toBe(CLEAR_SOURCE);
+  });
+}
 
 // -------------------------------------------------------------- the tool rail
 
