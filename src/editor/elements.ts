@@ -1,4 +1,4 @@
-import { MIN_SIZE, seedForId } from '../scene.js';
+import { MIN_SIZE, seedForId, snapTargetId } from '../scene.js';
 import { unwrittenTextAlign } from '../scene.js';
 import type { Element, ElementStyle, Point, SceneStyle, TextElement } from '../scene.js';
 import { drawnShaft, elementsById } from '../renderer.js';
@@ -178,11 +178,13 @@ export function copies(
 }
 
 function movedPoint(point: Point, renamed: ReadonlyMap<string, string>, offset: Point): Point {
-  const target = point.snap === undefined ? undefined : renamed.get(point.snap);
+  const target = snapTargetId(point);
+  const snap = target === null ? undefined : renamed.get(target);
   return {
     x: point.x + offset.x,
     y: point.y + offset.y,
-    ...(target === undefined ? {} : { snap: target }),
+    ...(snap === undefined ? (point.snap === false ? { snap: false } : {}) : { snap }),
+    ...(point.anchor === undefined ? {} : { anchor: point.anchor }),
     ...(point.corner === undefined ? {} : { corner: point.corner }),
   };
 }
@@ -230,8 +232,9 @@ export function without(elements: readonly Element[], removed: ReadonlySet<strin
       const points = element.points;
       const last = points.length - 1;
       const drops = (index: number): boolean => {
-        const target = points[index]?.snap;
-        return target !== undefined && removed.has(target);
+        const point = points[index];
+        const target = point === undefined ? null : snapTargetId(point);
+        return target !== null && removed.has(target);
       };
       if (!drops(0) && !drops(last)) {
         return element;

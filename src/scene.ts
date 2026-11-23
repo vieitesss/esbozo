@@ -162,18 +162,40 @@ interface Heads {
 
 /**
  * One point an arrow or line draws through. `snap` is the id of the Element
- * outline an end is drawn on; a middle point bends by its own `corner`, or by
- * the Element's.
+ * outline an end is drawn on, or `false` for a free end the editor will not
+ * attach again; a middle point bends by its own `corner`, or by the Element's.
  */
 export interface Point {
   x: number;
   y: number;
-  snap?: string;
+  snap?: string | false;
+  /**
+   * Where on the target's box a Snapped end sits: fractions of the box from its
+   * top-left, `0` to `1`, drawn at the nearest point of the target's outline.
+   * Only an end that Snaps to an Element carries one.
+   */
+  anchor?: Anchor;
   /**
    * How the shaft turns at this point: a smooth `round` bend or a `sharp` one.
    * Only a middle point carries one; the ends have nothing to turn.
    */
   corner?: Corner;
+}
+
+/** A Snapped end's place on its target's outline, as fractions of the target's box. */
+interface Anchor {
+  /** Fraction across the box: `0` is its left edge, `1` its right. */
+  x: number;
+  /** Fraction down the box: `0` is its top edge, `1` its bottom. */
+  y: number;
+}
+
+/**
+ * The Element a point Snaps to, or null where the end is free: a point with no
+ * `snap`, and one written `"snap": false`.
+ */
+export function snapTargetId(point: Point): string | null {
+  return typeof point.snap === 'string' ? point.snap : null;
 }
 
 /**
@@ -366,7 +388,8 @@ const ALL_ELEMENT_KEYS = [
 ];
 const STROKE_KEYS = ['width', 'style'] as const;
 const FILL_KEYS = ['kind', 'grey'] as const;
-const POINT_KEYS = ['x', 'y', 'snap', 'corner'] as const;
+const POINT_KEYS = ['x', 'y', 'snap', 'anchor', 'corner'] as const;
+const ANCHOR_KEYS = ['x', 'y'] as const;
 const HEADS_KEYS = ['start', 'end'] as const;
 const LABEL_AT_KEYS = ['t', 'offset'] as const;
 
@@ -618,6 +641,7 @@ function freeUnlessLocal(point: unknown, ids: ReadonlySet<unknown>): unknown {
   }
   const free = { ...point };
   delete free['snap'];
+  delete free['anchor'];
   return free;
 }
 
@@ -630,6 +654,7 @@ function serialiseElement(element: Element): object {
         x: point.x,
         y: point.y,
         ...(point.snap === undefined ? {} : { snap: point.snap }),
+        ...(point.anchor === undefined ? {} : { anchor: point.anchor }),
         ...(point.corner === undefined ? {} : { corner: point.corner }),
       })),
       heads: { start: element.heads.start, end: element.heads.end },
@@ -754,33 +779,49 @@ function validateSnapTargets(
     const points = element.points;
     const start = points[0];
     const end = points[points.length - 1]!;
-    if (points.length === 2 && start.snap !== undefined && start.snap === end.snap) {
+    const startId = snapTargetId(start);
+    const endId = snapTargetId(end);
+    if (points.length === 2 && startId !== null && startId === endId && !apart(start, end)) {
       problems.push({
         elementId: element.id,
-        message: `both ends Snap to ${start.snap}`,
+        message: `both ends Snap to ${startId}`,
       });
       continue;
     }
     for (const point of points) {
-      if (point.snap === undefined) {
+      const target = snapTargetId(point);
+      if (target === null) {
         continue;
       }
-      const target = byId.get(point.snap);
-      if (target === undefined) {
-        if (!seen.has(point.snap)) {
+      const found = byId.get(target);
+      if (found === undefined) {
+        if (!seen.has(target)) {
           problems.push({
             elementId: element.id,
-            message: `snap target "${point.snap}" does not exist`,
+            message: `snap target "${target}" does not exist`,
           });
         }
-      } else if (!isOutlined(target)) {
+      } else if (!isOutlined(found)) {
         problems.push({
           elementId: element.id,
-          message: `snap target "${point.snap}" must be a rectangle, ellipse or diamond`,
+          message: `snap target "${target}" must be a rectangle, ellipse or diamond`,
         });
       }
     }
   }
+}
+
+/**
+ * Whether the two ends of a two-point shaft sit at different Anchors, which is
+ * the one way both of them may Snap to one Element: two ends on one outline need
+ * two places to be to have a direction between them.
+ */
+function apart(start: Point, end: Point): boolean {
+  return (
+    start.anchor !== undefined &&
+    end.anchor !== undefined &&
+    (start.anchor.x !== end.anchor.x || start.anchor.y !== end.anchor.y)
+  );
 }
 
 function parseElement(
@@ -993,16 +1034,8 @@ function parsePoint(
   rejectUnknownKeys(raw, POINT_KEYS, (unknownKey) => report(`unknown key "${unknownKey}"`));
   const x = parseWholePixels(raw.x, `points[${index}].x`, report);
   const y = parseWholePixels(raw.y, `points[${index}].y`, report);
-  let snap: string | undefined;
-  if (raw.snap !== undefined && !end) {
-    report(`points[${index}].snap applies only to the first or last point`);
-  } else if (raw.snap !== undefined) {
-    if (typeof raw.snap !== 'string' || raw.snap === '') {
-      report(`points[${index}].snap must be a non-empty Element id`);
-    } else {
-      snap = raw.snap;
-    }
-  }
+  const snap = parseSnap(raw.snap, index, end, report);
+  const anchor = parseAnchor(raw.anchor, index, end, snap, report);
   let corner: Corner | undefined;
   if (raw.corner !== undefined && end) {
     report(`points[${index}].corner applies only to a middle point`);
@@ -1015,14 +1048,77 @@ function parsePoint(
       corner = raw.corner;
     }
   }
-  return x === null || y === null
+  return x === null || y === null || snap === null || anchor === null
     ? null
     : {
         x,
         y,
         ...(snap === undefined ? {} : { snap }),
+        ...(anchor === undefined ? {} : { anchor }),
         ...(corner === undefined ? {} : { corner }),
       };
+}
+
+/**
+ * An end's Snap: the id of the Element it is drawn on, or `false` for a free
+ * end the editor will not attach again. Null is a point the Scene cannot hold.
+ */
+function parseSnap(
+  raw: unknown,
+  index: number,
+  end: boolean,
+  report: (message: string) => void,
+): string | false | undefined | null {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (!end) {
+    report(`points[${index}].snap applies only to the first or last point`);
+    return null;
+  }
+  if (raw === false) {
+    return false;
+  }
+  if (typeof raw !== 'string' || raw === '') {
+    report(`points[${index}].snap must be an Element id or false, got ${describe(raw)}`);
+    return null;
+  }
+  return raw;
+}
+
+/**
+ * Where a Snapped end sits on its target's outline, as fractions of its box. An
+ * Anchor needs a Snap target to be a fraction of, so a free end, a `false` one
+ * and a bend point have none.
+ */
+function parseAnchor(
+  raw: unknown,
+  index: number,
+  end: boolean,
+  snap: string | false | undefined | null,
+  report: (message: string) => void,
+): Anchor | undefined | null {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (!end) {
+    report(`points[${index}].anchor applies only to the first or last point`);
+    return null;
+  }
+  if (typeof snap !== 'string') {
+    report(`points[${index}].anchor applies only to an end that Snaps to an Element`);
+    return null;
+  }
+  if (!isRecord(raw)) {
+    report(`points[${index}].anchor must be a JSON object`);
+    return null;
+  }
+  rejectUnknownKeys(raw, ANCHOR_KEYS, (unknownKey) =>
+    report(`points[${index}].anchor: unknown key "${unknownKey}"`),
+  );
+  const x = parseFraction(raw.x, `points[${index}].anchor.x`, report);
+  const y = parseFraction(raw.y, `points[${index}].anchor.y`, report);
+  return x === null || y === null ? null : { x, y };
 }
 
 function parseHeads(

@@ -18,6 +18,7 @@
  */
 import { greyColour } from '../renderer.js';
 import type { ArrowOrLineElement, Element } from '../scene.js';
+import { snapTargetId } from '../scene.js';
 import { ACTIONS } from './actions.js';
 import type { ActionGroup, ActionState } from './actions.js';
 import { movableCount } from './arrange.js';
@@ -79,7 +80,7 @@ function snapSignature(elements: readonly Element[]): string {
   if (first === undefined || (first.type !== 'arrow' && first.type !== 'line')) {
     return '';
   }
-  return JSON.stringify(ENDS.map((end) => endPoint(first, end).snap ?? null));
+  return JSON.stringify(ENDS.map((end) => snapTargetId(endPoint(first, end))));
 }
 
 function styleRows(elements: readonly Element[]): string {
@@ -104,14 +105,14 @@ function snapRows(elements: readonly Element[]): string {
 
 /** One end of an arrow or line: `attached to post`, or `free`, and Detach. */
 function endRow(element: ArrowOrLineElement, end: End): string {
-  const attached = endPoint(element, end).snap;
+  const attached = snapTargetId(endPoint(element, end));
   const label = end === 'start' ? 'Start' : 'End';
   const state =
-    attached === undefined
+    attached === null
       ? '<span class="end">free</span>'
       : `<span class="end on">attached to <b>${escapeHtml(attached)}</b></span>`;
   const detach =
-    attached === undefined
+    attached === null
       ? ''
       : `<button type="button" data-act="detach-${end}" aria-label="Detach: ${end}">detach</button>`;
   return (

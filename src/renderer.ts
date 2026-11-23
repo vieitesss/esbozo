@@ -1,6 +1,6 @@
 import { RoughGenerator } from 'roughjs/bin/generator.js';
 import type { Drawable, OpSet, Options } from 'roughjs/bin/core.js';
-import { canonicalElement, canonicalScene, hashScene, isOutlined } from './scene.js';
+import { canonicalElement, canonicalScene, hashScene, isOutlined, snapTargetId } from './scene.js';
 import type {
   ArrowOrLineElement,
   Element,
@@ -1080,20 +1080,21 @@ function snapTarget(
   point: Point,
   byId: ReadonlyMap<string, Element>,
 ): OutlinedElement | undefined {
-  if (point.snap === undefined) {
+  const target = snapTargetId(point);
+  if (target === null) {
     return undefined;
   }
-  const stored = byId.get(point.snap);
+  const stored = byId.get(target);
   if (stored === undefined) {
-    throw new Error(`${element.id}: snap target "${point.snap}" does not exist`);
+    throw new Error(`${element.id}: snap target "${target}" does not exist`);
   }
-  const target = canonicalElement(stored);
-  if (!isOutlined(target)) {
+  const outlined = canonicalElement(stored);
+  if (!isOutlined(outlined)) {
     throw new Error(
-      `${element.id}: snap target "${point.snap}" must be a rectangle, ellipse or diamond`,
+      `${element.id}: snap target "${target}" must be a rectangle, ellipse or diamond`,
     );
   }
-  return target;
+  return outlined;
 }
 
 /**

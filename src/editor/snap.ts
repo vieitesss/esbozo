@@ -18,7 +18,7 @@
 import { carriesSnaps, insideOutline } from '../geometry.js';
 import { drawnShaft } from '../renderer.js';
 import type { ArrowOrLineElement, Element, Point } from '../scene.js';
-import { isOutlined } from '../scene.js';
+import { isOutlined, snapTargetId } from '../scene.js';
 
 /** Which end of an arrow or line: the first point, or the last. */
 export const ENDS = ['start', 'end'] as const;
@@ -57,12 +57,12 @@ export function withPoint(
 
 /** The Element this end is attached to, or null when the end is free. */
 export function attachedTo(element: ArrowOrLineElement, end: End): string | null {
-  return endPoint(element, end).snap ?? null;
+  return snapTargetId(endPoint(element, end));
 }
 
 /** Whether either end of this Element is attached to an Element. */
 function attached(element: Element): boolean {
-  return isShaft(element) && element.points.some((point) => point.snap !== undefined);
+  return isShaft(element) && element.points.some((point) => snapTargetId(point) !== null);
 }
 
 /**
@@ -128,11 +128,11 @@ export function released(
   }
   const [start, end] = drawnEnds(element, byId);
   let freed = element;
-  if (freed.points[0]!.snap !== undefined) {
+  if (attachedTo(freed, 'start') !== null) {
     freed = withPoint(freed, 0, start);
   }
   const last = freed.points.length - 1;
-  if (freed.points[last]!.snap !== undefined) {
+  if (attachedTo(freed, 'end') !== null) {
     freed = withPoint(freed, last, end);
   }
   return freed;

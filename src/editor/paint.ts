@@ -18,7 +18,7 @@
 import type { Box, Layout } from '../layout.js';
 import { elementsById, renderElement, sceneSvg } from '../renderer.js';
 import type { DrawnElement } from '../renderer.js';
-import { canonicalElement, sceneJson, serialiseElementJson } from '../scene.js';
+import { canonicalElement, sceneJson, serialiseElementJson, snapTargetId } from '../scene.js';
 import type { Element, Scene } from '../scene.js';
 import { sha256HexAsync } from '../sha256.js';
 
@@ -85,7 +85,8 @@ function paintKey(
     return key;
   }
   return element.points.reduce((whole, point) => {
-    const target = point.snap === undefined ? undefined : byId.get(point.snap);
+    const id = snapTargetId(point);
+    const target = id === null ? undefined : byId.get(id);
     return `${whole}|${target === undefined ? '' : JSON.stringify(target)}`;
   }, key);
 }

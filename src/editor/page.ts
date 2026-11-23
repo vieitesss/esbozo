@@ -26,7 +26,7 @@
  * state or decides what an edit is.
  */
 import { elementsById, outlineBox, shaftInk, shaftLabel, wordsInkBounds } from '../renderer.js';
-import { isOutlined } from '../scene.js';
+import { isOutlined, snapTargetId } from '../scene.js';
 import type { Corner, Element as SceneElement, Scene } from '../scene.js';
 import type { Block, Layout, LineGlyphs } from '../layout.js';
 import { HANDLES, boxBetween, boxOf, clearedView, handlePoint, unionOf } from './geometry.js';
@@ -549,7 +549,10 @@ export class Page {
       if (drag.shown.has(element.id) || !isShaft(element)) {
         continue;
       }
-      if (!element.points.some((point) => point.snap !== undefined && drag.shown.has(point.snap))) {
+      if (!element.points.some((point) => {
+        const target = snapTargetId(point);
+        return target !== null && drag.shown.has(target);
+      })) {
         continue;
       }
       const held = this.#groups.get(element.id);
