@@ -6,7 +6,7 @@
 import { test } from '@e2e-dev/web';
 import { afterAll, expect } from 'e2e';
 import { MIXED, clickScene, expectSvgMatchesCli, openEditor, savedScene } from './helpers.ts';
-import type { Ui } from './helpers.ts';
+import type { Ui, View } from './helpers.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
 import { SCENE_SOURCE, MIXED_SOURCE, control } from './editor-shared.ts';
@@ -78,14 +78,16 @@ test('the menu offers only the controls the selection can use', async ({ app, br
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'scene.json': MIXED_SOURCE } }, 'scene.json');
 
-  // An arrow is a stroke: heads, no fill, no corners, and words that take a size
-  // and an alignment of their own on the block the shaft gives them.
+  // An arrow is a stroke: heads and the corners its bends turn by, no fill, and
+  // words that take a size and an alignment of their own on the block the shaft
+  // gives them.
   await clickScene(ui, { x: 200, y: 280 }, [], MIXED);
   await expect(control(ui, 'Head ←: dot')).toBeVisible();
   await expect(control(ui, 'Head →: bar')).toBeVisible();
   await expect(control(ui, 'Rough: cartoonist')).toBeVisible();
   await expect(control(ui, 'Align: centre')).toBeVisible();
-  await expectNoControl(ui, ['Fill: hachure', 'Grey: grey 5', 'Corners: round']);
+  await expect(control(ui, 'Corners: sharp')).toBeVisible();
+  await expectNoControl(ui, ['Fill: hachure', 'Grey: grey 5']);
 
   await control(ui, 'Head ←: dot').click();
   await control(ui, 'Head →: bar').click();
@@ -95,11 +97,12 @@ test('the menu offers only the controls the selection can use', async ({ app, br
     end: 'bar',
   });
 
-  // A Text is only words: no stroke to widen, but a size and an alignment.
+  // A Text is only words: no stroke to widen and no corners to round, but a size
+  // and an alignment.
   await clickScene(ui, { x: 277, y: 110 }, [], MIXED);
   await expect(control(ui, 'Size: L')).toBeVisible();
   await expect(control(ui, 'Align: centre')).toBeVisible();
-  await expectNoControl(ui, ['Rough: cartoonist', 'Stroke: extra']);
+  await expectNoControl(ui, ['Rough: cartoonist', 'Stroke: extra', 'Corners: round']);
 
   await control(ui, 'Size: L').click();
   await control(ui, 'Align: centre').click();
@@ -195,6 +198,171 @@ test('the roughness label stays quiet and the value is in ink', async ({ app, br
   const page = await shot(ui);
   expect(page.darkCount(LABEL, 0.3)).toBe(0);
   expect(page.darkCount(VALUE, 0.3)).toBeGreaterThan(0);
+});
+
+/**
+ * A box that holds the page still: its 800×560 page fits 1:1 into a 1280×800
+ * window, so a Scene point is its own page point in the views below.
+ */
+const PAGE = { id: 'page', type: 'rectangle', x: 0, y: 0, width: 800, height: 560 };
+
+/** An arrow and a line through two points each, and an ellipse beside them. */
+const CORNERS_SCENE = {
+  version: 1,
+  title: 'Two shafts',
+  defaults: { roughness: 1 },
+  elements: [
+    PAGE,
+    {
+      id: 'flat',
+      type: 'arrow',
+      points: [
+        { x: 100, y: 120 },
+        { x: 500, y: 120 },
+      ],
+      heads: { start: 'none', end: 'none' },
+    },
+    {
+      id: 'plain',
+      type: 'line',
+      points: [
+        { x: 100, y: 220 },
+        { x: 500, y: 220 },
+      ],
+    },
+    { id: 'oval', type: 'ellipse', x: 100, y: 320, width: 120, height: 80 },
+  ],
+};
+const CORNERS_SOURCE = JSON.stringify(CORNERS_SCENE, null, 2);
+
+/** The view `CORNERS_SCENE` lands in: its page centred at 1:1. */
+const CORNERS: View = { zoom: 1, panX: 240, panY: 120 };
+
+test('Corners is offered for a two-point arrow and for a line', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': CORNERS_SOURCE } }, 'scene.json');
+
+  await clickScene(ui, { x: 300, y: 120 }, [], CORNERS);
+  await expect(control(ui, 'Corners: sharp')).toBeVisible();
+  await expect(control(ui, 'Corners: round')).toBeVisible();
+
+  await clickScene(ui, { x: 250, y: 220 }, [], CORNERS);
+  await expect(control(ui, 'Corners: sharp')).toBeVisible();
+  await expect(control(ui, 'Corners: round')).toBeVisible();
+});
+
+/** A box, and an arrow through a `round` bend point and a `sharp` one. */
+const BENDED_SCENE = {
+  version: 1,
+  title: 'Bent',
+  defaults: { roughness: 1 },
+  elements: [
+    PAGE,
+    {
+      id: 'bent',
+      type: 'arrow',
+      points: [
+        { x: 100, y: 120 },
+        { x: 300, y: 300, corner: 'round' },
+        { x: 500, y: 120 },
+        { x: 700, y: 300 },
+      ],
+      heads: { start: 'none', end: 'none' },
+    },
+    { id: 'box', type: 'rectangle', x: 560, y: 380, width: 120, height: 100 },
+  ],
+};
+const BENDED_SOURCE = JSON.stringify(BENDED_SCENE, null, 2);
+
+/** The view `BENDED_SCENE` lands in, worked out the same way. */
+const BENDED: View = { zoom: 1, panX: 240, panY: 120 };
+
+/** On the bent arrow's first run, on no other Element: where a press selects it. */
+const BENT_ON = { x: 150, y: 165 };
+
+/** A saved point, with the `corner` a Scene file may or may not write on it. */
+type SavedPoint = { x: number; y: number; corner?: string };
+
+/** The bent arrow's points as the file holds them, before and after a Corners pick. */
+const BENT_MIXED: SavedPoint[] = [
+  { x: 100, y: 120 },
+  { x: 300, y: 300, corner: 'round' },
+  { x: 500, y: 120 },
+  { x: 700, y: 300 },
+];
+const BENT_ROUND: SavedPoint[] = [
+  { x: 100, y: 120 },
+  { x: 300, y: 300 },
+  { x: 500, y: 120 },
+  { x: 700, y: 300 },
+];
+
+/** The bent arrow as the file holds it: its own corners, and its points. */
+async function bentShaft(ui: Ui): Promise<{ corners: string | undefined; points: SavedPoint[] }> {
+  const shaft = (await savedScene(ui)).elements.find((element) => element.id === 'bent');
+  return { corners: shaft?.corners, points: shaft?.points ?? [] };
+}
+
+test('a shaft whose bend points turn by both corners says mixed', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': BENDED_SOURCE } }, 'scene.json');
+
+  await clickScene(ui, BENT_ON, [], BENDED);
+  // Its one written point is `round`, and the one after it takes the Element's
+  // `sharp`: a shaft that turns both ways between its ends.
+  await expect(ui.screen.getByRole('group', 'Corners').getByText('mixed')).toBeVisible();
+  await expect(control(ui, 'Corners: round')).not.toHaveAttribute('aria-pressed', 'true');
+  await expect(control(ui, 'Corners: sharp')).not.toHaveAttribute('aria-pressed', 'true');
+});
+
+test('a Corners pick clears every bend point’s own corner, in one undo step', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': BENDED_SOURCE } }, 'scene.json');
+  await clickScene(ui, BENT_ON, [], BENDED);
+
+  // One click resets the mixed shaft: the Element turns `round` and no point
+  // writes a corner of its own any more.
+  await control(ui, 'Corners: round').click();
+  expect(await bentShaft(ui)).toEqual({ corners: 'round', points: BENT_ROUND });
+
+  // One undo brings both back, so the pick was a single step.
+  await ui.browser.keyboard.press('Meta+z');
+  expect(await bentShaft(ui)).toEqual({ corners: 'sharp', points: BENT_MIXED });
+});
+
+test('a rectangle and a shaft in one selection share the Corners row', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': BENDED_SOURCE } }, 'scene.json');
+
+  await clickScene(ui, { x: 620, y: 430 }, [], BENDED);
+  await clickScene(ui, BENT_ON, ['Shift'], BENDED);
+
+  // The box is `sharp` and the shaft is mixed, so the row is offered and says so.
+  await expect(ui.screen.getByRole('group', 'Corners').getByText('mixed')).toBeVisible();
+
+  // One pick writes both: the box turns `round`, the shaft too, and no point of
+  // it keeps a corner of its own.
+  await control(ui, 'Corners: round').click();
+  const scene = await savedScene(ui);
+  const saved = new Map(scene.elements.map((element) => [element.id, element]));
+  expect(saved.get('box')?.corners).toBe('round');
+  expect({ corners: saved.get('bent')?.corners, points: saved.get('bent')?.points ?? [] }).toEqual({
+    corners: 'round',
+    points: BENT_ROUND,
+  });
+});
+
+test('an ellipse in the selection hides the Corners row', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': CORNERS_SOURCE } }, 'scene.json');
+
+  await clickScene(ui, { x: 300, y: 120 }, [], CORNERS);
+  await expect(control(ui, 'Corners: round')).toBeVisible();
+
+  // An ellipse has no corners to round, so it takes the row away from the arrow
+  // it is selected with.
+  await clickScene(ui, { x: 160, y: 360 }, ['Shift'], CORNERS);
+  await expectNoControl(ui, ['Corners: sharp', 'Corners: round']);
 });
 
 test('undoing the Scene default roughness puts the status bar back', async ({ app, browser, screen }) => {

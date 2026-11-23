@@ -19,6 +19,7 @@
  * them Labels); alignment is offered to every Element too, and a shaft's Label
  * lines up its own lines with it.
  */
+import { shaftCorner, withShaftCorners } from './bend-point.js';
 import {
   CORNERS,
   FILL_KINDS,
@@ -65,8 +66,11 @@ export interface StyleControl {
   readonly swatches?: boolean;
   /** Whether an Element can take this control at all. */
   readonly usable: (element: Element) => boolean;
-  /** What an Element's field holds now, as one of `choices`. */
-  readonly read: (element: Element) => string;
+  /**
+   * What an Element's field holds now, as one of `choices`, or null where the
+   * Element itself holds no one value: a Shaft whose bend points disagree.
+   */
+  readonly read: (element: Element) => string | null;
   /** The Element with this field set, or the Element itself when it cannot take it. */
   readonly write: (element: Element, value: string) => Element;
 }
@@ -76,6 +80,8 @@ const rounded = (element: Element): boolean =>
   element.type === 'rectangle' || element.type === 'diamond';
 const ended = (element: Element): element is ArrowOrLineElement =>
   element.type === 'arrow' || element.type === 'line';
+/** Anything whose drawn path turns: an outline's vertices, or a Shaft's points. */
+const cornered = (element: Element): boolean => rounded(element) || ended(element);
 
 /** The three looks roughness names: 0 architect, 1 artist, 2 cartoonist. */
 const ROUGHNESS_NAMES: Readonly<Record<string, string>> = {
@@ -195,9 +201,14 @@ const CONTROLS: readonly StyleControl[] = [
     key: 'corners',
     label: 'Corners',
     choices: choicesOf(CORNERS),
-    usable: rounded,
-    read: (element) => element.corners,
-    write: (element, value) => ({ ...element, corners: oneOf(CORNERS, value, element.corners) }),
+    usable: cornered,
+    read: (element) => (ended(element) ? shaftCorner(element) : element.corners),
+    write: (element, value) => {
+      const corners = oneOf(CORNERS, value, element.corners);
+      // A Shaft's corners are its points': writing one here resets a mixed shaft
+      // rather than leaving a point that would keep turning its own way.
+      return ended(element) ? withShaftCorners(element, corners) : { ...element, corners };
+    },
   },
   {
     key: 'heads.start',
@@ -256,12 +267,16 @@ export function controlsFor(elements: readonly Element[]): StyleControl[] {
   return CONTROLS.filter((control) => elements.every((element) => control.usable(element)));
 }
 
-/** What a control shows for one Element. */
-function valueOf(element: Element, key: StyleKey): string {
-  return controlFor(key)?.read(element) ?? '';
+/** What a control shows for one Element, or null where the Element holds no one value. */
+function valueOf(element: Element, key: StyleKey): string | null {
+  return controlFor(key)?.read(element) ?? null;
 }
 
-/** The value every given Element shares, or null when they differ. */
+/**
+ * The value every given Element shares, or null when they differ — and null too
+ * where one of them holds no one value of its own, so a Shaft that turns both
+ * ways and a selection that disagrees read the same word.
+ */
 export function sharedValue(elements: readonly Element[], key: StyleKey): string | null {
   const values = new Set(elements.map((element) => valueOf(element, key)));
   return values.size === 1 ? ([...values][0] ?? null) : null;

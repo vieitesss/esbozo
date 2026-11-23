@@ -227,6 +227,24 @@ export function withCorner(
   return { ...element, points: points as ArrowOrLineElement['points'] };
 }
 
+/**
+ * The shaft turning by `corner` at every point: the Element's own `corners`
+ * set, and every point's own `corner` dropped, so one pick resets a shaft whose
+ * bend points disagreed and the Scene stores only the corner it means. Every
+ * point keeps its place and its Snap, and nothing else of the Element changes.
+ */
+export function withShaftCorners(
+  element: ArrowOrLineElement,
+  corner: Corner,
+): ArrowOrLineElement {
+  const points = element.points.map((point) => ({
+    x: point.x,
+    y: point.y,
+    ...(point.snap === undefined ? {} : { snap: point.snap }),
+  }));
+  return { ...element, corners: corner, points: points as ArrowOrLineElement['points'] };
+}
+
 /** A bend point a lone Shaft shows a handle for, in the Scene's own coordinates. */
 export interface BendPoint {
   /** The `points` index it is stored at: the index the mark it becomes names. */
@@ -254,6 +272,21 @@ export function bendPoints(shaft: ArrowOrLineElement): BendPoint[] {
   return shaft.points.flatMap((at, index) =>
     isBendPoint(count, index) ? [{ index, at, corner: cornerOf(at, shaft.corners) }] : [],
   );
+}
+
+/**
+ * The one corner a whole Shaft turns by, or null where its bend points disagree:
+ * each point's own `corner`, or the Element's where it writes none. A Shaft with
+ * no bend point yet has nothing to disagree with, so it turns by the Element's
+ * own `corners`.
+ */
+export function shaftCorner(shaft: ArrowOrLineElement): Corner | null {
+  const bends = bendPoints(shaft);
+  const first = bends[0];
+  if (first === undefined) {
+    return shaft.corners;
+  }
+  return bends.every((bend) => bend.corner === first.corner) ? first.corner : null;
 }
 
 /** A dot a lone Shaft shows: halfway along a segment of its ink, where a pull adds a bend point. */
