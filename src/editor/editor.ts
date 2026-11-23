@@ -703,9 +703,11 @@ class EsbozoEditorElement extends HTMLElement {
     this.#history.reset(serialiseScene(scene));
     this.#menuFor = null;
     this.#page.viewport.view = fittedView(scene, this.#page.viewport.size(), this.#connection.layout);
-    this.#placeRail();
+    // The name is set before the frame is measured: a narrow editor's top dock is
+    // moved in clear of this corner, and the corner is as wide as these words (O2).
     this.#whereLabel.textContent = `${target.folder.name} / ${target.name}`;
     this.#notes.clear('scenes');
+    this.#placeRail();
     // Another Scene: the tool in hand and the words half-typed into the last
     // one belong to that one, not this, and the note shows its defaults. A Space
     // press holds the page in the hand, and another Scene is another page, so
@@ -1146,7 +1148,29 @@ class EsbozoEditorElement extends HTMLElement {
       side,
       this.#outline(),
       this.#connection.layout,
+      this.#statusChrome(),
     );
+  }
+
+  /**
+   * The status chrome the rail has to clear, in the editor's own pixels: the
+   * corners' boxes, which the page draws above the rail and whose buttons take a
+   * press first (O2). It is read from the page because the corners are as wide as
+   * the words they hold — a Scene's name, the mode the page is in — so the rail is
+   * measured against what a corner is now, never against a number. A corner the
+   * page leaves empty has no box and takes nothing.
+   */
+  #statusChrome(): Box[] {
+    const page = this.#page.viewport.box();
+    return [...this.querySelectorAll<HTMLElement>('.status > div')]
+      .map((corner) => corner.getBoundingClientRect())
+      .map((corner) => ({
+        x: corner.left - page.left,
+        y: corner.top - page.top,
+        width: corner.width,
+        height: corner.height,
+      }))
+      .filter((corner) => corner.width > 0 && corner.height > 0);
   }
 
   /**

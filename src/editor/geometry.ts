@@ -628,12 +628,13 @@ export function railFrame(
   side: RailSide,
   outline: RailOutline,
   layout: Layout,
+  chrome: readonly Box[] = [],
 ): RailFrame {
   const editor: Box = { x: 0, y: 0, width: viewport.width, height: viewport.height };
   const diagram = boxOf(scene.elements, elementsById(scene.elements), layout);
   const shown = diagram === null ? null : grown(onScreen(diagram, view));
   const frame = (shown === null ? null : cutTo(shown, editor)) ?? emptyFrame(editor);
-  return { frame, ...dockOnFrame(frame, editor, side, outline) };
+  return { frame, ...clearOfStatus(dockOnFrame(frame, editor, side, outline), side, outline, chrome, editor) };
 }
 
 /**
@@ -732,6 +733,66 @@ function squaredToSide(frame: Box, side: RailSide, at: Point): number {
 /** How far past one axis of a box a value lies, and nothing between that axis's two ends. */
 function outside(at: number, start: number, size: number): number {
   return Math.max(0, start - at, at - (start + size));
+}
+
+/**
+ * A dock moved inward just far enough to clear the page's status chrome (O2).
+ *
+ * The corners' buttons hang above the rail, so a strip stopped at the editor's
+ * own inset where a corner stands would hand that corner the press meant for its
+ * nearest tile: the bottom dock meets the mode's corner, the left dock the
+ * top-left status of a short editor, and the top dock a narrow editor's Scene
+ * name. The strip moves toward the middle across its own side — its pencilled
+ * outline included, so the outline never crosses the chrome either — only as far
+ * as the nearest corner asks, and never so far that its far end leaves the
+ * editor. A dock no corner meets is left exactly where the frame measured it.
+ *
+ * The Style menu is no chrome to clear: it may cover a right dock while it is
+ * open (O2).
+ */
+function clearOfStatus(
+  rail: RailDock,
+  side: RailSide,
+  outline: RailOutline,
+  chrome: readonly Box[],
+  viewport: { width: number; height: number },
+): RailDock {
+  const strip = { width: outline.width - outline.overhang * 2, height: outline.height - outline.overhang * 2 };
+  const box = stripBox(rail.dock, strip, side);
+  const worn: Box = {
+    x: box.x - outline.overhang,
+    y: box.y - outline.overhang,
+    width: outline.width,
+    height: outline.height,
+  };
+  const met = chrome.filter((corner) => overlaps(worn, corner));
+  if (met.length === 0) {
+    return rail;
+  }
+  // How far inward the strip can go before its far end would leave the editor.
+  const room = {
+    down: viewport.height - RAIL_INSET - worn.height - worn.y,
+    up: worn.y - RAIL_INSET,
+    right: viewport.width - RAIL_INSET - worn.width - worn.x,
+    left: worn.x - RAIL_INSET,
+  };
+  const asked = {
+    down: Math.max(...met.map((corner) => corner.y + corner.height - worn.y)),
+    up: Math.max(...met.map((corner) => worn.y + worn.height - corner.y)),
+    right: Math.max(...met.map((corner) => corner.x + corner.width - worn.x)),
+    left: Math.max(...met.map((corner) => worn.x + worn.width - corner.x)),
+  };
+  const travel = (ask: number, limit: number): number => Math.min(ask, Math.max(0, limit));
+  switch (side) {
+    case 'top':
+      return { dock: { x: rail.dock.x, y: rail.dock.y + travel(asked.down, room.down) }, stopped: rail.stopped };
+    case 'bottom':
+      return { dock: { x: rail.dock.x, y: rail.dock.y - travel(asked.up, room.up) }, stopped: rail.stopped };
+    case 'left':
+      return { dock: { x: rail.dock.x + travel(asked.right, room.right), y: rail.dock.y }, stopped: rail.stopped };
+    case 'right':
+      return { dock: { x: rail.dock.x - travel(asked.left, room.left), y: rail.dock.y }, stopped: rail.stopped };
+  }
 }
 
 /**
