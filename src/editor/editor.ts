@@ -797,7 +797,7 @@ class EsbozoEditorElement extends HTMLElement {
    * kept, and a Snap to an Element inside the selection follows its copy.
    */
   #duplicate(): void {
-    this.#land(duplicated(this.#scene, this.#selected, this.#landing()));
+    this.#land(duplicated(this.#scene, this.#selectedElements(), this.#landing()));
   }
 
   /**
@@ -1427,7 +1427,7 @@ class EsbozoEditorElement extends HTMLElement {
    * other Scene change.
    */
   #detachEnd(end: End): void {
-    this.#land(detached(this.#scene, this.#selected, end));
+    this.#land(detached(this.#scene, this.#selectedElements(), end));
   }
 
   #onNewScene = (event: Event): void => {

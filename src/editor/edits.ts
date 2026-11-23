@@ -21,7 +21,7 @@ import type { Element as SceneElement, Scene } from '../scene.js';
 import type { Layout } from '../layout.js';
 import { arranged } from './arrange.js';
 import type { ArrangeAct } from './arrange.js';
-import { copies, idsOf, replaced, selectedFrom, without } from './elements.js';
+import { copies, idsOf, replaced, without } from './elements.js';
 import { boxOf, landingOffset, moved } from './geometry.js';
 import type { Point, View } from './geometry.js';
 import { freedEnd, isShaft, released } from './snap.js';
@@ -129,13 +129,18 @@ export function nudged(
  * Free one end of the selected arrow or line, where it draws now: the end stops
  * following its Element but does not move. An end that already follows nothing,
  * and a selection that holds no shaft, ask for nothing.
+ *
+ * The caller hands over the Elements it selects as the page shows them, so an end
+ * dragged out of its box is read where it draws rather than where the last save
+ * left it: a Detach pressed with the drag still in the hand frees nothing while
+ * the preview already holds that end free.
  */
 export function detached(
   scene: Scene,
-  selection: readonly string[],
+  elements: readonly SceneElement[],
   end: End,
 ): Edited | null {
-  const element = selectedFrom(scene.elements, selection)[0];
+  const element = elements[0];
   if (element === undefined || !isShaft(element)) {
     return null;
   }
@@ -201,13 +206,15 @@ export function pasted(
  * step. It goes through the fragment Copy writes and Paste reads, so a Snap to
  * an Element outside the selection is dropped and the stored point is kept, and
  * a Snap to an Element inside the selection follows its copy.
+ *
+ * The caller hands over the Elements it selects as the page shows them, as a
+ * Copy does, so a duplicate made during a drag copies what the page draws.
  */
 export function duplicated(
   scene: Scene,
-  selection: readonly string[],
+  elements: readonly SceneElement[],
   landing: Landing,
 ): Edited | null {
-  const selected = selectedFrom(scene.elements, selection);
-  const fragment = parseFragment(serialiseFragment(scene, selected), scene.defaults);
+  const fragment = parseFragment(serialiseFragment(scene, elements), scene.defaults);
   return pasted(scene, fragment ?? [], landing);
 }
