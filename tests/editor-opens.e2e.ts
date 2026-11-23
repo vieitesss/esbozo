@@ -445,6 +445,26 @@ test('a listing held while another note opens still shows the Scenes it read', a
   await expect(screen.getByRole('button', 'b.json')).toBeVisible();
 });
 
+test('a Scene opened from the note leaves the focus where the press left it', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui: Ui = { app, browser, screen };
+  await openPage(ui, folderWith());
+  const note = screen.getByRole('dialog', 'Scene files');
+
+  // The press on the row is the last thing the person did: the Scene opens, the
+  // note that listed it leaves the page under the row that goes with it, and the
+  // focus stays where that press left it. A canvas focused here wears the ring
+  // the page draws only for a person who reached the paper with the keys, so a
+  // Scene that opens with the focus on the paper puts a place nobody chose in
+  // front of them.
+  await screen.getByRole('button', 'a.json').click();
+  await expect(note).toBeHidden();
+  await expect.poll(() => focusOn(ui)).toBe('other');
+});
+
 test('a press outside the Scenes note shuts it and still lands where it was aimed', async ({
   app,
   browser,
