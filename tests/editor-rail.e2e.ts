@@ -10,7 +10,17 @@
  */
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import { openEditor, browseFolder, drag, savedFiles, savedScene, settle, holdWrites, allowWrites } from './helpers.ts';
+import {
+  openEditor,
+  browseFolder,
+  drag,
+  savedFiles,
+  savedScene,
+  settle,
+  holdWrites,
+  allowWrites,
+  refuseWrite,
+} from './helpers.ts';
 import type { Ui } from './helpers.ts';
 import { fullInk } from './editor-shared.ts';
 import { shot } from './pixels.ts';
@@ -154,6 +164,30 @@ async function slowFade(ui: Ui, seconds: number): Promise<void> {
     return true;
   }, seconds);
   expect(slowed, 'the strip is the one this test slowed down').toBe(true);
+}
+
+/** The side the page keeps for the next start, or null while it keeps none. */
+async function keptSide(ui: Ui): Promise<string | null> {
+  return ui.browser.evaluate(() => localStorage.getItem('esbozo.rail'));
+}
+
+/**
+ * Record what the page throws, from its first script: an error a start swallowed
+ * leaves the editor half-built, and a rail that happens to land somewhere is no
+ * proof the start went well.
+ */
+async function recordProblems(ui: Ui): Promise<void> {
+  await ui.browser.addInitScript(() => {
+    const problems: string[] = [];
+    (window as unknown as { __problems: string[] }).__problems = problems;
+    window.addEventListener('error', (event) => problems.push(String(event.message)));
+    window.addEventListener('unhandledrejection', (event) => problems.push(String(event.reason)));
+  });
+}
+
+/** What the page threw since it started. */
+async function problems(ui: Ui): Promise<string[]> {
+  return ui.browser.evaluate(() => (window as unknown as { __problems?: string[] }).__problems ?? []);
 }
 
 /** An empty Scene, opened at the window a test set first. */
@@ -741,4 +775,125 @@ test('a palette move measures the frame even for the side already in use', async
   const moved = await railPlace(ui, { x: 1400, y: 0, width: 640, height: 464 });
   expect(moved.top - opened.top, 'the move measured the panned frame').toBeGreaterThan(90);
   expect(moved.top - opened.top, 'the move measured the panned frame').toBeLessThan(110);
+});
+
+test('a move to the left is kept, so the next editor starts there on a frame of its own', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui, { width: 3440, height: 1440 });
+  await dockRail(ui, 'left');
+  expect(await keptSide(ui), 'the move is kept for the next start').toBe('left');
+
+  // The page starts again in a window the first dock was never measured in: the
+  // empty Scene's frame is the 960×600 minimum about the new middle, so its left
+  // side is 160 px in and the 60 px outline starts at about 84. A dock kept as a
+  // place would still be the 1,164 px one, which this window has no room for.
+  await openBare(ui, { width: 1280, height: 800 });
+  const ink = await railInk(ui, { x: 0, y: 200, width: 240, height: 400 });
+  expect(ink.x, 'the outline hangs one gap outside the newly measured frame').toBeGreaterThan(76);
+  expect(ink.x, 'the outline hangs one gap outside the newly measured frame').toBeLessThan(92);
+  expect(ink.height, 'the strip stands up the side it was left on').toBeGreaterThan(ink.width * 2);
+  expect(Math.abs(ink.y + ink.height / 2 - 800 / 2), 'the strip is centred on the frame’s side').toBeLessThan(4);
+});
+
+test('a move in a second editor does not move the one already open', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+  const first = browser.tabs()[0];
+  if (first === undefined) {
+    throw new Error('the editor is already open in a tab of its own');
+  }
+  const opened = await railInk(ui, { x: 400, y: 0, width: 480, height: 240 });
+  expect(opened.width, 'the open editor starts along the top').toBeGreaterThan(opened.height * 2);
+
+  // A second tab on the same origin, opened as a second editor: the rail moves
+  // to the left there, and the side is kept for the next start rather than
+  // broadcast to the editor already on the page (D10).
+  await browser.newTab();
+  await openBare(ui);
+  await dockRail(ui, 'left');
+  expect(await keptSide(ui), 'the move is kept for the next start').toBe('left');
+
+  await first.activate();
+  const held = await railInk(ui, { x: 400, y: 0, width: 480, height: 240 });
+  expect(held.width, 'the open editor still lies along the top').toBeGreaterThan(held.height * 2);
+  expect(Math.abs(held.y - opened.y), 'the open editor’s rail has not moved').toBeLessThan(3);
+});
+
+test('an unknown stored word starts the rail at the top, and the rail still moves', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await recordProblems(ui);
+  await browser.addInitScript(() => {
+    localStorage.setItem('esbozo.rail', 'diagonal');
+  });
+  await openBare(ui);
+
+  const ink = await railInk(ui, { x: 400, y: 0, width: 480, height: 240 });
+  expect(ink.y, 'the rail starts at the top').toBeGreaterThan(10);
+  expect(ink.y, 'the rail starts at the top').toBeLessThan(28);
+  expect(ink.width, 'the strip lies along the top').toBeGreaterThan(ink.height * 2);
+
+  await dockRail(ui, 'left');
+  const moved = await railInk(ui, { x: 0, y: 200, width: 200, height: 400 });
+  expect(moved.height, 'the rail still moves').toBeGreaterThan(moved.width * 2);
+  expect(await keptSide(ui), 'the move replaces the word it could not use').toBe('left');
+  expect(await problems(ui), 'an unknown word is no error').toEqual([]);
+});
+
+test('a storage that throws starts the rail at the top, and the rail still moves', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await recordProblems(ui);
+  await browser.addInitScript(() => {
+    Object.defineProperty(window, 'localStorage', {
+      get() {
+        throw new Error('the storage is blocked');
+      },
+    });
+  });
+  await openBare(ui);
+
+  const ink = await railInk(ui, { x: 400, y: 0, width: 480, height: 240 });
+  expect(ink.y, 'the rail starts at the top').toBeGreaterThan(10);
+  expect(ink.y, 'the rail starts at the top').toBeLessThan(28);
+  expect(ink.width, 'the strip lies along the top').toBeGreaterThan(ink.height * 2);
+
+  await dockRail(ui, 'left');
+  const moved = await railInk(ui, { x: 0, y: 200, width: 200, height: 400 });
+  expect(moved.height, 'the rail still moves').toBeGreaterThan(moved.width * 2);
+  expect(await problems(ui), 'a blocked storage is no error').toEqual([]);
+});
+
+test('a move in a read-only Scene keeps the side and leaves the Scene’s file alone', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+
+  // A box asks the folder to write and the folder answers `403`, so the editor
+  // pages from then on may only read.
+  await holdWrites(ui, 'bare.json');
+  await browser.keyboard.press('r');
+  await drag(ui, { x: 200, y: 200 }, { x: 260, y: 260 });
+  await refuseWrite(ui, 'this folder is served read-only');
+  await allowWrites(ui);
+  await expect(screen.getByText('read-only')).toBeVisible();
+  await settle(ui);
+  const files = await savedFiles(ui);
+
+  await dockRail(ui, 'left');
+  expect(await keptSide(ui), 'a read-only Scene keeps the side all the same').toBe('left');
+  expect(await savedFiles(ui), 'a move writes no file').toEqual(files);
 });

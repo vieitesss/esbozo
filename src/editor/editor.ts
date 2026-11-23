@@ -46,6 +46,7 @@ import {
 import type { Point, RailDock, RailOutline, RailSide, View } from './geometry.js';
 import { History } from './history.js';
 import { railArt } from './rail.js';
+import { readRailSide, writeRailSide } from './rail-preference.js';
 import { SHELL } from './shell.js';
 import { freedEnd, isShaft, released } from './snap.js';
 import type { End } from './snap.js';
@@ -98,7 +99,11 @@ class EsbozoEditorElement extends HTMLElement {
    * frame, so the stop the frame asked for travels with the dock it measured.
    */
   #railHeld = false;
-  /** The side of the frame the rail is docked on: the top until a palette move takes it elsewhere. */
+  /**
+   * The side of the frame the rail is docked on: the side the page kept for its
+   * next editor, or the top when it kept none, until a palette move takes it
+   * elsewhere (D10, I8).
+   */
   #railSide: RailSide = 'top';
   /** True once the editor's listeners are on the page. */
   #wired = false;
@@ -225,6 +230,11 @@ class EsbozoEditorElement extends HTMLElement {
     const pattern = this.querySelector<SVGPatternElement>('.canvas pattern')!;
     this.#rail = this.querySelector('.rail')!;
     this.#railArt = this.querySelector('.rail-art')!;
+    // The side this origin's editor was last moved to is read once, here, before
+    // the frame is measured for the first time: the first placement is already on
+    // that side, and a move made in another tab is waited for, not followed (D10).
+    this.#railSide = readRailSide();
+    this.#rail.dataset['side'] = this.#railSide;
     this.#note = this.querySelector('.note')!;
     this.#files = this.querySelector('.files')!;
     this.#newScene = this.querySelector('.new')!;
@@ -1104,6 +1114,10 @@ class EsbozoEditorElement extends HTMLElement {
     // drawn again for the shape it now covers before the frame is measured.
     this.#drawRailArt();
     this.#placeRail();
+    // The move is committed here, so this is where the side is kept for the next
+    // editor, the side already in use included (I4): the Scene stays untouched
+    // (D9), and a cancelled drag never reaches this point (I6).
+    writeRailSide(side);
   }
 
   /**
