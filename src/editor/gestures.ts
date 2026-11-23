@@ -315,6 +315,12 @@ export class Gestures {
    */
   #cancelledClick = false;
   #spaceDown = false;
+  /**
+   * Whether the press in flight is one the board refused: a secondary press or a
+   * Ctrl+click is a menu's, so its release settles nothing — no point of a place,
+   * no end of a shaft, no pan.
+   */
+  #refusedPress = false;
   /** The Shaft a page mark names, which is what makes the mark a bend point's. */
   #shaft: ShaftOf = (id) => shaftIn(this.#host.scene(), id);
 
@@ -518,9 +524,13 @@ export class Gestures {
   };
 
   down = (event: PointerEvent): void => {
+    // Only a press the board takes settles on its release; a press it refuses is
+    // no half of a gesture, and its release must not act as one.
+    this.#refusedPress = false;
     const { page } = this.#host;
     const { viewport } = page;
     if (event.button !== 0 && event.button !== 1) {
+      this.#refusedPress = true;
       return;
     }
     // A Ctrl+left press is the secondary click macOS reads as a context menu,
@@ -528,6 +538,7 @@ export class Gestures {
     // opens that point's menu instead of a press the clicks after it could pair
     // with and remove the point through.
     if (event.button === 0 && event.ctrlKey) {
+      this.#refusedPress = true;
       return;
     }
     const text = this.#host.typing.text();
@@ -547,6 +558,7 @@ export class Gestures {
       // goes no further: it is not also a click on the canvas. A middle press is
       // a pan, which leaves the words open where they are.
       this.#forgetPress();
+      this.#refusedPress = true;
       text.finish();
       return;
     }
@@ -907,6 +919,13 @@ export class Gestures {
       return;
     }
 
+    // A release without the press that started a gesture settles it: a secondary
+    // press was refused before it began, so it puts no point down and finishes
+    // nothing, and the place in hand goes on as it was.
+    if (this.#refusedPress) {
+      this.#refusedPress = false;
+      return;
+    }
     // A press that did not move is a click. Two of them in a row are a
     // double-click, and it opens the words the *first* one found: between the
     // two the note may have made room and carried the view away with it.

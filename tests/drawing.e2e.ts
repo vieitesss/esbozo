@@ -19,6 +19,7 @@ import {
   SCENE,
   SNAPPED,
   SNAPPED_SCENE,
+  VIEW,
   at,
   browseFolder,
   clickScene,
@@ -30,8 +31,9 @@ import {
   savedScene,
   settle,
 } from './helpers.ts';
-import type { Folders, Ui } from './helpers.ts';
+import type { Folders, Ui, View } from './helpers.ts';
 import type { Point } from './helpers.ts';
+import { livePage } from './cdp.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
 
@@ -58,6 +60,16 @@ const SWEPT: Rect = { x: 890, y: 340, width: 100, height: 100 };
 /** How dark a page region is: the ink a person would see on it. */
 async function ink(ui: Ui, region: Rect): Promise<number> {
   return (await shot(ui)).darkCount(region, 0.6);
+}
+
+/**
+ * The secondary press a person makes with the right button, at a Scene point:
+ * the page's fixture presses the primary button only, so it goes through the
+ * browser's own mouse (`tests/cdp.ts`), as the point-menu suite does.
+ */
+async function rightClick(point: Point, view: View = VIEW): Promise<void> {
+  const where = at(point, view);
+  await livePage().mouse.click(where.x, where.y, { button: 'right' });
 }
 
 /** The Scene a test just saved, as a map by id. */
@@ -625,6 +637,28 @@ describe('a shaft placed by clicking', () => {
       'arrow',
     ]);
     expect(scene.elements[2]?.points).toEqual(walk);
+  });
+
+  test('a secondary press mid-place puts down no point and finishes nothing', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    await browser.keyboard.press('a');
+    await clickScene(ui, { x: 60, y: 200 });
+    // A right press is the point menu's at most: it is no point of the shaft in
+    // hand, and its release neither puts one down nor finishes the place.
+    await rightClick({ x: 200, y: 200 });
+    expect((await savedFiles(ui))['scene.json']).toBe(SCENE_SOURCE);
+
+    // Enter still finishes the place, at the one point it put down: one point is
+    // no shaft, so the Scene and its file stay exactly as they were.
+    await browser.keyboard.press('Enter');
+    expect((await savedScene(ui)).elements.length).toBe(2);
+    expect((await savedFiles(ui))['scene.json']).toBe(SCENE_SOURCE);
   });
 });
 
