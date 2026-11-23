@@ -371,6 +371,38 @@ describe('moving an end that already exists', () => {
     ]);
   });
 
+  test('Detach pressed while that end is dragged away writes nothing', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'snapped.json');
+    await clickScene(ui, { x: 230, y: 80 }, [], SNAPPED);
+
+    // The end is dragged out onto empty paper, so the preview already holds the
+    // end free while the pointer is still down. Enter on the focused Detach
+    // button is the note's own button, not the drag's keys, and the Escape that
+    // follows drops the drag: nothing was detached, so nothing is written.
+    const handle = at({ x: 300, y: 80 }, SNAPPED);
+    const away = at({ x: 260, y: 140 }, SNAPPED);
+    await browser.mouse.move(handle.x, handle.y);
+    await browser.mouse.down();
+    await browser.mouse.move(away.x, away.y);
+    await screen.getByRole('button', { name: 'Detach: end' }).focus();
+    await browser.keyboard.press('Enter');
+    await browser.keyboard.press('Escape');
+    await browser.mouse.up();
+
+    // The drag is gone, the end is still attached, and the note still says so.
+    const scene = await savedScene(ui, 'snapped.json');
+    expect(scene.elements[2]?.points).toEqual([
+      { x: 160, y: 80, snap: 'from' },
+      { x: 300, y: 80, snap: 'to' },
+    ]);
+    await expect(screen.getByRole('button', { name: 'Detach: end' })).toBeVisible();
+  });
+
   test('Alt-clicking an attached end handle changes nothing', async ({ app, browser, screen }) => {
     const ui = { app, browser, screen };
     await open(ui, 'snapped.json');
