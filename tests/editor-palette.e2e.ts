@@ -257,6 +257,32 @@ test('a press outside the palette shuts it and hands the focus back to the canva
   expect((await shot(ui)).darkCount(GRID, 0.9)).toBeLessThan(withGrid - 100);
 });
 
+test('a host that keeps the press inside its element still lets the palette hear it', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+  // A page that embeds the editor may keep a press from leaving its own element:
+  // the note the press is outside is still the editor's to shut, so the stack
+  // has to hear the press where it is, not only where the page ends.
+  await browser.evaluate(() => {
+    document
+      .querySelector('esbozo-editor')!
+      .addEventListener('pointerdown', (event) => event.stopPropagation());
+    return true;
+  });
+  await palette(ui);
+  await expect(screen.getByRole('dialog', 'Commands')).toBeVisible();
+
+  await browser.mouse.move(100, 700);
+  await browser.mouse.down();
+  await browser.mouse.up();
+  await expect(screen.getByRole('dialog', 'Commands')).toBeHidden();
+});
+
 test('the digits pick the tools by their place on the rail', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
