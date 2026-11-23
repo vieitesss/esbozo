@@ -1193,6 +1193,12 @@ class EsbozoEditorElement extends HTMLElement {
     this.#frameOffset = this.#offsetOf(placed.frameDock.dock, size);
     this.#railDockOffset = this.#offsetOf(placed.dock, size);
     this.#hangRail();
+    // A drag's dock comes from the frame alone (D3), so the corners are measured
+    // once the drag has ended: a status corner already over the release covers the
+    // same tiles as one that grew there, and the press it takes is the same (O2).
+    if (pressed !== undefined) {
+      this.#clearRail();
+    }
   }
 
   /**
