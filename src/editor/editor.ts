@@ -432,7 +432,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#board.addEventListener('pointerup', this.#gestures.up);
     this.#board.addEventListener('pointercancel', this.#gestures.cancel);
     this.#board.addEventListener('wheel', this.#onWheel, { passive: false });
-    this.#canvas.addEventListener('contextmenu', (event) => event.preventDefault());
+    this.#canvas.addEventListener('contextmenu', this.#onContextMenu);
     this.#rail.addEventListener('pointerdown', this.#onRailDown);
     this.#rail.addEventListener('click', this.#onRailClick);
     this.querySelector('.status')!.addEventListener('click', this.#onStatusClick);
@@ -466,6 +466,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#board?.removeEventListener('pointerup', this.#gestures.up);
     this.#board?.removeEventListener('pointercancel', this.#gestures.cancel);
     this.#board?.removeEventListener('wheel', this.#onWheel);
+    this.#canvas?.removeEventListener('contextmenu', this.#onContextMenu);
     document.removeEventListener('copy', this.#onCopy);
     document.removeEventListener('cut', this.#onCut);
     document.removeEventListener('paste', this.#onPaste);
@@ -1317,6 +1318,10 @@ class EsbozoEditorElement extends HTMLElement {
       }
       return;
     }
+  };
+
+  #onContextMenu = (event: Event): void => {
+    event.preventDefault();
   };
 
   #onWheel = (event: WheelEvent): void => {
