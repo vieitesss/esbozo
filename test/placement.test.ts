@@ -25,6 +25,7 @@ const {
   caretLine,
   railFrame,
   clampedDock,
+  leftDockEdge,
   createLayout,
   parseFontFile,
   KALAM,
@@ -295,45 +296,59 @@ test('a dock is left where its outline fits the editor, and pulled inside where 
 
   // A dock the editor holds is left exactly where it was measured, even where the
   // 15 px inset would move it: nothing of its outline crosses an edge.
-  assert.deepEqual(clampedDock({ x: 640, y: 348 }, strip, window, 'top'), { x: 640, y: 348 });
+  assert.deepEqual(clampedDock({ x: 640, y: 348 }, strip, window, 'top'), {
+    dock: { x: 640, y: 348 },
+    stopped: false,
+  });
 
   // 1280×760 measures the frame's dock at 8, its outline at 1: the gap the frame
   // left is kept, not cut to 9 px by a dock pulled down to the inset.
   assert.deepEqual(clampedDock({ x: 640, y: 8 }, strip, { width: 1280, height: 760 }, 'top'), {
-    x: 640,
-    y: 8,
+    dock: { x: 640, y: 8 },
+    stopped: false,
   });
 
   // A 248 px wide editor holds the 246 px outline centred on its middle, at 124.
   assert.deepEqual(clampedDock({ x: 124, y: 100 }, strip, { width: 248, height: 800 }, 'top'), {
-    x: 124,
-    y: 100,
+    dock: { x: 124, y: 100 },
+    stopped: false,
   });
 
   // A dock carried outside the box is pulled to the inset, measured to the strip's
   // own box and not its middle or its top: 15 px in from the edge it crossed, as
   // the top-edge fallback does.
   assert.deepEqual(clampedDock({ x: 640, y: -122 }, strip, { width: 1280, height: 500 }, 'top'), {
-    x: 640,
-    y: 15,
+    dock: { x: 640, y: 15 },
+    stopped: true,
   });
-  assert.deepEqual(clampedDock({ x: 1200, y: 100 }, strip, window, 'top'), { x: 1280 - 15 - 116, y: 100 });
-  assert.deepEqual(clampedDock({ x: 100, y: 100 }, strip, window, 'top'), { x: 15 + 116, y: 100 });
-  assert.deepEqual(clampedDock({ x: 640, y: 900 }, strip, window, 'top'), { x: 640, y: 800 - 15 - 49 });
+  assert.deepEqual(clampedDock({ x: 1200, y: 100 }, strip, window, 'top'), {
+    dock: { x: 1280 - 15 - 116, y: 100 },
+    stopped: false,
+  });
+  // Sideways it is pulled to the inset, but a strip laid along the top is stopped
+  // by the edge it stands across, not by a side edge.
+  assert.deepEqual(clampedDock({ x: 100, y: 100 }, strip, window, 'top'), {
+    dock: { x: 15 + 116, y: 100 },
+    stopped: false,
+  });
+  assert.deepEqual(clampedDock({ x: 640, y: 900 }, strip, window, 'top'), {
+    dock: { x: 640, y: 800 - 15 - 49 },
+    stopped: true,
+  });
 
   // Where the inset would push the outline past the far edge but the outline
   // itself fits, the outline is what fits: a 250 px wide editor holds it centred
   // at 2..248, which 15 px in from either edge does not.
   assert.deepEqual(clampedDock({ x: 130, y: 100 }, strip, { width: 250, height: 800 }, 'top'), {
-    x: 9 + 116,
-    y: 100,
+    dock: { x: 9 + 116, y: 100 },
+    stopped: false,
   });
 
   // An editor smaller than the outline has no place that holds it inside: the low
   // inset wins and the outline is clipped by the far edge, never shrunk to fit.
   assert.deepEqual(clampedDock({ x: 130, y: 100 }, strip, { width: 200, height: 60 }, 'top'), {
-    x: 15 + 116,
-    y: 15,
+    dock: { x: 15 + 116, y: 15 },
+    stopped: true,
   });
 });
 
@@ -396,12 +411,54 @@ test('the bottom, left and right docks stand outside the frame by the gap, as th
   // holds is left alone, and one carried past an edge is pulled inside the same
   // 15 px, the point it is written as being the strip's left and its middle.
   const standing = { width: 46, height: 241, overhang: 7 };
-  assert.deepEqual(clampedDock({ x: 131, y: 400 }, standing, WINDOW, 'left'), { x: 131, y: 400 });
-  assert.deepEqual(clampedDock({ x: -50, y: 400 }, standing, WINDOW, 'left'), { x: 15, y: 400 });
-  assert.deepEqual(clampedDock({ x: 131, y: 1000 }, standing, WINDOW, 'right'), {
-    x: 131,
-    y: 800 - 15 - 241 + 241 / 2,
+  assert.deepEqual(clampedDock({ x: 131, y: 400 }, standing, WINDOW, 'left'), {
+    dock: { x: 131, y: 400 },
+    stopped: false,
   });
+  // Carried past the left edge, the strip stops at the inset: that is the one
+  // place the note's clearance reads past it. A carry that lands on the very
+  // same 15 px with room either side was not stopped by anything.
+  assert.deepEqual(clampedDock({ x: -50, y: 400 }, standing, WINDOW, 'left'), {
+    dock: { x: 15, y: 400 },
+    stopped: true,
+  });
+  assert.deepEqual(clampedDock({ x: 15, y: 400 }, standing, WINDOW, 'left'), {
+    dock: { x: 15, y: 400 },
+    stopped: false,
+  });
+  // A standing strip slides along the edge it is held against, so a dock carried
+  // too far down is no stop: the edge it is held against did not move it.
+  assert.deepEqual(clampedDock({ x: 131, y: 1000 }, standing, WINDOW, 'right'), {
+    dock: { x: 131, y: 800 - 15 - 241 + 241 / 2 },
+    stopped: false,
+  });
+});
+
+test('a left dock is a limit only where the editor stopped it, not where it landed', () => {
+  const OUTLINE = { width: 60, height: 255, overhang: 7 };
+  const WINDOW = { width: 1280, height: 800 };
+  const standing = { width: 46, height: 241, overhang: 7 };
+  const still = { zoom: 1, panX: 0, panY: 0 };
+
+  // The frame leaves no room beside it, so the strip is stopped at the editor's
+  // left inset (D2): the note has to clear the pencil's far side, 15 + 60 − 7.
+  const narrow = { width: 400, height: 800 };
+  const framed = railFrame(parsed({ version: 1, elements: [] }), still, narrow, 'left', OUTLINE, LAYOUT);
+  assert.deepEqual(framed.dock, { x: 15, y: 400 });
+  assert.equal(framed.stopped, true);
+  assert.equal(leftDockEdge(framed, OUTLINE, 'left'), 68);
+
+  // A carry or a resize that lands the strip on the very same 15 px with room
+  // either side was stopped by nothing, so the editor's own edge is the limit.
+  assert.equal(leftDockEdge({ dock: { x: 15, y: 400 }, stopped: false }, OUTLINE, 'left'), null);
+
+  // Any other side is no limit at all, whatever stopped the strip.
+  assert.equal(leftDockEdge(framed, OUTLINE, 'right'), null);
+
+  // A rail carried past the edge is stopped there, and one carried inside it is
+  // not, though the strip's own near edge is 15 px in both cases.
+  assert.equal(leftDockEdge(clampedDock({ x: -50, y: 400 }, standing, WINDOW, 'left'), OUTLINE, 'left'), 68);
+  assert.equal(leftDockEdge(clampedDock({ x: 15, y: 400 }, standing, WINDOW, 'left'), OUTLINE, 'left'), null);
 });
 
 /** The y of every point a path names, in the order it names them. */

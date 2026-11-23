@@ -554,15 +554,27 @@ export function fittedView(
  * The frame the tool rail docks on: the diagram as shown on screen, at least
  * the minimum size, cut to the editor's box, and a rail docked on it.
  */
-export interface RailFrame {
+export interface RailFrame extends RailDock {
   /** The diagram's frame on screen: what a dock sits outside of. */
   readonly frame: Box;
+}
+
+/** A dock the sheet hangs the strip by, and whether the editor's inset is what stopped it there. */
+export interface RailDock {
   /**
    * The dock, as the sheet hangs the strip there: the middle of the side the
    * strip turns about, and its own near edge. The pencil outline that hangs
    * outside the strip clears the frame by the gap.
    */
   readonly dock: Point;
+  /**
+   * An inset of the editor stopped the strip on the axis its side stands across
+   * — the edge it is held against — because the place it was asked for had no
+   * room for its outline (D2, D3). A dock that reaches that inset with room
+   * either side was stopped by nothing, and the note's clearance reads the
+   * editor's edge past it (O1).
+   */
+  readonly stopped: boolean;
 }
 
 /** The side of the frame the rail docks on: top and bottom lie along it, left and right stand up it (D1). */
@@ -620,7 +632,7 @@ export function railFrame(
   const diagram = boxOf(scene.elements, elementsById(scene.elements), layout);
   const shown = diagram === null ? null : grown(onScreen(diagram, view));
   const frame = (shown === null ? null : cutTo(shown, editor)) ?? emptyFrame(editor);
-  return { frame, dock: dockOn(side, frame, editor, outline) };
+  return { frame, ...dockOn(side, frame, editor, outline) };
 }
 
 /**
@@ -633,7 +645,7 @@ function dockOn(
   frame: Box,
   editor: { width: number; height: number },
   outline: RailOutline,
-): Point {
+): RailDock {
   // What the strip measures once the outline's overhang is taken back off it.
   const strip = { width: outline.width - outline.overhang * 2, height: outline.height - outline.overhang * 2 };
   const middleX = frame.x + frame.width / 2;
@@ -643,35 +655,32 @@ function dockOn(
       // The outline's own top, one gap above the frame's.
       const outlineTop = frame.y - RAIL_GAP - outline.height;
       return {
-        x: middleX,
-        y: outlineTop < 0 ? RAIL_INSET : outlineTop + outline.overhang,
+        dock: { x: middleX, y: outlineTop < 0 ? RAIL_INSET : outlineTop + outline.overhang },
+        stopped: outlineTop < 0,
       };
     }
     case 'bottom': {
       const outlineTop = frame.y + frame.height + RAIL_GAP;
+      const stopped = outlineTop + outline.height > editor.height;
       return {
-        x: middleX,
-        y:
-          outlineTop + outline.height > editor.height
-            ? editor.height - RAIL_INSET - strip.height
-            : outlineTop + outline.overhang,
+        dock: { x: middleX, y: stopped ? editor.height - RAIL_INSET - strip.height : outlineTop + outline.overhang },
+        stopped,
       };
     }
     case 'left': {
       const outlineLeft = frame.x - RAIL_GAP - outline.width;
+      const stopped = outlineLeft < 0;
       return {
-        x: outlineLeft < 0 ? RAIL_INSET : outlineLeft + outline.overhang,
-        y: middleY,
+        dock: { x: stopped ? RAIL_INSET : outlineLeft + outline.overhang, y: middleY },
+        stopped,
       };
     }
     case 'right': {
       const outlineLeft = frame.x + frame.width + RAIL_GAP;
+      const stopped = outlineLeft + outline.width > editor.width;
       return {
-        x:
-          outlineLeft + outline.width > editor.width
-            ? editor.width - RAIL_INSET - strip.width
-            : outlineLeft + outline.overhang,
-        y: middleY,
+        dock: { x: stopped ? editor.width - RAIL_INSET - strip.width : outlineLeft + outline.overhang, y: middleY },
+        stopped,
       };
     }
   }
@@ -684,15 +693,18 @@ function dockOn(
  * — or on any other side — leaves the editor's edge as that limit.
  *
  * The answer comes from the dock the rail hangs at now, `clampedDock` included,
- * so the frame is not measured a second time to ask the same question (D5).
+ * so the frame is not measured a second time to ask the same question (D5). What
+ * stopped the strip there travels with that dock (`RailDock.stopped`): a frame
+ * or a resize can land a rail on the very same pixel with room to spare, and
+ * that rail is no limit at all.
  */
-export function leftDockEdge(dock: Point, outline: RailOutline, side: RailSide): number | null {
-  if (side !== 'left' || dock.x !== RAIL_INSET) {
+export function leftDockEdge(rail: RailDock, outline: RailOutline, side: RailSide): number | null {
+  if (side !== 'left' || !rail.stopped || rail.dock.x !== RAIL_INSET) {
     return null;
   }
   // The dock is the strip's own left edge, and its pencil outline hangs one
   // overhang past the strip on the far side.
-  return dock.x + outline.width - outline.overhang;
+  return rail.dock.x + outline.width - outline.overhang;
 }
 
 /**
@@ -712,13 +724,18 @@ export function clampedDock(
   strip: { width: number; height: number; overhang: number },
   viewport: { width: number; height: number },
   side: RailSide,
-): Point {
+): RailDock {
   const box = stripBox(dock, strip, side);
-  const held: Point = {
+  const held = {
     x: placed(box.x, viewport.width, strip.width, strip.overhang),
     y: placed(box.y, viewport.height, strip.height, strip.overhang),
   };
-  return dockOf(held, strip, side);
+  // The axis the side stands across is the one an inset can stop the strip on.
+  const across = side === 'top' || side === 'bottom' ? held.y : held.x;
+  return {
+    dock: dockOf({ x: held.x.at, y: held.y.at }, strip, side),
+    stopped: across.stopped !== null,
+  };
 }
 
 /** A dock as the strip's own box: its left and top, whatever side it is on. */
@@ -735,21 +752,31 @@ function dockOf(box: Point, strip: { width: number; height: number }, side: Rail
     : { x: box.x, y: box.y + strip.height / 2 };
 }
 
+/** One axis of a dock: where the strip sits on it, and which of the editor's insets stopped it there. */
+interface Placed {
+  readonly at: number;
+  /** The inset the strip was pulled to, or null when the place asked for fitted. */
+  readonly stopped: 'low' | 'high' | null;
+}
+
 /**
  * One side of the rail: where the frame measured it while its outline fits the
  * editor, or inside the edge the carried place crossed — measured to the outline
- * that hangs outside the strip, never to the strip's own box.
+ * that hangs outside the strip, never to the strip's own box. The place the
+ * frame asked for is the one the strip is stopped short of, so an inset the
+ * carry lands on with room either side is a place of its own, not a stop.
  */
-function placed(start: number, extent: number, size: number, overhang: number): number {
+function placed(start: number, extent: number, size: number, overhang: number): Placed {
   if (start - overhang >= 0 && start + size + overhang <= extent) {
-    return start;
+    return { at: start, stopped: null };
   }
   const pulled = Math.max(RAIL_INSET, Math.min(start, extent - RAIL_INSET - size));
   const held = pulled - overhang >= 0 && pulled + size + overhang <= extent;
   if (!held && size + overhang * 2 <= extent) {
-    return (extent - size) / 2;
+    return { at: (extent - size) / 2, stopped: null };
   }
-  return pulled;
+  const stopped = pulled === RAIL_INSET ? 'low' : pulled === extent - RAIL_INSET - size ? 'high' : null;
+  return { at: pulled, stopped };
 }
 
 /** A box grown about its own centre to at least the frame's minimum size. */
