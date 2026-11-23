@@ -133,6 +133,135 @@ function onPage(box: Rect, view: View): Rect {
  */
 const OPENED: View = { zoom: 1, panX: 340, panY: 200 };
 
+/**
+ * A line bent through one point, drawn on a box that holds the page still, with
+ * its words above the bend. `labelAt.t` is a fraction of the drawn ink, so
+ * `t = 0.5` is the bulge the bend draws — 200px above the middle of the chord
+ * between the two ends, which is where a chord's own fraction would put it.
+ */
+function bentLabelScene(corners: 'round' | 'sharp'): string {
+  return JSON.stringify(
+    {
+      version: 1,
+      title: 'Bent label',
+      defaults: { roughness: 0 },
+      elements: [
+        { id: 'page', type: 'rectangle', x: 0, y: 0, width: 800, height: 560 },
+        {
+          id: 'bent',
+          type: 'line',
+          corners,
+          points: [
+            { x: 200, y: 400 },
+            { x: 400, y: 200 },
+            { x: 600, y: 400 },
+          ],
+          heads: { start: 'none', end: 'none' },
+          label: 'bent words',
+          labelAt: { t: 0.5, offset: 100 },
+        },
+      ],
+    },
+    null,
+    2,
+  );
+}
+
+/** The view a bent Label's page lands in: its 800×560 box fitted 1:1. */
+const BENT_LABEL: View = { zoom: 1, panX: 240, panY: 120 };
+
+/**
+ * The strip of page a bent Label's words open in: wide enough for the words to
+ * be carried across it and be measured whole, and clear of the shaft's own ink,
+ * which a hundred pixels below them is the only other thing this page draws.
+ */
+const BENT_WORDS: Rect = { x: 540, y: 180, width: 300, height: 60 };
+
+/**
+ * The strip of page a bent Label's words lie in, read off the row its own save
+ * wrote: wide enough for every glyph, and clear of the ink of the shaft they are
+ * written about.
+ */
+function wordsBand(words: SavedWords): Rect {
+  return { x: words.x - 60, y: words.baseline - 20, width: 120, height: 26 };
+}
+
+/** The middle of a measured box of ink on the page. */
+function middleOf(box: Rect): { x: number; y: number } {
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+
+/** A box moved on the page, as a drag carries the words it measures. */
+function shifted(box: Rect, by: { x: number; y: number }): Rect {
+  return { ...box, x: box.x + by.x, y: box.y + by.y };
+}
+
+/**
+ * Drag a bent shaft's Label along the ink it sits above, and hold the release to
+ * the two things a person sees: the words under the pointer when the button
+ * comes up, and the same words after the file the editor wrote is opened again.
+ */
+async function carryBentLabel(ui: Ui, corner: 'round' | 'sharp'): Promise<void> {
+  const name = `bent-${corner}.json`;
+  const svg = `bent-${corner}.svg`;
+  await openEditor(ui, { A: { [name]: bentLabelScene(corner) } }, name);
+
+  // The words' own ink where they open, above the bend.
+  const start = (await shot(ui)).darkBounds(BENT_WORDS, DARK);
+  expect(start).not.toBeNull();
+  const held = middleOf(start as Rect);
+
+  // Taken by the middle of that ink and carried 120px right and 60px down, which
+  // follows the right half of the bend. The words follow the pointer while the
+  // button is down, so the place is chosen on the page and not only once the
+  // release saves it.
+  const by = { x: 120, y: 60 };
+  const to = { x: held.x + by.x, y: held.y + by.y };
+  await drag(ui, held, to, 'left', async () => {
+    await settle(ui);
+    const carrying = (await shot(ui)).darkBounds(shifted(BENT_WORDS, by), DARK);
+    expect(carrying).not.toBeNull();
+    const at = middleOf(carrying as Rect);
+    expect(Math.abs(at.x - to.x)).toBeLessThan(1.5);
+    expect(Math.abs(at.y - to.y)).toBeLessThan(1.5);
+  });
+
+  // The place the file keeps is a fraction of the drawn ink: further along it
+  // than the bend, and to the side above it the words were carried on. The shaft
+  // itself did not move, so the press took the words and not the line.
+  const placed = await savedScene(ui, name);
+  const bent = placed.elements.find((element) => element.id === 'bent');
+  expect(bent?.labelAt?.t).toBeGreaterThan(0.5);
+  expect(bent?.labelAt?.offset).toBeGreaterThan(0);
+  expect(bent?.points).toEqual([
+    { x: 200, y: 400 },
+    { x: 400, y: 200 },
+    { x: 600, y: 400 },
+  ]);
+
+  // The words the release leaves under the pointer, with the selection's own ink
+  // gone first: a gesture that moved the words without the file saying so, or
+  // the other way round, is caught here.
+  await ui.browser.keyboard.press('Escape');
+  const dropped = (await shot(ui)).darkBounds(shifted(BENT_WORDS, by), DARK);
+  expect(dropped).not.toBeNull();
+  const left = middleOf(dropped as Rect);
+  expect(Math.abs(left.x - to.x)).toBeLessThan(1.5);
+  expect(Math.abs(left.y - to.y)).toBeLessThan(1.5);
+
+  // A page that opens the Scene the save wrote draws them where the release left
+  // them: the place is the file's own, and not something the drag left on the
+  // page it drew.
+  const saved = await savedFiles(ui);
+  await openEditor(ui, { A: saved }, name);
+  const reopened = await savedWords(ui, svg, BENT_LABEL);
+  const again = (await shot(ui)).darkBounds(wordsBand(reopened), DARK);
+  expect(again).not.toBeNull();
+  const kept = middleOf(again as Rect);
+  expect(Math.abs(kept.x - left.x)).toBeLessThan(1.5);
+  expect(Math.abs(kept.y - left.y)).toBeLessThan(1.5);
+}
+
 describe('labels drag', () => {
   test('dragging a shaft Label places it where the pointer leaves it, and the Scene keeps that place', async ({
     app,
@@ -177,6 +306,22 @@ describe('labels drag', () => {
     expect(moved).not.toBeNull();
     expect(Math.abs((moved as Rect).x - (start as Rect).x - 120)).toBeLessThan(1.5);
     expect(Math.abs((moved as Rect).y - (start as Rect).y + 40)).toBeLessThan(1.5);
+  });
+
+  test('a Label dragged along a round bend is saved where the release left it, and a reload keeps it there', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    await carryBentLabel({ app, browser, screen }, 'round');
+  });
+
+  test('a Label dragged along a sharp bend is saved where the release left it, and a reload keeps it there', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    await carryBentLabel({ app, browser, screen }, 'sharp');
   });
 
   test('dragging the shaft itself carries the shaft and leaves the placed words where they are', async ({
