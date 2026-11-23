@@ -1585,6 +1585,200 @@ test('an editor that starts on a kept side never shows its strip on another', as
   }
 });
 
+// ----------------------------------- two editors of different sizes, one page
+//
+// `two-sizes.html` gives each element a height of its own: 50vh and 40vh of a
+// 1280×800 window, so their boxes are 0–400 and 400–720 down the page. An empty
+// Scene's frame is the 960×600 minimum about each editor's own middle, cut to
+// its own box, and that leaves no room above either box: each strip hangs 15 px
+// inside its own top edge (D2, D11, O2).
+
+/** The box the page gives the first editor, and the one below it. */
+const FIRST_BOX: Rect = { x: 0, y: 0, width: 1280, height: 400 };
+const SECOND_BOX: Rect = { x: 0, y: 400, width: 1280, height: 320 };
+
+/** Where each editor's strip hangs: its own box's top, the outline clear of the boxes' middle and corners. */
+const FIRST_TOP: Rect = { x: 400, y: 0, width: 480, height: 120 };
+const SECOND_TOP: Rect = { x: 400, y: 401, width: 480, height: 120 };
+
+/**
+ * The bands each editor draws its left, right and bottom docks in, in its own box
+ * and clear of its status chrome (O2): the first box holds nothing else there,
+ * and the second's bands start past the one mark in its box that is not paper,
+ * the Scene name under its top-left corner.
+ */
+const FIRST_DOCKS: Record<'left' | 'right' | 'bottom', Rect> = {
+  left: { x: 60, y: 55, width: 100, height: 290 },
+  right: { x: 1120, y: 55, width: 100, height: 290 },
+  bottom: { x: 400, y: 320, width: 480, height: 80 },
+};
+const SECOND_DOCKS: Record<'left' | 'right' | 'bottom', Rect> = {
+  left: { x: 96, y: 400, width: 100, height: 320 },
+  right: { x: 1120, y: 400, width: 100, height: 320 },
+  bottom: { x: 400, y: 640, width: 480, height: 80 },
+};
+
+/** The middle of a strip's second tile, as the outline it wears along a box's top says. */
+function secondTile(strip: Rect): { x: number; y: number } {
+  return { x: strip.x + 7 + 8 + 31 + 15, y: strip.y + 7 + 9 + 16 };
+}
+
+/** The side the page keeps for the next start, as the browser holds it, or null (I8). */
+async function keptSide(ui: Ui): Promise<string | null> {
+  return ui.browser.evaluate(() => localStorage.getItem('esbozo.rail'));
+}
+
+/**
+ * One editor's strip at full ink, as the outline it wears inside a band. The
+ * fade is waited out on this editor's own strip: two strips on one page fade on
+ * their own, so the one not being read stays at the ink it rests at.
+ */
+async function stripIn(ui: Ui, which: number, band: Rect): Promise<Rect> {
+  await ui.screen
+    .getByRole('navigation', { name: 'Tools' })
+    .nth(which)
+    .getByRole('button', 'Select')
+    .focus();
+  await expect
+    .poll(
+      () =>
+        ui.browser.evaluate((index) => {
+          const strip = document.querySelectorAll('esbozo-editor nav[aria-label="Tools"]').item(index);
+          return strip === null ? 0 : Number(getComputedStyle(strip).opacity);
+        }, which),
+      { timeout: 5000 },
+    )
+    .toBe(1);
+  const ink = async (): Promise<Rect | null> => (await shot(ui)).darkBounds(band, 0.6);
+  await expect.poll(async () => (await ink()) !== null, { timeout: 5000 }).toBe(true);
+  return (await ink())!;
+}
+
+test('two editors on one page measure and move their rails independently, each inside its own box', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), { a: EMPTY_SOURCE, b: EMPTY_SOURCE });
+  try {
+    const ui: Ui = { app, browser, screen };
+    await browser.setViewport({ width: 1280, height: 800 });
+    await app.open(`${embed.url}/two-sizes.html`);
+    for (const which of [0, 1]) {
+      await expect(screen.getByRole('status').nth(which)).toHaveText('saved');
+    }
+
+    // Each empty Scene is framed at the minimum about its own editor's middle, and
+    // each box cuts that frame to nothing above it: the strip hangs 15 px inside
+    // its own box's top edge, centred on that box, lying along the top (D2, D11).
+    const first = await stripIn(ui, 0, FIRST_TOP);
+    const second = await stripIn(ui, 1, SECOND_TOP);
+    for (const [name, ink, box] of [
+      ['the first', first, FIRST_BOX],
+      ['the second', second, SECOND_BOX],
+    ] as const) {
+      expect(ink.y - box.y, `${name} strip stops just inside its own box’s top edge`).toBeGreaterThan(2);
+      expect(ink.y - box.y, `${name} strip stops just inside its own box’s top edge`).toBeLessThan(20);
+      expect(ink.width, `${name} strip lies along the top`).toBeGreaterThan(ink.height * 2);
+      expect(ink.y, `${name} strip is inside its own box`).toBeGreaterThanOrEqual(box.y);
+      expect(ink.y + ink.height, `${name} strip is inside its own box`).toBeLessThanOrEqual(box.y + box.height);
+      expect(Math.abs(ink.x + ink.width / 2 - 640), `${name} strip is centred on its own box`).toBeLessThan(4);
+    }
+
+    // A drag from the first editor's second tile toward its own bottom side: the
+    // four places it may end in are drawn in the first box and nowhere else, and
+    // the release docks the first strip there (D6, criterion 12). The top mark is
+    // the strip's own place, so its own outline is what says it.
+    const before = await shot(ui);
+    await drag(ui, secondTile(first), { x: 640, y: 280 }, 'left', async () => {
+      await settle(ui);
+      const shown = await shot(ui);
+      for (const [side, band] of Object.entries(FIRST_DOCKS) as Array<['left' | 'right' | 'bottom', Rect]>) {
+        const drawn = Math.abs(shown.meanLuminance(band) - before.meanLuminance(band));
+        expect(drawn, `the ${side} dock is drawn in the box the drag is in`).toBeGreaterThan(0.02);
+      }
+      for (const [side, band] of Object.entries(SECOND_DOCKS) as Array<['left' | 'right' | 'bottom', Rect]>) {
+        const drawn = Math.abs(shown.meanLuminance(band) - before.meanLuminance(band));
+        expect(drawn, `the second editor draws no ${side} dock from the drag above it`).toBeLessThan(0.01);
+      }
+    });
+    await settle(ui);
+
+    expect(await keptSide(ui), 'the first editor’s drag is the page’s one kept word').toBe('bottom');
+    const docked = await stripIn(ui, 0, FIRST_DOCKS.bottom);
+    expect(docked.width, 'the first strip hangs along its own bottom').toBeGreaterThan(docked.height * 2);
+    expect(docked.y + docked.height, 'the first strip is inside its own box').toBeLessThanOrEqual(
+      FIRST_BOX.y + FIRST_BOX.height,
+    );
+
+    // The editor below did not move: it reads the kept word once, when it starts,
+    // so a move above it is the next start's side and not its own (D10, criterion 11).
+    const held = await stripIn(ui, 1, SECOND_TOP);
+    expect(Math.abs(held.y - second.y), 'the second strip has not moved').toBeLessThan(3);
+    expect(Math.abs(held.x - second.x), 'the second strip has not moved').toBeLessThan(3);
+
+    // And the second editor moves on its own: a drag from its own tile to its own
+    // right side docks it there, and leaves the first where it hung.
+    await drag(ui, secondTile(held), { x: 1180, y: 560 });
+    await settle(ui);
+    expect(await keptSide(ui), 'the second editor’s move is the last that wins').toBe('right');
+    const right = await stripIn(ui, 1, SECOND_DOCKS.right);
+    expect(right.height, 'the second strip stands up its own right side').toBeGreaterThan(right.width * 2);
+    expect(right.y, 'the second strip is inside its own box').toBeGreaterThanOrEqual(SECOND_BOX.y);
+    const unmoved = await stripIn(ui, 0, FIRST_DOCKS.bottom);
+    expect(Math.abs(unmoved.y - docked.y), 'the first strip has not moved').toBeLessThan(3);
+    expect(Math.abs(unmoved.height - docked.height), 'the first strip has not moved').toBeLessThan(3);
+
+    // Both editors write no Scene: a rail is the page's chrome, not the Scene (D9).
+    expect(embed.writes('a'), 'a rail move writes no Scene').toBe(0);
+    expect(embed.writes('b'), 'a rail move writes no Scene').toBe(0);
+    expect(await embed.saved('a')).toBe(EMPTY_SOURCE);
+    expect(await embed.saved('b')).toBe(EMPTY_SOURCE);
+
+    // A new start reads that one word once per editor, so both hang on the side
+    // the last move kept, each on a frame of its own (D10, I8).
+    await browser.goto(`${embed.url}/two-sizes.html`, { waitUntil: 'domcontentloaded' });
+    for (const which of [0, 1]) {
+      await expect(screen.getByRole('status').nth(which)).toHaveText('saved');
+    }
+    const keptFirst = await stripIn(ui, 0, FIRST_DOCKS.right);
+    const keptSecond = await stripIn(ui, 1, SECOND_DOCKS.right);
+    expect(keptFirst.height, 'the first editor starts on the kept side').toBeGreaterThan(keptFirst.width * 2);
+    expect(keptSecond.height, 'the second editor starts on the kept side').toBeGreaterThan(keptSecond.width * 2);
+    expect(keptFirst.y, 'the first editor’s dock is its own box’s').toBeLessThan(FIRST_BOX.y + FIRST_BOX.height);
+    expect(keptSecond.y, 'the second editor’s dock is its own box’s').toBeGreaterThanOrEqual(SECOND_BOX.y);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('a read-only embed moves its rail too, and the move writes no Scene', async ({ app, browser, screen }) => {
+  const embed = await startEmbed(await bundleFolder(), { a: SCENE_SOURCE });
+  try {
+    const ui: Ui = { app, browser, screen };
+    await browser.setViewport({ width: 1280, height: 800 });
+    await app.open(`${embed.url}/read-only.html`);
+    await expect(screen.getByText('read-only')).toBeVisible();
+    await settle(ui);
+
+    // The page may only read its Scene, and the rail is the page's chrome: a drag
+    // from a tile carries it to the nearest side and keeps that side, without
+    // writing the Scene, marking it unsaved or adding a step (D9).
+    const opened = await stripIn(ui, 0, TOP_BAND);
+    await drag(ui, secondTile(opened), { x: 200, y: 400 });
+    await settle(ui);
+    expect(await keptSide(ui), 'a read-only page keeps the side all the same').toBe('left');
+
+    const stood = await stripIn(ui, 0, { x: 0, y: 200, width: 200, height: 400 });
+    expect(stood.height, 'the strip stands up the left dock').toBeGreaterThan(stood.width * 2);
+    expect(await screen.getByText('read-only').isVisible(), 'the page is read-only still').toBe(true);
+    expect(embed.writes('a'), 'a read-only move writes no Scene').toBe(0);
+    expect(await embed.saved('a'), 'the Scene’s file is the one it opened').toBe(SCENE_SOURCE);
+  } finally {
+    await embed.stop();
+  }
+});
+
 /**
  * The strip of the host page the element's paper fills, to the right of the
  * heading and of the Scene's own ink: the paper is not white, and the host's
@@ -1726,6 +1920,13 @@ async function writeBundle(): Promise<string> {
   window.live = element;
 </script>`,
       null,
+    ),
+    // Two editors of two sizes, each with a Scene, a font and a strip of its own.
+    'two-sizes.html': page(
+      'body { margin: 0 } #a { height: 50vh } #b { height: 40vh }',
+      `<esbozo-editor id="a" scene="api/a" save="api/a" font="fonts/a.ttf"></esbozo-editor>
+<esbozo-editor id="b" scene="api/b" save="api/b" font="fonts/b.ttf"></esbozo-editor>`,
+      bundle,
     ),
     'two.html': page(
       HALVES,
