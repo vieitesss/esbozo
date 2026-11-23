@@ -78,14 +78,16 @@ test('the menu offers only the controls the selection can use', async ({ app, br
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'scene.json': MIXED_SOURCE } }, 'scene.json');
 
-  // An arrow is a stroke: heads, no fill, no corners, and words that take a size
-  // and an alignment of their own on the block the shaft gives them.
+  // An arrow is a stroke: heads and the corners its bends turn by, no fill, and
+  // words that take a size and an alignment of their own on the block the shaft
+  // gives them.
   await clickScene(ui, { x: 200, y: 280 }, [], MIXED);
   await expect(control(ui, 'Head ←: dot')).toBeVisible();
   await expect(control(ui, 'Head →: bar')).toBeVisible();
   await expect(control(ui, 'Rough: cartoonist')).toBeVisible();
   await expect(control(ui, 'Align: centre')).toBeVisible();
-  await expectNoControl(ui, ['Fill: hachure', 'Grey: grey 5', 'Corners: round']);
+  await expect(control(ui, 'Corners: sharp')).toBeVisible();
+  await expectNoControl(ui, ['Fill: hachure', 'Grey: grey 5']);
 
   await control(ui, 'Head ←: dot').click();
   await control(ui, 'Head →: bar').click();
@@ -95,11 +97,12 @@ test('the menu offers only the controls the selection can use', async ({ app, br
     end: 'bar',
   });
 
-  // A Text is only words: no stroke to widen, but a size and an alignment.
+  // A Text is only words: no stroke to widen and no corners to round, but a size
+  // and an alignment.
   await clickScene(ui, { x: 277, y: 110 }, [], MIXED);
   await expect(control(ui, 'Size: L')).toBeVisible();
   await expect(control(ui, 'Align: centre')).toBeVisible();
-  await expectNoControl(ui, ['Rough: cartoonist', 'Stroke: extra']);
+  await expectNoControl(ui, ['Rough: cartoonist', 'Stroke: extra', 'Corners: round']);
 
   await control(ui, 'Size: L').click();
   await control(ui, 'Align: centre').click();
