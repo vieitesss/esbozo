@@ -1130,7 +1130,8 @@ class EsbozoEditorElement extends HTMLElement {
     this.#railSide = side;
     this.#rail.dataset['side'] = side;
     // Laying the strip along another edge is another size, so the outline is
-    // drawn again for the shape it now covers before the frame is measured.
+    // drawn again for the shape it now covers. The frame itself is the one the
+    // press measured (D3), so a drag reuses it and never measures one here.
     this.#drawRailArt();
     this.#placeRail(pressed);
     // The move is committed here, so this is where the side is kept for the next
@@ -1385,12 +1386,19 @@ class EsbozoEditorElement extends HTMLElement {
    * A press on the paper, unless a drag of the rail already has the gesture. A
    * rail drag is one pointer's, and the board hears the browser's other contacts
    * — a pinch that spans the strip and the paper — so a press that lands under it
-   * must not draw, pick or save (D9, criterion 10). The contact is ignored rather
+   * must not draw, pick or save (D9, criterion 10). The contact is refused rather
    * than the drag cancelled: the finger that pressed the rail keeps its release,
    * and a drag's cancellation stays 29h's.
+   *
+   * Refused, not merely unanswered: `Gestures` hears this pointer's move, release
+   * and cancel like any other's, and a press it never took is no half of a
+   * gesture, so those must settle nothing. Leaving the release to `Gestures.up`
+   * would settle whatever gesture is active at this contact's coordinates — a
+   * mouse's Rectangle, finishing it early where the finger happened to land.
    */
   #onPaperDown = (event: PointerEvent): void => {
     if (this.#railDrag !== null) {
+      this.#gestures.refuse(event);
       return;
     }
     this.#gestures.down(event);
