@@ -229,7 +229,7 @@ test('the focus the palette hands back leaves the paper where the pointer left i
   await expect(screen.getByRole('button', { name: 'Corners: sharp' })).toBeVisible();
 });
 
-test('a press outside the palette shuts it and hands the focus back to the canvas', async ({
+test('a press outside the palette lets the caret go and the keys back to the page', async ({
   app,
   browser,
   screen,
