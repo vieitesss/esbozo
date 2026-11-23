@@ -235,7 +235,6 @@ const CORNERS_SOURCE = JSON.stringify(CORNERS_SCENE, null, 2);
 /** The view `CORNERS_SCENE` lands in: its page centred at 1:1. */
 const CORNERS: View = { zoom: 1, panX: 240, panY: 120 };
 
-
 test('Corners is offered for a two-point arrow and for a line', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'scene.json': CORNERS_SOURCE } }, 'scene.json');
@@ -247,6 +246,47 @@ test('Corners is offered for a two-point arrow and for a line', async ({ app, br
   await clickScene(ui, { x: 250, y: 220 }, [], CORNERS);
   await expect(control(ui, 'Corners: sharp')).toBeVisible();
   await expect(control(ui, 'Corners: round')).toBeVisible();
+});
+
+/** A box, and an arrow through a `round` bend point and a `sharp` one. */
+const BENDED_SCENE = {
+  version: 1,
+  title: 'Bent',
+  defaults: { roughness: 1 },
+  elements: [
+    PAGE,
+    {
+      id: 'bent',
+      type: 'arrow',
+      points: [
+        { x: 100, y: 120 },
+        { x: 300, y: 300, corner: 'round' },
+        { x: 500, y: 120 },
+        { x: 700, y: 300 },
+      ],
+      heads: { start: 'none', end: 'none' },
+    },
+    { id: 'box', type: 'rectangle', x: 560, y: 380, width: 120, height: 100 },
+  ],
+};
+const BENDED_SOURCE = JSON.stringify(BENDED_SCENE, null, 2);
+
+/** The view `BENDED_SCENE` lands in, worked out the same way. */
+const BENDED: View = { zoom: 1, panX: 240, panY: 120 };
+
+/** On the bent arrow's first run, on no other Element: where a press selects it. */
+const BENT_ON = { x: 150, y: 165 };
+
+test('a shaft whose bend points turn by both corners says mixed', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': BENDED_SOURCE } }, 'scene.json');
+
+  await clickScene(ui, BENT_ON, [], BENDED);
+  // Its one written point is `round`, and the one after it takes the Element's
+  // `sharp`: a shaft that turns both ways between its ends.
+  await expect(ui.screen.getByRole('group', 'Corners').getByText('mixed')).toBeVisible();
+  await expect(control(ui, 'Corners: round')).not.toHaveAttribute('aria-pressed', 'true');
+  await expect(control(ui, 'Corners: sharp')).not.toHaveAttribute('aria-pressed', 'true');
 });
 
 test('undoing the Scene default roughness puts the status bar back', async ({ app, browser, screen }) => {
