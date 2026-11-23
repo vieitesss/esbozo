@@ -977,6 +977,48 @@ test('a drag released over the status docks the strip clear of it, so every tile
   await eachTileTakesItsPress(ui, 'on a strip a drag released over the status bar');
 });
 
+test('a corner that grows over a dragged strip hangs it clear, and the corner that shrinks gives the place back', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await browser.setViewport({ width: 360, height: 330 });
+  await openBare(ui);
+  const upper: Rect = { x: 0, y: 74, width: 360, height: 100 };
+  const opened = await railPlace(ui, upper);
+
+  // The strip a person dragged hangs where their release docked it, which is the
+  // place this corner later grows over: the pan is named in the pill of the bottom
+  // status corner, and the band stops above the pill's own words.
+  await drag(ui, tileCentre(boxOfPlace(opened), 1), { x: 180, y: 300 });
+  await settle(ui);
+  const lower: Rect = { x: 0, y: 150, width: 360, height: 110 };
+  const dragged = await railPlace(ui, lower);
+
+  await browser.keyboard.down('Space');
+  await expect(screen.getByText('Panning')).toBeVisible();
+  await settle(ui);
+  const grew = await railPlace(ui, lower);
+  expect(grew.top, 'a corner that grew over the dragged strip hangs it in clear of the pill').toBeLessThan(
+    dragged.top - 20,
+  );
+  expect(
+    Math.abs(grew.centreX - dragged.centreX),
+    'the strip slides in clear across its side and keeps the place the drag gave it along it',
+  ).toBeLessThan(3);
+  await eachTileTakesItsPress(ui, 'on a dragged strip a corner grew over');
+
+  // The pill goes with the pan, and the strip returns to the place the drag left it
+  // in rather than to a place the corner's arrival chose.
+  await browser.keyboard.up('Space');
+  await settle(ui);
+  expect(
+    Math.abs((await railPlace(ui, lower)).top - dragged.top),
+    'the corner that shrinks gives the dragged strip its own place back',
+  ).toBeLessThan(3);
+});
+
 test('the left dock stands the strip up, faint until it is looked at, its outline around all seven', async ({
   app,
   browser,
