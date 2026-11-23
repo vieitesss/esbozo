@@ -10,7 +10,7 @@
 import { emptyScene, parseFragment, parseScene, serialiseScene } from '../scene.js';
 import type { Corner, Element as SceneElement, Scene } from '../scene.js';
 import { PRIMARY_SCENE_EXTENSION, sceneFileNameFor, sceneStem } from '../paths.js';
-import { replaced, selectedFrom } from './elements.js';
+import { isClick, replaced, selectedFrom } from './elements.js';
 import { movableCount } from './arrange.js';
 import type { ArrangeAct } from './arrange.js';
 import { deleted, detached, duplicated, nudged, pasted, rearranged, restyled } from './edits.js';
@@ -38,10 +38,11 @@ import {
   clampedDock,
   fittedView,
   leftDockEdge,
+  nearestDock,
   railFrame,
   zoomedAt,
 } from './geometry.js';
-import type { Point, RailDock, RailOutline, RailSide, View } from './geometry.js';
+import type { Box, Point, RailDock, RailFrame, RailOutline, RailSide, View } from './geometry.js';
 import { History } from './history.js';
 import { railArt } from './rail.js';
 import { readRailSide, writeRailSide } from './rail-preference.js';
@@ -69,6 +70,20 @@ const RAIL_OUTLINE = 7;
  * one is never a nudge in the other.
  */
 let active: EsbozoEditorElement | null = null;
+
+/**
+ * A press on the rail that may still become a drag of it: the pointer the press
+ * belongs to, where it landed and where it is now, and the frame measured when it
+ * landed (D3), which is what a release docks against.
+ */
+interface RailDrag {
+  readonly pointer: number;
+  readonly from: Point;
+  at: Point;
+  /** Whether the pointer has left the click's slop: past it, the press is a drag. */
+  moved: boolean;
+  readonly frame: Box;
+}
 
 /** How many editors this page has made: each one's Grid is a pattern of its own. */
 let instances = 0;
@@ -101,6 +116,16 @@ class EsbozoEditorElement extends HTMLElement {
    * elsewhere (D10, I8).
    */
   #railSide: RailSide = 'top';
+  /**
+   * The press on the rail that may become a drag of it, from the press to the
+   * release: the one drag the rail has at a time (D6).
+   */
+  #railDrag: RailDrag | null = null;
+  /**
+   * Whether the release just committed a drag, so the click that follows it is
+   * the drag's and picks no tool. The next press clears it.
+   */
+  #railDragged = false;
   /** True once the editor's listeners are on the page. */
   #wired = false;
   /**
@@ -399,6 +424,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#board.addEventListener('pointercancel', this.#gestures.cancel);
     this.#board.addEventListener('wheel', this.#onWheel, { passive: false });
     this.#canvas.addEventListener('contextmenu', (event) => event.preventDefault());
+    this.#rail.addEventListener('pointerdown', this.#onRailDown);
     this.#rail.addEventListener('click', this.#onRailClick);
     this.querySelector('.status')!.addEventListener('click', this.#onStatusClick);
     document.addEventListener('copy', this.#onCopy);
@@ -439,6 +465,7 @@ class EsbozoEditorElement extends HTMLElement {
     document.removeEventListener('pointerdown', this.#gestures.anyPress);
     document.removeEventListener('pointerdown', this.#shutSheetOnPress);
     document.removeEventListener('visibilitychange', this.#gestures.release);
+    this.#rail.removeEventListener('pointerdown', this.#onRailDown);
     this.#rail.removeEventListener('click', this.#onRailClick);
     this.#menu.removeEventListener('click', this.#onMenuClick);
     this.#menu.removeEventListener('click', this.#gestures.menuClickPress, true);
@@ -455,6 +482,7 @@ class EsbozoEditorElement extends HTMLElement {
     // child that left with the element, and no gesture of this pointer survives
     // the DOM it was pressed on — the pan is the page's, and it goes too.
     this.#endEdits();
+    this.#endRailDrag();
     this.#gestures.endSpacePan();
     this.#gestures.drop();
     this.#wired = false;
@@ -495,6 +523,9 @@ class EsbozoEditorElement extends HTMLElement {
   #forget(): void {
     this.#gestures.drop();
     this.#endEdits();
+    // A drag of the rail measured the Scene that is leaving, so its release
+    // docks nothing: the frame it would have docked against is gone with it.
+    this.#endRailDrag();
     // No Scene in the hand is no frame to hang the rail on either.
     this.#railDockOffset = null;
     this.#railDock = null;
@@ -1054,20 +1085,23 @@ class EsbozoEditorElement extends HTMLElement {
    * over the paper.
    */
   #placeRail(): void {
-    const outline = this.#outline();
-    const viewport = this.#page.viewport;
-    const size = viewport.size();
-    const { dock, stopped } = railFrame(
-      this.#scene,
-      viewport.view,
-      size,
-      this.#railSide,
-      outline,
-      this.#connection.layout,
-    );
+    const size = this.#page.viewport.size();
+    const { dock, stopped } = this.#dockOn(this.#railSide);
     this.#railHeld = stopped;
     this.#railDockOffset = { x: dock.x - size.width / 2, y: dock.y - size.height / 2 };
     this.#hangRail();
+  }
+
+  /** The frame around the diagram as the page shows it now, and this side's dock on it. */
+  #dockOn(side: RailSide): RailFrame {
+    return railFrame(
+      this.#scene,
+      this.#page.viewport.view,
+      this.#page.viewport.size(),
+      side,
+      this.#outline(),
+      this.#connection.layout,
+    );
   }
 
   /**
@@ -1332,12 +1366,103 @@ class EsbozoEditorElement extends HTMLElement {
   // ----------------------------------------------------------------------- UI
 
   #onRailClick = (event: Event): void => {
+    if (this.#railDragged) {
+      // The click a committed drag's release also sends: it has already docked,
+      // and it picks no tool (D6).
+      this.#railDragged = false;
+      return;
+    }
     const button = (event.target as Element | null)?.closest('[data-tool]') as HTMLElement | null;
     const tool = button?.dataset['tool'];
     if (tool !== undefined) {
       this.#setTool(tool as ToolId);
     }
   };
+
+  /**
+   * A press on the rail — a tile or the padding around it, with any pointer —
+   * starts a drag that may end as the click it has always been (D6). The frame
+   * is measured here, while the press is under the pointer, because a release
+   * docks against the frame the drag started on (D3).
+   */
+  #onRailDown = (event: PointerEvent): void => {
+    // One drag at a time, and the primary button's: a second pointer, or the
+    // right button, does nothing to a drag already in flight.
+    if (this.#railDrag !== null || event.button !== 0 || !event.isPrimary) {
+      return;
+    }
+    this.#railDragged = false;
+    const at = { x: event.clientX, y: event.clientY };
+    this.#railDrag = {
+      pointer: event.pointerId,
+      from: at,
+      at,
+      moved: false,
+      frame: this.#dockOn(this.#railSide).frame,
+    };
+    // The drag's own moves and release: the rail may be left far behind, so they
+    // cannot be the rail's listeners. The press itself stays the button's, which
+    // is what keeps a press under the slop the click that picks the tool.
+    window.addEventListener('pointermove', this.#onRailMove);
+    window.addEventListener('pointerup', this.#onRailUp);
+    window.addEventListener('pointercancel', this.#onRailCancel);
+  };
+
+  #onRailMove = (event: PointerEvent): void => {
+    const drag = this.#railDrag;
+    if (drag === null || event.pointerId !== drag.pointer) {
+      return;
+    }
+    drag.at = { x: event.clientX, y: event.clientY };
+    if (drag.moved || isClick(drag.from, drag.at)) {
+      return;
+    }
+    // Past the click's slop this is a drag of the rail. The capture is taken
+    // here rather than on the press so that a press which never leaves the slop
+    // keeps its own click on the tile it landed on, and so that a release far
+    // from the rail still arrives.
+    drag.moved = true;
+    this.#rail.setPointerCapture(event.pointerId);
+  };
+
+  /**
+   * The release of a press on the rail: under the slop the button's own click
+   * picks the tool, and past it the rail docks on the frame side the pointer is
+   * nearest, through the one move the palette uses too (D6, D10).
+   */
+  #onRailUp = (event: PointerEvent): void => {
+    const drag = this.#railDrag;
+    if (drag === null || event.pointerId !== drag.pointer) {
+      return;
+    }
+    this.#endRailDrag();
+    if (!drag.moved) {
+      return;
+    }
+    this.#railDragged = true;
+    this.#dockRail(nearestDock(drag.frame, drag.at));
+  };
+
+  #onRailCancel = (event: PointerEvent): void => {
+    if (this.#railDrag?.pointer === event.pointerId) {
+      this.#endRailDrag();
+    }
+  };
+
+  /** Drop the press on the rail, its capture and the listeners it put on the page. */
+  #endRailDrag(): void {
+    const drag = this.#railDrag;
+    if (drag === null) {
+      return;
+    }
+    this.#railDrag = null;
+    window.removeEventListener('pointermove', this.#onRailMove);
+    window.removeEventListener('pointerup', this.#onRailUp);
+    window.removeEventListener('pointercancel', this.#onRailCancel);
+    if (this.#rail.hasPointerCapture(drag.pointer)) {
+      this.#rail.releasePointerCapture(drag.pointer);
+    }
+  }
 
   #onStatusClick = (event: Event): void => {
     const action = ((event.target as Element | null)?.closest('[data-act]') as HTMLElement | null)

@@ -897,3 +897,70 @@ test('a move in a read-only Scene keeps the side and leaves the Scene’s file a
   expect(await keptSide(ui), 'a read-only Scene keeps the side all the same').toBe('left');
   expect(await savedFiles(ui), 'a move writes no file').toEqual(files);
 });
+
+/**
+ * The middle of one of the strip's seven tiles, as the ink of a strip lying along
+ * the top says: its outline hangs 7 px outside the strip, the strip pads 9 px top
+ * and bottom and 8 px across, and its 30 px tiles are 1 px apart. The tilt leans
+ * the far tiles a couple of pixels, which a tile's own 30 px holds.
+ */
+function tileCentre(outline: Rect, index: number): { x: number; y: number } {
+  return { x: outline.x + 7 + 8 + index * 31 + 15, y: outline.y + 7 + 9 + 16 };
+}
+
+/** A strip's ink as the box it is measured in. */
+function boxOfPlace(place: Place): Rect {
+  return { x: place.centreX - place.width / 2, y: place.top, width: place.width, height: place.height };
+}
+
+test('a press that moves 3 px on a tile picks that tool and leaves the rail where it was', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+  const band: Rect = { x: 400, y: 0, width: 480, height: 240 };
+  const opened = await railPlace(ui, band);
+
+  // The third tile is Ellipse, and a 3 px move is under the click's own 4 px.
+  const tile = tileCentre(boxOfPlace(opened), 2);
+  await drag(ui, tile, { x: tile.x + 3, y: tile.y + 2 });
+  await settle(ui);
+
+  // The press is a click: the tile it landed on is the tool in hand, and the rail
+  // has not moved — a drag of the rail docks, and picks no tool at all.
+  expect(await screen.getByRole('button', 'Ellipse').getAttribute('aria-pressed'), 'the tile picked its tool').toBe(
+    'true',
+  );
+  expect(await screen.getByRole('button', 'Select').getAttribute('aria-pressed')).toBe('false');
+  expectHeld(opened, await railPlace(ui, band), 'a 3 px press-move');
+});
+
+test('a mouse drag from a tile docks the rail on the nearest side and picks no tool', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+  const band: Rect = { x: 400, y: 0, width: 480, height: 240 };
+  const opened = await railPlace(ui, band);
+
+  // Rectangle, carried 340 px left of the empty Scene's frame and released level
+  // with its middle: the left side is the nearest of the four by far.
+  await drag(ui, tileCentre(boxOfPlace(opened), 1), { x: 300, y: 400 });
+  await settle(ui);
+
+  // The release docks, so no tool was picked: Select is still the one in hand.
+  expect(await screen.getByRole('button', 'Select').getAttribute('aria-pressed'), 'no tool was picked').toBe('true');
+  expect(await screen.getByRole('button', 'Rectangle').getAttribute('aria-pressed')).toBe('false');
+
+  // Standing up the frame's left side, which the empty Scene's 960×600 frame puts
+  // 160 px in: the 60 px outline hangs one 16 px gap outside it, at about 84.
+  const ink = await railInk(ui, { x: 0, y: 200, width: 240, height: 400 });
+  expect(ink.height, 'the strip stands up the left side').toBeGreaterThan(ink.width * 2);
+  expect(ink.x, 'the outline hangs one gap outside the frame').toBeGreaterThan(76);
+  expect(ink.x, 'the outline hangs one gap outside the frame').toBeLessThan(92);
+  expect(Math.abs(ink.y + ink.height / 2 - 800 / 2), 'the strip is centred on the frame’s side').toBeLessThan(4);
+});
