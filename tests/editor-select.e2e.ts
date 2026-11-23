@@ -93,6 +93,85 @@ test('a thick horizontal line is picked a pixel off its centre', async ({ app, b
   ]);
 });
 
+/**
+ * A line bent round over a rectangle, drawn on a box that holds the page still.
+ * The bulge is the ink at `t = 0.5`, 200px above the middle of the chord between
+ * the line's ends; the rectangle's top border is 40px below it, so the paper
+ * under the bulge is inside the line's box and off its ink.
+ */
+const ARCH_SCENE = {
+  version: 1,
+  title: 'Arch',
+  defaults: { roughness: 0 },
+  elements: [
+    { id: 'page', type: 'rectangle', x: 0, y: 0, width: 800, height: 560 },
+    { id: 'behind', type: 'rectangle', x: 220, y: 240, width: 360, height: 220 },
+    {
+      id: 'arch',
+      type: 'line',
+      corners: 'round',
+      points: [
+        { x: 200, y: 400 },
+        { x: 400, y: 200 },
+        { x: 600, y: 400 },
+      ],
+      heads: { start: 'none', end: 'none' },
+    },
+  ],
+};
+const ARCH_SOURCE = JSON.stringify(ARCH_SCENE, null, 2);
+
+/**
+ * Where a strip of the page's own top border is looked for: across the paper and
+ * down from under the tool rail, which is the outermost ink above everything.
+ */
+const FRAME_TOP: Rect = { x: 40, y: 100, width: 1200, height: 45 };
+
+test('a bent line is picked on its bulge, and the paper under it picks what is behind', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'arch.json': ARCH_SOURCE } }, 'arch.json');
+
+  // The page's own border is the ink the fitted view is measured against, so its
+  // middle column is the column the bulge is drawn in, whatever view it fits.
+  const strip = (await shot(ui)).darkBounds(FRAME_TOP, DRAWN);
+  expect(strip).not.toBeNull();
+  const middle = (strip as Rect).x + (strip as Rect).width / 2;
+
+  // Down that column the first ink under the border is the bulge, which the line's
+  // box reaches down from: a press there takes the line, and a nudge moves its
+  // points. The window stops short of the rectangle's top border, 40px below the
+  // bulge, and the next ink down is that border.
+  const column: Rect = { x: middle - 2, y: (strip as Rect).y + 4, width: 5, height: 230 };
+  const bulge = (await shot(ui)).darkBounds(column, DRAWN);
+  expect(bulge).not.toBeNull();
+  const under = (await shot(ui)).darkBounds(
+    { ...column, y: (bulge as Rect).y + (bulge as Rect).height + 6 },
+    DRAWN,
+  );
+  expect(under).not.toBeNull();
+
+  await press({ x: middle, y: (bulge as Rect).y + 1 });
+  await browser.keyboard.press('Shift+ArrowRight');
+
+  // Bare paper inside the line's box and off its ink, just under the rectangle's
+  // top border: the press falls through to the rectangle, drawn after the page.
+  await press({ x: middle, y: (under as Rect).y + 12 });
+  await browser.keyboard.press('Shift+ArrowRight');
+
+  const scene = await savedScene(ui, 'arch.json');
+  const saved = new Map(scene.elements.map((element) => [element.id, element]));
+  expect(saved.get('arch')?.points).toEqual([
+    { x: 210, y: 400 },
+    { x: 410, y: 200 },
+    { x: 610, y: 400 },
+  ]);
+  expect(saved.get('behind')?.x, 'the paper under the bulge took the rectangle').toBe(230);
+  expect(saved.get('page')?.x).toBe(0);
+});
 /** A rectangle, an ellipse and a diamond, unfilled, with bare paper between them. */
 const BORDERS_SCENE = {
   version: 1,
