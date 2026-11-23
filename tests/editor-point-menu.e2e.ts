@@ -227,6 +227,33 @@ const LOOP_ON = { x: 363, y: 350 };
 /** The bend between the loop's two Snapped ends, where its handle sits. */
 const LOOP_BEND = { x: 400, y: 200 };
 
+/**
+ * The same arrow with both ends written `"snap": false`: two ends that follow
+ * nothing, so the bend between them is the bend of an ordinary shaft and may go.
+ */
+const LOOSE_SCENE = {
+  ...LOOP_SCENE,
+  title: 'A free loop',
+  elements: LOOP_SCENE.elements.map((element) =>
+    element.id === 'bent'
+      ? {
+          ...element,
+          points: [
+            { x: 400, y: 450, snap: false },
+            { x: 400, y: 200, corner: 'sharp' },
+            { x: 450, y: 450, snap: false },
+          ],
+        }
+      : element,
+  ),
+};
+const LOOSE_SOURCE = JSON.stringify(LOOSE_SCENE, null, 2);
+
+/** On the free loop's left leg, on its ink and above the box it runs beside. */
+const LOOSE_ON = { x: 400, y: 340 };
+/** The bend of `LOOSE_SCENE`, between two ends that Snap to nothing. */
+const LOOSE_BEND = { x: 400, y: 200 };
+
 /** The arrow of `ZIG_SCENE` with words on it, so a double-click can open them. */
 const WORDS_SCENE = {
   ...ZIG_SCENE,
@@ -265,6 +292,7 @@ const SCENES = {
     'line.json': LINE_SOURCE,
     'corners.json': ROUND_SOURCE,
     'loop.json': LOOP_SOURCE,
+    'loose.json': LOOSE_SOURCE,
     'words.json': WORDS_SOURCE,
     'edge.json': EDGE_SOURCE,
   },
@@ -780,6 +808,30 @@ describe('the point menu', () => {
     await expect(menu(ui)).toBeVisible();
     expect(pointsOf(await savedScene(ui, 'loop.json'))).toEqual(LOOP_POINTS);
     expect((await savedScene(ui, 'loop.json')).elements).toEqual(before);
+  });
+
+  test('a point between two ends that Snap to nothing is offered as a row that removes it', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'loose.json');
+    await selectShaft(ui, LOOSE_ON);
+
+    await rightClick(ui, LOOSE_BEND);
+
+    // Neither end follows anything, so the two points left behind are a shaft
+    // like any other: the removal is offered, and the key runs it.
+    await expect(menu(ui)).toBeVisible();
+    await expect(deletePoint(ui)).toBeEnabled();
+    await browser.keyboard.press('Enter');
+    await expect(menu(ui)).toBeHidden();
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    expect(pointsOf(await savedScene(ui, 'loose.json'))).toEqual([
+      { x: 400, y: 450, snap: false },
+      { x: 450, y: 450, snap: false },
+    ]);
   });
 
   test('Delete point removes the point, as one step with one save', async ({
