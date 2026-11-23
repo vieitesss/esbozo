@@ -197,6 +197,14 @@ function shownElements(elements: SceneElement[], drag: ShownDrag): SceneElement[
   return elements.map((element) => (element.id === drag.id ? drag.shown : element));
 }
 
+/**
+ * The pointers the page's board refused, kept for the page rather than for one
+ * editor: a pointer id belongs to the page, and two editors side by side see the
+ * same press. A press refused in one is refused in both, so the editor beside it
+ * cannot settle that press's move or release as a gesture of its own.
+ */
+const REFUSED = new Set<number>();
+
 const SHOWN_KINDS: Record<ShownDrag['kind'], true> = {
   move: true,
   resize: true,
@@ -269,7 +277,6 @@ export class Gestures {
   #wordsClick: Press | null = null;
   #cancelledClick = false;
   #spaceDown = false;
-  readonly #refused = new Set<number>();
   /** The Shaft a page mark names, which is what makes the mark a bend point's. */
   #shaft: ShaftOf = (id) => shaftIn(this.#host.scene(), id);
 
@@ -377,7 +384,7 @@ export class Gestures {
   }
 
   cancel = (event?: PointerEvent): void => {
-    if (event !== undefined && this.#refused.delete(event.pointerId)) {
+    if (event !== undefined && REFUSED.delete(event.pointerId)) {
       return;
     }
     const drag = this.#drag;
@@ -443,11 +450,13 @@ export class Gestures {
   /**
    * A press the board kept for itself is refused as a menu's press is: a rail
    * drag owns a pointer, so a contact that lands under it must not become half of
-   * a gesture. Its move, release and cancel are its own, and settling another
-   * pointer's gesture at its coordinates is exactly what a refusal prevents.
+   * a gesture, and a press a called-off drag left down has nothing of its own to
+   * settle any more. Its move, release and cancel are its own, and settling
+   * another pointer's gesture at its coordinates is exactly what a refusal
+   * prevents. The refusal ends where the pointer does: its next press is a press.
    */
-  refuse = (event: PointerEvent): void => {
-    this.#refused.add(event.pointerId);
+  refuse = (pointer: number): void => {
+    REFUSED.add(pointer);
   };
 
   down = (event: PointerEvent): void => {
@@ -455,11 +464,11 @@ export class Gestures {
     // no half of a gesture, and its release must not act as one. This press
     // answers for its own pointer alone: another pointer's refusal is not this
     // press's to keep.
-    this.#refused.delete(event.pointerId);
+    REFUSED.delete(event.pointerId);
     const { page } = this.#host;
     const { viewport } = page;
     if (event.button !== 0 && event.button !== 1) {
-      this.#refused.add(event.pointerId);
+      REFUSED.add(event.pointerId);
       return;
     }
     // A Ctrl+left press is the secondary click macOS reads as a context menu,
@@ -467,7 +476,7 @@ export class Gestures {
     // opens that point's menu instead of a press the clicks after it could pair
     // with and remove the point through.
     if (event.button === 0 && event.ctrlKey) {
-      this.#refused.add(event.pointerId);
+      REFUSED.add(event.pointerId);
       return;
     }
     const text = this.#host.typing.text();
@@ -487,7 +496,7 @@ export class Gestures {
       // goes no further: it is not also a click on the canvas. A middle press is
       // a pan, which leaves the words open where they are.
       this.#forgetPress();
-      this.#refused.add(event.pointerId);
+      REFUSED.add(event.pointerId);
       text.finish();
       return;
     }
@@ -674,7 +683,7 @@ export class Gestures {
     // A refused pointer's move is no part of a gesture: it is its own refusal,
     // and a pointer carrying a drag at the same time keeps it. Carrying it here
     // would end that pointer's click pairing and pull its drag with this one.
-    if (this.#refused.has(event.pointerId)) {
+    if (REFUSED.has(event.pointerId)) {
       return;
     }
     const { page } = this.#host;
@@ -849,7 +858,7 @@ export class Gestures {
     // place. It is the refused pointer's own release, and no other: a pointer
     // carrying a gesture at the same time keeps its capture, and its release is
     // still the one that settles it.
-    if (this.#refused.delete(event.pointerId)) {
+    if (REFUSED.delete(event.pointerId)) {
       return;
     }
     // The pointer comes up for this gesture or for one already ended: either way

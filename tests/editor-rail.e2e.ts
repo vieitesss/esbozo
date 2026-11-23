@@ -24,7 +24,7 @@ import {
 } from './helpers.ts';
 import type { Ui } from './helpers.ts';
 import { fullInk, zoomReadout } from './editor-shared.ts';
-import { livePage } from './cdp.ts';
+import { blurPage, cancelTouch, livePage, touchCarry } from './cdp.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
 
@@ -1458,4 +1458,573 @@ test('a mouse a held rail drag ignored ends as ignored, so an in-flight touch dr
   await pen('mouseReleased', 250, 400);
   await settle(ui);
   expect(await keptSide(ui), 'the pen’s release docks the rail').toBe('left');
+});
+
+// ------------------------------------------------------- calling a drag off
+
+/** The band the empty Scene's strip hangs in: bare paper and the strip alone. */
+const TOP_BAND: Rect = { x: 400, y: 0, width: 480, height: 240 };
+
+/**
+ * The page's whole ink, with the strip drawn at full ink and the pointer resting
+ * on bare paper: a dock preview, or any other mark an exit left behind, is ink
+ * that was not there before. The fade is waited out and the hover is the same
+ * both times, so neither can decide the measure.
+ */
+async function pageInk(ui: Ui): Promise<Rect | null> {
+  await ui.browser.mouse.move(200, 200);
+  await rail(ui).getByRole('button', 'Select').focus();
+  await fullInk(ui);
+  return (await shot(ui)).darkBounds({ x: 0, y: 0, width: 1280, height: 800 }, 0.6);
+}
+
+/** What an exit must not touch: the strip, the side the page keeps and the folder. */
+interface Kept {
+  place: Place;
+  side: string | null;
+  files: Record<string, string>;
+  /** The tool in hand and whether the note is open: the press's own tool and selection. */
+  tools: string[];
+  note: boolean;
+}
+
+/** The tool in hand, as the rail presses it: the tiles of the seven it says are picked. */
+async function toolInHand(ui: Ui): Promise<string[]> {
+  const pressed: string[] = [];
+  for (const name of TILES) {
+    const tile = ui.screen.getByRole('button', { name, exact: true });
+    if ((await tile.getAttribute('aria-pressed')) === 'true') {
+      pressed.push(name);
+    }
+  }
+  return pressed;
+}
+
+/**
+ * The page a drag is called off on: a Rectangle drawn on the paper, the folder's
+ * writes held so a save the exit made would wait where the test finds it, and the
+ * strip, the kept side, the folder's files, the tool in hand and the selection as
+ * the exit must leave them (D7, D9, I6).
+ *
+ * `keep` is what the drawing leaves that the press must not take: its own
+ * `selection`, the box it drew standing in the note, or the `rectangle` tile this
+ * then picks — a tile drops the selection, so the two are two states and not one.
+ */
+async function beforeCancel(
+  ui: Ui,
+  keep: 'selection' | 'rectangle',
+): Promise<Kept & { grip: { x: number; y: number } }> {
+  await openBare(ui);
+  await ui.screen.getByRole('button', { name: 'Rectangle', exact: true }).click();
+  await drag(ui, { x: 400, y: 300 }, { x: 600, y: 450 });
+  await settle(ui);
+  if (keep === 'rectangle') {
+    await ui.screen.getByRole('button', { name: 'Rectangle', exact: true }).click();
+    await settle(ui);
+  }
+  await holdWrites(ui, 'bare.json');
+  const place = await railPlace(ui, TOP_BAND);
+  return {
+    place,
+    side: await keptSide(ui),
+    files: await savedFiles(ui),
+    tools: await toolInHand(ui),
+    note: await ui.screen.getByRole('dialog', 'Style').isVisible(),
+    grip: tileCentre(boxOfPlace(place), 1),
+  };
+}
+
+/**
+ * The rail, the side, the tool, the selection, the folder and the page's ink as
+ * the press found them: a called-off drag puts every one of them back (D7, I6).
+ */
+async function expectCalledOff(ui: Ui, before: Kept, ink: Rect | null): Promise<void> {
+  const place = await railPlace(ui, TOP_BAND);
+  expectHeld(before.place, place, 'a called-off drag');
+  expect(place.width, 'the strip lies along the top, as it did').toBeGreaterThan(place.height * 2);
+  expect(await keptSide(ui), 'a cancel stores no side').toEqual(before.side);
+  expect(await savedFiles(ui), 'a cancel writes no file').toEqual(before.files);
+  expect(await toolInHand(ui), 'a cancel keeps the tool in hand and picks no other').toEqual(before.tools);
+  const note = ui.screen.getByRole('dialog', 'Style');
+  if (before.note) {
+    await expect(note).toBeVisible();
+  } else {
+    await expect(note).toBeHidden();
+  }
+  expect(await pageInk(ui), 'a cancel leaves no dock preview or other mark on the page').toEqual(ink);
+}
+
+/** One undo takes back the press's own drawing, so the exit added no step of its own. */
+async function expectNoStep(ui: Ui): Promise<void> {
+  await ui.browser.keyboard.press('Meta+z');
+  await expect.poll(() => writeCount(ui), { timeout: 5000 }).toBe(1);
+  await releaseWrite(ui);
+  await expect
+    .poll(async () => (await savedScene(ui, 'bare.json')).elements.length, { timeout: 5000 })
+    .toBe(0);
+}
+
+/**
+ * The page goes out of sight, as the tab behind another one does. A headless
+ * Chromium keeps every page visible, so this is the event the hidden page gets,
+ * taken the way `tests/editor-interrupts.e2e.ts` takes the same exit.
+ */
+async function hidePage(ui: Ui): Promise<void> {
+  await ui.browser.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    try {
+      document.dispatchEvent(new Event('visibilitychange'));
+    } finally {
+      delete (document as unknown as { visibilityState?: string }).visibilityState;
+    }
+    return true;
+  });
+}
+
+test('Escape during a drag of the rail puts the strip back and leaves the tool, the selection and the store alone', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  const before = await beforeCancel(ui, 'selection');
+  const ink = await pageInk(ui);
+
+  // The drag has passed the click's 4 px and carried the strip most of the way to
+  // the left dock; Escape calls it off with the button still down (D7).
+  await drag(ui, before.grip, { x: 300, y: 400 }, 'left', async () => {
+    await browser.keyboard.press('Escape');
+    await settle(ui);
+  });
+  await settle(ui);
+
+  // The release that follows the cancel docks nothing and picks no tool: the
+  // strip, the side, the tool, the selection and the folder are the press's own.
+  expect(await writeCount(ui), 'a cancel sends no save').toBe(0);
+  await expectCalledOff(ui, before, ink);
+  await expectNoStep(ui);
+});
+
+test('a window that loses the focus during a drag of the rail puts the strip back', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  const before = await beforeCancel(ui, 'rectangle');
+  const ink = await pageInk(ui);
+
+  // The pointer a drag was following comes up in another window, so the drag ends
+  // here rather than wait for a release it will never get (D7).
+  await drag(ui, before.grip, { x: 300, y: 400 }, 'left', async () => {
+    await blurPage();
+    await settle(ui);
+  });
+  await settle(ui);
+
+  expect(await writeCount(ui), 'a blur sends no save').toBe(0);
+  await expectCalledOff(ui, before, ink);
+  await expectNoStep(ui);
+});
+
+test('a hidden tab during a drag of the rail puts the strip back', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  const before = await beforeCancel(ui, 'selection');
+  const ink = await pageInk(ui);
+
+  await drag(ui, before.grip, { x: 300, y: 400 }, 'left', async () => {
+    await hidePage(ui);
+    await settle(ui);
+  });
+  await settle(ui);
+
+  expect(await writeCount(ui), 'a hidden tab sends no save').toBe(0);
+  await expectCalledOff(ui, before, ink);
+  await expectNoStep(ui);
+});
+
+test('a cancelled mouse during a drag of the rail puts the strip back', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  const before = await beforeCancel(ui, 'rectangle');
+  const ink = await pageInk(ui);
+
+  // No protocol command cancels a mouse, so this is the event the browser would
+  // have sent for the pointer the drag holds, as `tests/editor-interrupts.e2e.ts`
+  // keeps the same cell.
+  await drag(ui, before.grip, { x: 300, y: 400 }, 'left', async () => {
+    await browser.evaluate(() => {
+      window.dispatchEvent(new PointerEvent('pointercancel', { pointerId: 1, isPrimary: true }));
+      return true;
+    });
+    await settle(ui);
+  });
+  await settle(ui);
+
+  expect(await writeCount(ui), 'a cancelled pointer sends no save').toBe(0);
+  await expectCalledOff(ui, before, ink);
+  await expectNoStep(ui);
+});
+
+test('a finger the browser cancels during a drag of the rail puts the strip back', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  const before = await beforeCancel(ui, 'rectangle');
+  const ink = await pageInk(ui);
+
+  // A finger presses the Rectangle tile and carries the strip most of the way to
+  // the left dock; the browser then takes the press over, as it does for a scroll,
+  // and cancels it — a real `pointercancel`, with the pointer the drag really had.
+  await touchCarry(before.grip, { x: 300, y: 400 }, 5);
+  await cancelTouch();
+  await settle(ui);
+
+  expect(await writeCount(ui), 'a cancelled finger sends no save').toBe(0);
+  await expectCalledOff(ui, before, ink);
+  await expectNoStep(ui);
+});
+
+test('a cancel while the paper holds a finger it refused puts the strip back, and that finger settles nothing', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  const before = await beforeCancel(ui, 'selection');
+  const ink = await pageInk(ui);
+  const { pen, touch } = await mixedPointers();
+  const saved = (await savedScene(ui, 'bare.json')).elements;
+
+  // A pen presses the Rectangle tile and carries the strip towards the left dock;
+  // a finger lands on the paper while the drag owns a pointer and stays there, so
+  // the board refuses it (29g). Escape then calls the drag off.
+  await pen('mousePressed', before.grip.x, before.grip.y);
+  await pen('mouseMoved', 400, 400);
+  await pen('mouseMoved', 300, 400);
+  await touch('touchStart', [{ x: 1000, y: 360, id: 0 }]);
+  await browser.keyboard.press('Escape');
+  await settle(ui);
+
+  // The refused finger was never half a gesture, so the move and the release it
+  // sends after the cancel settle nothing either: no Rectangle, no save.
+  await touch('touchMove', [{ x: 700, y: 500, id: 0 }]);
+  await touch('touchEnd', []);
+  await settle(ui);
+  expect(await writeCount(ui), 'the refused finger settles no gesture').toBe(0);
+  expect((await savedScene(ui, 'bare.json')).elements, 'the refused finger draws nothing').toEqual(saved);
+
+  // And the pen's own release docks nothing, because its drag was called off.
+  await pen('mouseReleased', 300, 400);
+  await settle(ui);
+  expect(await writeCount(ui), 'the cancelled pen docks nothing').toBe(0);
+  await expectCalledOff(ui, before, ink);
+  await expectNoStep(ui);
+});
+
+test('a fresh drag after a cancel docks the rail as any other', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+  const opened = await railPlace(ui, TOP_BAND);
+  const grip = tileCentre(boxOfPlace(opened), 1);
+
+  // Called off on its way to the left dock, so the strip is where it opened and
+  // the page keeps no side...
+  await drag(ui, grip, { x: 300, y: 400 }, 'left', async () => {
+    await browser.keyboard.press('Escape');
+    await settle(ui);
+  });
+  await settle(ui);
+  expectHeld(opened, await railPlace(ui, TOP_BAND), 'a called-off drag');
+  expect(await keptSide(ui), 'a cancel keeps no side').toBeNull();
+
+  // ...and a second drag from the same tile docks it, as a drag always does.
+  await drag(ui, grip, { x: 300, y: 400 });
+  await settle(ui);
+  expect(await keptSide(ui), 'the second drag docks on the left').toBe('left');
+  const ink = await railInk(ui, { x: 0, y: 200, width: 240, height: 400 });
+  expect(ink.height, 'the strip stands up the left side').toBeGreaterThan(ink.width * 2);
+  expect(await screen.getByRole('button', 'Select').getAttribute('aria-pressed'), 'a drag picks no tool').toBe(
+    'true',
+  );
+});
+
+// -------------------------------------------- the pointer a cancel leaves down
+
+/**
+ * The page a called-off press leaves its pointer in: the bare Scene open, the
+ * strip along the top with Select in hand, and the folder's writes held, so a
+ * save the late input made would wait where the test finds it.
+ */
+async function openForLateInput(ui: Ui): Promise<{ grip: { x: number; y: number } }> {
+  await openBare(ui);
+  const opened = await railPlace(ui, TOP_BAND);
+  await holdWrites(ui, 'bare.json');
+  return { grip: tileCentre(boxOfPlace(opened), 1) };
+}
+
+/** The Rectangle tile's pressed state: the tool a real click on it picks. */
+async function rectanglePressed(ui: Ui): Promise<string | null> {
+  return ui.screen.getByRole('button', { name: 'Rectangle', exact: true }).getAttribute('aria-pressed');
+}
+
+/**
+ * The exits that call a drag off with the pointer still in the person's hand:
+ * Escape, the window losing the focus, a hidden tab, and the browser taking the
+ * pointer over. None of them takes the press away, so the pointer's own moves
+ * and release arrive after it.
+ */
+const CALLS_OFF: Array<{ name: string; drive: (ui: Ui) => Promise<unknown> }> = [
+  { name: 'Escape', drive: (ui) => ui.browser.keyboard.press('Escape') },
+  { name: 'a lost focus', drive: () => blurPage() },
+  { name: 'a hidden tab', drive: (ui) => hidePage(ui) },
+  {
+    name: 'a cancelled pointer',
+    // No protocol command cancels a mouse, so this is the event the browser would
+    // send for the pointer the drag holds, as the test above keeps the same cell.
+    drive: (ui) =>
+      ui.browser.evaluate(() => {
+        window.dispatchEvent(new PointerEvent('pointercancel', { pointerId: 1, isPrimary: true }));
+        return true;
+      }),
+  },
+];
+
+for (const exit of CALLS_OFF) {
+  test(`a mouse let go back on a tile after ${exit.name} picks no tool and docks nothing`, async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    const { grip } = await openForLateInput(ui);
+    const mouse = await protocolMouse();
+
+    // The mouse presses the Rectangle tile, carries the strip past the click's 4
+    // px — a drag of the rail from there — and the exit calls it off with the
+    // button still down. The mouse then comes back to where it pressed and lets go
+    // there, which is a place of its own: the press the exit called off sent both.
+    await mouse('mouseMoved', grip.x, grip.y);
+    await mouse('mousePressed', grip.x, grip.y);
+    await mouse('mouseMoved', 300, 400);
+    await exit.drive(ui);
+    await settle(ui);
+    await mouse('mouseMoved', grip.x, grip.y);
+    await mouse('mouseReleased', grip.x, grip.y);
+    await settle(ui);
+
+    expect(await keptSide(ui), 'a called-off drag stores no side').toBeNull();
+    expect(await rectanglePressed(ui), 'the press the exit called off picks no tool').toBe('false');
+    expect(await writeCount(ui), 'a called-off drag sends no save').toBe(0);
+
+    // The next press of the same pointer is a press of its own: the tile's own
+    // click picks the tool, as a click there always does.
+    await mouse('mousePressed', grip.x, grip.y);
+    await mouse('mouseReleased', grip.x, grip.y);
+    await settle(ui);
+    expect(await rectanglePressed(ui), 'the next press on the tile picks Rectangle').toBe('true');
+  });
+}
+
+test('a pen a cancel left down carries no gesture and settles none', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  const { grip } = await openForLateInput(ui);
+  await screen.getByRole('button', { name: 'Rectangle', exact: true }).click();
+  const { pen, touch } = await mixedPointers();
+
+  // A pen presses the Rectangle tile and carries the strip towards the left dock;
+  // Escape calls the drag off with the pen still down.
+  await pen('mousePressed', grip.x, grip.y);
+  await pen('mouseMoved', 1080, 400);
+  await browser.keyboard.press('Escape');
+  await settle(ui);
+  expect(await toolInHand(ui), 'a called-off drag keeps Rectangle in hand').toEqual(['Rectangle']);
+
+  // A finger draws a 100×80 Rectangle on the paper, and the pen the cancel left
+  // down is carried over the paper and let go there while the finger is still
+  // down. Neither is the finger's gesture to take or to settle.
+  await touch('touchStart', [{ x: 400, y: 300, id: 0 }]);
+  await touch('touchMove', [{ x: 500, y: 380, id: 0 }]);
+  await pen('mouseMoved', 700, 460);
+  await pen('mouseReleased', 700, 460);
+  await settle(ui);
+  expect(await writeCount(ui), 'the cancelled pen settles no gesture').toBe(0);
+
+  // The finger's own release is the one that draws, and it draws what it carried.
+  await touch('touchEnd', []);
+  await expect.poll(() => writeCount(ui), { timeout: 5000 }).toBe(1);
+  await releaseWrite(ui);
+  const elements = (await savedScene(ui, 'bare.json')).elements;
+  expect(elements.length, 'one Rectangle, drawn by the finger').toBe(1);
+  const [drawn] = elements;
+  expect([drawn?.width, drawn?.height], 'the finger’s own Rectangle is what was saved').toEqual([100, 80]);
+  expect(await keptSide(ui), 'a called-off drag stores no side').toBeNull();
+
+  // And the pen's next press is a press of its own: it carries the strip to the
+  // left dock as any drag does. The release is 60 px from the editor's left edge,
+  // nearer the frame's left side than any other.
+  await pen('mouseMoved', grip.x, grip.y);
+  await pen('mousePressed', grip.x, grip.y);
+  await pen('mouseMoved', 60, 340);
+  await pen('mouseReleased', 60, 340);
+  await settle(ui);
+  expect(await keptSide(ui), 'the pen’s next press drags the rail').toBe('left');
+});
+
+// ------------------------------------ a cancel is the page's, not an editor's
+
+/**
+ * A second editor beside the first, as a host page places two of them: each
+ * takes half the window, the first on the left and the appended one on the right.
+ * Pointer ids are the page's, so a press one editor calls off is a press the
+ * editor beside it must not take either.
+ */
+async function addSecondEditor(ui: Ui): Promise<void> {
+  const added = await ui.browser.evaluate(() => {
+    const first = document.querySelector('esbozo-editor');
+    if (!(first instanceof HTMLElement)) {
+      return false;
+    }
+    first.style.cssText = 'inset:0 auto 0 0;width:50%';
+    const second = document.createElement('esbozo-editor');
+    second.style.cssText = 'inset:0 0 0 auto;width:50%';
+    document.body.append(second);
+    return true;
+  });
+  expect(added, 'the page holds a second editor beside the first').toBe(true);
+  await expect(ui.screen.getByRole('navigation', { name: 'Tools' })).toHaveCount(2);
+
+  // An editor the page made itself opens no Scene until it is asked to: the same
+  // stubbed folder and the same Scene in both, so a draw in either has somewhere
+  // to land and the file it lands in says which editor wrote it.
+  await ui.screen.getByRole('button', /Open folder/).nth(1).click();
+  await ui.screen.getByRole('button', { name: 'bare.json' }).click();
+  await settle(ui);
+}
+
+/**
+ * The elements the stubbed folder holds for the Scene, once both editors have
+ * saved: two editors each say `saved` in a status of their own, so the folder is
+ * what the test reads.
+ */
+async function heldElements(ui: Ui): Promise<Array<{ width?: number; height?: number }>> {
+  const saved = (await savedFiles(ui))['bare.json'] ?? '{}';
+  return ((JSON.parse(saved) as { elements?: Array<{ width?: number; height?: number }> }).elements ?? []);
+}
+
+test('a pen a cancel left down in one editor settles nothing in the editor beside it', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+  const place = await railPlace(ui, TOP_BAND);
+  const grip = tileCentre(boxOfPlace(place), 1);
+  const { pen, touch } = await mixedPointers();
+
+  // A pen presses the Rectangle tile and carries the strip; Escape calls that drag
+  // off with the pen still down, so the pointer it left down is the page's to
+  // refuse until it comes up.
+  await pen('mousePressed', grip.x, grip.y);
+  await pen('mouseMoved', 540, 400);
+  await browser.keyboard.press('Escape');
+  await settle(ui);
+
+  // A second editor takes the right half of the window, with the same folder and
+  // Scene, and is armed with Rectangle so a finger on its paper draws there.
+  await addSecondEditor(ui);
+  await screen.getByRole('button', { name: 'Rectangle', exact: true }).nth(1).click();
+  await settle(ui);
+
+  // The finger draws; the cancelled pen is then carried over the second editor and
+  // let go there while the finger is still down. Pointer ids are the page's, not an
+  // editor's, so the editor beside the cancel must refuse that pointer too.
+  await touch('touchStart', [{ x: 1040, y: 300, id: 0 }]);
+  await touch('touchMove', [{ x: 1140, y: 380, id: 0 }]);
+  await pen('mouseMoved', 1200, 460);
+  await pen('mouseReleased', 1200, 460);
+  await settle(ui);
+  expect(await heldElements(ui), 'the cancelled pen writes nothing').toEqual([]);
+  expect(await keptSide(ui), 'a called-off drag stores no side').toBeNull();
+
+  // The finger's own release is the one that draws, and it draws what it carried:
+  // one 100×80 Rectangle, on the finger's lift and nothing else.
+  await touch('touchEnd', []);
+  await expect.poll(async () => (await heldElements(ui)).length, { timeout: 5000 }).toBe(1);
+  const elements = await heldElements(ui);
+  expect([elements[0]?.width, elements[0]?.height], 'the finger’s own Rectangle is what was saved').toEqual([
+    100, 80,
+  ]);
+});
+
+test('an Enter that picks another tool after a cancel keeps it from the old press’s release', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  const { grip } = await openForLateInput(ui);
+  const mouse = await protocolMouse();
+  const ellipse = screen.getByRole('button', { name: 'Ellipse', exact: true });
+
+  // The mouse presses the Rectangle tile and carries the strip past the click's
+  // 4 px; Escape calls the drag off with the button still down.
+  await mouse('mouseMoved', grip.x, grip.y);
+  await mouse('mousePressed', grip.x, grip.y);
+  await mouse('mouseMoved', 300, 400);
+  await browser.keyboard.press('Escape');
+  await settle(ui);
+
+  // The person then picks Ellipse from the keys. That click is the person's, not
+  // the cancelled press's, so it runs — and the debt the cancelled press owes is
+  // still the cancelled press's to pay.
+  await ellipse.focus();
+  await browser.keyboard.press('Enter');
+  await settle(ui);
+  expect(await ellipse.getAttribute('aria-pressed'), 'Enter picks Ellipse').toBe('true');
+
+  // The old press comes back to the tile it started on and lets go there: its own
+  // click picks no tool, and Ellipse is still the tool in hand.
+  await mouse('mouseMoved', grip.x, grip.y);
+  await mouse('mouseReleased', grip.x, grip.y);
+  await settle(ui);
+  expect(await ellipse.getAttribute('aria-pressed'), 'the old release keeps Ellipse').toBe('true');
+  expect(await rectanglePressed(ui), 'the old release picks no tool').toBe('false');
+  expect(await keptSide(ui), 'a called-off drag stores no side').toBeNull();
+});
+
+test('a finger pressed on a tile before a cancel keeps the click it makes after it', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  const { grip } = await openForLateInput(ui);
+  const place = await railPlace(ui, TOP_BAND);
+  const at = tileCentre(boxOfPlace(place), 2);
+  const { pen, touch } = await mixedPointers();
+
+  // A pen presses the Rectangle tile and carries the strip off it; a finger then
+  // presses the Ellipse tile while that drag is still in flight, so the rail takes
+  // no drag of the finger's. Escape calls the pen's drag off.
+  await pen('mousePressed', grip.x, grip.y);
+  await pen('mouseMoved', 1080, 400);
+  await touch('touchStart', [{ x: at.x, y: at.y, id: 0 }]);
+  await browser.keyboard.press('Escape');
+  await settle(ui);
+
+  // The pen is let go over the paper, so its own click lands on no tile; the
+  // finger's release is a real touch click on Ellipse, and it is the finger's.
+  await pen('mouseMoved', 900, 380);
+  await pen('mouseReleased', 900, 380);
+  await touch('touchEnd', []);
+  await settle(ui);
+  expect(
+    await screen.getByRole('button', { name: 'Ellipse', exact: true }).getAttribute('aria-pressed'),
+    'the finger’s own click picks Ellipse',
+  ).toBe('true');
+  expect(await rectanglePressed(ui), 'the cancelled pen picks no tool').toBe('false');
+  expect(await keptSide(ui), 'a called-off drag stores no side').toBeNull();
 });

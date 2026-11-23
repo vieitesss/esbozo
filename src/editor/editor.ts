@@ -127,6 +127,14 @@ class EsbozoEditorElement extends HTMLElement {
    * the drag's and picks no tool. The next press clears it.
    */
   #railDragged = false;
+  /**
+   * The pointer a called-off press left down still owes the rail the click its
+   * release sends, or null. That click lands on the tile the press landed on and
+   * picks no tool: the person called the press off. The debt is that pointer's
+   * alone, so another pointer's click, or a key's, still picks its own tool, and a
+   * fresh press by the same pointer pays it (D6, D7).
+   */
+  #railClickOwed: number | null = null;
   /** True once the editor's listeners are on the page. */
   #wired = false;
   /**
@@ -473,8 +481,9 @@ class EsbozoEditorElement extends HTMLElement {
     // The stack's press is on the bubble path, so a note it shuts still lets
     // the press land where it was aimed.
     this.#notes.listen();
-    document.addEventListener('visibilitychange', this.#gestures.release);
-    window.addEventListener('blur', this.#gestures.release);
+    // Every hold of the board ends out of sight, and the rail's drag beside it.
+    document.addEventListener('visibilitychange', this.#onInterrupt);
+    window.addEventListener('blur', this.#onInterrupt);
     window.addEventListener('resize', this.#onResize);
 
     requestAnimationFrame(() => this.#drawRailArt());
@@ -494,7 +503,7 @@ class EsbozoEditorElement extends HTMLElement {
     document.removeEventListener('keyup', this.#onKeyUp);
     document.removeEventListener('pointerdown', this.#gestures.anyPress);
     this.#notes.unlisten();
-    document.removeEventListener('visibilitychange', this.#gestures.release);
+    document.removeEventListener('visibilitychange', this.#onInterrupt);
     this.#rail.removeEventListener('pointerdown', this.#onRailDown);
     this.#rail.removeEventListener('click', this.#onRailClick);
     this.#menu.removeEventListener('click', this.#onMenuClick);
@@ -507,7 +516,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.removeEventListener('focusin', this.#onFocusIn);
     this.removeEventListener('focusout', this.#onFocusOut);
     window.removeEventListener('resize', this.#onResize);
-    window.removeEventListener('blur', this.#gestures.release);
+    window.removeEventListener('blur', this.#onInterrupt);
     // A page that takes the editor away takes the words with it: the field is a
     // child that left with the element, and no gesture of this pointer survives
     // the DOM it was pressed on — the pan is the page's, and it goes too.
@@ -1257,6 +1266,15 @@ class EsbozoEditorElement extends HTMLElement {
       // note's, not the Scene's.
       return;
     }
+    if (event.key === 'Escape' && this.#railDrag !== null) {
+      // A drag of the rail is the page's chrome, and its Escape is the drag's
+      // alone: the strip goes back where it hung and the Scene keeps the tool
+      // and the selection it had (D7, I6). Without this the Escape below would
+      // drop the selection as well, which is the drag's to keep.
+      event.preventDefault();
+      this.#callOffRailDrag();
+      return;
+    }
     if (event.key === 'Escape' && this.#gestures.placing()) {
       // A shaft being placed is finished, not dropped: Escape ends the place at
       // the last point it put down, as Enter does, and the preview segment goes
@@ -1420,17 +1438,25 @@ class EsbozoEditorElement extends HTMLElement {
    */
   #onPaperDown = (event: PointerEvent): void => {
     if (this.#railDrag !== null) {
-      this.#gestures.refuse(event);
+      this.#gestures.refuse(event.pointerId);
       return;
     }
     this.#gestures.down(event);
   };
 
-  #onRailClick = (event: Event): void => {
+  #onRailClick = (event: MouseEvent): void => {
     if (this.#railDragged) {
       // The click a committed drag's release also sends: it has already docked,
       // and it picks no tool (D6).
       this.#railDragged = false;
+      return;
+    }
+    if (event instanceof PointerEvent && event.pointerId === this.#railClickOwed && event.detail !== 0) {
+      // The click a called-off press's release sends lands on the tile it pressed:
+      // it is that pointer's own, and picks no tool. A click the keys made (`detail`
+      // 0: Enter or Space on a tile) belongs to no pointer: the person asked for it
+      // after the cancel, so it runs and the debt waits for the pointer that owes it.
+      this.#railClickOwed = null;
       return;
     }
     const button = (event.target as Element | null)?.closest('[data-tool]') as HTMLElement | null;
@@ -1447,6 +1473,12 @@ class EsbozoEditorElement extends HTMLElement {
    * docks against the frame the drag started on (D3).
    */
   #onRailDown = (event: PointerEvent): void => {
+    // A press by the pointer a called-off one left down is a press of its own, so
+    // the debt that pointer owes is paid here and its release picks as any press
+    // does. Another pointer's press pays nothing: the debt is not its own.
+    if (this.#railClickOwed === event.pointerId) {
+      this.#railClickOwed = null;
+    }
     // One drag at a time, and the primary button's: a second pointer, or the
     // right button, does nothing to a drag already in flight.
     if (this.#railDrag !== null || event.button !== 0 || !event.isPrimary) {
@@ -1516,8 +1548,40 @@ class EsbozoEditorElement extends HTMLElement {
 
   #onRailCancel = (event: PointerEvent): void => {
     if (this.#railDrag?.pointer === event.pointerId) {
-      this.#endRailDrag();
+      this.#callOffRailDrag();
     }
+  };
+
+  /**
+   * A drag the page calls off — Escape, a window that lost the focus, a hidden
+   * tab, a cancelled pointer — puts the rail back where it hung and stores
+   * nothing (D7, I6). The side and the frame a drag was measured against are the
+   * ones the press found, so re-hanging the strip from them is the whole undo of
+   * it. The pointer is still in the person's hand, though, and what it sends
+   * before it comes up is the called-off press's: the board refuses its moves and
+   * its release, so it settles no gesture at the place it lands, and the click its
+   * release sends to a tile picks no tool. A fresh press works as any press does.
+   */
+  #callOffRailDrag(): void {
+    const drag = this.#railDrag;
+    if (drag === null) {
+      return;
+    }
+    this.#endRailDrag();
+    this.#gestures.refuse(drag.pointer);
+    this.#railClickOwed = drag.pointer;
+    this.#hangRail();
+  }
+
+  /**
+   * The page lost the focus, or went out of sight: no pointer of this editor will
+   * ever come up here. Every hold of the board ends, and a drag of the rail — the
+   * page's chrome, not a gesture of the board's — is called off beside it, so a
+   * release that lands in another window docks nothing (D7, I6).
+   */
+  #onInterrupt = (): void => {
+    this.#gestures.release();
+    this.#callOffRailDrag();
   };
 
   /** Drop the press on the rail, its capture and the listeners it put on the page. */
