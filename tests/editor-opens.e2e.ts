@@ -86,7 +86,7 @@ interface Holds {
   /** True while the next listing of a picked folder waits for the test. */
   listing: boolean;
   /** The listings waiting to be answered, oldest first. */
-  listings: Array<{ land: () => void }>;
+  listings: Array<{ land: () => void; fail: (message: string) => void }>;
 }
 
 /** A write the stub's gate holds: it lands when the test says so. */
@@ -131,8 +131,11 @@ async function openPage(ui: Ui, folders: Folders): Promise<void> {
             }
             page.__esbozoHolds.listing = false;
             return (async function* held(): AsyncIterableIterator<{ kind: string; name: string }> {
-              await new Promise<void>((resolve) => {
-                page.__esbozoHolds.listings.push({ land: resolve });
+              await new Promise<void>((resolve, reject) => {
+                page.__esbozoHolds.listings.push({
+                  land: resolve,
+                  fail: (message) => reject(new Error(message)),
+                });
               });
               yield* folder.values();
             })();
@@ -240,6 +243,14 @@ async function landListing(ui: Ui): Promise<void> {
     (window as unknown as GateWindow).__esbozoHolds.listings.shift()!.land();
     return true;
   });
+}
+
+/** Answer the held listing with a failure, as a folder that cannot be read does. */
+async function refuseListing(ui: Ui, message: string): Promise<void> {
+  await ui.browser.evaluate((words) => {
+    (window as unknown as GateWindow).__esbozoHolds.listings.shift()!.fail(words);
+    return true;
+  }, message);
 }
 
 /** Wait until the page asks the disk for the held write, so it is in flight. */
@@ -413,6 +424,32 @@ test('a listing that lands after the note shut does not reopen it', async ({
   // it again. What the answer read is not on the page to be seen — the note is
   // hidden — so a listing that opened it is the one thing this case proves.
   await expect(screen.getByRole('dialog', 'Scene files')).toBeHidden();
+});
+
+test('a listing that fails after the note shut writes no status', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui: Ui = { app, browser, screen };
+  await openPage(ui, folderWith());
+  const status = screen.getByRole('status');
+  // No Scene is in hand yet: the folder was listed, and nothing said about it.
+  await expect(status).toHaveText('');
+
+  // The person browses the folder while its answer waits, and shuts the note
+  // before the folder says anything: nobody waits for that listing any more.
+  await holdListing(ui);
+  await browseFolder(ui, 'A');
+  await listingWaiting(ui);
+  await browser.keyboard.press('Escape');
+  await expect(screen.getByRole('dialog', 'Scene files')).toBeHidden();
+
+  // The folder cannot answer now, and a failure for a read the note no longer
+  // wants is not news about the Scene in hand.
+  await refuseListing(ui, 'the folder could not be read');
+  await settle(ui);
+  await expect(status).toHaveText('');
 });
 
 test('a listing held while another note opens still shows the Scenes it read', async ({
