@@ -342,6 +342,42 @@ test('Escape shuts the note on top, and only that one', async ({ app, browser, s
   await expect.poll(() => focusOn(ui)).toBe('canvas');
 });
 
+test('Escape from the Command field shuts the note on top, and not the Commands under it', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+  const help = ui.screen.getByRole('button', 'Shortcuts');
+  const sheet = ui.screen.getByRole('dialog', 'Shortcuts');
+  const commands = ui.screen.getByRole('dialog', 'Commands');
+  const field = ui.screen.getByRole('textbox', 'Command');
+
+  // Commands first, from the keys, with the caret in its field.
+  await palette(ui);
+  await expect.poll(() => focusOn(ui)).toBe('search');
+
+  // The sheet is asked for over it from the control beside it, and the caret
+  // comes back to the Command field: the note the person sees on top is the
+  // sheet, and the field they are typing in is the one under it.
+  await browser.keyboard.press('Shift+Tab');
+  await expect(help).toBeFocused();
+  await browser.keyboard.press('Enter');
+  await expect(sheet).toBeVisible();
+  await browser.keyboard.press('Tab');
+  await expect(field).toBeFocused();
+
+  // Escape is the top note's, wherever the focus sits: the sheet shuts and the
+  // Commands under it stays, so the visible order and the key agree.
+  await browser.keyboard.press('Escape');
+  await expect(sheet).toBeHidden();
+  await expect(commands).toBeVisible();
+  await browser.keyboard.press('Escape');
+  await expect(commands).toBeHidden();
+  await expect(help).toHaveAttribute('aria-expanded', 'false');
+});
+
 test('the Shortcuts sheet keeps its left border on the narrowest page', async ({
   app,
   browser,
