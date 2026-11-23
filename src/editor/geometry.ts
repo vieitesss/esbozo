@@ -632,32 +632,19 @@ export function railFrame(
   const diagram = boxOf(scene.elements, elementsById(scene.elements), layout);
   const shown = diagram === null ? null : grown(onScreen(diagram, view));
   const frame = (shown === null ? null : cutTo(shown, editor)) ?? emptyFrame(editor);
-  return { frame, ...dockOn(side, frame, editor, outline) };
-}
-
-/**
- * The dock a side of a frame measured earlier hangs at: the frame a drag pressed
- * (D3), and the room the editor had when that frame was measured. A palette move
- * measures its own frame through `railFrame` instead (I4).
- */
-export function dockOnFrame(
-  frame: Box,
-  editor: { width: number; height: number },
-  side: RailSide,
-  outline: RailOutline,
-): RailDock {
-  return dockOn(side, frame, editor, outline);
+  return { frame, ...dockOnFrame(frame, editor, side, outline) };
 }
 
 /**
  * The dock on one side of the frame: the strip's outline one gap outside it,
  * centred on that side, or the strip just inside the editor's edge where the
- * frame leaves no room for the gap (D1, D2).
+ * frame leaves no room for the gap (D1, D2). The frame is the one just measured
+ * for the page (`railFrame`), or the one a drag measured at its own press (D3).
  */
-function dockOn(
-  side: RailSide,
+export function dockOnFrame(
   frame: Box,
   editor: { width: number; height: number },
+  side: RailSide,
   outline: RailOutline,
 ): RailDock {
   // What the strip measures once the outline's overhang is taken back off it.
