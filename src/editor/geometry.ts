@@ -743,9 +743,16 @@ function outside(at: number, start: number, size: number): number {
  * nearest tile: the bottom dock meets the mode's corner, the left dock the
  * top-left status of a short editor, and the top dock a narrow editor's Scene
  * name. The strip moves toward the middle across its own side — its pencilled
- * outline included, so the outline never crosses the chrome either — only as far
- * as the nearest corner asks, and never so far that its far end leaves the
- * editor. A dock no corner meets is left exactly where the frame measured it.
+ * outline included, so the outline never crosses the chrome either — until it
+ * meets no corner at all, taking the smallest travel that does: clearing one
+ * corner can stop the strip inside the next one, where that corner takes the
+ * press and nothing has moved. A dock no corner meets is left exactly where the
+ * frame measured it.
+ *
+ * It never travels so far that its far end leaves the editor (D2). Where no place
+ * inside the editor clears every corner, the strip stops where the least of one
+ * is under it: a strip that leaves the editor is no dock, and what is left is the
+ * editor's own size rather than a move the strip declined to make.
  *
  * The Style menu is no chrome to clear: it may cover a right dock while it is
  * open (O2).
@@ -758,41 +765,91 @@ function clearOfStatus(
   viewport: { width: number; height: number },
 ): RailDock {
   const strip = { width: outline.width - outline.overhang * 2, height: outline.height - outline.overhang * 2 };
-  const box = stripBox(rail.dock, strip, side);
-  const worn: Box = {
-    x: box.x - outline.overhang,
-    y: box.y - outline.overhang,
-    width: outline.width,
-    height: outline.height,
+  const start = stripBox(rail.dock, strip, side);
+  const wornAt = (travel: number): Box => {
+    const box = movedInland(start, side, travel);
+    return {
+      x: box.x - outline.overhang,
+      y: box.y - outline.overhang,
+      width: outline.width,
+      height: outline.height,
+    };
   };
-  const met = chrome.filter((corner) => overlaps(worn, corner));
-  if (met.length === 0) {
+  const held = wornAt(0);
+  if (chrome.every((corner) => !overlaps(held, corner))) {
     return rail;
   }
   // How far inward the strip can go before its far end would leave the editor.
-  const room = {
-    down: viewport.height - RAIL_INSET - worn.height - worn.y,
-    up: worn.y - RAIL_INSET,
-    right: viewport.width - RAIL_INSET - worn.width - worn.x,
-    left: worn.x - RAIL_INSET,
-  };
-  const asked = {
-    down: Math.max(...met.map((corner) => corner.y + corner.height - worn.y)),
-    up: Math.max(...met.map((corner) => worn.y + worn.height - corner.y)),
-    right: Math.max(...met.map((corner) => corner.x + corner.width - worn.x)),
-    left: Math.max(...met.map((corner) => worn.x + worn.width - corner.x)),
-  };
-  const travel = (ask: number, limit: number): number => Math.min(ask, Math.max(0, limit));
+  const limit = inlandRoom(held, side, viewport);
+  // The travels worth asking about: the strip where it is, and where it would
+  // come out from under each corner. Between two of them no corner starts or
+  // stops being met, so one of them is the smallest that meets none.
+  const asks = chrome.map((corner) => clearOfCorner(held, corner, side));
+  const travels = [...new Set([0, ...asks.map((ask) => Math.max(0, Math.min(ask, limit)))])].sort(
+    (one, other) => one - other,
+  );
+  const clear = travels.find((travel) => chrome.every((corner) => !overlaps(wornAt(travel), corner)));
+  const travel =
+    clear ??
+    travels.reduce((best, one) =>
+      covered(wornAt(one), chrome) < covered(wornAt(best), chrome) ? one : best,
+    );
+  return { dock: dockOf(movedInland(start, side, travel), strip, side), stopped: rail.stopped };
+}
+
+/** A strip box moved `travel` toward the editor's middle, across the side it hangs on. */
+function movedInland(box: Point, side: RailSide, travel: number): Point {
   switch (side) {
     case 'top':
-      return { dock: { x: rail.dock.x, y: rail.dock.y + travel(asked.down, room.down) }, stopped: rail.stopped };
+      return { x: box.x, y: box.y + travel };
     case 'bottom':
-      return { dock: { x: rail.dock.x, y: rail.dock.y - travel(asked.up, room.up) }, stopped: rail.stopped };
+      return { x: box.x, y: box.y - travel };
     case 'left':
-      return { dock: { x: rail.dock.x + travel(asked.right, room.right), y: rail.dock.y }, stopped: rail.stopped };
+      return { x: box.x + travel, y: box.y };
     case 'right':
-      return { dock: { x: rail.dock.x - travel(asked.left, room.left), y: rail.dock.y }, stopped: rail.stopped };
+      return { x: box.x - travel, y: box.y };
   }
+}
+
+/** How far inward a strip box must move to come out from under one corner. */
+function clearOfCorner(worn: Box, corner: Box, side: RailSide): number {
+  switch (side) {
+    case 'top':
+      return corner.y + corner.height - worn.y;
+    case 'bottom':
+      return worn.y + worn.height - corner.y;
+    case 'left':
+      return corner.x + corner.width - worn.x;
+    case 'right':
+      return worn.x + worn.width - corner.x;
+  }
+}
+
+/** How far inward a strip box can move before its far end leaves the editor. */
+function inlandRoom(worn: Box, side: RailSide, viewport: { width: number; height: number }): number {
+  switch (side) {
+    case 'top':
+      return viewport.height - RAIL_INSET - worn.height - worn.y;
+    case 'bottom':
+      return worn.y - RAIL_INSET;
+    case 'left':
+      return viewport.width - RAIL_INSET - worn.width - worn.x;
+    case 'right':
+      return worn.x - RAIL_INSET;
+  }
+}
+
+/** How much of the chrome's boxes a strip box covers, in square pixels. */
+function covered(worn: Box, chrome: readonly Box[]): number {
+  let area = 0;
+  for (const corner of chrome) {
+    const width = Math.min(worn.x + worn.width, corner.x + corner.width) - Math.max(worn.x, corner.x);
+    const height = Math.min(worn.y + worn.height, corner.y + corner.height) - Math.max(worn.y, corner.y);
+    if (width > 0 && height > 0) {
+      area += width * height;
+    }
+  }
+  return area;
 }
 
 /**
