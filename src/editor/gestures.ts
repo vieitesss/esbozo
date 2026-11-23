@@ -360,6 +360,17 @@ export class Gestures {
   }
 
   /**
+   * Whether a sweep of a selection is in flight: a gesture that changes nothing
+   * of the Scene, only the band it would land. The page ends it where it ends a
+   * Scene edit — Escape, another Scene, a page that may only read — because it
+   * holds the pointer just as one does. The pan is not one: it is the page's,
+   * and it stays in the hand it was taken with until its key or button comes up.
+   */
+  sweeping(): boolean {
+    return this.#drag?.kind === 'box';
+  }
+
+  /**
    * What the page shows while a gesture is in flight, or null when no gesture is
    * in the way: the Scene as it is, under the words a session may be holding.
    * The three answers are a drag that shows its own Elements, a drag that shows
