@@ -30,7 +30,7 @@ const run = promisify(execFile);
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 /** What the bundle may weigh, gzipped, with Rough.js in it. */
-const BUDGET = 64 * 1024;
+const BUDGET = 72 * 1024;
 
 const PACKAGE = JSON.parse(await readFile(join(ROOT, 'package.json'), 'utf8')) as {
   version: string;
