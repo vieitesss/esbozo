@@ -108,8 +108,8 @@ class EsbozoEditorElement extends HTMLElement {
   #railDock: RailDock | null = null;
   /**
    * Whether the frame itself left no room for the rail beside it, as the last
-   * measure found it (D2). A resize hangs the rail again without measuring the
-   * frame, so the stop the frame asked for travels with the dock it measured.
+   * measure found it (D2). A resize clears the rail from the frame's own dock
+   * without measuring the frame, so the stop the frame asked for travels with it.
    */
   #railHeld = false;
   /**
@@ -1189,9 +1189,9 @@ class EsbozoEditorElement extends HTMLElement {
 
   /**
    * The strip moved in clear of the status corners as they are now, from the dock it
-   * was placed on (O2). The frame is not measured again: a pan or a zoom has moved
-   * the diagram, and neither moves the rail. A dock no corner meets is that dock, so
-   * a corner that shrinks gives the room back.
+   * was placed on (O2), for a resize of the window or of a corner. The frame is not
+   * measured again: a pan or a zoom has moved the diagram, and neither moves the rail.
+   * A dock no corner meets is that dock, so a corner that shrinks gives the room back.
    */
   #clearRail(): void {
     const offset = this.#frameOffset;
@@ -1502,10 +1502,12 @@ class EsbozoEditorElement extends HTMLElement {
 
   #onResize = (): void => {
     this.#drawRailArt();
-    // The window changed shape, so the rail keeps its offset from the middle of
-    // what the editor draws in, and is pulled inside when that offset no longer
-    // fits (D3, I7).
-    this.#hangRail();
+    // The window changed shape, so the rail keeps the dock the frame asked for,
+    // as an offset from the middle of what the editor draws in, and a resize is
+    // measured again for the room the status leaves: both the corners and the
+    // editor are the size they have now, and growing back restores the dock (D3,
+    // I7, O2).
+    this.#clearRail();
     // The window changed, so the room the note leaves has too.
     this.#refresh();
   };
