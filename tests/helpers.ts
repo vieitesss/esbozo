@@ -588,6 +588,69 @@ export const CROSSING_SCENE = {
 export const CROSSING: View = { zoom: 1, panX: 590, panY: 350 };
 
 /**
+ * Four bent shafts, one per way a person meets a bend on one arrow or line: a
+ * `round` arch whose head follows the curve it arrives on rather than the line
+ * between its ends, a route of two `sharp` corners, one `sharp` turn and one
+ * `round` sweep on the same arrow, and a three-point self-loop whose ends both
+ * Snap to one box. Laid out two by two, each shaft in its own quarter of a
+ * 940×500 page, so the whole Scene fits 1:1 into a 1280×800 window.
+ */
+export const BENT_SCENE = {
+  version: 1,
+  title: 'Bent shafts',
+  defaults: { roughness: 1 },
+  elements: [
+    {
+      id: 'sweep',
+      type: 'arrow',
+      corners: 'round',
+      points: [
+        { x: 60, y: 300 },
+        { x: 240, y: 120 },
+        { x: 440, y: 300 },
+      ],
+      heads: { start: 'none', end: 'arrow' },
+    },
+    {
+      id: 'corners',
+      type: 'arrow',
+      corners: 'sharp',
+      points: [
+        { x: 560, y: 120 },
+        { x: 760, y: 120 },
+        { x: 760, y: 280 },
+        { x: 1000, y: 280 },
+      ],
+      heads: { start: 'none', end: 'arrow' },
+    },
+    {
+      id: 'mixed',
+      type: 'arrow',
+      corners: 'sharp',
+      points: [
+        { x: 60, y: 620 },
+        { x: 300, y: 620, corner: 'sharp' },
+        { x: 300, y: 440, corner: 'round' },
+        { x: 520, y: 440 },
+      ],
+      heads: { start: 'none', end: 'arrow' },
+    },
+    { id: 'state', type: 'rectangle', x: 720, y: 460, width: 160, height: 120 },
+    {
+      id: 'loop',
+      type: 'arrow',
+      corners: 'round',
+      points: [
+        { x: 800, y: 460, snap: 'state' },
+        { x: 1000, y: 520 },
+        { x: 800, y: 520, snap: 'state' },
+      ],
+      heads: { start: 'none', end: 'arrow' },
+    },
+  ],
+};
+
+/**
  * A box whose Label does not fit it, so the words reach above and below the
  * outline: the ink bounds and the outline are two different rectangles, and
  * only the outline may move a resize handle.
