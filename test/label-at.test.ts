@@ -12,7 +12,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { labelAtFor, shaftLabelAnchor, shaftPath } from '../src/geometry.ts';
+import type { ArrowOrLineElement } from '../src/scene.ts';
 import type { ShaftPath, ShaftPiece } from '../src/geometry.ts';
+import { loadProjectModules } from './modules.ts';
 import type { Corner, Point } from '../src/scene.ts';
 
 /** The points one Scene of this suite writes, and the corner a middle one turns by. */
@@ -150,4 +152,46 @@ test('a drag on a straight two-point shaft saves the fraction its projection alw
   const read = labelAtFor(path, { x: 0, y: 7 });
   assert.equal(read.t, 0.2188);
   assert.ok(Math.abs(read.offset + Math.sqrt(24.5)) < 1e-2, `offset ${read.offset}`);
+});
+
+test('a straight two-point drag saves the labelAt bytes it always wrote', async () => {
+  // Base f2c54ad wrote these exact bytes for both drags, and a shaft that can
+  // bend must not change what a straight one writes. Both pointer points put
+  // the words an exact half pixel off the line, where measuring the offset from
+  // the rounded place can land the save on the other side of the tie.
+  const cases = [
+    {
+      points: [{ x: 0, y: 0 }, { x: 160, y: 120 }],
+      anchor: { x: 0, y: 6.875 },
+      saved: { t: 0.0206, offset: -5 },
+    },
+    {
+      points: [{ x: 0, y: 0 }, { x: 16, y: 16 }],
+      anchor: { x: 0, y: 7 },
+      saved: { t: 0.2188, offset: -5 },
+    },
+  ];
+  const modules = await loadProjectModules();
+  for (const { points, anchor, saved } of cases) {
+    const opening = modules.parseScene(
+      JSON.stringify({
+        version: 1,
+        elements: [{ id: 'line', type: 'line', corners: 'round', points, label: 'Words' }],
+      }),
+    );
+    assert.ok(opening.ok, 'the straight shaft Scene parses');
+    const elt = opening.scene.elements[0] as ArrowOrLineElement;
+    const path = shaftPath(elt.points, elt.corners, undefined, undefined);
+    const read = labelAtFor(path, anchor);
+    // What the file holds: the Scene the save writes, read back as the editor
+    // reads it, so the place this drag saves is the place a person reopens.
+    const written = modules.serialiseScene({
+      ...opening.scene,
+      elements: [{ ...elt, labelAt: read }],
+    });
+    const reopened = modules.parseScene(written);
+    assert.ok(reopened.ok, 'the saved Scene parses');
+    const place = (reopened.scene.elements[0] as ArrowOrLineElement).labelAt;
+    assert.deepEqual(place, saved);
+  }
 });
