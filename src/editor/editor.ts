@@ -7,13 +7,14 @@
  * folder only changes what the Scenes note lists: the open Scene keeps its own
  * `{ folder, name }` destination.
  */
-import { elementBounds, elementsById } from '../renderer.js';
-import { emptyScene, parseFragment, parseScene, serialiseFragment, serialiseScene } from '../scene.js';
+import { emptyScene, parseFragment, parseScene, serialiseScene } from '../scene.js';
 import type { Corner, Element as SceneElement, Scene } from '../scene.js';
 import { PRIMARY_SCENE_EXTENSION, sceneFileNameFor, sceneStem } from '../paths.js';
-import { copies, idsOf, without } from './elements.js';
-import { arranged, movableCount } from './arrange.js';
+import { replaced, selectedFrom } from './elements.js';
+import { movableCount } from './arrange.js';
 import type { ArrangeAct } from './arrange.js';
+import { deleted, detached, duplicated, nudged, pasted, rearranged, restyled } from './edits.js';
+import type { Edited, Landing } from './edits.js';
 import { actionById, actionFor } from './actions.js';
 import type { ActionHost, ActionState, ToolId } from './actions.js';
 import { exportPng } from './export.js';
@@ -29,17 +30,14 @@ import type { Shown } from './page.js';
 import { CommandPalette } from './palette.js';
 import { PointMenu } from './point-menu.js';
 import { menuSignature, styleNote } from './menu.js';
-import { nextRoughness, roughnessLabel, styled } from './style.js';
+import { nextRoughness, roughnessLabel } from './style.js';
 import type { StyleKey } from './style.js';
 import { canPickFolder } from './files.js';
 import { servedFolder } from './server-folder.js';
 import {
-  boxOf,
   clampedDock,
   fittedView,
-  landingOffset,
   leftDockEdge,
-  moved,
   railFrame,
   zoomedAt,
 } from './geometry.js';
@@ -48,7 +46,7 @@ import { History } from './history.js';
 import { railArt } from './rail.js';
 import { readRailSide, writeRailSide } from './rail-preference.js';
 import { SHELL } from './shell.js';
-import { freedEnd, isShaft, released } from './snap.js';
+import { isShaft } from './snap.js';
 import type { End } from './snap.js';
 import { Typing } from './typing.js';
 import { sceneFile } from './paint.js';
@@ -56,8 +54,6 @@ import { sceneFile } from './paint.js';
 const NUDGE = 1;
 const NUDGE_WITH_SHIFT = 10;
 const ZOOM_STEP = 1.2;
-/** How far a copy, a pasted Element or a duplicate lands from what it copies, in Scene units. */
-const COPY_OFFSET = { x: 16, y: 16 };
 /** Nudges closer together than this are one undo step: a held arrow key is one gesture. */
 const NUDGE_BURST_MS = 800;
 /**
@@ -649,8 +645,7 @@ class EsbozoEditorElement extends HTMLElement {
   }
 
   #selectedElements(): SceneElement[] {
-    const selected = new Set(this.#selected);
-    return this.#shown().elements.filter((element) => selected.has(element.id));
+    return selectedFrom(this.#shown().elements, this.#selected);
   }
 
   /**
@@ -762,12 +757,7 @@ class EsbozoEditorElement extends HTMLElement {
       return;
     }
     const switched = withCorner(element, bend.index, corner);
-    this.#applyScene({
-      ...scene,
-      elements: scene.elements.map((candidate) =>
-        candidate.id === bend.id ? switched : candidate,
-      ),
-    });
+    this.#applyScene({ ...scene, elements: replaced(scene.elements, new Set([bend.id]), () => switched) });
   }
 
   /**
@@ -788,12 +778,7 @@ class EsbozoEditorElement extends HTMLElement {
     }
     this.#picked.letGo();
     const removed = withoutBend(element, bend.index);
-    this.#applyScene({
-      ...scene,
-      elements: scene.elements.map((candidate) =>
-        candidate.id === bend.id ? removed : candidate,
-      ),
-    });
+    this.#applyScene({ ...scene, elements: replaced(scene.elements, new Set([bend.id]), () => removed) });
   }
 
   /**
@@ -802,25 +787,12 @@ class EsbozoEditorElement extends HTMLElement {
    * has become while the clipboard took the copy.
    */
   #remove(ids: ReadonlySet<string>): void {
-    if (ids.size === 0) {
-      return;
-    }
-    this.#applyScene(
-      { ...this.#scene, elements: without(this.#scene.elements, ids) },
-      { select: this.#selected.filter((id) => !ids.has(id)) },
-    );
+    this.#land(deleted(this.#scene, this.#selected, ids));
   }
 
-  /**
-   * A duplicate is a copy pasted in place, offset so the copy reads as a copy:
-   * one step. It goes through the fragment Copy writes and Paste reads, so a
-   * Snap to an Element outside the selection is dropped and the stored point is
-   * kept, and a Snap to an Element inside the selection follows its copy.
-   */
+  /** Duplicate the selected Elements: Paste of what Copy would write. */
   #duplicate(): void {
-    const selected = this.#selectedElements();
-    const fragment = parseFragment(serialiseFragment(this.#scene, selected), this.#scene.defaults);
-    this.#insertCopies(fragment ?? []);
+    this.#land(duplicated(this.#scene, this.#selectedElements(), this.#landing()));
   }
 
   /**
@@ -930,20 +902,16 @@ class EsbozoEditorElement extends HTMLElement {
 
   /** Adds copies of the given Elements as one step, selected, so a paste can be moved at once. */
   #insertCopies(elements: readonly SceneElement[]): void {
-    if (elements.length === 0) {
-      return;
-    }
-    const byId = elementsById(elements);
-    const box = boxOf(elements, byId, this.#connection.layout);
-    const offset =
-      box === null
-        ? COPY_OFFSET
-        : landingOffset(box, this.#page.viewport.view, this.#page.viewport.size(), COPY_OFFSET);
-    const added = copies(elements, idsOf(this.#scene.elements), offset);
-    this.#applyScene(
-      { ...this.#scene, elements: [...this.#scene.elements, ...added] },
-      { select: added.map((element) => element.id) },
-    );
+    this.#land(pasted(this.#scene, elements, this.#landing()));
+  }
+
+  /** What a paste or a duplicate needs of the page to land where a person can see it. */
+  #landing(): Landing {
+    return {
+      layout: this.#connection.layout,
+      view: this.#page.viewport.view,
+      viewport: this.#page.viewport.size(),
+    };
   }
 
   /**
@@ -1005,34 +973,32 @@ class EsbozoEditorElement extends HTMLElement {
     }
   }
 
+  /**
+   * Land one Scene edit the edits module made: the Scene it returns and the
+   * selection that comes with it, so no caller filters or extends a selection
+   * itself. An edit that asked for nothing lands nothing, and one whose
+   * selection is `null` leaves the selection — and the bend point a press may
+   * hold — exactly where it is.
+   */
+  #land(edit: Edited | null, amend = false): void {
+    if (edit === null) {
+      return;
+    }
+    const { selection } = edit;
+    this.#applyScene(edit.scene, selection === null ? { amend } : { amend, select: selection });
+  }
+
   /** Change the selected Elements' style, every pick arriving here. */
   #styleSelection(key: StyleKey, value: string): void {
-    const picked = new Set(this.#selected);
-    this.#applyScene({
-      ...this.#scene,
-      elements: this.#scene.elements.map((element) =>
-        picked.has(element.id) ? styled(element, key, value) : element,
-      ),
-    });
+    this.#land(restyled(this.#scene, this.#selected, key, value));
   }
 
   /**
-   * Reorder, align or spread the selected Elements. Arrange asks for the bounds
-   * of what it can move as it needs them, so Order measures nothing and the id
-   * index is built only when something is measured at all. The bounds are the
-   * Renderer's own, so an alignment lands where the drawing is rather than where
-   * a stored box says: a Snapped end and a Label are measured, not guessed.
+   * Reorder, align or spread the selected Elements. The rule and every bound it
+   * measures belong to the edit.
    */
   #arrangeSelection(act: ArrangeAct): void {
-    const elements = this.#scene.elements;
-    let byId: ReadonlyMap<string, SceneElement> | undefined;
-    this.#applyScene({
-      ...this.#scene,
-      elements: arranged(elements, this.#selected, act, (element) => {
-        byId ??= elementsById(elements);
-        return elementBounds(element, byId, this.#connection.layout);
-      }),
-    });
+    this.#land(rearranged(this.#scene, this.#selected, act, this.#connection.layout));
   }
 
   // ------------------------------------------------------------------ painting
@@ -1328,23 +1294,14 @@ class EsbozoEditorElement extends HTMLElement {
   };
 
   #nudge(dx: number, dy: number): void {
-    const selected = new Set(this.#selected);
-    if (selected.size === 0) {
-      return;
-    }
     // A nudge that cannot move what is selected records and saves nothing, and
     // a burst of them is one step: the same undo takes the whole nudge back.
-    const byId = elementsById(this.#scene.elements);
     const amend = Date.now() - this.#nudgedAt < NUDGE_BURST_MS;
-    this.#applyScene(
-      {
-        ...this.#scene,
-        elements: this.#scene.elements.map((element) =>
-          selected.has(element.id) ? moved(released(element, byId), dx, dy) : element,
-        ),
-      },
-      { amend },
-    );
+    const edit = nudged(this.#scene, this.#selected, dx, dy);
+    if (edit === null) {
+      return;
+    }
+    this.#land(edit, amend);
     this.#nudgedAt = Date.now();
   }
 
@@ -1456,26 +1413,9 @@ class EsbozoEditorElement extends HTMLElement {
     }
   };
 
-  /**
-   * Free one end of the selected arrow or line, where it draws now: the end
-   * stops following its Element but does not move. One undo step, like every
-   * other Scene change.
-   */
+  /** Free one end of the selected arrow or line where it draws, as one step. */
   #detachEnd(end: End): void {
-    const element = this.#selectedElements()[0];
-    if (element === undefined || !isShaft(element)) {
-      return;
-    }
-    const freed = freedEnd(element, end, elementsById(this.#scene.elements));
-    if (freed === element) {
-      return;
-    }
-    this.#applyScene({
-      ...this.#scene,
-      elements: this.#scene.elements.map((candidate) =>
-        candidate.id === element.id ? freed : candidate,
-      ),
-    });
+    this.#land(detached(this.#scene, this.#selectedElements(), end));
   }
 
   #onNewScene = (event: Event): void => {
