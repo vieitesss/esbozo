@@ -1650,7 +1650,11 @@ test('a rail released past the slop with no move before it docks on the releaseâ
   expect(await screen.getByRole('button', 'Rectangle').getAttribute('aria-pressed')).toBe('false');
 });
 
-test('a rail whose last move went the other way docks where it is released', async ({ app, browser, screen }) => {
+test('a rail whose last move went the other way docks on the side the highlight showed', async ({
+  app,
+  browser,
+  screen,
+}) => {
   const ui = { app, browser, screen };
   await openBare(ui);
   const band: Rect = { x: 400, y: 0, width: 480, height: 240 };
@@ -1658,17 +1662,18 @@ test('a rail whose last move went the other way docks where it is released', asy
   const mouse = await protocolMouse();
   const from = tileCentre(boxOfPlace(opened), 1);
 
-  // The pointer moves 5 px right with the button down, then the button is let go
-  // 650 px below the press: the release is 600 px nearer the frame's bottom side
-  // than its top, and that is the side the rail docks on. A drag that docked at
-  // its last move would take the top, level with the top side.
+  // The pointer moves 5 px right with the button down, past the click's slop, so the
+  // top dock is the one the drag last showed; then the button is let go 650 px
+  // below the press, where no move ever went. The mark a person saw is the contract
+  // (D6, criterion 8), so a release that jumps to another side cannot take it, and
+  // the top dock is where the strip lands.
   await mouse('mouseMoved', from.x, from.y);
   await mouse('mousePressed', from.x, from.y);
   await mouse('mouseMoved', from.x + 5, from.y);
   await mouse('mouseReleased', from.x, from.y + 650);
   await settle(ui);
 
-  expect(await keptSide(ui), 'the release decides the side, not the last move').toBe('bottom');
+  expect(await keptSide(ui), 'the highlight decides the side, not the release point').toBe('top');
   expect(await screen.getByRole('button', 'Select').getAttribute('aria-pressed'), 'the drag picked no tool').toBe(
     'true',
   );
