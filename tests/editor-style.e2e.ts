@@ -277,6 +277,29 @@ const BENDED: View = { zoom: 1, panX: 240, panY: 120 };
 /** On the bent arrow's first run, on no other Element: where a press selects it. */
 const BENT_ON = { x: 150, y: 165 };
 
+/** A saved point, with the `corner` a Scene file may or may not write on it. */
+type SavedPoint = { x: number; y: number; corner?: string };
+
+/** The bent arrow's points as the file holds them, before and after a Corners pick. */
+const BENT_MIXED: SavedPoint[] = [
+  { x: 100, y: 120 },
+  { x: 300, y: 300, corner: 'round' },
+  { x: 500, y: 120 },
+  { x: 700, y: 300 },
+];
+const BENT_ROUND: SavedPoint[] = [
+  { x: 100, y: 120 },
+  { x: 300, y: 300 },
+  { x: 500, y: 120 },
+  { x: 700, y: 300 },
+];
+
+/** The bent arrow as the file holds it: its own corners, and its points. */
+async function bentShaft(ui: Ui): Promise<{ corners: string | undefined; points: SavedPoint[] }> {
+  const shaft = (await savedScene(ui)).elements.find((element) => element.id === 'bent');
+  return { corners: shaft?.corners, points: shaft?.points ?? [] };
+}
+
 test('a shaft whose bend points turn by both corners says mixed', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'scene.json': BENDED_SOURCE } }, 'scene.json');
@@ -287,6 +310,21 @@ test('a shaft whose bend points turn by both corners says mixed', async ({ app, 
   await expect(ui.screen.getByRole('group', 'Corners').getByText('mixed')).toBeVisible();
   await expect(control(ui, 'Corners: round')).not.toHaveAttribute('aria-pressed', 'true');
   await expect(control(ui, 'Corners: sharp')).not.toHaveAttribute('aria-pressed', 'true');
+});
+
+test('a Corners pick clears every bend point’s own corner, in one undo step', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': BENDED_SOURCE } }, 'scene.json');
+  await clickScene(ui, BENT_ON, [], BENDED);
+
+  // One click resets the mixed shaft: the Element turns `round` and no point
+  // writes a corner of its own any more.
+  await control(ui, 'Corners: round').click();
+  expect(await bentShaft(ui)).toEqual({ corners: 'round', points: BENT_ROUND });
+
+  // One undo brings both back, so the pick was a single step.
+  await ui.browser.keyboard.press('Meta+z');
+  expect(await bentShaft(ui)).toEqual({ corners: 'sharp', points: BENT_MIXED });
 });
 
 test('undoing the Scene default roughness puts the status bar back', async ({ app, browser, screen }) => {
