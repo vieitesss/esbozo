@@ -27,7 +27,7 @@ import {
 import type { Point, Ui } from './helpers.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
-import { SCENE_SOURCE, GRID, command, control, palette, zoomReadout } from './editor-shared.ts';
+import { SCENE_SOURCE, GRID, command, control, fullInk, palette, zoomReadout } from './editor-shared.ts';
 
 const EDGE_SOURCE = JSON.stringify(EDGE_SCENE, null, 2);
 
@@ -412,13 +412,13 @@ type Dock = 'top' | 'bottom' | 'left' | 'right';
 const BAND_ROWS = { y: 350, height: 100 };
 
 /**
- * The room between a strip held at the editor's left inset and the band the
+ * The gap between a strip held at the editor's left inset and the band the
  * clearance has to put beside it: the strip's pencil outline ends at 68, the
  * note's own gap puts the band's box at 84, and the selection's dashed outline
- * stands a padding outside that box. So this window, clear of the page's border
- * and of that outline, holds ink only when the rail is no limit at all.
+ * stands a padding outside that box, at 79. A strip at full ink paints nothing
+ * of its own in here, so this window holds ink only when the rail is no limit.
  */
-const RAIL_LIMIT: Rect = { x: 8, y: BAND_ROWS.y, width: 66, height: BAND_ROWS.height };
+const RAIL_LIMIT: Rect = { x: 69, y: BAND_ROWS.y, width: 8, height: BAND_ROWS.height };
 
 /**
  * The foot of a left dock's strip, below the rows the band is drawn in: the
@@ -426,17 +426,19 @@ const RAIL_LIMIT: Rect = { x: 8, y: BAND_ROWS.y, width: 66, height: BAND_ROWS.he
  */
 const STRIP_FOOT: Rect = { x: 8, y: 470, width: 300, height: 45 };
 
-/** Where the strip's ink reaches: the rail's own place, which no dock or clearance may change (D4). */
+/**
+ * Where the strip's ink reaches: the rail's own place, which no dock or clearance
+ * may change (D4). The pointer stays on the strip, held at the full ink a person
+ * sees, so every measure taken after this reads the rail at that ink and not at
+ * a fade's half-lit tiles.
+ */
 async function stripInk(ui: Ui): Promise<Rect> {
   // Pointing at the strip brings it up from 58% to full ink, transition and all.
   await ui.browser.mouse.move(38, 470);
+  await fullInk(ui);
   const foot = async (): Promise<Rect | null> => (await shot(ui)).darkBounds(STRIP_FOOT, 0.6);
   await expect.poll(foot, { timeout: 5000 }).not.toBeNull();
-  const ink = (await foot())!;
-  // Off the rail again: the page is read as a hand that is not pointing reads it.
-  await ui.browser.mouse.move(640, 700);
-  await settle(ui);
-  return ink;
+  return (await foot())!;
 }
 
 /** Move the rail to one of the frame's sides, through the palette's own row for it. */

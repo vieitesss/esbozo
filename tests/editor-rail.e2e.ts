@@ -12,6 +12,7 @@ import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import { openEditor, browseFolder, drag, savedFiles, savedScene, settle, holdWrites, allowWrites } from './helpers.ts';
 import type { Ui } from './helpers.ts';
+import { fullInk } from './editor-shared.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
 
@@ -132,29 +133,6 @@ async function railInk(ui: Ui, band: Rect): Promise<Rect> {
   const ink = async (): Promise<Rect | null> => (await shot(ui)).darkBounds(band, 0.6);
   await expect.poll(async () => (await ink()) !== null, { timeout: 5000 }).toBe(true);
   return (await ink())!;
-}
-
-/**
- * The strip is drawn at the ink a person sees, its fade to full ink finished.
- *
- * A tile taking the focus fades the strip from 0.58 to 1 over 0.22 s, and a
- * screenshot taken during that fade holds the tiles' ink while the thin pencil
- * outline around them is still too pale to pass the ink threshold: the strip's
- * top then reads 26 px where the outline paints 8 px. The opacity is the page's
- * own answer to when the fade is over, so a starved machine waits as long as it
- * takes; a stopwatch would be this machine's guess, and CI outlasted it.
- */
-async function fullInk(ui: Ui): Promise<void> {
-  await expect
-    .poll(
-      () =>
-        ui.browser.evaluate(() => {
-          const strip = document.querySelector('esbozo-editor nav[aria-label="Tools"]');
-          return strip === null ? 0 : Number(getComputedStyle(strip).opacity);
-        }),
-      { timeout: 5000 },
-    )
-    .toBe(1);
 }
 
 /**
