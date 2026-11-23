@@ -82,6 +82,10 @@ interface Holds {
     refuse: (message: string) => void;
     missing: () => void;
   }>;
+  /** True while the next listing of a picked folder waits for the test. */
+  listing: boolean;
+  /** The listings waiting to be answered, oldest first. */
+  listings: Array<{ land: () => void }>;
 }
 
 /** A write the stub's gate holds: it lands when the test says so. */
@@ -111,14 +115,27 @@ async function openPage(ui: Ui, folders: Folders): Promise<void> {
       const page = window as unknown as GateWindow;
       page.__esbozoFolders = stub.folders;
       page.__esbozoPicks = stub.picks;
-      page.__esbozoHolds = { name: null, answers: [] };
+      page.__esbozoHolds = { name: null, answers: [], listing: false, listings: [] };
       const pick = page.showDirectoryPicker;
       page.showDirectoryPicker = async (options) => {
         const folder = await pick(options);
         return {
           kind: folder.kind,
           name: folder.name,
-          values: () => folder.values(),
+          // A listing a test holds: the folder answers it when the test says so,
+          // so the page can be moved on while the Scenes note is still waiting.
+          values: () => {
+            if (!page.__esbozoHolds.listing) {
+              return folder.values();
+            }
+            page.__esbozoHolds.listing = false;
+            return (async function* held(): AsyncIterableIterator<{ kind: string; name: string }> {
+              await new Promise<void>((resolve) => {
+                page.__esbozoHolds.listings.push({ land: resolve });
+              });
+              yield* folder.values();
+            })();
+          },
           async getFileHandle(fileName, fileOptions) {
             const handle = await folder.getFileHandle(fileName, fileOptions);
             if (fileName !== page.__esbozoHolds.name) {
@@ -195,6 +212,45 @@ async function missRead(ui: Ui): Promise<void> {
     (window as unknown as GateWindow).__esbozoHolds.answers.shift()!.missing();
     return true;
   });
+}
+
+/** Hold the next listing of a picked folder: its answer waits until the test lands it. */
+async function holdListing(ui: Ui): Promise<void> {
+  await ui.browser.evaluate(() => {
+    (window as unknown as GateWindow).__esbozoHolds.listing = true;
+    return true;
+  });
+}
+
+/** Wait until the page asks the folder for its Scenes, so the listing is in flight. */
+async function listingWaiting(ui: Ui): Promise<void> {
+  await expect
+    .poll(() =>
+      ui.browser.evaluate(
+        () => (window as unknown as GateWindow).__esbozoHolds.listings.length,
+      ),
+    )
+    .toBe(1);
+}
+
+/** Answer the held listing, as a folder that was only slow does. */
+async function landListing(ui: Ui): Promise<void> {
+  await ui.browser.evaluate(() => {
+    (window as unknown as GateWindow).__esbozoHolds.listings.shift()!.land();
+    return true;
+  });
+}
+
+/** Put a Scene in a stubbed folder, as a file the disk gained does. */
+async function addScene(ui: Ui, folder: string, name: string): Promise<void> {
+  await ui.browser.evaluate(
+    (added: { folder: string; name: string; source: string }) => {
+      const folders = (window as unknown as { __esbozoFolders: Folders }).__esbozoFolders;
+      folders[added.folder] = { ...folders[added.folder], [added.name]: added.source };
+      return true;
+    },
+    { folder, name, source: B_SOURCE },
+  );
 }
 
 /** Wait until the page asks the disk for the held write, so it is in flight. */
@@ -339,6 +395,36 @@ test("a Scene whose read fails while an edit's write is held keeps its failure",
   // Scene whose read failed is untouched.
   expect(await nudged(ui, 'a.json')).toBe(50);
   expect((await savedFiles(ui))['b.json']).toBe(B_SOURCE);
+});
+
+test('a listing that lands after the note shut neither reopens it nor shows what it read', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui: Ui = { app, browser, screen };
+  await openPage(ui, folderWith());
+  await expect(screen.getByRole('dialog', 'Scene files')).toBeVisible();
+
+  // The person browses the same folder again, and this listing waits: the note
+  // is the one already in hand, and it is still the page's while the folder is
+  // asked what it holds.
+  await holdListing(ui);
+  await browseFolder(ui, 'A');
+  await listingWaiting(ui);
+
+  // They shut the note, and the folder gains a Scene while its answer is on its
+  // way: a listing nobody is waiting for any more.
+  await browser.keyboard.press('Escape');
+  await expect(screen.getByRole('dialog', 'Scene files')).toBeHidden();
+  await addScene(ui, 'A', 'z.json');
+  await landListing(ui);
+  await settle(ui);
+
+  // The note stays shut: an answer for a note that already left does not open
+  // it again, and the list it read is not the list the page holds.
+  await expect(screen.getByRole('dialog', 'Scene files')).toBeHidden();
+  await expect(screen.getByRole('button', 'z.json')).toBeHidden();
 });
 
 test("a Scene that opens new while an edit's write is held keeps its own word", async ({ app, browser, screen }) => {
