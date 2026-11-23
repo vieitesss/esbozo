@@ -148,11 +148,19 @@ class EsbozoEditorElement extends HTMLElement {
    */
   #railWaiting = false;
   /**
-   * The status bar's corners, watched for the size the rail has to clear: a
-   * corner is as wide and as tall as the words it holds, and those change with a
-   * Scene's name, the mode the page is in and the answer a folder gave (O2).
+   * The boxes the strip is drawn from and measured against, watched: its own, so an
+   * editor the page gave no box draws the outline as soon as it has one (D11, #64),
+   * and the status bar's corners, which are as wide and as tall as the words they
+   * hold — a Scene's name, the mode the page is in and the answer a folder gave
+   * (O2).
    */
-  readonly #cornerWatch = new ResizeObserver(() => this.#onCornerResize());
+  /**
+   * True once the strip was drawn in a box this editor had, which is the only box the
+   * frame around the diagram is measured in: an editor the page gave no box has none
+   * to measure, and nothing drawn with one (#64).
+   */
+  #drawn = false;
+  readonly #boxWatch = new ResizeObserver(() => this.#onBoxResize());
   /** True once the editor's listeners are on the page. */
   #wired = false;
   /**
@@ -506,8 +514,9 @@ class EsbozoEditorElement extends HTMLElement {
     this.#rail.addEventListener('click', this.#onRailClick);
     this.querySelector('.status')!.addEventListener('click', this.#onStatusClick);
     for (const corner of this.#statusCorners()) {
-      this.#cornerWatch.observe(corner);
+      this.#boxWatch.observe(corner);
     }
+    this.#boxWatch.observe(this.#rail);
     document.addEventListener('copy', this.#onCopy);
     document.addEventListener('cut', this.#onCut);
     document.addEventListener('paste', this.#onPaste);
@@ -567,7 +576,7 @@ class EsbozoEditorElement extends HTMLElement {
     // the DOM it was pressed on — the pan is the page's, and it goes too.
     this.#endEdits();
     this.#endRailDrag();
-    this.#cornerWatch.disconnect();
+    this.#boxWatch.disconnect();
     this.#gestures.endSpacePan();
     this.#gestures.drop();
     this.#wired = false;
@@ -1170,6 +1179,12 @@ class EsbozoEditorElement extends HTMLElement {
   }
 
   /**
+   * A box the strip is drawn from, or measured clear of, changed size. The strip's
+   * own box is the drawing's: an editor the page gave no box — a host that starts it
+   * off the page and shows it later (#64) — has nothing to measure an outline
+   * against, and the box it comes back with is drawn here at once, with no resize of
+   * the window to ask for it.
+   *
    * A status corner changed size: the rail was measured against it as it was then,
    * and one that grows over the strip takes the press of the nearest tile (O2). The
    * strip is measured again on its own side — a dragged strip too, which keeps its
@@ -1178,7 +1193,18 @@ class EsbozoEditorElement extends HTMLElement {
    * A press on the strip keeps it under the pointer, and asks for the placement when
    * that press ends (D6, O2).
    */
-  #onCornerResize = (): void => {
+  #onBoxResize = (): void => {
+    // Whether the strip had a box to be drawn from before this: an editor the page
+    // gave no box draws nothing, so the first box it is given is the first measure of
+    // the frame the strip hangs from, and that measure is taken here — a reveal is no
+    // resize of an editor in use, and nobody is asked to resize a window to see the
+    // rail (#64).
+    const measured = this.#drawn;
+    this.#drawRailArt();
+    if (!measured) {
+      this.#placeRail();
+      return;
+    }
     if (this.#railDrag !== null) {
       this.#railWaiting = true;
       // A corner changes the place a dock is drawn in clear of it, so a mark a
@@ -1193,8 +1219,12 @@ class EsbozoEditorElement extends HTMLElement {
     const width = this.#rail.offsetWidth + RAIL_OUTLINE * 2;
     const height = this.#rail.offsetHeight + RAIL_OUTLINE * 2;
     if (width <= 14 || height <= 14) {
+      // No box to draw from: nothing of this editor is measured, so the place the
+      // strip asks for is measured again in the first box it is given (#64).
+      this.#drawn = false;
       return;
     }
+    this.#drawn = true;
     this.#railArt.setAttribute('width', String(width));
     this.#railArt.setAttribute('height', String(height));
     this.#railArt.setAttribute('viewBox', `0 0 ${width} ${height}`);
