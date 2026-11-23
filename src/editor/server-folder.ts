@@ -7,7 +7,7 @@
  * folder, and the editor lists, opens and autosaves over http without a picker.
  */
 import type { SceneFolder } from './files.js';
-import { listingOf, problemIn, sceneApiPath, SCENES_API } from '../scenes-api.js';
+import { listingOf, Refusal, sceneApiPath, SCENES_API } from '../scenes-api.js';
 import type { SceneListing } from '../scenes-api.js';
 
 /**
@@ -59,7 +59,7 @@ async function askListing(): Promise<SceneListing | null> {
   }
   const text = await response.text();
   if (!response.ok) {
-    throw new Error(problemIn(text, response.status, 'the served folder'));
+    throw new Refusal(text, response.status, 'the served folder');
   }
   const listed = listingOf(text);
   if (listed === null) {
@@ -85,11 +85,15 @@ async function ask(path: string, body?: unknown): Promise<Response> {
   }
 }
 
-/** The response body as text, or the server's own words when it refused. */
+/**
+ * The response body as text, or the server's own words when it refused. A
+ * `Refusal` carries the status, so a `403` makes the page read-only here as it
+ * does for a picked folder.
+ */
 async function textOf(response: Response, what: string): Promise<string> {
   const text = await response.text();
   if (!response.ok) {
-    throw new Error(problemIn(text, response.status, what));
+    throw new Refusal(text, response.status, what);
   }
   return text;
 }
