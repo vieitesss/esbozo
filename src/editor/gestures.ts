@@ -95,6 +95,12 @@ export type Drag =
       /** The Element the dragged end would attach to, or null over paper. */
       target: string | null;
       /**
+       * Whether the press that started this draw held Shift, as it held it when
+       * it landed: a Shift press is about the selection, so the click it places
+       * as a shaft's first point is no half of a double-click either.
+       */
+      shift: boolean;
+      /**
        * The points a place has put down, or null while the gesture is one drag.
        * A press that never left the click's own slop places the first point
        * instead of drawing a shaft between two, and the half-made shaft then
@@ -321,11 +327,12 @@ export class Gestures {
   #cancelledClick = false;
   #spaceDown = false;
   /**
-   * Whether the press in flight is one the board refused: a secondary press or a
-   * Ctrl+click is a menu's, so its release settles nothing — no point of a place,
-   * no end of a shaft, no pan.
+   * The pointers whose press the board refused: a secondary press or a Ctrl+click
+   * is a menu's, so its release settles nothing — no point of a place, no end of a
+   * shaft, no pan. The refusal is the pointer's own: another pointer may be
+   * carrying a gesture at the same time, and its release is still its own.
    */
-  #refusedPress = false;
+  readonly #refused = new Set<number>();
   /** The Shaft a page mark names, which is what makes the mark a bend point's. */
   #shaft: ShaftOf = (id) => shaftIn(this.#host.scene(), id);
 
@@ -538,12 +545,14 @@ export class Gestures {
 
   down = (event: PointerEvent): void => {
     // Only a press the board takes settles on its release; a press it refuses is
-    // no half of a gesture, and its release must not act as one.
-    this.#refusedPress = false;
+    // no half of a gesture, and its release must not act as one. This press
+    // answers for its own pointer alone: another pointer's refusal is not this
+    // press's to keep.
+    this.#refused.delete(event.pointerId);
     const { page } = this.#host;
     const { viewport } = page;
     if (event.button !== 0 && event.button !== 1) {
-      this.#refusedPress = true;
+      this.#refused.add(event.pointerId);
       return;
     }
     // A Ctrl+left press is the secondary click macOS reads as a context menu,
@@ -551,7 +560,7 @@ export class Gestures {
     // opens that point's menu instead of a press the clicks after it could pair
     // with and remove the point through.
     if (event.button === 0 && event.ctrlKey) {
-      this.#refusedPress = true;
+      this.#refused.add(event.pointerId);
       return;
     }
     const text = this.#host.typing.text();
@@ -571,7 +580,7 @@ export class Gestures {
       // goes no further: it is not also a click on the canvas. A middle press is
       // a pan, which leaves the words open where they are.
       this.#forgetPress();
-      this.#refusedPress = true;
+      this.#refused.add(event.pointerId);
       text.finish();
       return;
     }
@@ -611,7 +620,7 @@ export class Gestures {
     const tool = this.#host.tool();
     if (tool !== 'select') {
       this.#press = null;
-      this.#startDrawing(tool, viewport.scenePoint(event));
+      this.#startDrawing(tool, viewport.scenePoint(event), event.shiftKey);
       return;
     }
     // A read-only page still selects, sweeps and pans; it just cannot change
@@ -919,6 +928,14 @@ export class Gestures {
   up = (event: PointerEvent): void => {
     const { viewport } = this.#host.page;
     const drag = this.#drag;
+    // A release without the press that started a gesture settles nothing: the
+    // press was refused before it began, so it puts no point down and finishes no
+    // place. It is the refused pointer's own release, and no other: a pointer
+    // carrying a gesture at the same time keeps its capture, and its release is
+    // still the one that settles it.
+    if (this.#refused.delete(event.pointerId)) {
+      return;
+    }
     // The pointer comes up for this gesture or for one already ended: either way
     // it is the browser's again.
     this.#releasePointer();
@@ -932,13 +949,6 @@ export class Gestures {
       return;
     }
 
-    // A release without the press that started a gesture settles it: a secondary
-    // press was refused before it began, so it puts no point down and finishes
-    // nothing, and the place in hand goes on as it was.
-    if (this.#refusedPress) {
-      this.#refusedPress = false;
-      return;
-    }
     // A press that did not move is a click. Two of them in a row are a
     // double-click, and it opens the words the *first* one found: between the
     // two the note may have made room and carried the view away with it.
@@ -1167,7 +1177,7 @@ export class Gestures {
    * A drawing tool is in hand: the press starts a preview Element, and every
    * move reshapes it until the release settles it into the Scene.
    */
-  #startDrawing(tool: ElementTool, point: Point): void {
+  #startDrawing(tool: ElementTool, point: Point, shift: boolean): void {
     if (tool === 'text') {
       // Opened on the release, not the press: the press's own default action
       // would take the focus straight back off the input.
@@ -1183,6 +1193,7 @@ export class Gestures {
       from: point,
       preview: drawn(tool, point, point, id, this.#host.scene().defaults),
       target: null,
+      shift,
       placing: null,
     };
     this.#host.page.paint();
@@ -1268,11 +1279,13 @@ export class Gestures {
         release: at,
         // The click that started the place is half of a double-click like any
         // other: two clicks on that first point end the place, one point and all.
+        // Its modifiers are the press's, not the release's: Shift let go before
+        // the button came up was still held when the press landed.
         click: {
           id: null,
           at: this.#host.page.viewport.screenPoint(event),
           time: event.timeStamp,
-          shift: event.shiftKey,
+          shift: drag.shift,
         },
         skipSnap: event.altKey,
       },
