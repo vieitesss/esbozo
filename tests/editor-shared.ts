@@ -29,6 +29,29 @@ export function zoomReadout(ui: Ui) {
   return ui.screen.getByText(/^\d+%$/);
 }
 
+/**
+ * The strip is drawn at the ink a person sees, its fade to full ink finished.
+ *
+ * A tile taking the focus or the pointer fades the strip from 0.58 to 1 over
+ * 0.22 s, and a screenshot taken during that fade holds the tiles' ink while the
+ * thin pencil outline around them is still too pale to pass an ink threshold: the
+ * same strip reads 26 px down instead of 8 px. The opacity is the page's own
+ * answer to when the fade is over, so a starved machine waits as long as it
+ * takes; a stopwatch would be this machine's guess, and CI outlasted it.
+ */
+export async function fullInk(ui: Ui): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        ui.browser.evaluate(() => {
+          const strip = document.querySelector('esbozo-editor nav[aria-label="Tools"]');
+          return strip === null ? 0 : Number(getComputedStyle(strip).opacity);
+        }),
+      { timeout: 5000 },
+    )
+    .toBe(1);
+}
+
 // --------------------------------------------------------------- the palette
 
 /** A command palette row, by the name and the shortcut the row shows. */

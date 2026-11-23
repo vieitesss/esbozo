@@ -33,8 +33,17 @@ import { nextRoughness, roughnessLabel, styled } from './style.js';
 import type { StyleKey } from './style.js';
 import { canPickFolder } from './files.js';
 import { servedFolder } from './server-folder.js';
-import { boxOf, clampedDock, fittedView, landingOffset, moved, railFrame, zoomedAt } from './geometry.js';
-import type { Point, RailSide, View } from './geometry.js';
+import {
+  boxOf,
+  clampedDock,
+  fittedView,
+  landingOffset,
+  leftDockEdge,
+  moved,
+  railFrame,
+  zoomedAt,
+} from './geometry.js';
+import type { Point, RailDock, RailOutline, RailSide, View } from './geometry.js';
 import { History } from './history.js';
 import { railArt } from './rail.js';
 import { SHELL } from './shell.js';
@@ -76,6 +85,19 @@ class EsbozoEditorElement extends HTMLElement {
    * before any clamp: a resize carries it and growing back restores it (D3, I7).
    */
   #railDockOffset: Point | null = null;
+  /**
+   * Where the rail hangs now, in screen pixels: the strip's own left edge and the
+   * middle of the side it is on, as the last clamp left it, or null until the page
+   * has measured a frame. This is the one answer to where the rail is; nothing
+   * measures the frame again to ask it (D5).
+   */
+  #railDock: RailDock | null = null;
+  /**
+   * Whether the frame itself left no room for the rail beside it, as the last
+   * measure found it (D2). A resize hangs the rail again without measuring the
+   * frame, so the stop the frame asked for travels with the dock it measured.
+   */
+  #railHeld = false;
   /** The side of the frame the rail is docked on: the top until a palette move takes it elsewhere. */
   #railSide: RailSide = 'top';
   /** True once the editor's listeners are on the page. */
@@ -285,6 +307,7 @@ class EsbozoEditorElement extends HTMLElement {
         selected: () => this.#selected,
         bend: () => this.#picked.bend,
         drag: () => this.#gestures.drag,
+        railEdge: () => this.#railEdge(),
         writable: () => this.#connection.writable(),
         typing: this.#typing,
       },
@@ -467,6 +490,8 @@ class EsbozoEditorElement extends HTMLElement {
     this.#endEdits();
     // No Scene in the hand is no frame to hang the rail on either.
     this.#railDockOffset = null;
+    this.#railDock = null;
+    this.#railHeld = false;
     // No Scene to hold in the hand either: the pan and the word it named go
     // with the Scene the page let go of.
     this.#gestures.endSpacePan();
@@ -1050,14 +1075,10 @@ class EsbozoEditorElement extends HTMLElement {
    * over the paper.
    */
   #placeRail(): void {
-    const outline = {
-      width: this.#rail.offsetWidth + RAIL_OUTLINE * 2,
-      height: this.#rail.offsetHeight + RAIL_OUTLINE * 2,
-      overhang: RAIL_OUTLINE,
-    };
+    const outline = this.#outline();
     const viewport = this.#page.viewport;
     const size = viewport.size();
-    const { dock } = railFrame(
+    const { dock, stopped } = railFrame(
       this.#scene,
       viewport.view,
       size,
@@ -1065,6 +1086,7 @@ class EsbozoEditorElement extends HTMLElement {
       outline,
       this.#connection.layout,
     );
+    this.#railHeld = stopped;
     this.#railDockOffset = { x: dock.x - size.width / 2, y: dock.y - size.height / 2 };
     this.#hangRail();
   }
@@ -1096,14 +1118,36 @@ class EsbozoEditorElement extends HTMLElement {
       return;
     }
     const size = this.#page.viewport.size();
-    const dock = clampedDock(
+    const rail = clampedDock(
       { x: size.width / 2 + kept.x, y: size.height / 2 + kept.y },
       { width: this.#rail.offsetWidth, height: this.#rail.offsetHeight, overhang: RAIL_OUTLINE },
       size,
       this.#railSide,
     );
-    this.#rail.style.setProperty('--rail-left', `${dock.x}px`);
-    this.#rail.style.setProperty('--rail-top', `${dock.y}px`);
+    // Stopped by the frame's own measure or by this window's clamp, the rail is
+    // at the editor's edge either way; a place it reaches unaided is not (O1).
+    this.#railDock = { dock: rail.dock, stopped: rail.stopped || this.#railHeld };
+    this.#rail.style.setProperty('--rail-left', `${rail.dock.x}px`);
+    this.#rail.style.setProperty('--rail-top', `${rail.dock.y}px`);
+  }
+
+  /** The pencil outline the rail wears, measured around the strip it hangs on. */
+  #outline(): RailOutline {
+    return {
+      width: this.#rail.offsetWidth + RAIL_OUTLINE * 2,
+      height: this.#rail.offsetHeight + RAIL_OUTLINE * 2,
+      overhang: RAIL_OUTLINE,
+    };
+  }
+
+  /**
+   * Where a left dock's own outline reaches, or null when the rail hangs
+   * anywhere else: read from where the rail hangs and what stopped it there,
+   * never measured again, so the view moves for the note alone (D5).
+   */
+  #railEdge(): number | null {
+    const rail = this.#railDock;
+    return rail === null ? null : leftDockEdge(rail, this.#outline(), this.#railSide);
   }
 
   // ------------------------------------------------------------------- menu
@@ -1274,10 +1318,14 @@ class EsbozoEditorElement extends HTMLElement {
 
   /** Fit the page the Renderer draws into the window, the view an open Scene starts in. */
   #zoomToFit(): void {
-    this.#changedView(fittedView(this.#scene, this.#page.viewport.size(), this.#connection.layout));
+    const view = fittedView(this.#scene, this.#page.viewport.size(), this.#connection.layout);
     // A fit draws the page one way only, whatever view it replaces, so this is
-    // where the rail's frame is measured again (D3, criterion 5).
+    // where the rail's frame is measured again (D3, criterion 5). The fitted view
+    // is the one it is measured from, and it is set before the note's clearance
+    // reads the dock, so the fit's own view never depends on where the rail was.
+    this.#page.viewport.view = view;
     this.#placeRail();
+    this.#changedView(view);
   }
 
   /** One pixel per Scene unit, around the middle of the window: the plain view. */
