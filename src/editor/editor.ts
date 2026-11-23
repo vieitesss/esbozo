@@ -26,13 +26,12 @@ import { nextRoughness, roughnessLabel } from './style.js';
 import type { StyleKey } from './style.js';
 import { canPickFolder } from './files.js';
 import {
-  clearedDock,
-  clampedDock,
+  dockBox,
   dockOnFrame,
-  dockOutline,
   fittedView,
   leftDockEdge,
   nearestDock,
+  placedDock,
   railFrame,
   zoomedAt,
 } from './geometry.js';
@@ -79,6 +78,8 @@ interface RailDrag extends MeasuredFrame {
   at: Point;
   /** Whether the pointer has left the click's slop: past it, the press is a drag. */
   moved: boolean;
+  /** The side whose dock the drag is showing, or null until it has shown one (D6). */
+  near: RailSide | null;
 }
 
 /**
@@ -97,11 +98,6 @@ let instances = 0;
 class EsbozoEditorElement extends HTMLElement {
   /** The page's font, the Scenes folder and the writes: every answer that comes late. */
   #connection!: Connection;
-  /**
-   * Where the rail was last measured, as an offset from the editor's middle and
-   * before any clamp: a resize carries it and growing back restores it (D3, I7).
-   */
-  #railDockOffset: Point | null = null;
   /**
    * Where the rail hangs now, in screen pixels: the strip's own left edge and the
    * middle of the side it is on, as the last clamp left it, or null until the page
@@ -595,7 +591,7 @@ class EsbozoEditorElement extends HTMLElement {
     // docks nothing: the frame it would have docked against is gone with it.
     this.#endRailDrag();
     // No Scene in the hand is no frame to hang the rail on either.
-    this.#railDockOffset = null;
+    this.#frameOffset = null;
     this.#railDock = null;
     this.#railHeld = false;
     // No Scene to hold in the hand either: the pan and the word it named go
@@ -1154,9 +1150,12 @@ class EsbozoEditorElement extends HTMLElement {
   #onCornerResize = (): void => {
     if (this.#railDrag !== null) {
       this.#railWaiting = true;
+      // A corner changes the place a dock is drawn in clear of it, so a mark a
+      // held drag has on the page follows the corner it clears (D6, O2).
+      this.#redrawDocks();
       return;
     }
-    this.#clearRail();
+    this.#hangRail();
   };
 
   #drawRailArt(): void {
@@ -1172,17 +1171,17 @@ class EsbozoEditorElement extends HTMLElement {
   }
 
   /**
-   * Draw the four places the rail would hang on the frame the press measured, and
+   * Draw the four places the rail would hang from the frame the press measured, and
    * mark the one a release would take (D6).
    *
-   * The frame and the editor's room are the ones the press found, so these are
-   * exactly the docks a release takes: the release reads `nearestDock` of the same
-   * frame at the same place, and hangs the strip on the same dock. The outlines are
-   * drawn once per drag — nothing under it resizes them — and the mark is what
-   * moves with the pointer.
+   * The frame is the one the press found, but the place each of its docks hangs in
+   * is the place a release there takes now: the editor may have been resized and a
+   * corner may have grown under the press, so the marks follow them (D3, O2). The
+   * mark is what moves with the pointer; the outlines move with the editor.
    */
   #showDocks(drag: RailDrag): void {
     const near = nearestDock(drag.frame, drag.at);
+    drag.near = near;
     if (this.#docks.hidden) {
       this.#drawDocks(drag);
       this.#docks.hidden = false;
@@ -1197,21 +1196,34 @@ class EsbozoEditorElement extends HTMLElement {
     }
   }
 
-  /** The four docks' outlines, drawn where a release on that side puts the strip. */
+  /**
+   * The four docks' outlines, drawn where a release on that side puts the strip as
+   * the editor stands: the same placement the release hangs it by (D6).
+   *
+   * The corners and the editor are read once, before anything is written: a drag
+   * redraws these on every resize, and a read between two marks' styles would lay
+   * the page out again for each of the four.
+   */
   #drawDocks(drag: RailDrag): void {
     const outlines = this.#outlineEachWay();
-    // The corners are the page's chrome as it stands: the release clears them at
-    // the same places (O2), and a drag of the strip moves none of them.
     const chrome = this.#statusChrome();
+    const size = this.#page.viewport.size();
     for (const side of DOCK_SIDES) {
       const lying = side === 'top' || side === 'bottom';
-      const box = dockOutline(
-        drag.frame,
-        drag.editor,
+      const outline = lying ? outlines.lying : outlines.standing;
+      // The frame's own dock carried along with the editor's middle to the size it
+      // has now (D3, I7), then cleared of the corners and clamped inside it (O2,
+      // D2): the place a release on this side hangs the strip.
+      const frameDock = dockOnFrame(drag.frame, drag.editor, side, outline);
+      const carried = this.#pointOf(this.#offsetOf(frameDock.dock, drag.editor), size);
+      const placed = placedDock(
+        { dock: carried, stopped: frameDock.stopped },
         side,
-        lying ? outlines.lying : outlines.standing,
+        outline,
         chrome,
+        size,
       );
+      const box = dockBox(placed, side, outline);
       const mark = this.#dockMark(side);
       mark.setAttribute('width', String(box.width));
       mark.setAttribute('height', String(box.height));
@@ -1220,6 +1232,15 @@ class EsbozoEditorElement extends HTMLElement {
       mark.style.top = `${box.y}px`;
       mark.innerHTML = railArt(box.width, box.height);
     }
+  }
+
+  /** Draw a held drag's four docks again, wherever the editor and its corners have carried them (D6, O2). */
+  #redrawDocks(): void {
+    const drag = this.#railDrag;
+    if (drag === null || this.#docks.hidden) {
+      return;
+    }
+    this.#drawDocks(drag);
   }
 
   /** The mark that stands for one side of the frame: the markup names it, so no list has to. */
@@ -1264,36 +1285,58 @@ class EsbozoEditorElement extends HTMLElement {
     // drag docks on the frame it measured instead (D3, O2).
     this.#railWaiting = false;
     const size = pressed?.editor ?? this.#page.viewport.size();
-    const placed = pressed === undefined ? this.#dockOn(this.#railSide) : this.#dockOnFrame(pressed);
-    this.#railHeld = placed.stopped;
-    this.#frameOffset = this.#offsetOf(placed.frameDock.dock, size);
-    this.#railDockOffset = this.#offsetOf(placed.dock, size);
+    const frameDock =
+      pressed === undefined
+        ? this.#dockOn(this.#railSide)
+        : dockOnFrame(pressed.frame, pressed.editor, this.#railSide, this.#outline());
+    // The frame's own dock is what a corner that shrinks gives back and what a
+    // resize carries, so the strip hangs from the place it asked for, cleared of
+    // the corners there are now, and clamped inside the editor (D3, I7, O2).
+    this.#railHeld = frameDock.stopped;
+    this.#frameOffset = this.#offsetOf(frameDock.dock, size);
     this.#hangRail();
-    // A drag's dock comes from the frame alone (D3), so the corners are measured
-    // once it ends: a corner already over the release covers the same tiles (O2).
-    if (pressed !== undefined) {
-      this.#clearRail();
-    }
   }
 
   /**
-   * The strip moved in clear of the status corners as they are now, from the dock it
-   * was placed on (O2), for a resize of the window or of a corner. The frame is not
-   * measured again: a pan or a zoom has moved the diagram, and neither moves the rail.
-   * A dock no corner meets is that dock, so a corner that shrinks gives the room back.
+   * Hang the strip on the dock the frame's own dock names, as the editor and its
+   * corners stand now: carried along with the editor's middle and pulled inside
+   * when the carry would take it out, and moved in clear of the status corners
+   * (O2, D3). The frame is not measured again: a pan or a zoom has moved the
+   * diagram, and neither moves the rail. A dock no corner meets is that dock, so a
+   * corner that shrinks gives the room back.
    */
-  #clearRail(): void {
+  #hangRail(): void {
     const offset = this.#frameOffset;
     if (offset === null) {
       return;
     }
     const size = this.#page.viewport.size();
-    const frameDock = { dock: this.#pointOf(offset, size), stopped: this.#railHeld };
-    const cleared = clearedDock(frameDock, this.#railSide, this.#outline(), this.#statusChrome(), size);
-    this.#railDockOffset = this.#offsetOf(cleared.dock, size);
-    // Nothing a corner does to the place the strip already hangs on writes a style
-    // or paints: only the strip the corners actually reach moves (O2).
-    this.#hangRail();
+    const placed = placedDock(
+      { dock: this.#pointOf(offset, size), stopped: this.#railHeld },
+      this.#railSide,
+      this.#outline(),
+      this.#statusChrome(),
+      size,
+    );
+    // The place it already hangs on: written again, the same two numbers are a
+    // style change with nothing to paint, and a corner that grows without reaching
+    // the strip must leave it where it stands (O2).
+    const before = this.#railDock;
+    this.#railDock = placed;
+    if (
+      before !== null &&
+      before.dock.x === placed.dock.x &&
+      before.dock.y === placed.dock.y &&
+      this.#rail.dataset['placed'] === ''
+    ) {
+      return;
+    }
+    this.#rail.style.setProperty('--rail-left', `${placed.dock.x}px`);
+    this.#rail.style.setProperty('--rail-top', `${placed.dock.y}px`);
+    // Measured and placed, so the strip has a side to hang on and the page may
+    // show it: an unplaced one stays out of sight rather than wait at the place
+    // the stylesheet falls back to, which is no side it was docked on (D11).
+    this.#rail.dataset['placed'] = '';
   }
 
   /** The point an offset from the editor's middle names, at the size the editor has now. */
@@ -1306,12 +1349,6 @@ class EsbozoEditorElement extends HTMLElement {
     return { x: at.x - size.width / 2, y: at.y - size.height / 2 };
   }
 
-  /** A drag's dock: the frame the press measured, and no status corner to clear (D3, D6). */
-  #dockOnFrame(pressed: MeasuredFrame): RailFrame {
-    const frameDock = dockOnFrame(pressed.frame, pressed.editor, this.#railSide, this.#outline());
-    return { frame: pressed.frame, frameDock, ...frameDock };
-  }
-
   /** The frame around the diagram as the page shows it now, and this side's dock on it. */
   #dockOn(side: RailSide): RailFrame {
     return railFrame(
@@ -1321,7 +1358,6 @@ class EsbozoEditorElement extends HTMLElement {
       side,
       this.#outline(),
       this.#connection.layout,
-      this.#statusChrome(),
     );
   }
 
@@ -1371,47 +1407,6 @@ class EsbozoEditorElement extends HTMLElement {
     // editor, the side already in use included (I4): the Scene stays untouched
     // (D9), and a cancelled drag never reaches this point (I6).
     writeRailSide(side);
-  }
-
-  /**
-   * The rail at the dock last measured, carried along with the editor's middle as
-   * the window changes and pulled inside when the carry would take it out. The
-   * offset itself is kept as measured, so a window grown back puts the rail back
-   * where the frame had it (I7).
-   */
-  #hangRail(): void {
-    const kept = this.#railDockOffset;
-    if (kept === null) {
-      return;
-    }
-    const size = this.#page.viewport.size();
-    const rail = clampedDock(
-      this.#pointOf(kept, size),
-      { width: this.#rail.offsetWidth, height: this.#rail.offsetHeight, overhang: RAIL_OUTLINE },
-      size,
-      this.#railSide,
-    );
-    // Stopped by the frame's own measure or by this window's clamp, the rail is
-    // at the editor's edge either way; a place it reaches unaided is not (O1).
-    const before = this.#railDock;
-    this.#railDock = { dock: rail.dock, stopped: rail.stopped || this.#railHeld };
-    // The place it already hangs on: written again, the same two numbers are a
-    // style change with nothing to paint, and a corner that grows without reaching
-    // the strip must leave it where it stands (O2).
-    if (
-      before !== null &&
-      before.dock.x === rail.dock.x &&
-      before.dock.y === rail.dock.y &&
-      this.#rail.dataset['placed'] === ''
-    ) {
-      return;
-    }
-    this.#rail.style.setProperty('--rail-left', `${rail.dock.x}px`);
-    this.#rail.style.setProperty('--rail-top', `${rail.dock.y}px`);
-    // Measured and placed, so the strip has a side to hang on and the page may
-    // show it: an unplaced one stays out of sight rather than wait at the place
-    // the stylesheet falls back to, which is no side it was docked on (D11).
-    this.#rail.dataset['placed'] = '';
   }
 
   /** The pencil outline the rail wears, measured around the strip it hangs on. */
@@ -1595,8 +1590,10 @@ class EsbozoEditorElement extends HTMLElement {
     // as an offset from the middle of what the editor draws in, and a resize is
     // measured again for the room the status leaves: both the corners and the
     // editor are the size they have now, and growing back restores the dock (D3,
-    // I7, O2).
-    this.#clearRail();
+    // I7, O2). A held drag's marks move with them, so the mark stays the place a
+    // release takes (D6).
+    this.#hangRail();
+    this.#redrawDocks();
     // The window changed, so the room the note leaves has too.
     this.#refresh();
   };
@@ -1711,6 +1708,7 @@ class EsbozoEditorElement extends HTMLElement {
       from: at,
       at,
       moved: false,
+      near: null,
       frame: this.#dockOn(this.#railSide).frame,
       editor,
     };
@@ -1746,12 +1744,12 @@ class EsbozoEditorElement extends HTMLElement {
 
   /**
    * The release of a press on the rail: under the slop the button's own click
-   * picks the tool, and past it the rail docks on the frame side the pointer is
-   * nearest, through the one move the palette uses too (D6, D10).
+   * picks the tool, and past it the rail docks on the side its mark showed,
+   * through the one move the palette uses too (D6, D10).
    *
-   * The release is the place the drag is read at, for the slop and for the side
-   * alike: Chromium can let the button go where no move ever went, and a move
-   * that already crossed the slop keeps the press a drag wherever it is released.
+   * The release is the place the drag is read at for the slop, and Chromium can let
+   * the button go where no move ever went: a press that showed no mark has no side
+   * for its release to take, so that one reads the side the release point is nearest.
    */
   #onRailUp = (event: PointerEvent): void => {
     const drag = this.#railDrag;
@@ -1767,7 +1765,7 @@ class EsbozoEditorElement extends HTMLElement {
       return;
     }
     this.#railDragged = true;
-    this.#dockRail(nearestDock(drag.frame, drag.at), drag);
+    this.#dockRail(drag.near ?? nearestDock(drag.frame, drag.at), drag);
   };
 
   #onRailCancel = (event: PointerEvent): void => {
@@ -1814,7 +1812,7 @@ class EsbozoEditorElement extends HTMLElement {
   /** The placement a press held back, made now that no press holds the strip (O2). */
   #settleRail(): void {
     if (this.#railWaiting) {
-      this.#clearRail();
+      this.#hangRail();
     }
   }
 

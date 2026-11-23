@@ -552,17 +552,12 @@ export function fittedView(
 }
 
 /**
- * The frame the tool rail docks on: the diagram as shown on screen, at least
- * the minimum size, cut to the editor's box, and a rail docked on it.
+ * The frame the tool rail docks on: the diagram as shown on screen, at least the
+ * minimum size, cut to the editor's box, and the dock one side of it asks for.
  */
 export interface RailFrame extends RailDock {
   /** The diagram's frame on screen: what a dock sits outside of. */
   readonly frame: Box;
-  /**
-   * The dock the frame alone asked for, before any status corner moved it in: the
-   * place a corner that shrinks gives back (O2).
-   */
-  readonly frameDock: RailDock;
 }
 
 /** A dock the sheet hangs the strip by, and whether the editor's inset is what stopped it there. */
@@ -633,32 +628,38 @@ export function railFrame(
   side: RailSide,
   outline: RailOutline,
   layout: Layout,
-  chrome: readonly Box[] = [],
 ): RailFrame {
   const editor: Box = { x: 0, y: 0, width: viewport.width, height: viewport.height };
   const diagram = boxOf(scene.elements, elementsById(scene.elements), layout);
   const shown = diagram === null ? null : grown(onScreen(diagram, view));
   const frame = (shown === null ? null : cutTo(shown, editor)) ?? emptyFrame(editor);
-  const frameDock = dockOnFrame(frame, editor, side, outline);
-  return { frame, frameDock, ...clearedDock(frameDock, side, outline, chrome, editor) };
+  return { frame, ...dockOnFrame(frame, editor, side, outline) };
 }
 
 /**
- * A dock moved inward just far enough to clear the page's status chrome (O2), from
- * the dock the frame asked for.
+ * The dock a release takes on one side, as the editor stands now: the dock the frame
+ * asked for, moved in clear of the page's status chrome (O2) and clamped inside the
+ * editor's own edges (D2, D3).
  *
- * The frame is the one measured when the rail was placed and is not measured here:
- * a pan or a zoom of the page moves the diagram and leaves the rail where it hangs,
- * and a corner that grows over the strip moves nothing but the strip.
+ * A drag draws its four marks through this, and the release hangs the strip through
+ * it, so the mark a person sees is the place the strip lands. The editor may shrink
+ * under the press, or a corner may grow over the strip, between the press and the
+ * release, so the frame's own dock is the caller's: a drag carries the one the press
+ * measured to the size the editor has now, and a resize carries the dock the strip
+ * already hangs on.
  */
-export function clearedDock(
+export function placedDock(
   frameDock: RailDock,
   side: RailSide,
   outline: RailOutline,
   chrome: readonly Box[],
   viewport: { width: number; height: number },
 ): RailDock {
-  return clearOfStatus(frameDock, side, outline, chrome, viewport);
+  const cleared = clearOfStatus(frameDock, side, outline, chrome, viewport);
+  const strip = { width: outline.width - outline.overhang * 2, height: outline.height - outline.overhang * 2 };
+  const clamped = clampedDock(cleared.dock, { ...strip, overhang: outline.overhang }, viewport, side);
+  // Stopped by a corner or by the clamp, the strip is held against an edge either way (O1).
+  return { dock: clamped.dock, stopped: clamped.stopped || cleared.stopped };
 }
 
 /**
@@ -943,26 +944,18 @@ function dockOf(box: Point, strip: { width: number; height: number }, side: Rail
 }
 
 /**
- * The box one of the frame's four docks covers: the strip's pencil outline where a
- * release on that side puts it, in that dock's own orientation.
- *
- * A drag draws one of these for each side while the pointer is down, so the four
- * places a person may let go of the rail are the four they see (D6). The side
- * drawn highlighted is the side the release then takes, because both read the same
- * dock: the frame the press measured, the side's own inset, and the status corners
- * the strip has to clear (O2).
+ * The box a dock's pencil outline covers in the editor's own pixels: the strip's
+ * own box, grown by the overhang the outline hangs outside it on every side.
  */
-export function dockOutline(
-  frame: Box,
-  editor: { width: number; height: number },
-  side: RailSide,
-  outline: RailOutline,
-  chrome: readonly Box[],
-): Box {
+export function dockBox(dock: RailDock, side: RailSide, outline: RailOutline): Box {
   const strip = { width: outline.width - outline.overhang * 2, height: outline.height - outline.overhang * 2 };
-  const placed = clearedDock(dockOnFrame(frame, editor, side, outline), side, outline, chrome, editor);
-  const box = stripBox(placed.dock, strip, side);
-  return { x: box.x - outline.overhang, y: box.y - outline.overhang, width: outline.width, height: outline.height };
+  const box = stripBox(dock.dock, strip, side);
+  return {
+    x: box.x - outline.overhang,
+    y: box.y - outline.overhang,
+    width: outline.width,
+    height: outline.height,
+  };
 }
 
 /** One axis of a dock: where the strip sits on it, and whether an inset stopped it there. */
