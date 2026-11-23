@@ -145,15 +145,6 @@ test('a drag onto a curve that doubles back lands on the nearer of its lobes', (
   );
 });
 
-test('a drag on a straight two-point shaft saves the fraction its projection always did', () => {
-  // The exact place is 7/32 of the way along, and a Scene keeps four decimals of
-  // it: 0.2188, the bytes this drag wrote before shafts bent.
-  const path = pathOf([{ x: 0, y: 0 }, { x: 16, y: 16 }], 'round');
-  const read = labelAtFor(path, { x: 0, y: 7 });
-  assert.equal(read.t, 0.2188);
-  assert.ok(Math.abs(read.offset + Math.sqrt(24.5)) < 1e-2, `offset ${read.offset}`);
-});
-
 test('a straight two-point drag saves the labelAt bytes it always wrote', async () => {
   // Base f2c54ad wrote these exact bytes for both drags, and a shaft that can
   // bend must not change what a straight one writes. Both pointer points put
