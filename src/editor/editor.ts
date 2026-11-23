@@ -36,6 +36,7 @@ import { canPickFolder } from './files.js';
 import { servedFolder } from './server-folder.js';
 import {
   clampedDock,
+  dockOnFrame,
   fittedView,
   leftDockEdge,
   nearestDock,
@@ -76,13 +77,21 @@ let active: EsbozoEditorElement | null = null;
  * belongs to, where it landed and where it is now, and the frame measured when it
  * landed (D3), which is what a release docks against.
  */
-interface RailDrag {
+interface RailDrag extends MeasuredFrame {
   readonly pointer: number;
   readonly from: Point;
   at: Point;
   /** Whether the pointer has left the click's slop: past it, the press is a drag. */
   moved: boolean;
+}
+
+/**
+ * The frame a rail hangs on, measured when it was pressed: the diagram's frame in
+ * the editor's own pixels, and the room the editor had when it was measured.
+ */
+interface MeasuredFrame {
   readonly frame: Box;
+  readonly editor: { readonly width: number; readonly height: number };
 }
 
 /** How many editors this page has made: each one's Grid is a pattern of its own. */
@@ -1079,14 +1088,19 @@ class EsbozoEditorElement extends HTMLElement {
 
   /**
    * Hang the rail on the frame around the diagram, measured when the Scene
-   * opens or the rail is docked by name: the side's outline a gap outside the
-   * frame, or the strip just inside the editor's edge when the frame leaves no
-   * room for that. It measures the view and never moves it: the rail floats
-   * over the paper.
+   * opens, when the palette docks it, or when a drag presses it: the side's
+   * outline a gap outside the frame, or the strip just inside the editor's edge
+   * when the frame leaves no room for that. A drag passes the frame it measured at
+   * its press (D3), so a zoom or a pan under the drag moves the diagram the rest
+   * of the way without changing where the release docks. It measures the view and
+   * never moves it: the rail floats over the paper.
    */
-  #placeRail(): void {
-    const size = this.#page.viewport.size();
-    const { dock, stopped } = this.#dockOn(this.#railSide);
+  #placeRail(pressed?: MeasuredFrame): void {
+    const size = pressed?.editor ?? this.#page.viewport.size();
+    const { dock, stopped } =
+      pressed === undefined
+        ? this.#dockOn(this.#railSide)
+        : dockOnFrame(pressed.frame, pressed.editor, this.#railSide, this.#outline());
     this.#railHeld = stopped;
     this.#railDockOffset = { x: dock.x - size.width / 2, y: dock.y - size.height / 2 };
     this.#hangRail();
@@ -1106,17 +1120,19 @@ class EsbozoEditorElement extends HTMLElement {
 
   /**
    * Dock the rail on one of the frame's four sides: the side it lies along, or
-   * stands up, is the side's own. The frame is measured every time, even for the
-   * side already in use (I4), and the Scene is never touched: a move is the
-   * page's chrome, so it works in a read-only Scene and records no step (D9).
+   * stands up, is the side's own. The palette's move measures the frame every
+   * time, even for the side already in use (I4), and a drag's release docks on the
+   * frame measured at its own press instead (D3). Either way the Scene is never
+   * touched: a move is the page's chrome, so it works in a read-only Scene and
+   * records no step (D9).
    */
-  #dockRail(side: RailSide): void {
+  #dockRail(side: RailSide, pressed?: MeasuredFrame): void {
     this.#railSide = side;
     this.#rail.dataset['side'] = side;
     // Laying the strip along another edge is another size, so the outline is
     // drawn again for the shape it now covers before the frame is measured.
     this.#drawRailArt();
-    this.#placeRail();
+    this.#placeRail(pressed);
     // The move is committed here, so this is where the side is kept for the next
     // editor, the side already in use included (I4): the Scene stays untouched
     // (D9), and a cancelled drag never reaches this point (I6).
@@ -1396,12 +1412,14 @@ class EsbozoEditorElement extends HTMLElement {
     // there too: a press in an editor the host set somewhere else in the page is
     // the same place in the frame whether the page moved it or not.
     const at = this.#page.viewport.screenPoint(event);
+    const editor = this.#page.viewport.size();
     this.#railDrag = {
       pointer: event.pointerId,
       from: at,
       at,
       moved: false,
       frame: this.#dockOn(this.#railSide).frame,
+      editor,
     };
     // The drag's own moves and release: the rail may be left far behind, so they
     // cannot be the rail's listeners. The press itself stays the button's, which
@@ -1448,7 +1466,7 @@ class EsbozoEditorElement extends HTMLElement {
       return;
     }
     this.#railDragged = true;
-    this.#dockRail(nearestDock(drag.frame, drag.at));
+    this.#dockRail(nearestDock(drag.frame, drag.at), drag);
   };
 
   #onRailCancel = (event: PointerEvent): void => {

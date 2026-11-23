@@ -636,6 +636,20 @@ export function railFrame(
 }
 
 /**
+ * The dock a side of a frame measured earlier hangs at: the frame a drag pressed
+ * (D3), and the room the editor had when that frame was measured. A palette move
+ * measures its own frame through `railFrame` instead (I4).
+ */
+export function dockOnFrame(
+  frame: Box,
+  editor: { width: number; height: number },
+  side: RailSide,
+  outline: RailOutline,
+): RailDock {
+  return dockOn(side, frame, editor, outline);
+}
+
+/**
  * The dock on one side of the frame: the strip's outline one gap outside it,
  * centred on that side, or the strip just inside the editor's edge where the
  * frame leaves no room for the gap (D1, D2).
