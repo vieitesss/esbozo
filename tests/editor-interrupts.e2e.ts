@@ -17,6 +17,12 @@
  *   3. no gesture mode is left: no mode pill and no gesture cursor;
  *   4. the next press starts a fresh gesture, from the Scene the file holds.
  *
+ * A gesture that is not a Scene edit answers for itself, because its exit is
+ * not what ends it: the pan is the page's, and it ends with the key or the
+ * button the hand took it with, and a Text session's words are the session's,
+ * so an exit may land them or throw them away. `ends` is where such a row says
+ * what those cells are instead, and every other cell is the four above.
+ *
  * Input is a person's: the rail, the pointer, the keys. The two exits no key or
  * pointer can perform — the window really losing the focus, and a host really
  * detaching the element — are the documented ones, and the page world is only
@@ -38,7 +44,9 @@ import {
   settle,
 } from './helpers.ts';
 import type { Folders, Point, SavedScene, Ui, View } from './helpers.ts';
-import { blurPage, cursorAt } from './cdp.ts';
+import { blurPage, cursorAt, livePage } from './cdp.ts';
+import { shot } from './pixels.ts';
+import type { Centre, Rect } from './pixels.ts';
 
 /**
  * A free arrow through one sharp bend, on the bare paper beneath both boxes and
@@ -83,12 +91,21 @@ const IDLE: Point = at({ x: 300, y: 380 }, VIEW);
 const MOVES = 5;
 
 /** @returns where the pointer was left, still down: half a gesture. */
-async function carry(ui: Ui, from: Point, to: Point): Promise<Point> {
-  await ui.browser.mouse.move(from.x, from.y);
-  await ui.browser.mouse.down();
+async function carry(
+  ui: Ui,
+  from: Point,
+  to: Point,
+  button: 'left' | 'middle' = 'left',
+): Promise<Point> {
+  // e2e's fixture presses the primary button only, so the middle press a pan is
+  // taken with is the page's own mouse, as `tests/helpers.ts` drags one.
+  const mouse = button === 'middle' ? livePage().mouse : ui.browser.mouse;
+  await mouse.move(from.x, from.y);
+  if (button === 'middle') await mouse.down({ button });
+  else await mouse.down();
   for (let step = 1; step <= MOVES; step += 1) {
     const share = step / MOVES;
-    await ui.browser.mouse.move(from.x + (to.x - from.x) * share, from.y + (to.y - from.y) * share);
+    await mouse.move(from.x + (to.x - from.x) * share, from.y + (to.y - from.y) * share);
   }
   await settle(ui);
   return to;
@@ -107,6 +124,23 @@ async function expectSameFiles(ui: Ui, before: Record<string, string>): Promise<
   expect(await savedFiles(ui)).toEqual(before);
 }
 
+/**
+ * A cell a gesture answers for itself, because its exit is not what ends it: the
+ * pan is the page's and is still in the hand the key or the button holds, and a
+ * Text session's words are the session's, so an exit may land them or throw them
+ * away. The row says what the page still shows, how the hand then lets go, and
+ * whether words landed in the Scene — the row's `shows` proves those, because
+ * only the row knows which words they are.
+ */
+interface Ending {
+  /** What the page must show of the gesture once the exit is over. */
+  readonly shows: (ui: Ui) => Promise<void>;
+  /** The hand lets go of what the exit left in it, and what that documents follows here. */
+  readonly letGo: (ui: Ui) => Promise<void>;
+  /** True when the exit landed words, so the disk is not the one the press found. */
+  readonly landed?: boolean;
+}
+
 /** One gesture kind, and what a landed gesture of that kind leaves behind. */
 interface Gesture {
   readonly name: string;
@@ -118,7 +152,195 @@ interface Gesture {
   readonly again: (ui: Ui) => Promise<void>;
   /** What that landed gesture saves, so the next press is proved fresh. */
   readonly proves: (scene: SavedScene) => void;
+  /**
+   * The cells this gesture's own contract answers differently, because the exit
+   * does not end it. A cell not named here is over when its exit is over, which
+   * is every Scene edit's contract.
+   */
+  readonly ends?: ReadonlyArray<readonly [Exit, Ending]>;
+  /** Let go of the key or the button this gesture is taken with, where an exit left it down. */
+  readonly release?: (ui: Ui) => Promise<void>;
+  /**
+   * The write a refused save is waiting on, where this gesture's own landing
+   * writes nothing at all: a pan is the page's, so the folder has to be told to
+   * refuse somebody else's write. The default is the row's own landed gesture.
+   */
+  readonly primes?: (ui: Ui) => Promise<void>;
 }
+
+/** A page state a row starts from: the Select tool the page opens on needs no arming. */
+const noop = async (): Promise<void> => undefined;
+
+/**
+ * The page this file's detach test owns: it holds the element in a slot and
+ * keeps its own hands on it, so taking it off the page is the host's doing.
+ */
+const CONTROLLED_HOST = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<style>html, body { height: 100%; margin: 0 } esbozo-editor { display: block; height: 100vh }</style>
+<link rel="stylesheet" href="editor.css" />
+</head>
+<body>
+<div class="slot"><esbozo-editor></esbozo-editor></div>
+<script type="module">
+  const slot = document.querySelector('.slot');
+  const editor = slot.querySelector('esbozo-editor');
+  window.unplug = () => {
+    editor.remove();
+    slot.append(editor);
+  };
+</script>
+<script type="module" src="editor.js"></script>
+</body>
+</html>`;
+
+/** One way a gesture can end, and what the checks read after it. */
+interface Exit {
+  readonly name: string;
+  /** The page the exit needs, with its Scene open and settled. */
+  readonly open: (ui: Ui) => Promise<void>;
+  /** What the gesture has to leave waiting before it starts, if anything. */
+  readonly before: (ui: Ui, gesture: Gesture) => Promise<void>;
+  /** End the gesture `to` was carried to, the way this exit does. */
+  readonly drive: (ui: Ui, to: Point) => Promise<void>;
+  /** The Scene the checked press lands in: the one the page holds after the exit. */
+  readonly scene: string;
+  /** Whether the exit leaves the page able to save a press at all. */
+  readonly fresh: 'lands' | 'refused';
+}
+
+const editorPage = (ui: Ui) => openEditor(ui, FOLDERS, 'scene.json');
+
+/** The browser takes the gesture over, as a touch that became a scroll does: a cancellation, not a release. */
+const POINTERCANCEL: Exit = {
+  name: 'a pointercancel',
+  open: editorPage,
+  before: noop,
+  drive: async (ui, to) => {
+    await ui.browser.evaluate((point: { x: number; y: number }) => {
+      document
+        .elementFromPoint(point.x, point.y)
+        ?.dispatchEvent(
+          new PointerEvent('pointercancel', {
+            pointerId: 1,
+            clientX: point.x,
+            clientY: point.y,
+            bubbles: true,
+          }),
+        );
+      return true;
+    }, to);
+  },
+  scene: 'scene.json',
+  fresh: 'lands',
+};
+
+/** The person picks another window: the focus really leaves the page. */
+const BLUR: Exit = {
+  name: 'a window blur',
+  open: editorPage,
+  before: noop,
+  // No event a test dispatches is believed, because the browser's own pointer
+  // state would stay as it was.
+  drive: async () => {
+    await blurPage();
+  },
+  scene: 'scene.json',
+  fresh: 'lands',
+};
+
+/** The page goes out of sight: the tab behind another one. */
+const HIDDEN: Exit = {
+  name: 'the page being hidden',
+  open: editorPage,
+  before: noop,
+  drive: async (ui) => {
+    await ui.browser.evaluate(() => {
+      Object.defineProperty(document, 'visibilityState', {
+        configurable: true,
+        get: () => 'hidden',
+      });
+      document.dispatchEvent(new Event('visibilitychange'));
+      return true;
+    });
+  },
+  scene: 'scene.json',
+  fresh: 'lands',
+};
+
+/** The key a person answers a page with. */
+const ESCAPE: Exit = {
+  name: 'Escape',
+  open: editorPage,
+  before: noop,
+  drive: async (ui) => {
+    await ui.browser.keyboard.press('Escape');
+  },
+  scene: 'scene.json',
+  fresh: 'lands',
+};
+
+/** Another Scene, opened from the file list. */
+const SCENE_SWITCH: Exit = {
+  name: 'another Scene from the file list',
+  open: editorPage,
+  before: noop,
+  // The pointer is the board's while it is captured, so the file list is
+  // reached the way a person reaches it with their hands off the pointer: Tab
+  // to the folder button, Enter, then Enter on the Scene's own row.
+  drive: async (ui) => {
+    await ui.screen.getByRole('button', /Open folder/).press('Enter');
+    await ui.screen.getByRole('button', 'second.json').press('Enter');
+  },
+  scene: 'second.json',
+  fresh: 'lands',
+};
+
+/** A folder that turns read-only under the page: the write it queued is answered with a 403. */
+const REFUSED_SAVE: Exit = {
+  name: 'a refused save',
+  open: editorPage,
+  // A write the folder will refuse is what the page is waiting on while the
+  // gesture is in flight: a finished gesture queues it and the gate holds it,
+  // and the undo puts the Scene back where this row's presses are aimed.
+  before: async (ui, gesture) => {
+    await holdWrites(ui, 'scene.json');
+    await (gesture.primes ?? gesture.again)(ui);
+    await ui.browser.keyboard.press('Meta+z');
+  },
+  // The gate answers the held write with a 403, as a folder served read-only
+  // does: the page learns it may only read while the gesture is in flight.
+  drive: async (ui) => {
+    await refuseWrite(ui, 'the folder is read-only');
+  },
+  scene: 'scene.json',
+  fresh: 'refused',
+};
+
+/** The host takes the element off the page while the gesture is in flight. */
+const DETACH: Exit = {
+  name: 'the host detaching the element',
+  open: async (ui) => {
+    await ui.browser.route('**/editor.html', (route) =>
+      route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: CONTROLLED_HOST }),
+    );
+    await editorPage(ui);
+  },
+  before: noop,
+  drive: async (ui) => {
+    await ui.browser.evaluate(() => {
+      (window as unknown as { unplug: () => void }).unplug();
+      return true;
+    });
+  },
+  scene: 'scene.json',
+  fresh: 'lands',
+};
+
+/** The columns of the table, in the order a person would try them. */
+const EXITS: readonly Exit[] = [POINTERCANCEL, BLUR, HIDDEN, ESCAPE, SCENE_SWITCH, REFUSED_SAVE, DETACH];
 
 /** A Rectangle drawn on the bare paper right of both boxes. */
 const DRAWN = { from: at({ x: 320, y: 200 }, VIEW), to: at({ x: 420, y: 280 }, VIEW) };
@@ -129,8 +351,6 @@ const rect = (ui: Ui) => ui.screen.getByRole('button', { name: 'Rectangle' });
 const selectA = (ui: Ui) => clickScene(ui, { x: 100, y: 80 }, [], VIEW);
 /** On the arrow's first run, on no Element: where a press selects the arrow. */
 const selectBent = (ui: Ui) => clickScene(ui, { x: 100, y: 270 }, [], VIEW);
-/** A page state a row starts from: the Select tool the page opens on needs no arming. */
-const noop = async (): Promise<void> => undefined;
 
 const DRAW: Gesture = {
   name: 'draw',
@@ -281,165 +501,267 @@ const LABEL_DRAG: Gesture = {
 };
 
 /**
- * The page this file's detach test owns: it holds the element in a slot and
- * keeps its own hands on it, so taking it off the page is the host's doing.
+ * Where a pan takes the page, and how far it has carried it. The nudge is short
+ * on purpose: the Scene fits the page, so a pan of it has to stay on the page
+ * however many pans a cell has already carried.
  */
-const CONTROLLED_HOST = `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<style>html, body { height: 100%; margin: 0 } esbozo-editor { display: block; height: 100vh }</style>
-<link rel="stylesheet" href="editor.css" />
-</head>
-<body>
-<div class="slot"><esbozo-editor></esbozo-editor></div>
-<script type="module">
-  const slot = document.querySelector('.slot');
-  const editor = slot.querySelector('esbozo-editor');
-  window.unplug = () => {
-    editor.remove();
-    slot.append(editor);
-  };
-</script>
-<script type="module" src="editor.js"></script>
-</body>
-</html>`;
+const PAN_FROM = IDLE;
+const PAN_BY: Point = { x: 60, y: 40 };
+const PAN_TO: Point = { x: PAN_FROM.x + PAN_BY.x, y: PAN_FROM.y + PAN_BY.y };
 
-/** One way a gesture can end, and what the checks read after it. */
-interface Exit {
-  readonly name: string;
-  /** The page the exit needs, with its Scene open and settled. */
-  readonly open: (ui: Ui) => Promise<void>;
-  /** What the gesture has to leave waiting before it starts, if anything. */
-  readonly before: (ui: Ui, gesture: Gesture) => Promise<void>;
-  /** End the gesture `to` was carried to, the way this exit does. */
-  readonly drive: (ui: Ui, to: Point) => Promise<void>;
-  /** The Scene the checked press lands in: the one the page holds after the exit. */
-  readonly scene: string;
-  /** Whether the exit leaves the page able to save a press at all. */
-  readonly fresh: 'lands' | 'refused';
+/**
+ * The box a pan row measures the page in: wide enough for the Scene it landed in
+ * and the three pans an exit can leave behind it, and holding nothing the page
+ * draws of its own — the rail, the note, the status line and the mode pill are
+ * all outside it.
+ */
+const INK: Rect = { x: 480, y: 230, width: 480, height: 440 };
+
+/** A page point clear of every Element in every view a pan row presses in. */
+const BARE: Point = { x: 200, y: 700 };
+
+/** Where the page's ink is, in page pixels. */
+async function inkCentre(ui: Ui): Promise<Centre> {
+  const ink = (await shot(ui)).darkCentre(INK, 0.6);
+  expect(ink.count).toBeGreaterThan(0);
+  return ink;
 }
 
-const editorPage = (ui: Ui) => openEditor(ui, FOLDERS, 'scene.json');
+/**
+ * What a landed pan leaves in the file: the Scene it panned, byte for byte where
+ * it found it. A pan is the page's, so it is never a write, and the next press
+ * starts from the Scene the disk holds.
+ */
+const provesPan = (scene: SavedScene): void => {
+  const at = (id: string) => {
+    const element = scene.elements.find((one) => one.id === id);
+    return { x: element?.x, y: element?.y };
+  };
+  expect([at('a'), at('b')]).toEqual([
+    { x: 40, y: 40 },
+    { x: 200, y: 60 },
+  ]);
+};
 
-const EXITS: readonly Exit[] = [
-  {
-    name: 'a pointercancel',
-    open: editorPage,
-    before: noop,
-    drive: async (ui, to) => {
-      // The browser takes the gesture over, as a touch that became a scroll
-      // does: a cancellation, not a release.
-      await ui.browser.evaluate((point: { x: number; y: number }) => {
-        document
-          .elementFromPoint(point.x, point.y)
-          ?.dispatchEvent(
-            new PointerEvent('pointercancel', {
-              pointerId: 1,
-              clientX: point.x,
-              clientY: point.y,
-              bubbles: true,
-            }),
-          );
-        return true;
-      }, to);
-    },
-    scene: 'scene.json',
-    fresh: 'lands',
-  },
-  {
-    name: 'a window blur',
-    open: editorPage,
-    before: noop,
-    // The focus really leaves the page, as the person picking another window
-    // does: no event a test dispatches is believed, because the browser's own
-    // pointer state would stay as it was.
-    drive: async () => {
-      await blurPage();
-    },
-    scene: 'scene.json',
-    fresh: 'lands',
-  },
-  {
-    name: 'the page being hidden',
-    open: editorPage,
-    before: noop,
-    drive: async (ui) => {
-      await ui.browser.evaluate(() => {
-        Object.defineProperty(document, 'visibilityState', {
-          configurable: true,
-          get: () => 'hidden',
-        });
-        document.dispatchEvent(new Event('visibilitychange'));
-        return true;
-      });
-    },
-    scene: 'scene.json',
-    fresh: 'lands',
-  },
-  {
-    name: 'Escape',
-    open: editorPage,
-    before: noop,
-    drive: async (ui) => {
-      await ui.browser.keyboard.press('Escape');
-    },
-    scene: 'scene.json',
-    fresh: 'lands',
-  },
-  {
-    name: 'another Scene from the file list',
-    open: editorPage,
-    before: noop,
-    // The pointer is the board's while it is captured, so the file list is
-    // reached the way a person reaches it with their hands off the pointer: Tab
-    // to the folder button, Enter, then Enter on the Scene's own row.
-    drive: async (ui) => {
-      await ui.screen.getByRole('button', /Open folder/).press('Enter');
-      await ui.screen.getByRole('button', 'second.json').press('Enter');
-    },
-    scene: 'second.json',
-    fresh: 'lands',
-  },
-  {
-    name: 'a refused save',
-    open: editorPage,
-    // A write the folder will refuse is what the page is waiting on while the
-    // gesture is in flight: a finished gesture queues it and the gate holds it,
-    // and the undo puts the Scene back where this row's presses are aimed.
-    before: async (ui, gesture) => {
-      await holdWrites(ui, 'scene.json');
-      await gesture.again(ui);
-      await ui.browser.keyboard.press('Meta+z');
-    },
-    // The gate answers the held write with a 403, as a folder served read-only
-    // does: the page learns it may only read while the gesture is in flight.
-    drive: async (ui) => {
-      await refuseWrite(ui, 'the folder is read-only');
-    },
-    scene: 'scene.json',
-    fresh: 'refused',
-  },
-  {
-    name: 'the host detaching the element',
-    open: async (ui) => {
-      await ui.browser.route('**/editor.html', (route) =>
-        route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: CONTROLLED_HOST }),
-      );
-      await editorPage(ui);
-    },
-    before: noop,
-    drive: async (ui) => {
-      await ui.browser.evaluate(() => {
-        (window as unknown as { unplug: () => void }).unplug();
-        return true;
-      });
-    },
-    scene: 'scene.json',
-    fresh: 'lands',
-  },
-];
+/** The middle button a pan is taken with is the page's own: the fixture presses the primary one only. */
+const letMiddleGo = async (): Promise<void> => {
+  await livePage().mouse.up({ button: 'middle' });
+};
 
+/** Space is the person's key, and it comes up where they let it: with their hand. */
+const letSpaceGo = async (ui: Ui): Promise<void> => {
+  await ui.browser.keyboard.up('Space');
+  await ui.browser.mouse.up();
+};
+
+/**
+ * What a pan an exit did not end still shows: the page is in the hand, and the
+ * status bar names it. A pan is never a Scene, so the file it opened as is the
+ * file it leaves, and the hand lets go of the key or the button here.
+ */
+const panHeld = (letGo: (ui: Ui) => Promise<void>): Ending => ({
+  shows: async (ui) => {
+    await expect(ui.screen.getByText('Panning')).toBeVisible();
+  },
+  letGo,
+});
+
+/**
+ * A pan the page ended by taking another Scene on: the pan is over, and the
+ * pointer stays the board's until the button comes up, which is where every
+ * gesture lets it go. The cell lets it go that way, and the four checks read the
+ * page the same as every other cell's.
+ */
+const panEnded = (letGo: (ui: Ui) => Promise<void>): Ending => ({
+  shows: async (ui) => {
+    await expect(ui.screen.getByText('Panning')).toBeHidden();
+    expect(await pointerHeld(ui)).toBe(true);
+  },
+  letGo,
+});
+
+/**
+ * Land a pan on the page the exit left, without asking the view where it is: a
+ * press clears whatever the last gesture left selected, and the pan then moves
+ * every mark on the page by exactly the pointer's own nudge. That is what a page
+ * still holding half a gesture cannot do — it would carry the page twice — and
+ * the ink that is left is the ink it started with.
+ */
+async function landPan(ui: Ui, carryIt: (ui: Ui) => Promise<void>): Promise<void> {
+  await ui.browser.mouse.move(BARE.x, BARE.y);
+  await ui.browser.mouse.down();
+  await ui.browser.mouse.up();
+  await settle(ui);
+  const before = await inkCentre(ui);
+  await carryIt(ui);
+  await settle(ui);
+  const moved = await inkCentre(ui);
+  expect(moved.x - before.x).toBeCloseTo(PAN_BY.x, 0);
+  expect(moved.y - before.y).toBeCloseTo(PAN_BY.y, 0);
+  // The page moved whole: the same ink, a handful of antialiased pixels apart.
+  expect(Math.abs(moved.count - before.count)).toBeLessThan(20);
+}
+
+/**
+ * A middle press on bare paper, carried 120 right and 100 down. The pan is the
+ * page's, not a Scene edit: the button ends it, and so does the page losing the
+ * Scene it was taken on — but an Escape and a refused save are neither, and the
+ * pan stays in the hand the button holds.
+ */
+const MIDDLE_PAN: Gesture = {
+  name: 'middle-drag pan',
+  arm: noop,
+  press: (ui) => carry(ui, PAN_FROM, PAN_TO, 'middle'),
+  ends: [
+    [SCENE_SWITCH, panEnded(letMiddleGo)],
+    [ESCAPE, panHeld(letMiddleGo)],
+    [REFUSED_SAVE, panHeld(letMiddleGo)],
+  ],
+  release: letMiddleGo,
+  primes: async (ui) => {
+    await selectA(ui);
+    await ui.browser.keyboard.press('Shift+ArrowRight');
+    await settle(ui);
+  },
+  again: async (ui) => {
+    await landPan(ui, async () => {
+      await carry(ui, PAN_FROM, PAN_TO, 'middle');
+      await letMiddleGo();
+    });
+  },
+  proves: provesPan,
+};
+
+/**
+ * The same pan by the key: Space held, and a primary press carried. A key is not
+ * the page's to take either — it comes up with the person's finger — so a
+ * pointercancel and an Escape leave the panned page in the hand still, and the
+ * cell lets the key go the way a person does.
+ */
+const SPACE_PAN: Gesture = {
+  name: 'Space pan',
+  arm: async (ui) => {
+    await ui.browser.keyboard.down('Space');
+  },
+  press: (ui) => carry(ui, PAN_FROM, PAN_TO),
+  ends: [
+    [POINTERCANCEL, panHeld(letSpaceGo)],
+    [SCENE_SWITCH, panEnded(letSpaceGo)],
+    [ESCAPE, panHeld(letSpaceGo)],
+    [REFUSED_SAVE, panHeld(letSpaceGo)],
+  ],
+  release: letSpaceGo,
+  primes: async (ui) => {
+    await selectA(ui);
+    await ui.browser.keyboard.press('Shift+ArrowRight');
+    await settle(ui);
+  },
+  again: async (ui) => {
+    await landPan(ui, async () => {
+      await ui.browser.keyboard.down('Space');
+      await drag(ui, PAN_FROM, PAN_TO);
+      await ui.browser.keyboard.up('Space');
+    });
+  },
+  proves: provesPan,
+};
+
+/** Where a Text session is opened, and where the next one is: bare paper, clear of every other press here. */
+const TEXT_AT: Point = { x: 300, y: 400 };
+const TEXT_NEXT: Point = { x: 340, y: 440 };
+/** Words typed into the session an exit finds, and the words the next session lands. */
+const TYPED = 'half a thought';
+const LANDED = 'fresh words';
+
+const textTool = (ui: Ui) => ui.screen.getByRole('button', { name: 'Text' });
+const wordField = (ui: Ui) => ui.screen.getByRole('textbox', { name: 'Text' });
+
+/** The words landed in the Scene the session was typed in: the file holds them. */
+async function expectWordsLanded(ui: Ui): Promise<void> {
+  const elements = (await savedScene(ui, 'scene.json')).elements;
+  expect(elements.some((element) => element.type === 'text' && element.content === TYPED)).toBe(true);
+}
+
+/** An exit that landed the words itself: the field is gone, and the file holds them. */
+const WORDS_LANDED: Ending = {
+  shows: async (ui) => {
+    await expect(wordField(ui)).toHaveCount(0);
+    await expectWordsLanded(ui);
+  },
+  letGo: noop,
+  landed: true,
+};
+
+/**
+ * An exit that is not the session's: the words are still in the field, and the
+ * Escape a person leaves them with lands them, as a click away or a blur would.
+ */
+const WORDS_HELD: Ending = {
+  shows: async (ui) => {
+    await expect(wordField(ui)).toHaveValue(TYPED);
+  },
+  letGo: async (ui) => {
+    await wordField(ui).press('Escape');
+    await expectWordsLanded(ui);
+  },
+  landed: true,
+};
+
+/** An exit that threw the words away: the field is gone and the file is the one the press found. */
+const WORDS_DROPPED: Ending = {
+  shows: async (ui) => {
+    await expect(wordField(ui)).toHaveCount(0);
+  },
+  letGo: noop,
+};
+
+/**
+ * A Text session left open on its words. A blur, an Escape or a click away lands
+ * valid words as one step and one write; a page that may only read and a page
+ * that takes the element off its DOM throw them away; and a pointercancel or a
+ * page hidden out of sight are not the session's at all, so the field keeps them.
+ */
+const TEXT_SESSION: Gesture = {
+  name: 'open Text session',
+  arm: async (ui) => {
+    await textTool(ui).click();
+  },
+  press: async (ui) => {
+    await clickScene(ui, TEXT_AT, [], VIEW);
+    await wordField(ui).pressSequentially(TYPED);
+    await settle(ui);
+    return at(TEXT_AT, VIEW);
+  },
+  ends: [
+    [POINTERCANCEL, WORDS_HELD],
+    [BLUR, WORDS_LANDED],
+    [HIDDEN, WORDS_HELD],
+    [ESCAPE, WORDS_LANDED],
+    [SCENE_SWITCH, WORDS_LANDED],
+    [REFUSED_SAVE, WORDS_DROPPED],
+    [DETACH, WORDS_DROPPED],
+  ],
+  again: async (ui) => {
+    await textTool(ui).click();
+    await clickScene(ui, TEXT_NEXT, [], VIEW);
+    await settle(ui);
+    // A page that may only read opens no session, and the press settles nothing.
+    if ((await wordField(ui).count()) === 0) {
+      return;
+    }
+    await wordField(ui).pressSequentially(LANDED);
+    await wordField(ui).press('Escape');
+    await settle(ui);
+  },
+  proves: (scene) => {
+    const landed = scene.elements.find(
+      (element) => element.type === 'text' && element.content === LANDED,
+    );
+    expect({ x: landed?.x, y: landed?.y }).toEqual(TEXT_NEXT);
+  },
+};
+
+/** The rows of the table: every gesture a person can be in the middle of. */
 for (const gesture of [
   DRAW,
   MOVE,
@@ -448,11 +770,17 @@ for (const gesture of [
   BEND_HANDLE,
   BOX_SELECT,
   LABEL_DRAG,
+  MIDDLE_PAN,
+  SPACE_PAN,
+  TEXT_SESSION,
 ]) {
   describe(`the exits a cancelled ${gesture.name} survives`, () => {
     for (const exit of EXITS) {
       test(`ends on ${exit.name}, and the next press starts fresh`, async ({ app, browser, screen }) => {
         const ui = { app, browser, screen };
+        // What this gesture's own contract says the exit leaves of it, where the
+        // exit is not its end.
+        const ending = gesture.ends?.find(([way]) => way === exit)?.[1];
         await exit.open(ui);
         await exit.before(ui, gesture);
 
@@ -468,9 +796,22 @@ for (const gesture of [
         await exit.drive(ui, to);
         await settle(ui);
 
-        // The pointer is the browser's again, and nothing was saved.
+        // What the exit left of a gesture it does not end by itself: the pan is
+        // still in the hand the key or the button holds, and a Text session may
+        // still hold its words. The hand then lets go of it, as the person's
+        // does, and what that documents is the row's to assert.
+        if (ending !== undefined) {
+          await ending.shows(ui);
+          await ending.letGo(ui);
+          await settle(ui);
+        }
+
+        // The pointer is the browser's again, and nothing that is not the
+        // documented commit of the words was saved.
         expect(await pointerHeld(ui)).toBe(false);
-        await expectSameFiles(ui, before);
+        if (ending?.landed !== true) {
+          await expectSameFiles(ui, before);
+        }
 
         // No gesture mode is left: no mode pill, and the cursor the page shows
         // with the tool in hand or with it back on Select. A gesture never has a
@@ -478,8 +819,14 @@ for (const gesture of [
         await expect(screen.getByText('Panning')).toBeHidden();
         expect([idle, armed]).toContain(await cursorAt(IDLE));
 
-        // The next press is a gesture of its own, and it lands whole.
-        await browser.mouse.up();
+        // The next press is a gesture of its own, and it lands whole. The hand
+        // lets go of the press first: a pan's key or button is the row's own,
+        // and every other gesture's is the left button the fixture holds.
+        if (gesture.release !== undefined) {
+          await gesture.release(ui);
+        } else {
+          await browser.mouse.up();
+        }
         await settle(ui);
         await gesture.again(ui);
         if (exit.fresh === 'refused') {

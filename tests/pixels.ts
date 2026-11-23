@@ -28,8 +28,8 @@ export interface Rect {
   height: number;
 }
 
-/** Where the dark pixels of a region sit, on average, in page CSS pixels. */
-interface Centre {
+/** Where the dark pixels of a region weigh: their middle, and how many there are. */
+export interface Centre {
   x: number;
   y: number;
   count: number;
