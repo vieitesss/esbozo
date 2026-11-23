@@ -160,7 +160,7 @@ export class Typing {
       moved: () => this.#host.page().paintWords(),
       line: (key, state) => this.#host.page().wordsLine(key, state),
       commit: (words) => this.#commitText(words),
-      ended: () => this.end(),
+      ended: this.#onSessionEnded,
     });
     host.page().paint();
   }
@@ -194,7 +194,7 @@ export class Typing {
       moved: () => this.#host.page().paintWords(),
       line: (key, state) => this.#host.page().wordsLine(key, state),
       commit: (words) => this.#commitWords(element, words),
-      ended: () => this.end(),
+      ended: this.#onSessionEnded,
     });
   }
 
@@ -303,6 +303,13 @@ export class Typing {
     this.#host.page().paint();
   }
 
+  #onSessionEnded = (): void => {
+    // When end() discards the field, it has already cleared the session.
+    if (this.#text !== null) {
+      this.end();
+    }
+  };
+
   /** The Scene these words would make, with this Element's words replaced. */
   #wordsScene(element: SceneElement, words: string): SceneElement[] {
     const scene = this.#host.scene();
@@ -321,7 +328,11 @@ export class Typing {
   #land(elements: SceneElement[], selected: readonly string[]): boolean {
     const parsed = parseScene(serialiseScene({ ...this.#host.scene(), elements }));
     if (!parsed.ok) {
-      this.#host.refused(parsed.problems[0]?.message ?? 'the Scene cannot hold these words');
+      const problem = parsed.problems[0];
+      if (problem === undefined) {
+        throw new Error('parseScene failed without reporting a problem');
+      }
+      this.#host.refused(problem.message);
       return false;
     }
     this.#host.applyScene(parsed.scene, selected);

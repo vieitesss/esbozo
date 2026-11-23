@@ -154,19 +154,6 @@ export interface DrawnElement {
 }
 
 /**
- * One Element of a canonical Scene, drawn. The target outlines a Snapped end
- * resolves against are in `byId`, so a caller that redraws one Element redraws
- * the same drawing the whole Scene would have given it.
- */
-export function renderElement(
-  element: Element,
-  byId: ReadonlyMap<string, Element>,
-  layout: Layout,
-): DrawnElement {
-  return drawElement(element, byId, layout);
-}
-
-/**
  * The SVG document a Scene's drawings make: the page around every Element, its
  * title and its hash. `renderScene` is this, from a Scene; an editor that keeps
  * the drawings it already made assembles the same bytes from them.
@@ -572,8 +559,14 @@ function shaftWords(
   };
 }
 
-/** One Element: measured once, then both bounded and drawn from that result. */
-function drawElement(
+/**
+ * One Element: measured once, then both bounded and drawn from that result.
+ *
+ * One Element of a canonical Scene, drawn. The target outlines a Snapped end
+ * resolves against are in `byId`, so a caller that redraws one Element redraws
+ * the same drawing the whole Scene would have given it.
+ */
+export function renderElement(
   element: Element,
   byId: ReadonlyMap<string, Element>,
   layout: Layout,

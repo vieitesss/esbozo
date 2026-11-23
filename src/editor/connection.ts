@@ -122,7 +122,7 @@ export class Connection {
    * empty until the page's font arrives, and nothing is drawn with it before
    * then: the element starts drawing once it has the measurement.
    */
-  #layout: Layout = unmeasured();
+  #font = { layout: unmeasured(), family: '' };
   /** True once the page's font is measured and the editor is drawing. */
   #ready = false;
   /**
@@ -162,12 +162,12 @@ export class Connection {
 
   /** The font the page draws with, which a fitted view and every Element are measured against. */
   get layout(): Layout {
-    return this.#layout;
+    return this.#font.layout;
   }
 
   /** The family that font is drawn as, which an exported SVG is resolved in. */
   get family(): string {
-    return 'Kalam';
+    return this.#font.family;
   }
 
   /** True once the page's font is measured and the editor is drawing. */
@@ -381,9 +381,9 @@ export class Connection {
    * and the editor listening and ready to draw. Nothing is painted here, so a
    * caller can fit the view first.
    */
-  #adopt(font: { layout: Layout; face?: () => void }): void {
+  #adopt(font: Extract<PageFont, { ok: true }>): void {
     font.face?.();
-    this.#layout = font.layout;
+    this.#font = { layout: font.layout, family: font.family };
     this.#ready = true;
     // Labels break with the measurement: what was drawn with the old one is not
     // the same drawing any more.

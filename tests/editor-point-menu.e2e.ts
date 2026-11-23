@@ -702,6 +702,36 @@ describe('the point menu', () => {
     expect(pointsOf(await savedScene(ui, 'zig.json'))).toEqual(ZIG_POINTS);
   });
 
+  test('only the connected editor cancels the browser menu after DOM moves', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    await open({ app, browser, screen });
+
+    const cancelled = await browser.evaluate(({ x, y }: { x: number; y: number }) => {
+      const paper = document.elementFromPoint(x, y);
+      const editor = paper?.closest('esbozo-editor');
+      const host = editor?.parentElement;
+      if (!paper || !editor || !host) {
+        throw new Error('No editor paper at the click point');
+      }
+      // A detached target cannot receive a real click, but it can still cancel an event.
+      const menuCancelled = () =>
+        !paper.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      const answers = [menuCancelled()];
+      for (let move = 0; move < 2; move += 1) {
+        editor.remove();
+        answers.push(menuCancelled());
+        host.append(editor);
+        answers.push(menuCancelled());
+      }
+      return answers;
+    }, { ...pagePoint(ON_INK) });
+
+    expect(cancelled).toEqual([true, false, true, false, true]);
+  });
+
   test('a point a self-loop must keep is offered as a disabled row', async ({
     app,
     browser,
