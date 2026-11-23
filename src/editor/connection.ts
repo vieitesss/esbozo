@@ -14,7 +14,7 @@ export interface SaveTarget {
 }
 
 /** What the status line says about the writes. */
-type SavedState = 'idle' | 'saving' | 'saved' | 'new' | 'failed';
+export type SavedState = 'idle' | 'saving' | 'saved' | 'new' | 'failed';
 
 /**
  * What the connection asks of the editor, and the one place an answer about a
@@ -24,8 +24,14 @@ type SavedState = 'idle' | 'saving' | 'saved' | 'new' | 'failed';
 interface ConnectionHost {
   /** The element the page's font and its folder are asked about. */
   readonly element: HTMLElement;
-  /** The page holds another Scene: show it, and name where it saves. */
-  show(scene: Scene, target: SaveTarget): void;
+  /**
+   * The page holds another Scene: show it, name where it saves, and say what the
+   * open made of it. The word comes with the Scene because the page hangs its
+   * rail against the status corner, and the corner is as tall as that word: a
+   * page that placed the rail before the word arrived would hang it over the
+   * save message its own open wrote, or over the room a vanished error left (O2).
+   */
+  show(scene: Scene, target: SaveTarget, status: SavedState): void;
   /** The page holds no Scene any more: half an edit, a selection, a history. */
   forget(): void;
   /** A connection has a Scene to start on: its defaults, a fitted view, one frame. */
@@ -284,14 +290,15 @@ export class Connection {
     }
     if (source === null) {
       // A new Scene takes its title from the file name: `flow.esbozo` opens as "flow".
-      this.#load(emptyScene(sceneStem(name) || 'Scene'), { folder, name });
+      const scene = emptyScene(sceneStem(name) || 'Scene');
       if (options.create === true) {
         // A person asked for this name, so it is a Scene now, SVG and all. Only
         // a 404 the page did not ask for waits for its first edit.
-        await this.save(emptyScene(sceneStem(name) || 'Scene'));
+        this.#load(scene, { folder, name }, 'saving');
+        await this.save(scene);
         return;
       }
-      this.#host.status('new');
+      this.#load(scene, { folder, name }, 'new');
       return;
     }
     const parsed = parseScene(source);
@@ -303,9 +310,8 @@ export class Connection {
       this.#host.status('failed', `${name}: ${message}`);
       return;
     }
-    this.#load(parsed.scene, { folder, name });
     // A read-only folder saved nothing: the status bar says only that.
-    this.#host.status(folder.readOnly ? 'idle' : 'saved');
+    this.#load(parsed.scene, { folder, name }, folder.readOnly ? 'idle' : 'saved');
   }
 
   /**
@@ -433,10 +439,10 @@ export class Connection {
     await this.open(first, {}, token);
   }
 
-  /** A Scene to show, and the destination its writes go to from now on. */
-  #load(scene: Scene, target: SaveTarget): void {
+  /** A Scene to show, the destination its writes go to from now on, and what the open made of it. */
+  #load(scene: Scene, target: SaveTarget, status: SavedState): void {
     this.#target = target;
-    this.#host.show(scene, target);
+    this.#host.show(scene, target, status);
   }
 
   /** One write of one Scene, assembled after the frame that is already due. */

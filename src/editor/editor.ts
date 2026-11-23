@@ -15,7 +15,7 @@ import type { Bend } from './bend-point.js';
 import { clipboardApi, copySelection, copyTo, cutSelection, pasteClipboard } from './clipboard.js';
 import type { ClipboardHost } from './clipboard.js';
 import { Connection } from './connection.js';
-import type { FolderSource, FontSource, SaveTarget } from './connection.js';
+import type { FolderSource, FontSource, SaveTarget, SavedState } from './connection.js';
 import { Page } from './page.js';
 import type { Shown } from './page.js';
 import { Notes } from './notes.js';
@@ -385,7 +385,7 @@ class EsbozoEditorElement extends HTMLElement {
     // it gets is late, and every one of them is bound to the token that asked.
     this.#connection = new Connection(this.#fonts, this.#folder, {
       element: this,
-      show: (scene, target) => this.#load(scene, target),
+      show: (scene, target, status) => this.#load(scene, target, status),
       forget: () => this.#forget(),
       start: () => this.#start(),
       mode: (readOnly) => this.#showMode(readOnly),
@@ -697,16 +697,18 @@ class EsbozoEditorElement extends HTMLElement {
     this.#page.resetDrawings();
   }
 
-  #load(scene: Scene, target: SaveTarget): void {
+  #load(scene: Scene, target: SaveTarget, status: SavedState): void {
     this.#replaceScene(scene);
     this.#selectElements([]);
     this.#history.reset(serialiseScene(scene));
     this.#menuFor = null;
     this.#page.viewport.view = fittedView(scene, this.#page.viewport.size(), this.#connection.layout);
-    // The name is set before the frame is measured: a narrow editor's top dock is
-    // moved in clear of this corner, and the corner is as wide as these words (O2).
+    // The name and the status this open leaves are set before the frame is
+    // measured: a narrow editor's top dock is moved in clear of this corner, and
+    // the corner is as wide and as tall as these words (O2).
     this.#whereLabel.textContent = `${target.folder.name} / ${target.name}`;
     this.#notes.clear('scenes');
+    this.#setSaved(status);
     this.#placeRail();
     // Another Scene: the tool in hand and the words half-typed into the last
     // one belong to that one, not this, and the note shows its defaults. A Space
@@ -1748,7 +1750,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#notes.show('scenes');
   }
 
-  #setSaved(state: 'idle' | 'saving' | 'saved' | 'new' | 'failed', detail = ''): void {
+  #setSaved(state: SavedState, detail = ''): void {
     this.#savedLabel.dataset['state'] = state;
     this.#savedLabel.textContent =
       state === 'failed'
