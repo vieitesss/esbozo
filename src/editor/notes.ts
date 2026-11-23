@@ -15,8 +15,6 @@
 /** The notes the page opens over the Scene, in no order of their own. */
 export type NoteId = 'commands' | 'shortcuts' | 'scenes';
 
-/** Which keys a note takes from the Scene while it sits on top. */
-
 /** One note: what it draws, the keys it keeps, and what its own marks do. */
 export interface Note {
   /** The element the note draws, which the stack shows and hides. */
