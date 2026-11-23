@@ -164,6 +164,11 @@ export type Drag =
 interface Placing {
   /** The points placed so far, whole-pixel, no Snap on any: only an end Snaps. */
   readonly points: readonly Point[];
+  /**
+   * Where the pointer came up for the last of them, before the Scene rounds it:
+   * the Snap is read from here, as a dragged end's is read from its release.
+   */
+  readonly release: Point;
   /** The last placed click, until a drag or a finish breaks the pair. */
   readonly click: Press | null;
   /** Whether the last placed point was clicked with Alt: that end stays free. */
@@ -1244,7 +1249,7 @@ export class Gestures {
    */
   #startPlacing(drag: Extract<Drag, { kind: 'draw' }>, at: Point, event: PointerEvent): void {
     const point = whole(at);
-    const { preview, target } = this.#placePreview(drag, [], point, event.altKey);
+    const { preview, target } = this.#placePreview(drag, [], at, event.altKey);
     this.#drag = {
       ...drag,
       from: at,
@@ -1252,6 +1257,7 @@ export class Gestures {
       target,
       placing: {
         points: [point],
+        release: at,
         // The click that started the place is half of a double-click like any
         // other: two clicks on that first point end the place, one point and all.
         click: {
@@ -1291,11 +1297,12 @@ export class Gestures {
       this.finishPlacing();
       return;
     }
-    const { preview, target } = this.#placePreview(drag, placing.points, point, event.altKey);
+    const { preview, target } = this.#placePreview(drag, placing.points, at, event.altKey);
     drag.preview = preview;
     drag.target = target;
     drag.placing = {
       points: [...placing.points, point],
+      release: at,
       click: click ? press : null,
       skipSnap: event.altKey,
     };
@@ -1314,7 +1321,7 @@ export class Gestures {
     if (drag === null || drag.kind !== 'draw' || drag.placing === null) {
       return;
     }
-    const { points, skipSnap } = drag.placing;
+    const { points, release, skipSnap } = drag.placing;
     this.#drag = null;
     this.#host.setTool('select');
     const distinct = new Set(points.map((point) => `${point.x},${point.y}`));
@@ -1328,7 +1335,7 @@ export class Gestures {
       this.#pathOf(drag.tool, points, drag.id),
       'end',
       end,
-      this.#attachTarget(drag.id, 'end', end, skipSnap),
+      this.#attachTarget(drag.id, 'end', release, skipSnap),
     );
     this.#host.applyScene(
       { ...this.#host.scene(), elements: [...this.#host.scene().elements, settled] },
@@ -1339,8 +1346,10 @@ export class Gestures {
   /**
    * What a place shows while the pointer is between points: every point it has
    * put down, and the segment reaching for the pointer. The last of them Snaps
-   * the way a dragged end does, and a pointer still within the click's own slop
-   * of the last point reaches nowhere yet, so it Snaps to nothing.
+   * the way a dragged end does, from the pointer as it is — the rounding is for
+   * the point the Scene stores, never for the Element under it — and a pointer
+   * still within the click's own slop of the last point reaches nowhere yet, so
+   * it Snaps to nothing.
    */
   #placePreview(
     drag: Extract<Drag, { kind: 'draw' }>,
@@ -1353,8 +1362,9 @@ export class Gestures {
       last === undefined || isClick(last, cursor)
         ? null
         : this.#attachTarget(drag.id, 'end', cursor, skipSnap);
-    const path = this.#pathOf(drag.tool, [...points, cursor], drag.id);
-    return { preview: withEnd(path, 'end', cursor, target), target };
+    const end = whole(cursor);
+    const path = this.#pathOf(drag.tool, [...points, end], drag.id);
+    return { preview: withEnd(path, 'end', end, target), target };
   }
 
   /**

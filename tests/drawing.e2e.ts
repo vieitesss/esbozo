@@ -683,6 +683,39 @@ describe('a shaft placed by clicking', () => {
     expect((await savedScene(ui)).elements.length).toBe(2);
     expect((await savedFiles(ui))['scene.json']).toBe(SCENE_SOURCE);
   });
+
+  test('a placed end decides its Snap where the pointer came up, not where the point rounds to', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    // A quarter of a pixel outside the first box's left edge: the point the Scene
+    // stores is (40, 80), the edge itself, so only the release as it came up can
+    // tell an end beside the box from an end on it.
+    const beside: Point = { x: 39.75, y: 80 };
+
+    // Dragged, that release is beside the box: the end stays free.
+    await browser.keyboard.press('a');
+    await drag(ui, at({ x: 60, y: 200 }), at(beside));
+    expect((await savedScene(ui)).elements[2]?.points).toEqual([
+      { x: 60, y: 200 },
+      { x: 40, y: 80 },
+    ]);
+
+    // Placed, the same release makes the same end: the rounding is for the file,
+    // not for the Element the end lands beside.
+    await browser.keyboard.press('a');
+    await clickScene(ui, { x: 60, y: 200 });
+    await clickScene(ui, beside);
+    await browser.keyboard.press('Enter');
+    expect((await savedScene(ui)).elements[3]?.points).toEqual([
+      { x: 60, y: 200 },
+      { x: 40, y: 80 },
+    ]);
+  });
 });
 
 describe('Text typed in place', () => {
