@@ -20,6 +20,8 @@
 import { createLayout, parseFontFile } from '../layout.js';
 import { defineEditorElement } from './editor.js';
 import type { PageFont } from './editor.js';
+import { exportPng } from './export.js';
+import { servedFolder } from './server-folder.js';
 
 const FONT_URL = 'fonts/Kalam-Regular.ttf';
 /** The family the page's CSS names the hand font by, which the SVG is drawn in. */
@@ -27,7 +29,7 @@ const FONT_FAMILY = 'Kalam';
 
 const font = await loadFont();
 
-defineEditorElement(async () => font);
+defineEditorElement(async () => font, servedFolder, { exportPng });
 
 /** The page's font, measured, or the plain-text reason it has none. */
 async function loadFont(): Promise<PageFont> {

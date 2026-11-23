@@ -8,7 +8,7 @@ import { deleted, detached, duplicated, nudged, pasted, rearranged, restyled } f
 import type { Edited, Landing } from './edits.js';
 import { actionById, actionFor } from './actions.js';
 import type { ActionHost, ActionState, ToolId } from './actions.js';
-import { exportPng } from './export.js';
+import type { PngExport } from './export.js';
 import { Gestures } from './gestures.js';
 import { mayRemove, PickedBend, shaftIn, withCorner, withoutBend } from './bend-point.js';
 import type { Bend } from './bend-point.js';
@@ -25,7 +25,6 @@ import { menuSignature, styleNote } from './menu.js';
 import { nextRoughness, roughnessLabel } from './style.js';
 import type { StyleKey } from './style.js';
 import { canPickFolder } from './files.js';
-import { servedFolder } from './server-folder.js';
 import {
   clearedDock,
   clampedDock,
@@ -165,7 +164,7 @@ class EsbozoEditorElement extends HTMLElement {
   /** True for an embedded editor, whose keys are its own only while it has the focus. */
   #ownsKeysWhenFocused = false;
   /** Whether this page can export a PNG: a PNG is the page's, and the bundle has none. */
-  #pngExport = true;
+  #pngExport: ((request: PngExport) => Promise<void>) | undefined;
   #scene: Scene = emptyScene();
   #selected: string[] = [];
   /** The one bend point the selection holds, and the presses that take it. */
@@ -253,7 +252,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#fonts = fonts;
     this.#folder = folder;
     this.#ownsKeysWhenFocused = options.focusInside === true;
-    this.#pngExport = options.pngExport !== false;
+    this.#pngExport = options.exportPng;
   }
 
   /** The page's font, as the page gets it: one measurement per element. */
@@ -959,6 +958,10 @@ class EsbozoEditorElement extends HTMLElement {
 
   /** The Scene as a PNG, light or dark, downloaded beside the name the Scene saves under. */
   async #exportPng(theme: 'light' | 'dark'): Promise<void> {
+    const exportPng = this.#pngExport;
+    if (exportPng === undefined) {
+      return;
+    }
     // The file name the Scene saves under, and the one a too-large page tells a
     // person to hand to the CLI.
     const file = this.#connection.target?.name ?? `${this.#scene.title}${PRIMARY_SCENE_EXTENSION}`;
@@ -985,7 +988,7 @@ class EsbozoEditorElement extends HTMLElement {
       canUndo: this.#history.canUndo,
       canRedo: this.#history.canRedo,
       clipboard: clipboardApi() !== null,
-      png: this.#pngExport,
+      png: this.#pngExport !== undefined,
       folder: this.#connection.served || canPickFolder(),
     };
   }
@@ -1886,32 +1889,36 @@ class EsbozoEditorElement extends HTMLElement {
 export type { FolderSource, FontSource, PageFont } from './connection.js';
 
 /**
- * What a page configures about every element it makes. The bundle sets
- * `focusInside`, because an embedded editor is one box on someone else's page:
- * its keys and its clipboard are the page's until a person clicks into it, and
- * `pngExport`, because the page a PNG is drawn for is not there.
+ * What a page configures about every element it makes: the bundle sets
+ * `focusInside` and no `exportPng`, because an embedded editor is one box on
+ * someone else's page: its keys and its clipboard are the page's until a person
+ * clicks into it, and the page a PNG is drawn for is not there.
  */
 export interface EditorOptions {
   /** True when the keys and the clipboard belong to the element only while the focus is inside it. */
   readonly focusInside?: boolean;
   /**
-   * Whether this page can export a PNG, which it can unless it says otherwise. A
-   * PNG draws its words from the font's outlines and its paper and ink from the
-   * served page's palette; the bundle reads the metrics alone and brings its own
-   * scoped variables, so its Export rows say where a PNG comes from.
+   * How this page draws a PNG: the exporter itself, which the page passes and
+   * the bundle does not. A PNG draws its words from the font's outlines and its
+   * paper and ink from the served page's palette; the bundle reads the metrics
+   * alone and brings its own scoped variables, so a page without an exporter —
+   * the bundle — has Export rows that say where a PNG comes from, and a page
+   * with one exports as its own button does.
    */
-  readonly pngExport?: boolean;
+  readonly exportPng?: (request: PngExport) => Promise<void>;
 }
 
 /**
  * Registers the element with the page's font and folder. The browser builds a
  * custom element with no arguments, so both arrive through this closure rather
- * than through the constructor call. A font that will not load is not a
- * different element: it is a problem the same element says in its status line.
+ * than through the constructor call, and every page names its own: the served
+ * page asks the save API, the bundle has one Scene URL. A font that will not
+ * load is not a different element: it is a problem the same element says in its
+ * status line.
  */
 export function defineEditorElement(
   fonts: FontSource,
-  folder: FolderSource = servedFolder,
+  folder: FolderSource,
   options: EditorOptions = {},
 ): void {
   if (customElements.get('esbozo-editor') !== undefined) {

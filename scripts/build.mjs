@@ -10,7 +10,7 @@
 import { execFileSync } from 'node:child_process';
 import { chmod, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { brotliCompressSync, gzipSync } from 'node:zlib';
-import { build } from 'esbuild';
+import { build, transform } from 'esbuild';
 import { buildId, buildTime } from '../src/build-id.ts';
 import { PAGE_ASSETS } from '../src/page-assets.ts';
 
@@ -52,6 +52,28 @@ function gitAnswer(args) {
 }
 
 /**
+ * A stylesheet with its comments and its indentation gone, as `minify` leaves
+ * the JavaScript: esbuild's CSS minifier never sees a text-loaded one
+ * (`loader: { '.css': 'text' }` hands it the source as an opaque string), so
+ * the embed and the served page minify theirs here. The source stays readable.
+ */
+async function minifiedCss(path) {
+  const { code } = await transform(await readFile(path, 'utf8'), { loader: 'css', minify: true });
+  return code;
+}
+
+/** The embed's stylesheet arrives as text, so it is minified on the way in. */
+const minifiedStylesheet = {
+  name: 'minified-stylesheet',
+  setup(bundle) {
+    bundle.onLoad({ filter: /\.css$/ }, async (args) => ({
+      contents: await minifiedCss(args.path),
+      loader: 'text',
+    }));
+  },
+};
+
+/**
  * The served page: minified, because it crosses the wire, and `ez serve`
  * compresses what it sends. The page is read once per load, not edited.
  */
@@ -69,7 +91,9 @@ await build({
 /**
  * `ez bundle` copies this file out; it is not meant to be loaded from `dist`.
  * Minified because it is inlined into someone else's page, and it carries the
- * editor's CSS so the page needs no second request.
+ * editor's CSS so the page needs no second request. Rough.js is in it, and its
+ * MIT notice is a banner of its own: `legalComments` has nothing to keep,
+ * because the dependency's files carry no bang comment.
  */
 await build({
   entryPoints: ['src/editor/embed.ts'],
@@ -80,20 +104,19 @@ await build({
   target: 'es2022',
   minify: true,
   loader: { '.css': 'text' },
+  plugins: [minifiedStylesheet],
+  banner: { js: '/*! Rough.js, MIT License, Copyright (c) 2019 Preet Shihn */' },
   logLevel: 'info',
 });
 
 await mkdir('dist/fonts', { recursive: true });
 // The served page's stylesheet: the editor's look (scoped to the element, the
-// same text the bundle carries), and then the page's own chrome, last so it can
+// same rules the bundle carries), and then the page's own chrome, last so it can
 // make the element fill the window. No `@font-face`: the page installs the face
 // it measured from the one file it fetched, so the font is fetched once.
 await writeFile(
   'dist/editor.css',
-  [
-    await readFile('src/editor/editor.css', 'utf8'),
-    await readFile('src/editor/page.css', 'utf8'),
-  ].join('\n'),
+  [await minifiedCss('src/editor/editor.css'), await minifiedCss('src/editor/page.css')].join('\n'),
 );
 await copyFile('src/editor/page.html', 'dist/editor.html');
 await copyFile('fonts/Kalam-Regular.ttf', 'dist/fonts/Kalam-Regular.ttf');

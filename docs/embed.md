@@ -56,4 +56,4 @@ The theme follows `<html data-theme>`: set `"dark"` for dark paper. The bundle d
 
 ## Size
 
-The bundle is one minified file, Rough.js and the editor's stylesheet included, of about 64 kB gzipped. `test/embed-bundle.test.ts` measures it and prints the number on every run, and fails if it grows past 72 kB gzipped, so a dependency that quietly doubles it cannot land unnoticed.
+The bundle is one minified file, Rough.js and the editor's stylesheet included, of about 60 kB gzipped. `test/embed-bundle.test.ts` measures it and prints the number on every run, and fails if it grows past 64 kB gzipped, so a dependency that quietly doubles it cannot land unnoticed.
