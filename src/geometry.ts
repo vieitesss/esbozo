@@ -129,7 +129,9 @@ const ELLIPSE_STEPS = 48;
  * fillet, and an ellipse is walked around and then narrowed, because the
  * nearest point of an ellipse has no closed form worth the arithmetic. Ties
  * take the earlier piece of the outline, so a shot through the very middle of a
- * box — the same distance from all four edges — lands on the top one.
+ * rectangle — the same distance from all four edges — lands on the top one.
+ * The middle of an ellipse's box has no nearest point to take: every point of a
+ * circle is the same distance from it, and the walk decides which one wins.
  */
 function nearestOnOutline(outline: Outline, spot: Point): Point {
   if (outline.type === 'ellipse') {

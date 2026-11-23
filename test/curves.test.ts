@@ -736,6 +736,14 @@ test('an Anchored end is drawn at the outline point nearest its Anchor', async (
       at: { x: 150, y: 100 },
     },
     {
+      // A diamond's first piece is the edge from its top corner to its right
+      // one, and the foot on it from the middle of the box is 25 in from both.
+      label: 'in the very middle of a diamond',
+      target: { type: 'diamond', x: 100, y: 100, width: 100, height: 100 },
+      anchor: { x: 0.5, y: 0.5 },
+      at: { x: 175, y: 125 },
+    },
+    {
       label: 'on a circle',
       target: { type: 'ellipse', x: 100, y: 100, width: 100, height: 100 },
       anchor: { x: 0.5, y: 0 },
@@ -783,6 +791,34 @@ test('an Anchored end is drawn at the outline point nearest its Anchor', async (
       `${label}: drawn at ${at.x},${at.y}, got ${end.x},${end.y}`,
     );
   }
+});
+
+test('the middle of an ellipse’s box is drawn on its outline, where no point is nearer', async () => {
+  // A circle puts the middle of its box the same distance from every point of
+  // its outline, and an oval the same distance from the two ends of its shorter
+  // axis: either way no one point is the nearest, so the drawing promises the
+  // outline it lands on and not a place along it.
+  const [, circle] = await drawnEnds(
+    oneTarget({ type: 'ellipse', x: 100, y: 100, width: 100, height: 100 }, [
+      { x: 400, y: 400 },
+      { x: 150, y: 150, snap: 'box', anchor: { x: 0.5, y: 0.5 } },
+    ]),
+  );
+  assert.ok(
+    near(Math.hypot(circle.x - 150, circle.y - 150), 50, 0.5),
+    `on the circle, got ${circle.x},${circle.y}`,
+  );
+
+  const [, oval] = await drawnEnds(
+    oneTarget({ type: 'ellipse', x: 100, y: 100, width: 100, height: 60 }, [
+      { x: 400, y: 400 },
+      { x: 150, y: 130, snap: 'box', anchor: { x: 0.5, y: 0.5 } },
+    ]),
+  );
+  assert.ok(
+    near(oval.x, 150, 0.5) && (near(oval.y, 100, 0.5) || near(oval.y, 160, 0.5)),
+    `at one end of the oval's shorter axis, got ${oval.x},${oval.y}`,
+  );
 });
 
 test('a two-point shaft may Snap both ends to one Element when the Anchors differ', async () => {
