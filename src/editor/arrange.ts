@@ -1,17 +1,3 @@
-/**
- * Arrange: layer order, alignment and distribution for the selected Elements.
- *
- * Pure functions over the Element list, so the pointer handlers and the tests
- * share them. Where an Element covers comes from the caller (`boundsOf`),
- * because measuring words is Layout's job: the editor passes the Renderer's own
- * bounds, so an alignment lands where the drawing actually is.
- *
- * An arrow or line with a Snapped end is not Arrange's to move: that end follows
- * the Element it is attached to, so its own stored ends cannot decide where it
- * draws. It is left out of alignment and distribution, and the menu disables an
- * action when nothing movable is left. Moving a free Element is `moved`
- * (`geometry.ts`), the same call a drag makes.
- */
 import type { Element } from '../scene.js';
 import { moved, unionOf } from './geometry.js';
 import type { Box } from './geometry.js';

@@ -1,27 +1,3 @@
-/**
- * The connection a page's editor runs on: the page's font, the folder of Scenes,
- * the Scene it opened and the writes that Scene's edits become.
- *
- * Everything here answers late — a font, a folder, a read, a write — so every
- * answer is bound to the connection that asked for it. A change of `scene` or
- * `save` makes a new number, and a read, a font or a clipboard answer that
- * arrives for an older one is dropped where it lands, never drawn and never
- * spoken about: the page has moved on, and an answer about the Scene it left is
- * not news. The font has a number of its own, because a font is the drawing's
- * and not the Scene's: a slow font, or a missing one, never speaks for the Scene
- * a connection is opening.
- *
- * Writes are serialised per destination and fixed at the moment they are queued:
- * a `save` that changes afterwards is another connection, and a write already
- * queued is a person's edit to *this* Scene, so it goes where it was made and
- * never to a URL the page names later. A `403` stops the page writing for good:
- * it stops the writes already queued behind it rather than asking again per
- * edit, and everything armed is let go.
- *
- * The bytes are assembled in the frame that is already due, out of what the page
- * holds, so the task that asked for the save — a release, a key press — ends
- * before the file is built and hashed.
- */
 import { createLayout } from '../layout.js';
 import type { Layout, Metrics } from '../layout.js';
 import { emptyScene, parseScene } from '../scene.js';

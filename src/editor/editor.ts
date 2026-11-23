@@ -1,12 +1,3 @@
-/**
- * `<esbozo-editor>`: the Scene editor.
- *
- * It holds the Scene, paints it with the Renderer and edits it with the pointer
- * and the keyboard. Every change saves the Scene and its SVG back to the folder
- * it was opened from: there is no unsaved state and no prompt. Browsing another
- * folder only changes what the Scenes note lists: the open Scene keeps its own
- * `{ folder, name }` destination.
- */
 import { emptyScene, parseFragment, parseScene, serialiseScene } from '../scene.js';
 import type { Corner, Element as SceneElement, Scene } from '../scene.js';
 import { PRIMARY_SCENE_EXTENSION, sceneFileNameFor, sceneStem } from '../paths.js';

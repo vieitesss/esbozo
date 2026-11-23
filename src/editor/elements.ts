@@ -1,12 +1,3 @@
-/**
- * Making and re-making Elements in the editor: what a drag draws, what a click
- * draws, what a Text with words becomes, and what a copy, a paste or a delete
- * leaves behind.
- *
- * Pure functions over Scene values. The Scene module owns what is valid (whole
- * pixels, a minimum size, a Snap target that exists); these functions produce
- * values that already obey it, and the editor decides when to call them.
- */
 import { MIN_SIZE, seedForId } from '../scene.js';
 import { unwrittenTextAlign } from '../scene.js';
 import type { Element, ElementStyle, Point, SceneStyle, TextElement } from '../scene.js';

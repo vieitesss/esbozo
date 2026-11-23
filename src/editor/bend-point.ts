@@ -1,23 +1,3 @@
-/**
- * The bend point: the point of a Shaft between its ends, the edits that move,
- * pull out, turn and remove one, the one rule that decides a removal, the marks
- * a lone Shaft shows to reach one, and the one reader of the press that lands on
- * one.
- *
- * A Shaft is the drawn path of an arrow or line between its two ends, and the
- * points it turns by in between are bend points: a person drags one by its
- * handle, pulls a new one out of a segment's dot, and removes one by
- * double-clicking it or from its own menu. A mark stands on each — a `bend`
- * handle where a point is, a dot on each segment's middle — and names the point
- * it stands for by `data-point` and the Shaft by `data-element`.
- *
- * This module says which marks a lone Shaft shows, in the Scene's own
- * coordinates, and names them: the page turns each into a node where the view
- * puts it, and nothing else writes or reads those attributes. Everything that
- * reads a press back from those marks asks this module too, so the one rule
- * that makes a point a bend point — it lies between the ends, and an end never
- * is one — is written once.
- */
 import type { ArrowOrLineElement, Corner, Point, Scene } from '../scene.js';
 import { cornerOf, shaftDots } from '../geometry.js';
 import type { ShaftPath } from '../geometry.js';
