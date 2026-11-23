@@ -279,6 +279,13 @@ interface Ending {
   readonly cursor: 'armed' | 'idle';
   /** The Scene file the folder holds at the exit, once the hand has let go. */
   readonly files: 'same' | 'words';
+  /**
+   * The Scene file the folder holds while the exit is over and the hand has not
+   * let go of it yet: a hand that lets go with a key of its own lands a write of
+   * its own, so that write is not the exit's, and the bytes before it are the
+   * only ones that say what the exit wrote. The default is `files`.
+   */
+  readonly atExit?: 'same' | 'words';
 }
 
 /** One gesture kind, and what a landed gesture of that kind leaves behind. */
@@ -1163,6 +1170,8 @@ const WORDS_LANDED: Ending = {
 /**
  * An exit that is not the session's: the words are still in the field, and the
  * Escape a person leaves them with lands them, as a click away or a blur would.
+ * The exit itself wrote nothing, so the file the folder holds while the hand is
+ * still on the words is the file the press opened, byte for byte.
  */
 const WORDS_HELD: Ending = {
   shows: async (ui) => {
@@ -1174,6 +1183,7 @@ const WORDS_HELD: Ending = {
   // The session is not over, so the Text tool is still the one the press armed.
   cursor: 'idle',
   files: 'words',
+  atExit: 'same',
 };
 
 /** An exit that threw the words away: the field is gone and the file is the one the press found. */
@@ -1334,6 +1344,9 @@ for (const gesture of [
         // exit made.
         if (ending !== undefined) {
           await ending.shows(ui);
+          // What the exit wrote, or did not: a hand that still holds the gesture
+          // lands a write of its own below, and it never stands for the exit's.
+          await expectFiles(ui, before, ending.atExit ?? ending.files);
         } else {
           expect(await pointerHeld(ui)).toBe(false);
           await gesture.cleared?.(ui);
