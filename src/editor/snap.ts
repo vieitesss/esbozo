@@ -10,11 +10,12 @@
  * The rules are the Scene's own: only a rectangle, ellipse or diamond has an
  * outline to land on, and a shaft of two points cannot attach both its ends to
  * the same Element, though one with a bend between its ends can: a loop leaves
- * an Element and comes back to it. A Snap is per end, so moving the arrow it
- * belongs to frees the ends it had (`released`), rather than turning the drag
- * into a no-op.
+ * an Element and comes back to it. A Snap is per end, so moving a straight arrow
+ * frees the ends it had (`released`), rather than turning the drag into a no-op;
+ * a shaft with a bend between its ends carries them, because there a drag has
+ * bends of its own to move.
  */
-import { insideOutline } from '../geometry.js';
+import { carriesSnaps, insideOutline } from '../geometry.js';
 import { drawnShaft } from '../renderer.js';
 import type { ArrowOrLineElement, Element, Point } from '../scene.js';
 import { isOutlined } from '../scene.js';
@@ -113,12 +114,16 @@ export function withEnd(
  * bend between them where the Scene put it. An attached end is stored on its
  * target's outline rather than where it was when it attached, so freeing it does
  * not move it.
+ *
+ * Only a straight shaft is freed: two points have no bend of their own, so a
+ * drag that kept both Snaps would move nothing, while a shaft with a bend
+ * between its ends keeps them and moves its bends instead (`carriesSnaps`).
  */
 export function released(
   element: Element,
   byId: ReadonlyMap<string, Element>,
 ): Element {
-  if (!attached(element) || !isShaft(element)) {
+  if (!attached(element) || !isShaft(element) || carriesSnaps(element.points)) {
     return element;
   }
   const [start, end] = drawnEnds(element, byId);

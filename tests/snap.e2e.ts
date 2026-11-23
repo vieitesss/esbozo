@@ -75,6 +75,80 @@ const BENT_SCENE = {
 };
 const BENT_SOURCE = JSON.stringify(BENT_SCENE, null, 2);
 
+/**
+ * `BENT_SCENE` beside a straight line Snapped at one end to a third box: one
+ * drag can hold both shafts, so each follows its own rule for a Snapped end.
+ */
+const MIXED_SNAPPED_SCENE = {
+  ...BENT_SCENE,
+  title: 'Mixed snapped',
+  elements: [
+    ...BENT_SCENE.elements,
+    { id: 'e', type: 'rectangle', x: 0, y: 350, width: 100, height: 100 },
+    {
+      id: 'd',
+      type: 'line',
+      points: [
+        { x: 150, y: 400, snap: 'e' },
+        { x: 450, y: 400 },
+      ],
+    },
+  ],
+};
+const MIXED_SNAPPED_SOURCE = JSON.stringify(MIXED_SNAPPED_SCENE, null, 2);
+
+/** The view `MIXED_SNAPPED_SCENE` lands in, worked out the same way as `VIEW`. */
+const MIXED_SNAPPED: View = { zoom: 1, panX: 340, panY: 175 };
+
+/**
+ * The Review's shaft, its target painted over it: an arrow Snapped to a box
+ * that covers the leg it reaches its end on, so a move can carry the bend
+ * inside the target's outline. The fill is paper-light and opaque, so any ink
+ * the box covers is ink nobody sees.
+ */
+const INSIDE_SCENE = {
+  version: 1,
+  title: 'Bend inside',
+  defaults: { roughness: 0 },
+  elements: [
+    {
+      id: 'arrow',
+      type: 'arrow',
+      points: [
+        { x: -300, y: 50 },
+        { x: -150, y: 50, corner: 'sharp' },
+        { x: 0, y: 50, snap: 'box' },
+      ],
+    },
+    {
+      id: 'box',
+      type: 'rectangle',
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      fill: { kind: 'solid', grey: 1 },
+    },
+  ],
+};
+const INSIDE_SOURCE = JSON.stringify(INSIDE_SCENE, null, 2);
+
+/** The view `INSIDE_SCENE` lands in, worked out the same way as `VIEW`. */
+const INSIDE: View = { zoom: 1, panX: 740, panY: 350 };
+
+/** A point on the shaft's first leg, clear of the dots halfway along both legs. */
+const INSIDE_ON = { x: -200, y: 50 };
+
+/** A spot on the paper, clear of the box and of the shaft: where a press deselects. */
+const INSIDE_PAPER = { x: -250, y: 20 };
+
+/**
+ * The paper beside the box's near edge, level with the shaft: a head drawn on
+ * that edge fills it with its wings, and a shaft running past it puts nothing
+ * there but its own stroke.
+ */
+const INSIDE_HEAD: Rect = { x: 724, y: 392, width: 7, height: 16 };
+
 /** The view `BENT_SCENE` lands in, worked out the same way as `VIEW`. */
 const BENT: View = { zoom: 1, panX: 340, panY: 275 };
 
@@ -83,6 +157,9 @@ const BENT_START = { x: 100, y: 90 };
 
 /** Where `c` finishes: the point of `b`'s outline its last point is drawn on. */
 const BENT_END = { x: 500, y: 90 };
+
+/** Inside `a`, level with the shaft's start: where a press selects the box alone. */
+const IN_A = { x: 50, y: 50 };
 
 /** A point on `c`'s first run, on no box: where a press on the shaft lands. */
 const BENT_ON = { x: 200, y: 170 };
@@ -174,6 +251,8 @@ const SCENES = {
     'hyphen.json': HYPHEN_SOURCE,
     'crossing.json': CROSSING_SOURCE,
     'bent.json': BENT_SOURCE,
+    'mixed.json': MIXED_SNAPPED_SOURCE,
+    'inside.json': INSIDE_SOURCE,
     'bentfree.json': BENT_FREE_SOURCE,
     'loop.json': LOOP_SOURCE,
   },
@@ -795,7 +874,11 @@ describe('a bent shaft keeps its bend', () => {
     await expect(screen.getByRole('button', { name: 'Detach: end' })).toBeVisible();
   });
 
-  test('moving the shaft frees both ends and keeps the bend', async ({ app, browser, screen }) => {
+  test('moving the shaft keeps both ends attached and carries the bend', async ({
+    app,
+    browser,
+    screen,
+  }) => {
     const ui = { app, browser, screen };
     await open(ui, 'bent.json');
     await clickScene(ui, BENT_ON, [], BENT);
@@ -804,11 +887,224 @@ describe('a bent shaft keeps its bend', () => {
     await dragBy(ui, { x: 150, y: 130 }, 0, -40, BENT);
 
     const scene = await savedAndChecked(ui, 'bent.json');
+    // A shaft with a bend point between its ends keeps both Snaps: the drag moves
+    // every point it stores, and both ends still follow the boxes they are on.
     expect(scene.elements[2]?.points).toEqual([
-      { x: 100, y: 50 },
+      { x: 50, y: 10, snap: 'a' },
       { x: 300, y: 210, corner: 'sharp' },
-      { x: 500, y: 50 },
+      { x: 550, y: 10, snap: 'b' },
     ]);
+
+    // So it draws on both outlines where it now lands, rather than where the
+    // drag left its stored ends: the start on `a`'s right edge, aimed at the
+    // moved bend, and the head's tip on `b`'s left edge. A freed end would keep
+    // the shaft's start at its stored (50,10), inside the box and off its edge.
+    const paths = drawnPaths((await savedFiles(ui))['bent.svg'] ?? '');
+    const start = paths.find((points) => {
+      const first = points[0];
+      return first !== undefined && reaches(first, { x: 100, y: 82 }, 1);
+    });
+    expect(start, 'the dragged start still leaves a’s right edge at (100,82)').toBeTruthy();
+    const tip = paths.find((points) => {
+      const first = points[0];
+      return first !== undefined && points.length === 3 && reaches(first, { x: 500, y: 82 }, 1);
+    });
+    expect(tip, 'the head’s tip still lands on b’s left edge at (500,82)').toBeTruthy();
+
+    // One gesture is one step: a single undo puts the Snaps and the bend back,
+    // and one redo carries them again.
+    await browser.keyboard.press('Meta+z');
+    const undone = await savedScene(ui, 'bent.json');
+    expect(undone.elements[2]?.points).toEqual([
+      { x: 50, y: 50, snap: 'a' },
+      { x: 300, y: 250, corner: 'sharp' },
+      { x: 550, y: 50, snap: 'b' },
+    ]);
+    await browser.keyboard.press('Shift+Meta+z');
+    const again = await savedScene(ui, 'bent.json');
+    expect(again.elements[2]?.points).toEqual([
+      { x: 50, y: 10, snap: 'a' },
+      { x: 300, y: 210, corner: 'sharp' },
+      { x: 550, y: 10, snap: 'b' },
+    ]);
+  });
+
+  test('a nudge moves the bend and keeps both ends attached', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'bent.json');
+    await clickScene(ui, BENT_ON, [], BENT);
+    await browser.keyboard.press('Shift+ArrowRight');
+
+    const scene = await savedAndChecked(ui, 'bent.json');
+    // The keyboard follows the drag's rule for a bent shaft: a step moves every
+    // point, and both Snaps stay where they were.
+    expect(scene.elements[2]?.points).toEqual([
+      { x: 60, y: 50, snap: 'a' },
+      { x: 310, y: 250, corner: 'sharp' },
+      { x: 560, y: 50, snap: 'b' },
+    ]);
+  });
+
+  test('a straight shaft still frees both ends and moves them', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'snapped.json');
+
+    // The control: two points have no bend to carry the Snaps with, so the drag
+    // lets both ends go where they draw first and moves them from there.
+    await dragBy(ui, { x: 230, y: 80 }, 10, 20, SNAPPED);
+
+    const scene = await savedAndChecked(ui, 'snapped.json');
+    expect(scene.elements[2]?.points).toEqual([
+      { x: 170, y: 100 },
+      { x: 310, y: 100 },
+    ]);
+  });
+
+  test('moving a box with its bent shaft keeps both ends attached', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'bent.json');
+
+    // `a` and `c` move together: the box and the shaft it carries at one end.
+    await clickScene(ui, IN_A, [], BENT);
+    await clickScene(ui, BENT_ON, ['Shift'], BENT);
+    await dragBy(ui, { x: 150, y: 130 }, 0, 60, BENT);
+
+    const scene = await savedAndChecked(ui, 'bent.json');
+    expect(scene.elements[0]).toMatchObject({ id: 'a', x: 0, y: 60 });
+    // Both ends stay attached: the shaft moves with the box under its start, and
+    // `b` is not selected, so its end is re-aimed at the bend from where it is.
+    expect(scene.elements[2]?.points).toEqual([
+      { x: 50, y: 110, snap: 'a' },
+      { x: 300, y: 310, corner: 'sharp' },
+      { x: 550, y: 110, snap: 'b' },
+    ]);
+
+    // The start draws on `a` where `a` now is, not where it was: the moved box's
+    // right edge at (100,150). A start freed where it drew would keep that point
+    // and lose the Snap, so the arrow would not follow `a` again.
+    const paths = drawnPaths((await savedFiles(ui))['bent.svg'] ?? '');
+    const start = paths.find((points) => {
+      const first = points[0];
+      return first !== undefined && reaches(first, { x: 100, y: 150 }, 1);
+    });
+    expect(start, 'the start still leaves a’s right edge, beside a’s new place').toBeTruthy();
+  });
+
+  test('a shaft Snapped at one end carries it and moves its free end', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'bent.json');
+    await clickScene(ui, BENT_ON, [], BENT);
+    // One Snap left: the start still follows `a`, and the freed end is a point of
+    // the shaft like the bend between them.
+    await screen.getByRole('button', { name: 'Detach: end' }).click();
+    await dragBy(ui, { x: 150, y: 130 }, 0, 60, BENT);
+
+    const scene = await savedAndChecked(ui, 'bent.json');
+    expect(scene.elements[2]?.points).toEqual([
+      { x: 50, y: 110, snap: 'a' },
+      { x: 300, y: 310, corner: 'sharp' },
+      { x: 500, y: 150 },
+    ]);
+  });
+
+  test('a three-point loop carries both Snaps when its shaft moves', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'loop.json');
+    // Down the loop's long leg, clear of the dots halfway along either of them: a
+    // press on a dot pulls a new bend point out instead of moving the shaft.
+    await clickScene(ui, { x: 350, y: 280 }, [], LOOP);
+    await dragBy(ui, { x: 350, y: 280 }, -40, 0, LOOP);
+
+    // Both ends Snap to one Element, and the bend between them is what moves: the
+    // loop keeps leaving and returning to the oval, from where the drag put it.
+    const scene = await savedAndChecked(ui, 'loop.json');
+    expect(scene.elements[1]?.points).toEqual([
+      { x: 320, y: 140, snap: 'oval' },
+      { x: 320, y: 320, corner: 'sharp' },
+      { x: 320, y: 60, snap: 'oval' },
+    ]);
+  });
+
+  test('a drag of a bent shaft and a straight one gives each its own rule', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'mixed.json');
+
+    // One gesture, both shafts: `c` has a bend to carry its Snaps with, and `d`
+    // has two points, so it lets its one Snap go where it drew first. A box sweeps
+    // up both shafts and nothing else.
+    await drag(
+      ui,
+      at({ x: 620, y: 470 }, MIXED_SNAPPED),
+      at({ x: 20, y: 10 }, MIXED_SNAPPED),
+    );
+    await dragBy(ui, { x: 150, y: 130 }, 0, -20, MIXED_SNAPPED);
+
+    const scene = await savedAndChecked(ui, 'mixed.json');
+    expect(scene.elements[2]?.points).toEqual([
+      { x: 50, y: 30, snap: 'a' },
+      { x: 300, y: 230, corner: 'sharp' },
+      { x: 550, y: 30, snap: 'b' },
+    ]);
+    expect(scene.elements[4]?.points).toEqual([
+      { x: 100, y: 380 },
+      { x: 450, y: 380 },
+    ]);
+  });
+
+  test('a move that carries a bend inside its target keeps the head on the near edge', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'inside.json');
+    await clickScene(ui, INSIDE_ON, [], INSIDE);
+    // The Review's drag: 225px along the shaft, which leaves the bend at
+    // (75,50), inside the box the end Snaps to.
+    await dragBy(ui, INSIDE_ON, 225, 0, INSIDE);
+
+    const scene = await savedAndChecked(ui, 'inside.json');
+    expect(scene.elements[0]?.points).toEqual([
+      { x: -75, y: 50 },
+      { x: 75, y: 50, corner: 'sharp' },
+      { x: 225, y: 50, snap: 'box' },
+    ]);
+
+    // The Snap is kept, so the end draws where the shaft reaches the box from
+    // outside: the near edge at (0,50), with the head pointing into the target
+    // and its wings on the paper beside the fill.
+    const paths = drawnPaths((await savedFiles(ui))['inside.svg'] ?? '');
+    const head = paths.find(
+      (points) => points.length === 3 && points.some((point) => reaches(point, { x: 0, y: 50 })),
+    );
+    expect(head, 'a head sits on the box’s near edge, not on its far one').toBeTruthy();
+    const wings = (head ?? []).filter((point) => !reaches(point, { x: 0, y: 50 }));
+    expect(
+      wings.every((point) => point.x < 0),
+      `its wings sit on the paper beside the fill, got ${JSON.stringify(wings)}`,
+    ).toBe(true);
+
+    // And that ink is on the page: the box's near edge is fully painted, so a
+    // head under it would leave nothing there but the shaft's own stroke.
+    await clickScene(ui, INSIDE_PAPER, [], INSIDE);
+    await settle(ui);
+    const painted = (await shot(ui)).darkBounds(INSIDE_HEAD, 0.6);
+    expect(
+      painted?.height ?? 0,
+      `the head’s wings are painted beside the box, got ${JSON.stringify(painted)}`,
+    ).toBeGreaterThan(6);
   });
 
   test('dragging the start keeps the bend and the end', async ({ app, browser, screen }) => {

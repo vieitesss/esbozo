@@ -15,6 +15,7 @@ import { after, test } from 'node:test';
 import { ez, sceneFolder } from './cli.ts';
 import { loadProjectModules } from './modules.ts';
 import type { Scene } from '../src/scene.ts';
+import { carriesSnaps } from '../src/geometry.ts';
 import { removeTempFolders } from './temp.ts';
 
 after(removeTempFolders);
@@ -126,6 +127,23 @@ test('both ends Snap to one Element once a bend point lies between them', async 
   assert.match(straight.stderr, /^a: both ends Snap to box$/m);
 });
 
+test('a shaft with a bend carries its Snaps, and a straight one lets them go', () => {
+  // The editor reads this rule where a move asks what to do with a Snap: two
+  // points have no bend to move instead, so a straight shaft that kept both ends
+  // attached would not move at all.
+  assert.equal(carriesSnaps([{ x: 0, y: 0 }, { x: 200, y: 0 }]), false);
+  assert.equal(carriesSnaps([{ x: 0, y: 0 }, { x: 100, y: 80 }, { x: 200, y: 0 }]), true);
+  assert.equal(
+    carriesSnaps([
+      { x: 0, y: 0 },
+      { x: 60, y: 80 },
+      { x: 140, y: 80 },
+      { x: 200, y: 0 },
+    ]),
+    true,
+  );
+});
+
 test('a two-point shaft saves as it always has, and a bend point saves its corner', () => {
   const straight = savedPoints(sceneWith([{ x: 10.4, y: 20.6 }, { x: 90.2, y: 60.4 }]));
   assert.deepEqual(straight, [
@@ -212,6 +230,38 @@ function oneArrow(points: unknown[], extra: Record<string, unknown> = {}): unkno
   return oneShaft('arrow', points, extra);
 }
 
+/**
+ * The Review's Scene: a three-point arrow Snapped by its last point into a box
+ * that spans x=0..100 and is painted over it, so ink the box covers is ink
+ * nobody sees.
+ */
+function insideTarget(startX: number, bendX: number): unknown {
+  return {
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [
+      {
+        id: 'arrow',
+        type: 'arrow',
+        points: [
+          { x: startX, y: 50 },
+          { x: bendX, y: 50, corner: 'sharp' },
+          { x: 225, y: 50, snap: 'box' },
+        ],
+      },
+      {
+        id: 'box',
+        type: 'rectangle',
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+        fill: { kind: 'solid', grey: 1 },
+      },
+    ],
+  };
+}
+
 /** Every `<tag ...>` of one kind, in document order. */
 function tags(svg: string, name: string): string[] {
   // check-rules: markup of a written SVG file, not the page
@@ -236,6 +286,22 @@ function shaftFrom(svg: string, from: Point): string {
     });
   assert.ok(path !== undefined, `a shaft starts at ${from.x},${from.y}`);
   return path;
+}
+
+/**
+ * The one arrow head a Scene draws, as the triangle it fills: its apex, the
+ * corner between the other two, and the two wings that sit behind it.
+ */
+async function drawnHead(scene: unknown): Promise<{ svg: string; apex: Point; wings: Point[] }> {
+  const svg = await ink(scene);
+  const heads = tags(svg, 'path')
+    .filter((tag) => attribute(tag, 'fill') === INK)
+    .map((tag) => drawnPoints(attribute(tag, 'd') ?? ''))
+    .filter((points) => points.length === 3);
+  assert.equal(heads.length, 1, 'the Scene draws one head');
+  const [a, b, c] = heads[0] as [Point, Point, Point];
+  const apex = near(a.x, b.x) ? c : near(a.x, c.x) ? b : a;
+  return { svg, apex, wings: [a, b, c].filter((point) => point !== apex) };
 }
 
 /**
@@ -618,6 +684,101 @@ test('two targets that share an outline are two targets, not one loop', async ()
     `both ends aim at the bend, got ${start.x} and ${end.x}`,
   );
   assert.ok(near(start.y, 100) && near(end.y, 100), 'and land on the shared top edge');
+});
+
+test('a bend a move puts inside its target keeps the head on the near edge', async () => {
+  // The Review's 225px nudge of a three-point shaft, drawn: the target spans
+  // x=0..100 and is painted over the arrow, and the move leaves the bend at
+  // (75,50), inside the box. The end keeps its Snap, so it lands where the
+  // arrow reaches the outline from outside — the near edge at (0,50) — and its
+  // head points into the target with its wings clear of the fill, rather than
+  // meeting the far edge with the wings hidden under it.
+  const { svg, apex, wings } = await drawnHead(insideTarget(-75, 75));
+  assert.ok(near(apex.x, 0) && near(apex.y, 50), `the head sits on the near edge, got ${apex.x},${apex.y}`);
+  assert.ok(
+    wings.every((point) => point.x < 0),
+    `its wings sit outside the fill, got ${JSON.stringify(wings)}`,
+  );
+
+  const drawn = drawnPoints(attribute(shaftFrom(svg, { x: -75, y: 50 }), 'd') ?? '');
+  assert.ok(
+    drawn.every((point) => point.x <= 0.01),
+    `no ink runs on into the fill, got ${JSON.stringify(drawn)}`,
+  );
+});
+
+test('a bend on the target’s outline and one past it keep the head on the outline', async () => {
+  // The rows either side of the Review's. With the bend at (0,50) it sits on
+  // the outline and the leg to the end collapses: the head is on the near edge,
+  // where it was drawn before the move carried the bend in. With the bend past
+  // the box at (200,50) the shaft leaves over the far edge and the head meets
+  // that edge from outside, so its wings are on the paper past the fill.
+  const onTheOutline = await drawnHead(insideTarget(-75, 0));
+  assert.ok(
+    near(onTheOutline.apex.x, 0) && near(onTheOutline.apex.y, 50),
+    `the head sits on the near edge, got ${onTheOutline.apex.x},${onTheOutline.apex.y}`,
+  );
+  assert.ok(
+    onTheOutline.wings.every((point) => point.x < 0),
+    `its wings sit outside the fill, got ${JSON.stringify(onTheOutline.wings)}`,
+  );
+
+  const past = await drawnHead(insideTarget(-75, 200));
+  assert.ok(near(past.apex.x, 100) && near(past.apex.y, 50), `the head sits on the far edge, got ${past.apex.x},${past.apex.y}`);
+  assert.ok(
+    past.wings.every((point) => point.x > 100),
+    `its wings sit outside the fill, got ${JSON.stringify(past.wings)}`,
+  );
+});
+
+test('a shaft with every point inside its target keeps the aim its bend gives it', async () => {
+  // Nothing of this shaft is outside the box — the start included — so there is
+  // no outside ink to aim from: the end keeps landing where the ray through the
+  // bend beside it meets the outline, on the far edge at (100,50), and the ink
+  // the Scene stores is drawn under the fill. What a wholly covered shaft can
+  // offer, it already offers.
+  const { apex } = await drawnHead(insideTarget(10, 75));
+  assert.ok(near(apex.x, 100) && near(apex.y, 50), `the end aims through its bend, got ${apex.x},${apex.y}`);
+});
+
+test('a loop whose bend moves inside its target still leaves and returns on the outline', async () => {
+  // Both ends Snapped to one Element aim at the bend they share, so a loop keeps
+  // the rule it has: the bend at (360,80) sits inside the oval, and the ends
+  // still spread either side of it, on the circle the ellipse draws. There is
+  // no outside ink beside either end here, the loop being the ink between them.
+  const { svg, apex } = await drawnHead({
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [
+      { id: 'oval', type: 'ellipse', x: 300, y: 40, width: 120, height: 120 },
+      {
+        id: 'back',
+        type: 'arrow',
+        heads: { start: 'none', end: 'arrow' },
+        points: [
+          { x: 360, y: 140, snap: 'oval' },
+          { x: 360, y: 80, corner: 'sharp' },
+          { x: 360, y: 60, snap: 'oval' },
+        ],
+      },
+    ],
+  });
+
+  const shaft = tags(svg, 'path').find((tag) => attribute(tag, 'stroke') === INK);
+  assert.ok(shaft !== undefined, 'the loop is drawn');
+  const ends = drawnPoints(attribute(shaft, 'd') ?? '');
+  const start = ends[0]!;
+  for (const [name, point] of [
+    ['start', start],
+    ['end', apex],
+  ] as const) {
+    const reach = Math.hypot(point.x - 360, point.y - 100);
+    assert.ok(near(reach, 60, 0.5), `the ${name} stops on the oval, got ${reach} from its middle`);
+  }
+  assert.ok(
+    Math.abs(start.x - apex.x) >= 1,
+    `the loop leaves and returns at two points, got ${start.x} and ${apex.x}`,
+  );
 });
 
 test('a line bends and softens its corners the same way an arrow does', async () => {
@@ -1135,6 +1296,36 @@ test('labelAt measures a cornered shaft along its legs, corner included', async 
   const centre = wordsCentre(svg);
   assert.ok(Math.hypot(centre.x - 100, centre.y) < 4, `the words sit on the corner, got ${centre.x},${centre.y}`);
   assert.ok(Math.hypot(centre.x - 50, centre.y - 50) > 40, 'the words left the chord behind');
+});
+
+test('a Label keeps its place along a bent shaft a move carries', async () => {
+  // A move translates the shaft's points, and `labelAt` is a fraction of the
+  // path they draw: the words ride the shaft and stay at the same place on it.
+  const bent = (dy: number): unknown => ({
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [
+      {
+        id: 'a',
+        type: 'arrow',
+        label: 'moved',
+        labelAt: { t: 0.5, offset: 0 },
+        points: [
+          { x: 0, y: 0 },
+          { x: 100, y: 80, corner: 'sharp' },
+          { x: 200, y: 0 },
+        ].map((point) => ({ ...point, y: point.y + dy })),
+      },
+    ],
+  });
+
+  const before = wordsCentre(await ink(bent(0)));
+  const after = wordsCentre(await ink(bent(40)));
+  assert.ok(Math.abs(after.x - before.x) <= 1, `the words keep their x, got ${after.x} from ${before.x}`);
+  assert.ok(
+    Math.abs(after.y - before.y - 40) <= 1,
+    `the words move with the shaft, got ${after.y} from ${before.y}`,
+  );
 });
 
 test('a bent shaft draws the same bytes at every roughness', async () => {

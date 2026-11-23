@@ -781,8 +781,9 @@ export class Gestures {
           shown: pick.element,
         };
       } else {
-        // A move frees the ends the selection had, where they draw now, so an
-        // arrow that followed its Elements is carried rather than pinned.
+        // A move frees a straight shaft's ends where they draw now, so an arrow
+        // that followed its Elements is carried rather than pinned; a bent one
+        // keeps its Snaps and moves its bends.
         const byId = elementsById(this.#host.scene().elements);
         const origins = new Map(
           this.#selectedElements().map((element) => [element.id, released(element, byId)]),

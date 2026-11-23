@@ -167,6 +167,13 @@ function pointOnOutline(outline: Outline, from: Point): Point {
 const OUTLINE_WALK = 72;
 
 /**
+ * How many times the walk that finds where a shaft crosses an outline halves
+ * the span it has left: 30 halves a thousand pixels to a millionth of one, and
+ * keeps the answer the outline itself gives rather than a shape's own algebra.
+ */
+const CROSSING_WALK = 30;
+
+/**
  * The two ends an arrow or line draws, each Snapped end moved onto its target's
  * outline. An end aims at the other end's target centre when that end is
  * Snapped too, or at the other end itself when it is free.
@@ -556,24 +563,85 @@ function drawnPoints(
   // A loop is one Snap held at both ends — the same Element — and not two
   // Elements that happen to land in the same place: those two ends are two
   // Snaps, each aiming at the bend point beside it.
-  if (
-    last === 2 &&
-    points[0].snap !== undefined &&
-    points[0].snap === points[last]!.snap &&
-    startTarget !== undefined
-  ) {
+  const loop = points[0].snap !== undefined && points[0].snap === points[last]!.snap;
+  if (last === 2 && loop && startTarget !== undefined) {
     // Both ends Snap to the same target, so both aim at the one bend point
     // between them and would land on one point of its outline.
     [drawn[0], drawn[last]] = loopEnds(startTarget, points[1]);
     return drawn;
   }
   if (startTarget !== undefined) {
-    drawn[0] = pointOnOutline(startTarget, points[1]);
+    aimEnd(drawn, points, 0, startTarget, loop);
   }
   if (endTarget !== undefined) {
-    drawn[last] = pointOnOutline(endTarget, points[last - 1]!);
+    aimEnd(drawn, points, last, endTarget, loop);
   }
   return drawn;
+}
+
+/**
+ * Where one Snapped end draws, and what the ink beside it does. An end beside a
+ * bend outside its target aims at that bend, which is the direction the shaft
+ * leaves in. An end beside a bend the target covers has no such direction to
+ * aim at — the ray through the bend leaves on the far edge, and a head drawn
+ * there points out of the target with its wings under the fill — so it aims at
+ * the nearest point of the shaft outside the target instead, and lands where
+ * the ink between them crosses the outline. That ink is the edge the shaft
+ * reaches from outside, and it is the last ink of the shaft: what ran on past
+ * the crossing hangs behind the head inside the target, so it is not drawn.
+ *
+ * A loop keeps aiming at the bend it shares: its two ends aim at one point, and
+ * the ink between them is the loop itself rather than a leg behind either head.
+ */
+function aimEnd(
+  drawn: Point[],
+  points: readonly [Point, Point, ...Point[]],
+  end: number,
+  target: Outline,
+  loop: boolean,
+): void {
+  const step = end === 0 ? 1 : -1;
+  const beside = points[end + step]!;
+  drawn[end] = pointOnOutline(target, beside);
+  if (loop || !insideOutline(target, beside)) {
+    return;
+  }
+  let outside = -1;
+  for (let index = end + step; index >= 0 && index < points.length; index += step) {
+    if (!insideOutline(target, points[index]!)) {
+      outside = index;
+      break;
+    }
+  }
+  if (outside === -1) {
+    // Every point of the shaft sits inside the target: there is no ink outside
+    // it to aim from, and the ray through the bend beside the end stands.
+    return;
+  }
+  const tip = crossingInto(target, points[outside]!, points[outside - step]!);
+  for (let index = end; index !== outside; index += step) {
+    drawn[index] = { x: tip.x, y: tip.y };
+  }
+}
+
+/**
+ * Where the ink between a point outside an outline and a point inside it cross
+ * it. Both points are already known to be on their sides, and a rectangle, an
+ * ellipse and a diamond are convex, so the ink crosses once: the walk halves
+ * the span until the two sides are a millionth of a pixel apart.
+ */
+function crossingInto(target: Outline, from: Point, to: Point): Point {
+  let outside = 0;
+  let inside = 1;
+  for (let step = 0; step < CROSSING_WALK; step += 1) {
+    const middle = (outside + inside) / 2;
+    if (insideOutline(target, lerp(from, to, middle))) {
+      inside = middle;
+    } else {
+      outside = middle;
+    }
+  }
+  return lerp(from, to, inside);
 }
 
 /**
@@ -614,6 +682,16 @@ export function shaftEnds(
 ): [Point, Point] {
   const drawn = drawnPoints(points, startTarget, endTarget);
   return [drawn[0]!, drawn[drawn.length - 1]!];
+}
+
+/**
+ * Whether a shaft of these points keeps its Snapped ends when it moves: a shaft
+ * with a bend point between its ends carries them, and a straight one of two
+ * points lets them go where they draw first, so a drag of it is not a no-op
+ * (`released`, in the editor's `snap.ts`).
+ */
+export function carriesSnaps(points: readonly Point[]): boolean {
+  return points.length > 2;
 }
 
 /**
