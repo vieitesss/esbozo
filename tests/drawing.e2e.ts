@@ -595,7 +595,9 @@ describe('a shaft placed by clicking', () => {
 
     // Two clicks on paper, then a double-click inside the second box: the end
     // Snaps to it as a dragged end does, and the point before it is a bend with
-    // no Snap and no `corner` of its own.
+    // no Snap and no `corner` of its own. The click is the middle of the box, so
+    // the Anchor it writes names the nearest outline point: the top edge, the
+    // piece the walk reaches first.
     await browser.keyboard.press('a');
     await clickScene(ui, { x: 60, y: 200 }, [], SNAPPED);
     await clickScene(ui, { x: 200, y: 260 }, [], SNAPPED);
@@ -606,7 +608,7 @@ describe('a shaft placed by clicking', () => {
     expect(placed?.points).toEqual([
       { x: 60, y: 200 },
       { x: 200, y: 260 },
-      { x: 360, y: 80, snap: 'to' },
+      { x: 360, y: 40, snap: 'to', anchor: { x: 0.5, y: 0 } },
     ]);
   });
 

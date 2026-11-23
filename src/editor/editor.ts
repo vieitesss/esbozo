@@ -40,7 +40,7 @@ import { History } from './history.js';
 import { railArt } from './rail.js';
 import { readRailSide, writeRailSide } from './rail-preference.js';
 import { SHELL } from './shell.js';
-import { isShaft } from './snap.js';
+import { anchoredEnds, isShaft } from './snap.js';
 import type { End } from './snap.js';
 import { Typing } from './typing.js';
 import { sceneFile } from './paint.js';
@@ -1072,11 +1072,19 @@ class EsbozoEditorElement extends HTMLElement {
     if (!this.#connection.writable()) {
       return;
     }
-    const after = sceneFile(next);
+    // An Anchored end is stored where its Anchor draws it, so a target that moved
+    // or resized does not leave the ends that hold it behind. Every edit lands
+    // here, and a plain click changes nothing: one pass with the Scene it
+    // replaces, not a rule each gesture remembers.
+    const settled: Scene = {
+      ...next,
+      elements: anchoredEnds(next.elements, this.#scene.elements),
+    };
+    const after = sceneFile(settled);
     const changed = after !== sceneFile(this.#scene);
     const { select } = options;
     if (changed) {
-      this.#scene = next;
+      this.#scene = settled;
     }
     if (select !== undefined) {
       this.#selectElements(select);

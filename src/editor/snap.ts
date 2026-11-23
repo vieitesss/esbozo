@@ -15,9 +15,9 @@
  * a shaft with a bend between its ends carries them, because there a drag has
  * bends of its own to move.
  */
-import { carriesSnaps, insideOutline } from '../geometry.js';
-import { drawnShaft } from '../renderer.js';
-import type { ArrowOrLineElement, Element, Point } from '../scene.js';
+import { anchorOf, anchorPoint, carriesSnaps, insideOutline } from '../geometry.js';
+import { drawnShaft, elementsById } from '../renderer.js';
+import type { Anchor, ArrowOrLineElement, Element, OutlinedElement, Point } from '../scene.js';
 import { isOutlined, snapTargetId } from '../scene.js';
 
 /** Which end of an arrow or line: the first point, or the last. */
@@ -94,19 +94,106 @@ export function targetAt(
  * The arrow or line with one end stored where the pointer put it: attached to
  * `target`, or free when that is null. The stored point is kept whole-pixel
  * like every other coordinate in a Scene.
+ *
+ * An attached end also writes its Anchor, the nearest point of the target's
+ * outline to the drop, so the end stays on the spot the person chose rather than
+ * re-aiming at the target's centre. The stored `x`, `y` are where that Anchor
+ * draws it, so the JSON reads true; `byId` is the Scene the target is found in,
+ * the same one the Renderer resolves it against.
  */
 export function withEnd(
   element: ArrowOrLineElement,
   end: End,
   point: Point,
   target: string | null,
+  byId: ReadonlyMap<string, Element>,
 ): ArrowOrLineElement {
+  const anchor = target === null ? undefined : anchorFor(byId, target, point);
+  const drawn = anchor === undefined ? point : anchorPoint(targetOutline(byId, target!), anchor);
   const stored: Point = {
-    x: Math.round(point.x),
-    y: Math.round(point.y),
+    x: Math.round(drawn.x),
+    y: Math.round(drawn.y),
     ...(target === null ? {} : { snap: target }),
+    ...(anchor === undefined ? {} : { anchor }),
   };
   return withPoint(element, endIndex(element, end), stored);
+}
+
+/** The Anchor a drop on this target writes: the outline point nearest the drop, as fractions of the box. */
+function anchorFor(
+  byId: ReadonlyMap<string, Element>,
+  target: string,
+  point: Point,
+): Anchor {
+  return anchorOf(targetOutline(byId, target), point);
+}
+
+/** The outlined Element a Snap names, refusing an id the Scene cannot draw an outline for. */
+function targetOutline(byId: ReadonlyMap<string, Element>, target: string): OutlinedElement {
+  const found = byId.get(target);
+  if (found === undefined || !isOutlined(found)) {
+    throw new Error(`snap target "${target}" must be a rectangle, ellipse or diamond`);
+  }
+  return found;
+}
+
+/**
+ * Every Anchored end stored where its Anchor draws it, so a Scene's numbers
+ * follow its drawing. The editor lands this on every edit with the Scene it is
+ * replacing, because a target that moved or resized leaves the ends that hold
+ * it behind: one pass, not a rule each gesture remembers. Only an end whose
+ * target's outline changed is rewritten, so an edit elsewhere leaves a
+ * hand-written `x`, `y` where it is — the Anchor draws the end either way. An
+ * end with a Snap and no Anchor keeps the point it has.
+ */
+export function anchoredEnds(
+  elements: readonly Element[],
+  before: readonly Element[],
+): Element[] {
+  const byId = elementsById(elements);
+  const was = elementsById(before);
+  return elements.map((element) => {
+    if (!isShaft(element)) {
+      return element;
+    }
+    const last = element.points.length - 1;
+    let changed = false;
+    const points = element.points.map((point, index) => {
+      const target = snapTargetId(point);
+      if ((index !== 0 && index !== last) || target === null || point.anchor === undefined) {
+        return point;
+      }
+      const outline = targetOutline(byId, target);
+      if (sameOutline(outline, was.get(target))) {
+        return point;
+      }
+      const drawn = anchorPoint(outline, point.anchor);
+      const x = Math.round(drawn.x);
+      const y = Math.round(drawn.y);
+      if (x === point.x && y === point.y) {
+        return point;
+      }
+      changed = true;
+      return { ...point, x, y };
+    });
+    return changed
+      ? { ...element, points: points as ArrowOrLineElement['points'] }
+      : element;
+  });
+}
+
+/** Whether a target's outline is the one an Anchored end was last written against. */
+function sameOutline(outline: OutlinedElement, before: Element | undefined): boolean {
+  return (
+    before !== undefined &&
+    isOutlined(before) &&
+    before.type === outline.type &&
+    before.x === outline.x &&
+    before.y === outline.y &&
+    before.width === outline.width &&
+    before.height === outline.height &&
+    before.corners === outline.corners
+  );
 }
 
 /**
@@ -148,7 +235,7 @@ export function freedEnd(
     return element;
   }
   const [start, finish] = drawnEnds(element, byId);
-  return withEnd(element, end, end === 'start' ? start : finish, null);
+  return withEnd(element, end, end === 'start' ? start : finish, null, byId);
 }
 
 /** Both ends as the Renderer draws them, Snap resolved and stored whole-pixel. */
