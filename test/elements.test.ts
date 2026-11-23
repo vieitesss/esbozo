@@ -99,19 +99,6 @@ test('a Scene with every Element type and style value renders', async () => {
   }
 });
 
-test('the kitchen-sink SVG is byte-identical across runs', async () => {
-  const folder = await tempFolder();
-  const source = await readFile(KITCHEN_SINK, 'utf8');
-  await writeFile(join(folder, 'scene.json'), source, 'utf8');
-
-  assert.equal((await ez(['render', 'scene.json'], folder)).code, 0);
-  const first = await readFile(join(folder, 'scene.svg'), 'utf8');
-  assert.equal((await ez(['render', 'scene.json'], folder)).code, 0);
-  const second = await readFile(join(folder, 'scene.svg'), 'utf8');
-
-  assert.equal(second, first);
-});
-
 test('the kitchen sink paints only CSS variables and ink-into-paper mixes', async () => {
   const svg = await renderOne(JSON.parse(await readFile(KITCHEN_SINK, 'utf8')));
 

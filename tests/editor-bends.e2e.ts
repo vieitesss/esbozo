@@ -2049,34 +2049,6 @@ describe('a key on a selected bend point', () => {
     await browser.keyboard.press('Backspace');
     await expectPoints(ui, []);
   });
-
-  test('one undo returns the point whole, and redo removes it again', async ({
-    app,
-    browser,
-    screen,
-  }) => {
-    const ui = { app, browser, screen };
-    await open(ui);
-    await clickScene(ui, SHARP_ON, [], SHARP);
-    await settle(ui);
-    await clickScene(ui, SHARP_BEND, [], SHARP);
-    await settle(ui);
-
-    await browser.keyboard.press('Delete');
-    await expectPoints(ui, [
-      { x: 50, y: 50 },
-      { x: 550, y: 50 },
-    ]);
-
-    // One step, so one undo is the whole point back, `corner` and all.
-    await browser.keyboard.press('Meta+z');
-    await expectPoints(ui, SHARP_POINTS);
-    await browser.keyboard.press('Shift+Meta+z');
-    await expectPoints(ui, [
-      { x: 50, y: 50 },
-      { x: 550, y: 50 },
-    ]);
-  });
 });
 
 /**

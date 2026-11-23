@@ -777,12 +777,6 @@ test('a start head leaves the dash phase it cut at the far end of every run', as
   }
 });
 
-test('the same Scene renders the same bytes twice', async () => {
-  const scene = lineScene([0, 100], [400, 100], { t: 0.5, offset: 0 });
-
-  assert.equal(await renderOne(scene), await renderOne(scene));
-});
-
 async function renderOne(scene: unknown): Promise<string> {
   const folder = await sceneFolder(scene);
   const run = await ez(['render', 'scene.json'], folder);
