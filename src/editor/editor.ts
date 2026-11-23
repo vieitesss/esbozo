@@ -1133,17 +1133,13 @@ class EsbozoEditorElement extends HTMLElement {
   }
 
   /**
-   * A status corner changed the size of the words it holds, in the middle of a
-   * Scene as much as at its open: the rail was measured against the corner as it
-   * was then, and a corner that grows over the strip prints its words over the
-   * tiles and takes the press of the nearest of them (O2). The strip is measured
-   * again on its own side, which is also what puts it back when a corner only
-   * shrinks. A strip a person dragged is measured the same way: the drag keeps the
-   * side and the place along it, and only the travel across the side is the
-   * corner's to ask for.
+   * A status corner changed size: the rail was measured against it as it was then,
+   * and one that grows over the strip takes the press of the nearest tile (O2). The
+   * strip is measured again on its own side — a dragged strip too, which keeps its
+   * side and its place along it — and a corner that shrinks gives the room back.
    *
-   * A press on the strip keeps it under the pointer it was pressed with, and asks
-   * for the placement when that press ends (D6, O2).
+   * A press on the strip keeps it under the pointer, and asks for the placement when
+   * that press ends (D6, O2).
    */
   #onCornerResize = (): void => {
     if (this.#railDrag !== null) {
@@ -1185,18 +1181,17 @@ class EsbozoEditorElement extends HTMLElement {
     this.#railDockOffset = this.#offsetOf(placed.dock, size);
     this.#hangRail();
     // A drag's dock comes from the frame alone (D3), so the corners are measured
-    // once the drag has ended: a status corner already over the release covers the
-    // same tiles as one that grew there, and the press it takes is the same (O2).
+    // once it ends: a corner already over the release covers the same tiles (O2).
     if (pressed !== undefined) {
       this.#clearRail();
     }
   }
 
   /**
-   * The strip moved in clear of the status corners as they are now, from the dock
-   * the frame asked for (O2). The frame is not measured again: a pan or a zoom has
-   * moved the diagram, and neither moves the rail. A dock no corner meets is the
-   * place the frame asked for, so a corner that shrinks gives the room back.
+   * The strip moved in clear of the status corners as they are now, from the dock it
+   * was placed on (O2). The frame is not measured again: a pan or a zoom has moved
+   * the diagram, and neither moves the rail. A dock no corner meets is that dock, so
+   * a corner that shrinks gives the room back.
    */
   #clearRail(): void {
     const offset = this.#frameOffset;
