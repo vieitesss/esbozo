@@ -23,8 +23,8 @@ import {
 } from '../renderer.js';
 import type { HeadInk, ShaftInk } from '../renderer.js';
 import type { Layout } from '../layout.js';
-import { MIN_SIZE, isOutlined } from '../scene.js';
-import type { Element, Scene } from '../scene.js';
+import { MIN_SIZE, isOutlined, snapTargetId } from '../scene.js';
+import type { ArrowOrLineElement, Element, Scene } from '../scene.js';
 import { isShaft } from './snap.js';
 
 export interface Point {
@@ -323,22 +323,22 @@ export function elementsInBox(
 
 /**
  * An Element moved by a delta: box-like ones by their origin, arrows and lines
- * by every point they draw through — both ends and each bend between them, so a
- * bent shaft keeps its shape rather than being straightened. An end attached to
- * an Element follows that Element, and a straight shaft has to let it go first
- * so the drag is not a no-op (`released`, `snap.ts`): a bent one keeps its Snaps
- * and this function translates its ends like its bends. What is left for this
- * function is translation.
+ * by every point that follows nothing — both ends and each bend between them, so
+ * a bent shaft keeps its shape rather than being straightened. A Snapped end of
+ * a two-point shaft stays where it draws on its target's outline: two points have
+ * no bend to move in its place, so the drag moves only what follows nothing — the
+ * free end of a shaft Snapped at one end, and nothing at all of one Snapped at
+ * both. A shaft with a bend between its ends has bends of its own to move, so it
+ * translates its ends with them and keeps the Snaps it had.
  */
 export function moved(element: Element, dx: number, dy: number): Element {
   if (isShaft(element)) {
-    const [start, second, ...bends] = element.points;
-    const along = (point: (typeof element.points)[number]): Point => ({
-      ...point,
-      x: point.x + dx,
-      y: point.y + dy,
-    });
-    return { ...element, points: [along(start), along(second), ...bends.map(along)] };
+    const straight = element.points.length === 2;
+    const along = (point: (typeof element.points)[number]): Point =>
+      straight && snapTargetId(point) !== null
+        ? point
+        : { ...point, x: point.x + dx, y: point.y + dy };
+    return { ...element, points: element.points.map(along) as ArrowOrLineElement['points'] };
   }
   return { ...element, x: element.x + dx, y: element.y + dy };
 }
