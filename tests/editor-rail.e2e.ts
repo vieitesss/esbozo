@@ -19,6 +19,7 @@ import {
   settle,
   holdWrites,
   allowWrites,
+  releaseWrite,
   refuseWrite,
 } from './helpers.ts';
 import type { Ui } from './helpers.ts';
@@ -1211,7 +1212,7 @@ test('a rail released past the slop with no move before it docks on the release�
   // Pressed on the tile and let go 650 px down, with no move between: the release
   // is the whole gesture, and it is past the click's 4 px slop, so it docks. The
   // empty Scene's frame ends 700 px down, so the bottom side is the nearest by
-  // far: 4 px against the top's 646.
+  // far: 4 px against the top's 604.
   await mouse('mouseMoved', from.x, from.y);
   await mouse('mousePressed', from.x, from.y);
   await mouse('mouseReleased', from.x, from.y + 650);
@@ -1233,7 +1234,7 @@ test('a rail whose last move went the other way docks where it is released', asy
   const from = tileCentre(boxOfPlace(opened), 1);
 
   // The pointer moves 5 px right with the button down, then the button is let go
-  // 650 px below the press: the release is 646 px nearer the frame's bottom side
+  // 650 px below the press: the release is 600 px nearer the frame's bottom side
   // than its top, and that is the side the rail docks on. A drag that docked at
   // its last move would take the top, level with the top side.
   await mouse('mouseMoved', from.x, from.y);
@@ -1410,7 +1411,7 @@ test('a finger a rail drag ignored ends as ignored, so its release leaves the mo
   // The mouse's own release is the one that finishes the Rectangle it drew.
   await mouse('mouseReleased', 800, 280);
   await expect.poll(() => writeCount(ui), { timeout: 5000 }).toBe(1);
-  await allowWrites(ui);
+  await releaseWrite(ui);
   const drawn = (await savedScene(ui, 'bare.json')).elements[0];
   expect([drawn?.width, drawn?.height], 'the mouse’s own Rectangle is what was saved').toEqual([100, 80]);
 });
@@ -1450,7 +1451,7 @@ test('a mouse a held rail drag ignored ends as ignored, so an in-flight touch dr
   // still docks the rail it is holding.
   await touch('touchEnd', []);
   await expect.poll(() => writeCount(ui), { timeout: 5000 }).toBe(1);
-  await allowWrites(ui);
+  await releaseWrite(ui);
   const drawn = (await savedScene(ui, 'bare.json')).elements[0];
   expect([drawn?.width, drawn?.height], 'the touch’s own Rectangle is what was saved').toEqual([200, 60]);
 
