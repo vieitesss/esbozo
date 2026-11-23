@@ -2834,3 +2834,152 @@ test('a dock a status corner would cover is drawn in clear of it, where the rele
     'the strip lands on the top edge of the mark the drag drew',
   ).toBeLessThan(12);
 });
+
+/**
+ * The window a held drag is shrunk to: an empty Scene's 960×600 frame is cut to
+ * it, so every dock a drag draws is a place inside the editor's own edges.
+ */
+const SHRUNK_WINDOW = { width: 1000, height: 600 };
+
+/**
+ * The bottom dock of a shrunk window, in a band clear of the status bar's two
+ * corners and of the docks that stand up beside the frame.
+ */
+const SHRUNK_BOTTOM_BAND: Rect = { x: 320, y: 460, width: 360, height: 140 };
+
+test('a drag the window shrinks under draws the highlight where the release lands it', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui, DOCK_WINDOW);
+  const opened = await railPlace(ui, DOCK_BAND);
+
+  // The pointer carries the strip down to the frame's bottom side and the window
+  // shrinks under the press, the pointer moving on to the middle of what is left:
+  // the frame the drag measured is frozen, but the docks drawn on it are not (D3,
+  // D6). The bottom dock is the one the release takes.
+  let marked: Rect | null = null;
+  await drag(ui, tileCentre(boxOfPlace(opened), 1), { x: 640, y: 750 }, 'left', async () => {
+    await settle(ui);
+    await browser.setViewport(SHRUNK_WINDOW);
+    await browser.mouse.move(640, 570);
+    await settle(ui);
+    marked = (await shot(ui)).darkBounds(SHRUNK_BOTTOM_BAND, 0.6);
+  });
+  await settle(ui);
+
+  // The mark is a dock of the editor as it stands, so all of it is on the paper:
+  // a strip dragged off the bottom of the shrunk window would be no dock at all.
+  expect(marked, 'the drag draws the bottom dock inside the shrunk editor').not.toBeNull();
+  const mark = marked!;
+  expect(mark.y, 'the mark’s top edge is on the paper').toBeGreaterThanOrEqual(0);
+  expect(mark.x, 'the mark’s left edge is on the paper').toBeGreaterThanOrEqual(0);
+  expect(mark.y + mark.height, 'the mark’s bottom edge is on the paper').toBeLessThanOrEqual(
+    SHRUNK_WINDOW.height,
+  );
+  expect(mark.x + mark.width, 'the mark’s right edge is on the paper').toBeLessThanOrEqual(
+    SHRUNK_WINDOW.width,
+  );
+
+  // The strip lands on that mark: the two top edges are the same stroke of the
+  // same box, and differ by the pencil's wander, not by where they are.
+  const landed = await railInk(ui, SHRUNK_BOTTOM_BAND);
+  expect(
+    Math.abs(mark.y - landed.y),
+    'the strip lands on the top edge of the mark the drag drew after the resize',
+  ).toBeLessThan(12);
+});
+
+/**
+ * A window shorter than the strip's standing outline: no dock fits that outline
+ * whole, so the place the frame alone asks for is not the place the strip lands.
+ * It is wide enough for the strip it hangs along the top to stay clear of the
+ * file corner, which reads as ink of its own.
+ */
+const TINY_WINDOW = { width: 420, height: 230 };
+const TINY_BAND: Rect = { x: 100, y: 0, width: 220, height: 90 };
+
+/**
+ * The top edge of one dock's pencil outline, read from the page's own placement:
+ * the mark a held drag shows for the side it would take, or the strip the release
+ * hung on that side. An editor smaller than the outline clips most of the ink, so
+ * a screenshot cannot say where the whole of it sits; both are the same quantity
+ * the strip hangs by — the dock's middle along the side, less half the outline.
+ */
+async function dockTop(ui: Ui, shown: 'mark' | 'strip'): Promise<number | null> {
+  return ui.browser.evaluate((which) => {
+    if (which === 'mark') {
+      const mark = document.querySelector('.docks .dock[data-near]');
+      return mark === null ? null : Number.parseFloat(getComputedStyle(mark).top);
+    }
+    const rail = document.querySelector('esbozo-editor .rail');
+    const art = rail?.querySelector('.rail-art');
+    if (!(rail instanceof HTMLElement) || art === null || art === undefined) {
+      return null;
+    }
+    return (
+      Number.parseFloat(rail.style.getPropertyValue('--rail-top')) -
+      Number(art.getAttribute('height')) / 2
+    );
+  }, shown);
+}
+
+test('a tiny editor draws the mark where the strip is clamped to land', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openBare(ui, TINY_WINDOW);
+  // A window this small clips the strip, so its ink is only measured to find the
+  // padding to press: a press there drags the strip without picking a tool.
+  const strip = await railInk(ui, TINY_BAND);
+
+  // The strip's standing outline is taller than the editor, so the mark has to be
+  // the landing, clipped at the same edge rather than drawn where the strip cannot
+  // be. The pointer ends nearest the frame's right side.
+  let preview: number | null = null;
+  const grip = { x: strip.x + 12, y: strip.y + 12 };
+  await drag(ui, grip, { x: 405, y: 190 }, 'left', async () => {
+    await settle(ui);
+    preview = await dockTop(ui, 'mark');
+  });
+  await settle(ui);
+
+  expect(preview, 'the drag draws the dock a release there would take').not.toBeNull();
+  expect(await keptSide(ui), 'the release docks on the side the mark named').toBe('right');
+  const landing = await dockTop(ui, 'strip');
+  expect(landing, 'the released strip is placed').not.toBeNull();
+  expect(
+    Math.abs(preview! - landing!),
+    'the mark’s top edge is the top edge of the strip the release hangs there',
+  ).toBeLessThan(0.5);
+});
+
+test('a release where no move went docks on the side the highlight showed', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui, DOCK_WINDOW);
+  await dockRail(ui, 'left');
+  const grip = await paddingGrip(ui);
+  const { mouse } = await mixedPointers();
+
+  // The pointer presses the strip's padding with the browser's own protocol, so a
+  // release can be sent to a place no move ever visited, and carries the strip to
+  // the frame's bottom side: the bottom dock is the one a release would take.
+  await mouse('mousePressed', grip.x, grip.y);
+  await mouse('mouseMoved', 640, 750);
+  await settle(ui);
+  const shown = await shot(ui);
+  expect(inkOverPaper(shown, dockMark('bottom')), 'the bottom dock is the highlighted one').toBeGreaterThan(
+    0.15,
+  );
+  expect(inkOverPaper(shown, dockMark('top')), 'the top dock is a quiet outline').toBeLessThan(0.09);
+
+  // The browser lets the button go near the frame's top side, where no move ever
+  // took the pointer: the highlight already shown is the side the strip takes.
+  await mouse('mouseReleased', 640, 25);
+  await settle(ui);
+  expect(await keptSide(ui), 'the release docks on the side the highlight showed').toBe('bottom');
+});
