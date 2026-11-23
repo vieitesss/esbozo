@@ -949,6 +949,34 @@ test('a corner that grows while a press holds the strip leaves it still, and the
   ).toBeLessThan(3);
 });
 
+test('a drag released over the status docks the strip clear of it, so every tile takes its press', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await browser.setViewport({ width: 360, height: 330 });
+  await openBare(ui);
+
+  // The top dock hangs below the Scene's own name, so the strip's own band starts
+  // under it: the words in the corner are ink too, and they are no part of where
+  // the strip is.
+  const upper: Rect = { x: 0, y: 74, width: 360, height: 100 };
+  const opened = await railPlace(ui, upper);
+
+  // A person carries the strip down to the bottom side of a short editor, where the
+  // editor's own inset stops it: the status bar's rows are over the place the
+  // release lands, and a strip hung on the frame alone (D3) hands its nearest
+  // tiles' presses to Grid and Shortcuts (O2).
+  await drag(ui, tileCentre(boxOfPlace(opened), 1), { x: 180, y: 300 });
+  await settle(ui);
+  const lower: Rect = { x: 0, y: 150, width: 360, height: 110 };
+  const landed = await railPlace(ui, lower);
+  expect(landed.top, 'the release docks the strip along the bottom').toBeGreaterThan(lower.y + 20);
+
+  await eachTileTakesItsPress(ui, 'on a strip a drag released over the status bar');
+});
+
 test('the left dock stands the strip up, faint until it is looked at, its outline around all seven', async ({
   app,
   browser,
