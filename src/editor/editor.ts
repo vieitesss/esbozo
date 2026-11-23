@@ -127,6 +127,12 @@ class EsbozoEditorElement extends HTMLElement {
    * the drag's and picks no tool. The next press clears it.
    */
   #railDragged = false;
+  /**
+   * Whether a called-off press still owes the rail the click its release sends.
+   * That click lands on the tile the press landed on, and it picks no tool: the
+   * person called the press off, and a fresh press clears the debt (D6, D7).
+   */
+  #railClickOwed = false;
   /** True once the editor's listeners are on the page. */
   #wired = false;
   /**
@@ -1430,18 +1436,28 @@ class EsbozoEditorElement extends HTMLElement {
    */
   #onPaperDown = (event: PointerEvent): void => {
     if (this.#railDrag !== null) {
-      this.#gestures.refuse(event);
+      this.#gestures.refuse(event.pointerId);
       return;
     }
     this.#gestures.down(event);
   };
 
-  #onRailClick = (event: Event): void => {
+  #onRailClick = (event: MouseEvent): void => {
     if (this.#railDragged) {
       // The click a committed drag's release also sends: it has already docked,
       // and it picks no tool (D6).
       this.#railDragged = false;
       return;
+    }
+    if (this.#railClickOwed) {
+      // The click a called-off press's release sends lands on the tile it pressed:
+      // it is that press's own, and picks no tool. A click the keys made (`detail`
+      // 0: Enter or Space on a tile) is not the press's: the person asked for it
+      // after the cancel, so it runs.
+      this.#railClickOwed = false;
+      if (event.detail !== 0) {
+        return;
+      }
     }
     const button = (event.target as Element | null)?.closest('[data-tool]') as HTMLElement | null;
     const tool = button?.dataset['tool'];
@@ -1457,6 +1473,9 @@ class EsbozoEditorElement extends HTMLElement {
    * docks against the frame the drag started on (D3).
    */
   #onRailDown = (event: PointerEvent): void => {
+    // Any press on the rail is a press of its own, so the click a called-off one
+    // owes it is paid: the debt is the cancelled press's, and nobody else's.
+    this.#railClickOwed = false;
     // One drag at a time, and the primary button's: a second pointer, or the
     // right button, does nothing to a drag already in flight.
     if (this.#railDrag !== null || event.button !== 0 || !event.isPrimary) {
@@ -1535,13 +1554,19 @@ class EsbozoEditorElement extends HTMLElement {
    * tab, a cancelled pointer — puts the rail back where it hung and stores
    * nothing (D7, I6). The side and the frame a drag was measured against are the
    * ones the press found, so re-hanging the strip from them is the whole undo of
-   * it; the release that follows settles nothing, because the drag is gone.
+   * it. The pointer is still in the person's hand, though, and what it sends
+   * before it comes up is the called-off press's: the board refuses its moves and
+   * its release, so it settles no gesture at the place it lands, and the click its
+   * release sends to a tile picks no tool. A fresh press works as any press does.
    */
   #callOffRailDrag(): void {
-    if (this.#railDrag === null) {
+    const drag = this.#railDrag;
+    if (drag === null) {
       return;
     }
     this.#endRailDrag();
+    this.#gestures.refuse(drag.pointer);
+    this.#railClickOwed = true;
     this.#hangRail();
   }
 

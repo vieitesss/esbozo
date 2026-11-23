@@ -443,11 +443,13 @@ export class Gestures {
   /**
    * A press the board kept for itself is refused as a menu's press is: a rail
    * drag owns a pointer, so a contact that lands under it must not become half of
-   * a gesture. Its move, release and cancel are its own, and settling another
-   * pointer's gesture at its coordinates is exactly what a refusal prevents.
+   * a gesture, and a press a called-off drag left down has nothing of its own to
+   * settle any more. Its move, release and cancel are its own, and settling
+   * another pointer's gesture at its coordinates is exactly what a refusal
+   * prevents. The refusal ends where the pointer does: its next press is a press.
    */
-  refuse = (event: PointerEvent): void => {
-    this.#refused.add(event.pointerId);
+  refuse = (pointer: number): void => {
+    this.#refused.add(pointer);
   };
 
   down = (event: PointerEvent): void => {
