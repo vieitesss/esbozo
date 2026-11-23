@@ -1124,3 +1124,43 @@ test('a drag’s side is kept, so the next editor starts there on a frame of its
   expect(ink.height, 'the strip stands up the side it was left on').toBeGreaterThan(ink.width * 2);
   expect(Math.abs(ink.y + ink.height / 2 - 1440 / 2), 'the strip is centred on the frame’s side').toBeLessThan(4);
 });
+
+test('a drag in an editor set inside the page docks on the side the release is nearest it', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+
+  // The editor sits 480 px right and 80 px down inside the page, as a host page
+  // places it. The pointer arrives in the page's pixels, and the frame is
+  // measured from the editor's own corner: a drag that reads one as the other
+  // docks on the side across the editor.
+  const placed = await browser.evaluate(() => {
+    const editor = document.querySelector('esbozo-editor');
+    if (!(editor instanceof HTMLElement)) return false;
+    editor.style.cssText = 'position:absolute;left:480px;top:80px;width:600px;height:650px';
+    return true;
+  });
+  expect(placed, 'the editor is the one this test places').toBe(true);
+  // The move measures where the editor now is: the empty Scene's frame is the
+  // 960×600 minimum cut to the 600×650 editor, whose middle is its own (300, 325).
+  await dockRail(ui, 'top');
+  const opened = await railPlace(ui, { x: 700, y: 80, width: 180, height: 120 });
+
+  // Released 20 px in from the editor's left edge and level with the frame's
+  // middle: 20 px from the left side, and 300 from the top and the bottom.
+  await drag(ui, tileCentre(boxOfPlace(opened), 1), { x: 500, y: 405 });
+  await settle(ui);
+
+  expect(await screen.getByRole('button', 'Select').getAttribute('aria-pressed'), 'the drag picked no tool').toBe(
+    'true',
+  );
+  expect(await keptSide(ui), 'the release is nearest the editor’s left side').toBe('left');
+  const ink = await railInk(ui, { x: 482, y: 280, width: 140, height: 260 });
+  expect(ink.height, 'the strip stands up the left side').toBeGreaterThan(ink.width * 2);
+  expect(ink.x, 'the outline stops inside the editor’s left edge').toBeGreaterThan(484);
+  expect(ink.x, 'the outline stops inside the editor’s left edge').toBeLessThan(500);
+  expect(Math.abs(ink.y + ink.height / 2 - 405), 'the strip is centred on the frame’s side').toBeLessThan(4);
+});
