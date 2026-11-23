@@ -3,22 +3,24 @@
  * Clipboard API rather than a clipboard event.
  *
  * The API answers later, and a page can name another Scene while it is still
- * answering, so every call is bound to the connection that asked for it. A copy
- * that lands after the page moved on says nothing about the one it was for; a
- * paste that arrives late lands in no Scene at all; and a cut deletes exactly
- * the Elements it copied, and none of them when the Scene is no longer the one
- * they came from — the write is awaited and the page keeps taking edits while it
- * runs, so what may be deleted is decided after it lands.
+ * answering — another connection, or another Scene opened from the file list
+ * under the one in hand — so every call is bound to the Scene it was asked in.
+ * A copy that lands after the page moved on says nothing about the one it was
+ * for; a paste that arrives late lands in no Scene at all; and a cut deletes
+ * exactly the Elements it copied, and none of them when the Scene is no longer
+ * the one they came from — the write is awaited and the page keeps taking edits
+ * while it runs, so what may be deleted is decided after it lands.
  *
  * A page without the API — a non-secure origin has none — says so in the status
  * line instead of offering a command that cannot run.
  */
 import { parseFragment, serialiseFragment, serialiseScene } from '../scene.js';
 import type { Element as SceneElement, Scene } from '../scene.js';
+import type { SaveTarget } from './connection.js';
 
 /**
- * What the commands ask of the editor: the Scene and its selection, the
- * connection they speak for, and the one way an answer becomes an edit.
+ * What the commands ask of the editor: the Scene and its selection, the Scene
+ * they speak for, and the one way an answer becomes an edit.
  */
 export interface ClipboardHost {
   /** The Scene in hand. */
@@ -27,12 +29,29 @@ export interface ClipboardHost {
   selected(): readonly SceneElement[];
   /** The connection this answer speaks for: one that arrives for another lands nowhere. */
   token(): number;
+  /**
+   * The Scene in hand, as the destination it saves to: the same connection can
+   * open another from the file list, and an answer asked in the last one lands
+   * nowhere. Null is a page with no Scene open, which is the same page until one
+   * opens.
+   */
+  target(): SaveTarget | null;
   /** Add the pasted copies, as one step, selected. */
   insert(elements: readonly SceneElement[]): void;
   /** Delete exactly these Elements, as one step. */
   remove(ids: ReadonlySet<string>): void;
   /** The status line's word for words that will not land. */
   status(detail: string): void;
+}
+
+/**
+ * Whether an answer still speaks for the Scene the command was asked in: the
+ * connection it was asked on is the one in hand, and the Scene open in it is
+ * still the one that was open then. Opening another from the file list keeps the
+ * connection and changes the Scene.
+ */
+function current(host: ClipboardHost, connection: number, target: SaveTarget | null): boolean {
+  return connection === host.token() && target === host.target();
 }
 
 /**
@@ -65,10 +84,11 @@ export async function copySelection(host: ClipboardHost): Promise<void> {
     return;
   }
   const connection = host.token();
+  const target = host.target();
   try {
     await clipboard.writeText(serialiseFragment(host.scene(), host.selected()));
   } catch (error) {
-    if (connection === host.token()) {
+    if (current(host, connection, target)) {
       host.status(`cannot copy: ${(error as Error).message}`);
     }
   }
@@ -86,20 +106,22 @@ export async function cutSelection(host: ClipboardHost): Promise<void> {
     return;
   }
   const connection = host.token();
+  const target = host.target();
   const copied = new Set(selected.map((element) => element.id));
   const scene = host.scene();
   const before = serialiseScene(scene);
   try {
     await clipboard.writeText(serialiseFragment(scene, selected));
   } catch (error) {
-    if (connection === host.token()) {
+    if (current(host, connection, target)) {
       host.status(`cannot cut: ${(error as Error).message}`);
     }
     return;
   }
-  if (connection !== host.token()) {
-    // Another instance of the element owns the page now: the ids are its
-    // Scene's, not this one's, so nothing is deleted.
+  if (!current(host, connection, target)) {
+    // Another instance of the element owns the page now, or another Scene does:
+    // the ids are not this Scene's, or not this Scene, so nothing is deleted and
+    // nothing is said about a Scene the person did not cut from.
     return;
   }
   if (serialiseScene(host.scene()) !== before) {
@@ -117,16 +139,17 @@ export async function pasteClipboard(host: ClipboardHost): Promise<void> {
     return;
   }
   const connection = host.token();
+  const target = host.target();
   let text: string;
   try {
     text = await clipboard.readText();
   } catch (error) {
-    if (connection === host.token()) {
+    if (current(host, connection, target)) {
       host.status(`cannot paste: ${(error as Error).message}`);
     }
     return;
   }
-  if (connection !== host.token()) {
+  if (!current(host, connection, target)) {
     return;
   }
   const scene = host.scene();
