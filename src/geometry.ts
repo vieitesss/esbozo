@@ -237,6 +237,38 @@ export function anchorPoint(outline: Outline, anchor: Anchor): Point {
 }
 
 /**
+ * The Anchor that names where a point on an outline sits, the inverse of
+ * `anchorPoint`: the outline point nearest the one given, as fractions of the
+ * box. The editor writes one whenever it attaches an end, and `ez anchor --all`
+ * freezes every end where it draws, so both name a place the Renderer draws back
+ * where the person saw it.
+ */
+export function anchorOf(outline: Outline, point: Point): Anchor {
+  const spot = nearestOnOutline(outline, point);
+  return {
+    x: fractionAcross(spot.x - outline.x, outline.width),
+    y: fractionAcross(spot.y - outline.y, outline.height),
+  };
+}
+
+/**
+ * How far across a box a point sits, as a fraction of that side, rounded to the
+ * decimals that put the drawn point back within half a pixel of where it was.
+ * Each axis stays inside 1/√2 px, so the two together move the point at most
+ * 0.5 px, and a box too small to round further keeps the fractions it can.
+ */
+function fractionAcross(offset: number, side: number): number {
+  if (side <= 0) {
+    return 0;
+  }
+  // Rounding to `places` decimals moves the spot by at most side / 10 ** places
+  // / 2 along this side. Rounding up from log10(side √2) keeps that under 1/√2.
+  const places = Math.max(0, Math.ceil(Math.log10(side * Math.SQRT2)));
+  const scale = 10 ** places;
+  return Math.min(1, Math.max(0, Math.round((offset / side) * scale) / scale));
+}
+
+/**
  * Where an Anchored end is drawn: the outline point nearest the place its
  * Anchor names in the target's box.
  */

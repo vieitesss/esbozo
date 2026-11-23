@@ -13,6 +13,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { loadProjectModules } from './modules.ts';
+import type { Outline } from '../src/geometry.ts';
 import type { Scene } from '../src/scene.ts';
 
 const {
@@ -27,6 +28,8 @@ const {
   clampedDock,
   leftDockEdge,
   nearestDock,
+  anchorPoint,
+  anchorOf,
   createLayout,
   parseFontFile,
   KALAM,
@@ -580,3 +583,61 @@ function parsed(scene: unknown): Scene {
   }
   return result.scene;
 }
+
+test('an Anchor names the outline point it draws, so writing one down moves nothing', () => {
+  // The editor writes the Anchor of the point an end attached at, and `ez
+  // anchor --all` freezes every end where it draws: both go through the inverse
+  // of `anchorPoint`, and every shape has to survive the round trip. The
+  // fractions are a file's own numbers, so the only loss is the rounding, and
+  // that must leave the drawn point within the half pixel an end may move.
+  const OUTLINES: { label: string; outline: Outline }[] = [
+    {
+      label: 'a rectangle',
+      outline: { type: 'rectangle', x: 100, y: 100, width: 120, height: 80, corners: 'sharp' },
+    },
+    {
+      label: 'a rounded rectangle',
+      outline: { type: 'rectangle', x: 100, y: 100, width: 120, height: 80, corners: 'round' },
+    },
+    {
+      label: 'an ellipse',
+      outline: { type: 'ellipse', x: 100, y: 100, width: 120, height: 80, corners: 'sharp' },
+    },
+    {
+      label: 'a diamond',
+      outline: { type: 'diamond', x: 100, y: 100, width: 120, height: 80, corners: 'sharp' },
+    },
+  ];
+  // The corners, the middle of each side, the middle of the box and places a
+  // person would put an end: the box fraction, then the nearest outline point.
+  const PLACES = [
+    { x: 0, y: 0 },
+    { x: 1, y: 0 },
+    { x: 1, y: 1 },
+    { x: 0, y: 1 },
+    { x: 0.5, y: 0 },
+    { x: 1, y: 0.25 },
+    { x: 0.5, y: 1 },
+    { x: 0, y: 0.75 },
+    { x: 0.5, y: 0.5 },
+    { x: 0.85, y: 0.1 },
+    { x: 0.7, y: 0.9 },
+  ];
+
+  for (const { label, outline } of OUTLINES) {
+    for (const place of PLACES) {
+      const drawn = anchorPoint(outline, place);
+      const written = anchorOf(outline, drawn);
+      const again = anchorPoint(outline, written);
+      const moved = Math.hypot(again.x - drawn.x, again.y - drawn.y);
+      assert.ok(
+        moved <= 0.5,
+        `${label} at ${place.x},${place.y}: written ${JSON.stringify(written)} draws back ${moved.toFixed(3)} px off`,
+      );
+      assert.ok(
+        written.x >= 0 && written.x <= 1 && written.y >= 0 && written.y <= 1,
+        `${label} at ${place.x},${place.y}: ${JSON.stringify(written)} is a fraction of the box`,
+      );
+    }
+  }
+});

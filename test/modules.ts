@@ -38,6 +38,8 @@ export interface ProjectModules {
   clampedDock: typeof import('../src/editor/geometry.ts').clampedDock;
   leftDockEdge: typeof import('../src/editor/geometry.ts').leftDockEdge;
   nearestDock: typeof import('../src/editor/geometry.ts').nearestDock;
+  anchorPoint: typeof import('../src/geometry.ts').anchorPoint;
+  anchorOf: typeof import('../src/geometry.ts').anchorOf;
   PaintCache: typeof import('../src/editor/paint.ts').PaintCache;
   sceneFile: typeof import('../src/editor/paint.ts').sceneFile;
   createLayout: typeof import('../src/layout.ts').createLayout;
@@ -60,6 +62,7 @@ export async function loadProjectModules(): Promise<ProjectModules> {
       `export { wordsShift } from ${source('editor/words.ts')};`,
       `export { renderScene, renderElement, pageBounds, elementBounds } from ${source('renderer.ts')};`,
       `export { elementAt, caretLine, railFrame, clampedDock, leftDockEdge, nearestDock } from ${source('editor/geometry.ts')};`,
+      `export { anchorPoint, anchorOf } from ${source('geometry.ts')};`,
       `export { PaintCache, sceneFile } from ${source('editor/paint.ts')};`,
       `export { createLayout, parseFontFile } from ${source('layout.ts')};`,
       `export { default as KALAM } from ${JSON.stringify(
