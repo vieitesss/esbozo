@@ -13,10 +13,10 @@
  */
 
 /** The notes the page opens over the Scene, in no order of their own. */
-export type NoteId = 'commands' | 'shortcuts' | 'scenes';
+type NoteId = 'commands' | 'shortcuts' | 'scenes';
 
 /** One note: what it draws, the keys it keeps, and what its own marks do. */
-export interface Note {
+interface Note {
   /** The element the note draws, which the stack shows and hides. */
   readonly root: HTMLElement;
   /** The keys it takes from the Scene: every one of them, or Escape alone. */
@@ -65,8 +65,6 @@ export class Notes {
    * longer the one the note waits for.
    */
   #ask: Ask | null = null;
-  /** True once the stack's press is on the page, so it is taken off once. */
-  #listening = false;
 
   constructor(options: NotesOptions) {
     this.#inside = options.inside;
@@ -164,13 +162,10 @@ export class Notes {
   /**
    * Take the note's presses while the element is on the page: the element hears
    * the ones inside it, even when the page keeps them from bubbling on, and the
-   * document hears the ones that land outside the element.
+   * document hears the ones that land outside the element. The page drops a
+   * second registration of the same callback, so one call is one listener.
    */
   listen(): void {
-    if (this.#listening) {
-      return;
-    }
-    this.#listening = true;
     // The bubble path, so a press outside the note still lands where it was
     // aimed: the target's own handlers run first, and the browser's focus with
     // them.
@@ -182,7 +177,6 @@ export class Notes {
   unlisten(): void {
     this.#inside.removeEventListener('pointerdown', this.#onPress);
     document.removeEventListener('pointerdown', this.#onPress);
-    this.#listening = false;
   }
 
   /** A press outside the note on top shuts it, and is otherwise the press it was. */
