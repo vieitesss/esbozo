@@ -448,3 +448,61 @@ test('the page fetches the hand font once', async ({ app, browser, screen }) => 
     await server.stop();
   }
 });
+
+test('a served folder that refuses a save with 403 leaves the page read-only', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  const folder = await folderWith({ 'scene.json': SCENE_SOURCE });
+  const server = await startServe(folder);
+
+  // The server's answer to every save waits for this test, so the edits made
+  // while it is out queue behind the one it will refuse: the saves the page
+  // sends after that refusal are what this counts.
+  let refuse: () => void = () => {};
+  const refused = new Promise<void>((resolve) => {
+    refuse = resolve;
+  });
+  const saves: string[] = [];
+  await browser.route('**/api/scenes/*', async (route) => {
+    if (route.request.method !== 'PUT') {
+      await route.continue();
+      return;
+    }
+    saves.push(route.request.url);
+    await refused;
+    await route.fulfill({
+      status: 403,
+      body: JSON.stringify({ error: 'this folder is served read-only' }),
+    });
+  });
+  try {
+    await app.open(`${server.url}/editor.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+
+    // One edit, and the folder's answer to it is held; two more edits ask for
+    // saves of their own, and they wait behind it.
+    await clickScene(ui, { x: 100, y: 80 });
+    await browser.keyboard.press('Shift+ArrowRight');
+    await expect.poll(() => saves.length).toBe(1);
+    await browser.keyboard.press('Shift+ArrowRight');
+    await browser.keyboard.press('Shift+ArrowRight');
+
+    // The refusal makes the page read-only, so the saves behind it are never
+    // sent: a page that may only read does not ask again per edit.
+    refuse();
+    await expect(screen.getByRole('status')).toHaveText('this folder is served read-only');
+    // The save that was queued behind the refused one has had its frames to
+    // become a request: a page that never learned the answer sends it.
+    await settle(ui);
+    await settle(ui);
+    expect(saves).toHaveLength(1);
+    await expect(screen.getByText('read-only')).toBeVisible();
+    expect(await readFile(join(folder, 'scene.json'), 'utf8')).toBe(SCENE_SOURCE);
+  } finally {
+    await browser.unrouteAll();
+    await server.stop();
+  }
+});
