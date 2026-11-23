@@ -734,7 +734,7 @@ export function clampedDock(
   const across = side === 'top' || side === 'bottom' ? held.y : held.x;
   return {
     dock: dockOf({ x: held.x.at, y: held.y.at }, strip, side),
-    stopped: across.stopped !== null,
+    stopped: across.stopped,
   };
 }
 
@@ -752,11 +752,11 @@ function dockOf(box: Point, strip: { width: number; height: number }, side: Rail
     : { x: box.x, y: box.y + strip.height / 2 };
 }
 
-/** One axis of a dock: where the strip sits on it, and which of the editor's insets stopped it there. */
+/** One axis of a dock: where the strip sits on it, and whether an inset stopped it there. */
 interface Placed {
   readonly at: number;
-  /** The inset the strip was pulled to, or null when the place asked for fitted. */
-  readonly stopped: 'low' | 'high' | null;
+  /** Whether one of the editor's two insets is what stopped the strip on this axis. */
+  readonly stopped: boolean;
 }
 
 /**
@@ -768,14 +768,14 @@ interface Placed {
  */
 function placed(start: number, extent: number, size: number, overhang: number): Placed {
   if (start - overhang >= 0 && start + size + overhang <= extent) {
-    return { at: start, stopped: null };
+    return { at: start, stopped: false };
   }
   const pulled = Math.max(RAIL_INSET, Math.min(start, extent - RAIL_INSET - size));
   const held = pulled - overhang >= 0 && pulled + size + overhang <= extent;
   if (!held && size + overhang * 2 <= extent) {
-    return { at: (extent - size) / 2, stopped: null };
+    return { at: (extent - size) / 2, stopped: false };
   }
-  const stopped = pulled === RAIL_INSET ? 'low' : pulled === extent - RAIL_INSET - size ? 'high' : null;
+  const stopped = pulled === RAIL_INSET || pulled === extent - RAIL_INSET - size;
   return { at: pulled, stopped };
 }
 
