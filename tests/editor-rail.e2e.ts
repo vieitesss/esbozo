@@ -2793,3 +2793,44 @@ test('the four docks and the mark on them read in both themes', async ({ app, br
   await settle(ui);
   await expectDocksRead(ui, 'the dark theme', grip);
 });
+
+/**
+ * A short, narrow editor whose bottom dock the status bar's own corner reaches under,
+ * and the column of it the strip's middle hangs in. The left and right docks stand
+ * 50 px either side of that column — a short editor clears them toward the middle —
+ * so a measure of the column reads the bottom dock alone.
+ */
+const SHORT_WINDOW = { width: 480, height: 330 };
+const BOTTOM_COLUMN: Rect = { x: 239, y: 100, width: 3, height: 220 };
+
+test('a dock a status corner would cover is drawn in clear of it, where the release lands', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await browser.setViewport(SHORT_WINDOW);
+  await openBare(ui);
+  const opened = await railPlace(ui, { x: 70, y: 0, width: 340, height: 100 });
+
+  // A person carries the strip down to the bottom of a short editor, where the status
+  // bar's corner is over the place the frame alone would hang it: the drag draws that
+  // dock in clear of the corner, and the strip lands on the mark it drew (D6, O2).
+  let marked: Rect | null = null;
+  await drag(ui, tileCentre(boxOfPlace(opened), 1), { x: 240, y: 300 }, 'left', async () => {
+    await settle(ui);
+    marked = (await shot(ui)).darkBounds(BOTTOM_COLUMN, 0.6);
+  });
+  await settle(ui);
+
+  expect(marked, 'the drag draws the bottom dock across the strip’s middle').not.toBeNull();
+  // Both measures are of a pencil drawn on the same box: the mark in full ink for a
+  // corner as it stands at the press, the strip as it lands under it. The dock the
+  // frame alone asks for is 27 px lower, and the two marks differ by the wander of
+  // two strokes, not by where they are.
+  const landed = await railInk(ui, BOTTOM_COLUMN);
+  expect(
+    Math.abs(marked!.y - landed.y),
+    'the strip lands on the top edge of the mark the drag drew',
+  ).toBeLessThan(12);
+});
