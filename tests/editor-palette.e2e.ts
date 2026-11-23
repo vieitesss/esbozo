@@ -257,6 +257,25 @@ test('a press outside the palette shuts it and hands the focus back to the canva
   expect((await shot(ui)).darkCount(GRID, 0.9)).toBeLessThan(withGrid - 100);
 });
 
+test('a press on the message that says no action keeps Commands open', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+  await palette(ui);
+  await browser.keyboard.type('zzz');
+  const nothing = screen.getByText('No action by that name.');
+  await expect(nothing).toBeVisible();
+
+  // The message is the palette's own answer to the query, not the felt around
+  // it: a press there is a press on the note, and the note stays open for the
+  // search the person is still typing.
+  await nothing.click();
+  await expect(screen.getByRole('dialog', 'Commands')).toBeVisible();
+});
+
 test('a host that keeps the press inside its element still lets the palette hear it', async ({
   app,
   browser,
