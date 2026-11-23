@@ -15,6 +15,7 @@ import { after, test } from 'node:test';
 import { ez, sceneFolder } from './cli.ts';
 import { loadProjectModules } from './modules.ts';
 import type { Scene } from '../src/scene.ts';
+import { carriesSnaps } from '../src/geometry.ts';
 import { removeTempFolders } from './temp.ts';
 
 after(removeTempFolders);
@@ -124,6 +125,23 @@ test('both ends Snap to one Element once a bend point lies between them', async 
   );
   assert.equal(straight.code, 3);
   assert.match(straight.stderr, /^a: both ends Snap to box$/m);
+});
+
+test('a shaft with a bend carries its Snaps, and a straight one lets them go', () => {
+  // The editor reads this rule where a move asks what to do with a Snap: two
+  // points have no bend to move instead, so a straight shaft that kept both ends
+  // attached would not move at all.
+  assert.equal(carriesSnaps([{ x: 0, y: 0 }, { x: 200, y: 0 }]), false);
+  assert.equal(carriesSnaps([{ x: 0, y: 0 }, { x: 100, y: 80 }, { x: 200, y: 0 }]), true);
+  assert.equal(
+    carriesSnaps([
+      { x: 0, y: 0 },
+      { x: 60, y: 80 },
+      { x: 140, y: 80 },
+      { x: 200, y: 0 },
+    ]),
+    true,
+  );
 });
 
 test('a two-point shaft saves as it always has, and a bend point saves its corner', () => {
@@ -1135,6 +1153,36 @@ test('labelAt measures a cornered shaft along its legs, corner included', async 
   const centre = wordsCentre(svg);
   assert.ok(Math.hypot(centre.x - 100, centre.y) < 4, `the words sit on the corner, got ${centre.x},${centre.y}`);
   assert.ok(Math.hypot(centre.x - 50, centre.y - 50) > 40, 'the words left the chord behind');
+});
+
+test('a Label keeps its place along a bent shaft a move carries', async () => {
+  // A move translates the shaft's points, and `labelAt` is a fraction of the
+  // path they draw: the words ride the shaft and stay at the same place on it.
+  const bent = (dy: number): unknown => ({
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [
+      {
+        id: 'a',
+        type: 'arrow',
+        label: 'moved',
+        labelAt: { t: 0.5, offset: 0 },
+        points: [
+          { x: 0, y: 0 },
+          { x: 100, y: 80, corner: 'sharp' },
+          { x: 200, y: 0 },
+        ].map((point) => ({ ...point, y: point.y + dy })),
+      },
+    ],
+  });
+
+  const before = wordsCentre(await ink(bent(0)));
+  const after = wordsCentre(await ink(bent(40)));
+  assert.ok(Math.abs(after.x - before.x) <= 1, `the words keep their x, got ${after.x} from ${before.x}`);
+  assert.ok(
+    Math.abs(after.y - before.y - 40) <= 1,
+    `the words move with the shaft, got ${after.y} from ${before.y}`,
+  );
 });
 
 test('a bent shaft draws the same bytes at every roughness', async () => {

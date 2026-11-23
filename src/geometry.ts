@@ -617,6 +617,16 @@ export function shaftEnds(
 }
 
 /**
+ * Whether a shaft of these points keeps its Snapped ends when it moves: a shaft
+ * with a bend point between its ends carries them, and a straight one of two
+ * points lets them go where they draw first, so a drag of it is not a no-op
+ * (`released`, in the editor's `snap.ts`).
+ */
+export function carriesSnaps(points: readonly Point[]): boolean {
+  return points.length > 2;
+}
+
+/**
  * The path a shaft draws through. Each middle point turns by its own `corner`:
  * consecutive `round` points form one continuous smooth curve, and a `sharp`
  * point breaks that curve into a corner softened by a short fillet. A point

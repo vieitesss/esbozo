@@ -325,8 +325,9 @@ export function elementsInBox(
  * An Element moved by a delta: box-like ones by their origin, arrows and lines
  * by every point they draw through — both ends and each bend between them, so a
  * bent shaft keeps its shape rather than being straightened. An end attached to
- * an Element follows that Element, so a move frees it first (`released`,
- * `snap.ts`) and the end carries on from where it drew; what is left for this
+ * an Element follows that Element, and a straight shaft has to let it go first
+ * so the drag is not a no-op (`released`, `snap.ts`): a bent one keeps its Snaps
+ * and this function translates its ends like its bends. What is left for this
  * function is translation.
  */
 export function moved(element: Element, dx: number, dy: number): Element {

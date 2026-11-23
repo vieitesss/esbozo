@@ -100,9 +100,11 @@ export function rearranged(
 }
 
 /**
- * Move the selected Elements by a step: a Snapped end is let go where it draws
- * first, so a nudge moves the whole Element rather than only the ends that were
- * already free. A nudge with nothing selected asks for nothing.
+ * Move the selected Elements by a step: a straight shaft's Snapped ends are let
+ * go where they draw first, so a nudge moves the whole Element rather than only
+ * the ends that were already free, and a shaft with a bend between its ends
+ * keeps them and moves its bends instead. A nudge with nothing selected asks for
+ * nothing.
  */
 export function nudged(
   scene: Scene,
