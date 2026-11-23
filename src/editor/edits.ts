@@ -21,7 +21,7 @@ import type { Element as SceneElement, Scene } from '../scene.js';
 import type { Layout } from '../layout.js';
 import { arranged } from './arrange.js';
 import type { ArrangeAct } from './arrange.js';
-import { copies, idsOf, replaced, without } from './elements.js';
+import { copies, idsOf, replaced, selectedFrom, without } from './elements.js';
 import { boxOf, landingOffset, moved } from './geometry.js';
 import type { Point, View } from './geometry.js';
 import { freedEnd, isShaft, released } from './snap.js';
@@ -52,12 +52,6 @@ export interface Landing {
   readonly layout: Layout;
   readonly view: View;
   readonly viewport: { readonly width: number; readonly height: number };
-}
-
-/** The selected Elements, in the Scene's own order. */
-function selectedIn(scene: Scene, selection: readonly string[]): SceneElement[] {
-  const selected = new Set(selection);
-  return scene.elements.filter((element) => selected.has(element.id));
 }
 
 /** Change the selected Elements' style, every pick arriving here. */
@@ -141,7 +135,7 @@ export function detached(
   selection: readonly string[],
   end: End,
 ): Edited | null {
-  const element = selectedIn(scene, selection)[0];
+  const element = selectedFrom(scene.elements, selection)[0];
   if (element === undefined || !isShaft(element)) {
     return null;
   }
@@ -213,7 +207,7 @@ export function duplicated(
   selection: readonly string[],
   landing: Landing,
 ): Edited | null {
-  const selected = selectedIn(scene, selection);
+  const selected = selectedFrom(scene.elements, selection);
   const fragment = parseFragment(serialiseFragment(scene, selected), scene.defaults);
   return pasted(scene, fragment ?? [], landing);
 }

@@ -10,7 +10,7 @@
 import { emptyScene, parseFragment, parseScene, serialiseScene } from '../scene.js';
 import type { Corner, Element as SceneElement, Scene } from '../scene.js';
 import { PRIMARY_SCENE_EXTENSION, sceneFileNameFor, sceneStem } from '../paths.js';
-import { replaced } from './elements.js';
+import { replaced, selectedFrom } from './elements.js';
 import { movableCount } from './arrange.js';
 import type { ArrangeAct } from './arrange.js';
 import { deleted, detached, duplicated, nudged, pasted, rearranged, restyled } from './edits.js';
@@ -645,8 +645,7 @@ class EsbozoEditorElement extends HTMLElement {
   }
 
   #selectedElements(): SceneElement[] {
-    const selected = new Set(this.#selected);
-    return this.#shown().elements.filter((element) => selected.has(element.id));
+    return selectedFrom(this.#shown().elements, this.#selected);
   }
 
   /**

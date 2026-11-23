@@ -197,6 +197,16 @@ function movedPoint(point: Point, renamed: ReadonlyMap<string, string>, offset: 
 }
 
 /**
+ * The Elements the ids name, in the list's own order. The caller says which list
+ * it means: the Scene's committed Elements for an edit that rewrites the Scene,
+ * and what the page shows for an edit that reads a drag in flight.
+ */
+export function selectedFrom(elements: readonly Element[], ids: readonly string[]): Element[] {
+  const chosen = new Set(ids);
+  return elements.filter((element) => chosen.has(element.id));
+}
+
+/**
  * The Element list with each Element the ids name replaced by what `changed`
  * makes of it, the rest left exactly as they are. Every edit that rewrites one
  * Element in place — a style pick, a nudge, a Snap end let go, a bend point
