@@ -908,7 +908,7 @@ class EsbozoEditorElement extends HTMLElement {
 
   /** Adds copies of the given Elements as one step, selected, so a paste can be moved at once. */
   #insertCopies(elements: readonly SceneElement[]): void {
-    this.#land(pasted(this.#scene, this.#selected, elements, this.#landing()));
+    this.#land(pasted(this.#scene, elements, this.#landing()));
   }
 
   /** What a paste or a duplicate needs of the page to land where a person can see it. */

@@ -189,7 +189,6 @@ function landingOf(elements: readonly SceneElement[], landing: Landing): Point {
  */
 export function pasted(
   scene: Scene,
-  selection: readonly string[],
   elements: readonly SceneElement[],
   landing: Landing,
 ): Edited | null {
@@ -216,5 +215,5 @@ export function duplicated(
 ): Edited | null {
   const selected = selectedIn(scene, selection);
   const fragment = parseFragment(serialiseFragment(scene, selected), scene.defaults);
-  return pasted(scene, selection, fragment ?? [], landing);
+  return pasted(scene, fragment ?? [], landing);
 }
