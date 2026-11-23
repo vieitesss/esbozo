@@ -1200,13 +1200,28 @@ class EsbozoEditorElement extends HTMLElement {
       this.#showSheet(false);
       return;
     }
+    if (event.key === 'Escape' && this.#gestures.placing()) {
+      // A shaft being placed is finished, not dropped: Escape ends the place at
+      // the last point it put down, as Enter does, and the preview segment goes
+      // with it. Half a shaft that was never a shaft — one point, or two on one
+      // spot — leaves the Scene as it was.
+      event.preventDefault();
+      this.#gestures.finishPlacing();
+      return;
+    }
+    if (event.key === 'Enter' && this.#gestures.placing()) {
+      event.preventDefault();
+      this.#gestures.finishPlacing();
+      return;
+    }
     if (event.key === 'Escape' && this.#gestures.holdsScene()) {
       // Half a Scene edit is not a Scene: Escape drops what the gesture drew back
       // to the place the Scene holds, and the release that follows it settles
       // nothing. It answers here, before the gesture that holds the Scene,
       // because that guard is about edits — and an Escape is what keeps one from
       // landing. Every other drag keeps the behaviour it has: Escape is ignored
-      // while the pointer is down, and the release settles the gesture.
+      // while the pointer is down, and the release settles the gesture. A place
+      // is the one edit that is not a drag: Escape finishes it, above.
       event.preventDefault();
       this.#gestures.cancel();
       return;

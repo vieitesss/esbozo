@@ -88,11 +88,25 @@ export type Drag =
       kind: 'draw';
       tool: Exclude<ElementTool, 'text'>;
       id: string;
+      /** Where this press landed: the click the release is measured from. */
       from: Point;
       /** What the drag has drawn so far: a preview, not an Element of the Scene yet. */
       preview: SceneElement;
       /** The Element the dragged end would attach to, or null over paper. */
       target: string | null;
+      /**
+       * Whether the press that started this draw held Shift, as it held it when
+       * it landed: a Shift press is about the selection, so the click it places
+       * as a shaft's first point is no half of a double-click either.
+       */
+      shift: boolean;
+      /**
+       * The points a place has put down, or null while the gesture is one drag.
+       * A press that never left the click's own slop places the first point
+       * instead of drawing a shaft between two, and the half-made shaft then
+       * stays in hand between presses until it is finished.
+       */
+      placing: Placing | null;
     }
   | {
       kind: 'end';
@@ -147,6 +161,46 @@ export type Drag =
       from: number;
     }
   | { kind: 'box'; from: Point; to: Point; additive: boolean };
+
+/**
+ * A shaft being placed: the points it has put down, in the Scene's own
+ * coordinates, and the click that put the last one there — two clicks in a row
+ * on one place are the double-click that finishes it.
+ */
+interface Placing {
+  /** The points placed so far, whole-pixel, no Snap on any: only an end Snaps. */
+  readonly points: readonly Point[];
+  /**
+   * Where the pointer came up for the last of them, before the Scene rounds it:
+   * the Snap is read from here, as a dragged end's is read from its release.
+   */
+  readonly release: Point;
+  /** The last placed click, until a drag or a finish breaks the pair. */
+  readonly click: Press | null;
+  /** Whether the last placed point was clicked with Alt: that end stays free. */
+  readonly skipSnap: boolean;
+}
+
+/** A point as the Scene stores every coordinate. */
+function whole(point: Point): Point {
+  return { x: Math.round(point.x), y: Math.round(point.y) };
+}
+
+/** The tools that draw a shaft between points: a drag's two, and a place's many. */
+function drawsStroke(tool: Exclude<ElementTool, 'text'>): tool is 'arrow' | 'line' {
+  return tool === 'arrow' || tool === 'line';
+}
+
+/**
+ * The Element a stroke tool drew, narrowed: an arrow or line tool draws a shaft
+ * and never a box, so this cannot be another type.
+ */
+function strokeOf(element: SceneElement): ArrowOrLineElement {
+  if (!isShaft(element)) {
+    throw new Error(`a stroke tool drew a ${element.type}`);
+  }
+  return element;
+}
 
 /**
  * The gestures whose preview is a swap of Elements: the groups a move carries,
@@ -272,6 +326,13 @@ export class Gestures {
    */
   #cancelledClick = false;
   #spaceDown = false;
+  /**
+   * The pointers whose press the board refused: a secondary press or a Ctrl+click
+   * is a menu's, so its release settles nothing — no point of a place, no end of a
+   * shaft, no pan. The refusal is the pointer's own: another pointer may be
+   * carrying a gesture at the same time, and its release is still its own.
+   */
+  readonly #refused = new Set<number>();
   /** The Shaft a page mark names, which is what makes the mark a bend point's. */
   #shaft: ShaftOf = (id) => shaftIn(this.#host.scene(), id);
 
@@ -284,10 +345,18 @@ export class Gestures {
     return this.#drag;
   }
 
-  /** Whether a gesture that changes the Scene is in flight, so an edit waits for the pointer. */
+  /**
+   * Whether a gesture that changes the Scene is in flight, so an edit waits for
+   * it: the pointer of a drag, or the place a shaft is being put down by.
+   */
   holdsScene(): boolean {
     const drag = this.#drag;
     return drag !== null && (drag.kind === 'draw' || asShownDrag(drag) !== null);
+  }
+
+  /** Whether a shaft is being placed by clicks, so a key may end the place it is half of. */
+  placing(): boolean {
+    return this.#drag !== null && this.#drag.kind === 'draw' && this.#drag.placing !== null;
   }
 
   /**
@@ -330,11 +399,19 @@ export class Gestures {
     return this.#spaceDown || this.#drag?.kind === 'pan';
   }
 
-  /** Nothing pairs a click any more: a drag started, a key came, a zoom moved the page. */
+  /**
+   * Nothing pairs a click any more: a drag started, a key came, a zoom moved the
+   * page. A place in hand keeps its own last click, and loses it here with the
+   * rest, so a zoom or a pan never makes the next click the half of a pair.
+   */
   forgetClicks(): void {
     this.#press = null;
     this.#lastClick = null;
     this.#wordsClick = null;
+    const drag = this.#drag;
+    if (drag !== null && drag.kind === 'draw' && drag.placing !== null) {
+      drag.placing = { ...drag.placing, click: null };
+    }
   }
 
   /** The words are closed, so the press that selected a word in them pairs with nothing. */
@@ -459,13 +536,23 @@ export class Gestures {
     }
     if (!inside) {
       this.#lastClick = null;
+      // A press beside the canvas — the rail, a note, the page around it — is not
+      // the next point of the shaft in hand: the place ends at its last point
+      // before that press edits anything.
+      this.finishPlacing();
     }
   };
 
   down = (event: PointerEvent): void => {
+    // Only a press the board takes settles on its release; a press it refuses is
+    // no half of a gesture, and its release must not act as one. This press
+    // answers for its own pointer alone: another pointer's refusal is not this
+    // press's to keep.
+    this.#refused.delete(event.pointerId);
     const { page } = this.#host;
     const { viewport } = page;
     if (event.button !== 0 && event.button !== 1) {
+      this.#refused.add(event.pointerId);
       return;
     }
     // A Ctrl+left press is the secondary click macOS reads as a context menu,
@@ -473,6 +560,7 @@ export class Gestures {
     // opens that point's menu instead of a press the clicks after it could pair
     // with and remove the point through.
     if (event.button === 0 && event.ctrlKey) {
+      this.#refused.add(event.pointerId);
       return;
     }
     const text = this.#host.typing.text();
@@ -492,12 +580,16 @@ export class Gestures {
       // goes no further: it is not also a click on the canvas. A middle press is
       // a pan, which leaves the words open where they are.
       this.#forgetPress();
+      this.#refused.add(event.pointerId);
       text.finish();
       return;
     }
     this.#capture(event);
     const target = event.target as Element | null;
     if (this.#spaceDown || event.button === 1) {
+      // A pan is not a point of a shaft in hand: the place ends at its last
+      // point, and the page is taken in the hand after it.
+      this.finishPlacing();
       // A pan moves the page, not the person: the default press would take the
       // focus off the words being typed, and the blur it causes would commit
       // them. Nothing of a pan is the browser's to do.
@@ -516,10 +608,19 @@ export class Gestures {
     // A press that is not a pan lets go of the point the press before it picked:
     // the point belongs to one press, and only a pan keeps it in the hand.
     this.#host.selectBend(null);
+    const place = this.#drag;
+    if (place !== null && place.kind === 'draw' && place.placing !== null) {
+      // With a shaft in hand the press carries the preview to where it lands: it
+      // puts no point down itself, so a click and a drag are told apart on the
+      // release, and two clicks on one place are the double-click that ends it.
+      place.from = viewport.scenePoint(event);
+      place.target = null;
+      return;
+    }
     const tool = this.#host.tool();
     if (tool !== 'select') {
       this.#press = null;
-      this.#startDrawing(tool, viewport.scenePoint(event));
+      this.#startDrawing(tool, viewport.scenePoint(event), event.shiftKey);
       return;
     }
     // A read-only page still selects, sweeps and pans; it just cannot change
@@ -717,6 +818,20 @@ export class Gestures {
       return;
     }
     if (drag.kind === 'draw') {
+      if (drag.placing !== null) {
+        // Between presses the place follows the pointer: the segment reaches for
+        // it, and its end Snaps the way a dragged end does — Alt skips that.
+        const { preview, target } = this.#placePreview(
+          drag,
+          drag.placing.points,
+          point,
+          event.altKey,
+        );
+        drag.preview = preview;
+        drag.target = target;
+        page.paint();
+        return;
+      }
       const target = isShaft(drag.preview)
         ? this.#attachTarget(drag.id, 'end', point, event.altKey)
         : null;
@@ -813,6 +928,14 @@ export class Gestures {
   up = (event: PointerEvent): void => {
     const { viewport } = this.#host.page;
     const drag = this.#drag;
+    // A release without the press that started a gesture settles nothing: the
+    // press was refused before it began, so it puts no point down and finishes no
+    // place. It is the refused pointer's own release, and no other: a pointer
+    // carrying a gesture at the same time keeps its capture, and its release is
+    // still the one that settles it.
+    if (this.#refused.delete(event.pointerId)) {
+      return;
+    }
     // The pointer comes up for this gesture or for one already ended: either way
     // it is the browser's again.
     this.#releasePointer();
@@ -891,8 +1014,12 @@ export class Gestures {
       return;
     }
     if (drag.kind === 'draw') {
+      if (drag.placing !== null) {
+        this.#placePoint(drag, viewport.scenePoint(event), event);
+        return;
+      }
       this.#drag = null;
-      this.#finishDrawing(drag, viewport.scenePoint(event), event.altKey);
+      this.#finishDrawing(drag, viewport.scenePoint(event), event);
       return;
     }
     if (drag.kind === 'end') {
@@ -1050,7 +1177,7 @@ export class Gestures {
    * A drawing tool is in hand: the press starts a preview Element, and every
    * move reshapes it until the release settles it into the Scene.
    */
-  #startDrawing(tool: ElementTool, point: Point): void {
+  #startDrawing(tool: ElementTool, point: Point, shift: boolean): void {
     if (tool === 'text') {
       // Opened on the release, not the press: the press's own default action
       // would take the focus straight back off the input.
@@ -1066,6 +1193,8 @@ export class Gestures {
       from: point,
       preview: drawn(tool, point, point, id, this.#host.scene().defaults),
       target: null,
+      shift,
+      placing: null,
     };
     this.#host.page.paint();
   }
@@ -1099,7 +1228,15 @@ export class Gestures {
    * What the new end attaches to is read from the release — where the pointer is
    * and whether Alt is held then — not from the last move.
    */
-  #finishDrawing(drag: Extract<Drag, { kind: 'draw' }>, at: Point, skipSnap: boolean): void {
+  #finishDrawing(drag: Extract<Drag, { kind: 'draw' }>, at: Point, event: PointerEvent): void {
+    if (isClick(drag.from, at) && drawsStroke(drag.tool)) {
+      // A stroke tool clicked rather than dragged places the shaft's first point:
+      // the shaft stays in hand between presses until a double-click, Enter or
+      // Escape ends it, so one gesture can put down as many points as a person
+      // needs.
+      this.#startPlacing(drag, at, event);
+      return;
+    }
     const placed = isClick(drag.from, at)
       ? drawnAtClick(drag.tool, drag.from, drag.id, this.#host.scene().defaults)
       : drawn(drag.tool, drag.from, at, drag.id, this.#host.scene().defaults);
@@ -1110,12 +1247,164 @@ export class Gestures {
       return;
     }
     const settled = isShaft(placed)
-      ? withEnd(placed, 'end', endPoint(placed, 'end'), this.#attachTarget(drag.id, 'end', at, skipSnap))
+      ? withEnd(
+          placed,
+          'end',
+          endPoint(placed, 'end'),
+          this.#attachTarget(drag.id, 'end', at, event.altKey),
+        )
       : placed;
     this.#host.applyScene(
       { ...this.#host.scene(), elements: [...this.#host.scene().elements, settled] },
       { select: [drag.id] },
     );
+  }
+
+  /**
+   * A stroke tool clicked rather than dragged starts a place: its first point is
+   * the click, and the shaft waits in hand for the next one. Nothing of the
+   * place is in the Scene yet — the preview is what the page draws until the
+   * place is finished, and a place with fewer than two points never lands.
+   */
+  #startPlacing(drag: Extract<Drag, { kind: 'draw' }>, at: Point, event: PointerEvent): void {
+    const point = whole(at);
+    const { preview, target } = this.#placePreview(drag, [], at, event.altKey);
+    this.#drag = {
+      ...drag,
+      from: at,
+      preview,
+      target,
+      placing: {
+        points: [point],
+        release: at,
+        // The click that started the place is half of a double-click like any
+        // other: two clicks on that first point end the place, one point and all.
+        // Its modifiers are the press's, not the release's: Shift let go before
+        // the button came up was still held when the press landed.
+        click: {
+          id: null,
+          at: this.#host.page.viewport.screenPoint(event),
+          time: event.timeStamp,
+          shift: drag.shift,
+        },
+        skipSnap: event.altKey,
+      },
+    };
+    this.#host.page.paint();
+  }
+
+  /**
+   * One release of a place: its click puts a point down where the pointer came
+   * up, unless that click is the second half of a double-click on the place the
+   * first half put down — that pair ends the place instead, so the pointer alone
+   * can finish a shaft. A release that dragged puts its point down too, so a
+   * segment can be pulled out rather than clicked.
+   */
+  #placePoint(drag: Extract<Drag, { kind: 'draw' }>, at: Point, event: PointerEvent): void {
+    const placing = drag.placing;
+    if (placing === null) {
+      return;
+    }
+    const { viewport } = this.#host.page;
+    const point = whole(at);
+    const click = isClick(drag.from, at);
+    const press: Press = {
+      id: null,
+      at: viewport.screenPoint(event),
+      time: event.timeStamp,
+      shift: event.shiftKey,
+    };
+    if (click && placing.click !== null && this.#isDoubleClick(placing.click, press)) {
+      this.finishPlacing();
+      return;
+    }
+    const { preview, target } = this.#placePreview(drag, placing.points, at, event.altKey);
+    drag.preview = preview;
+    drag.target = target;
+    drag.placing = {
+      points: [...placing.points, point],
+      release: at,
+      click: click ? press : null,
+      skipSnap: event.altKey,
+    };
+    this.#host.page.paint();
+  }
+
+  /**
+   * End the place in hand at the last point it put down: the preview segment goes
+   * with it, and a place of fewer than two distinct points is not a shaft, so a
+   * click that started one and stopped there leaves the Scene as it was. The
+   * shaft lands as one step, selected as a drawn one is, and the tool goes back
+   * to Select, so one tool draws one Element.
+   */
+  finishPlacing(): void {
+    const drag = this.#drag;
+    if (drag === null || drag.kind !== 'draw' || drag.placing === null) {
+      return;
+    }
+    const { points, release, skipSnap } = drag.placing;
+    this.#drag = null;
+    this.#host.setTool('select');
+    const distinct = new Set(points.map((point) => `${point.x},${point.y}`));
+    if (distinct.size < 2) {
+      this.#host.select([]);
+      this.#host.refresh();
+      return;
+    }
+    const end = points[points.length - 1]!;
+    const settled = withEnd(
+      this.#pathOf(drag.tool, points, drag.id),
+      'end',
+      end,
+      this.#attachTarget(drag.id, 'end', release, skipSnap),
+    );
+    this.#host.applyScene(
+      { ...this.#host.scene(), elements: [...this.#host.scene().elements, settled] },
+      { select: [drag.id] },
+    );
+  }
+
+  /**
+   * What a place shows while the pointer is between points: every point it has
+   * put down, and the segment reaching for the pointer. The last of them Snaps
+   * the way a dragged end does, from the pointer as it is — the rounding is for
+   * the point the Scene stores, never for the Element under it — and a pointer
+   * still within the click's own slop of the last point reaches nowhere yet, so
+   * it Snaps to nothing.
+   */
+  #placePreview(
+    drag: Extract<Drag, { kind: 'draw' }>,
+    points: readonly Point[],
+    cursor: Point,
+    skipSnap: boolean,
+  ): { preview: SceneElement; target: string | null } {
+    const last = points[points.length - 1];
+    const target =
+      last === undefined || isClick(last, cursor)
+        ? null
+        : this.#attachTarget(drag.id, 'end', cursor, skipSnap);
+    const end = whole(cursor);
+    const path = this.#pathOf(drag.tool, [...points, end], drag.id);
+    return { preview: withEnd(path, 'end', end, target), target };
+  }
+
+  /**
+   * The shaft these points draw: a stroke tool's own Element between the first
+   * and the last, with every point between them inserted as a bend — no Snap and
+   * no `corner` of its own, so it turns by the Element's `corners`.
+   */
+  #pathOf(
+    tool: Exclude<ElementTool, 'text'>,
+    points: readonly Point[],
+    id: string,
+  ): ArrowOrLineElement {
+    const first = points[0]!;
+    const last = points[points.length - 1]!;
+    let path = strokeOf(drawn(tool, first, last, id, this.#host.scene().defaults));
+    for (let index = points.length - 2; index >= 1; index -= 1) {
+      path = withInsertedBend(path, 1, points[index]!);
+    }
+    return path;
   }
 
   /**
