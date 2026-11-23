@@ -27,6 +27,7 @@ import { Connection } from './connection.js';
 import type { FolderSource, FontSource, SaveTarget } from './connection.js';
 import { Page } from './page.js';
 import type { Shown } from './page.js';
+import { Notes } from './notes.js';
 import { CommandPalette } from './palette.js';
 import { PointMenu } from './point-menu.js';
 import { menuSignature, styleNote } from './menu.js';
@@ -178,9 +179,8 @@ class EsbozoEditorElement extends HTMLElement {
   #savedLabel!: HTMLElement;
   #menu!: HTMLElement;
   #roughButton!: HTMLButtonElement;
-  #sheet!: HTMLElement;
-  #helpButton!: HTMLButtonElement;
-  #palette!: CommandPalette;
+  /** The notes the page opens over the Scene, and which of them is on top. */
+  #notes!: Notes;
   /** The note a secondary press on a bend point opens, and the one row it holds. */
   #pointMenu!: PointMenu;
 
@@ -215,7 +215,7 @@ class EsbozoEditorElement extends HTMLElement {
     toggleGrid: () => this.#toggleGrid(),
     toggleTheme: () => this.#toggleTheme(),
     stepDefaultRoughness: () => this.#stepDefaultRoughness(),
-    openPalette: () => this.#palette.show(),
+    openPalette: () => this.#notes.show('commands'),
     exportPng: (theme) => this.#exportPng(theme),
     zoomIn: () => this.#zoomBy(ZOOM_STEP),
     zoomOut: () => this.#zoomBy(1 / ZOOM_STEP),
@@ -274,17 +274,45 @@ class EsbozoEditorElement extends HTMLElement {
     this.#savedLabel = this.querySelector('.saved')!;
     this.#menu = this.querySelector('.style-note')!;
     this.#roughButton = this.querySelector('[data-act="roughness"]')!;
-    this.#sheet = this.querySelector('.shortcuts')!;
-    this.#helpButton = this.querySelector('[data-act="shortcuts"]')!;
-    this.#palette = new CommandPalette({
-      root: this.querySelector('.palette')!,
+    // The three notes are one stack: the palette asks for every action by name,
+    // the sheet names the keys, and the Scenes note lists the folder. Whichever
+    // a person asked for last is on top, and answers Escape and the press
+    // outside it; the stack hands the focus back to the canvas when it shuts.
+    const sheet = this.querySelector<HTMLElement>('.shortcuts')!;
+    const helpButton = this.querySelector<HTMLButtonElement>('[data-act="shortcuts"]')!;
+    const paletteRoot = this.querySelector<HTMLElement>('.palette')!;
+    this.#notes = new Notes({ inside: this, canvas: this.#canvas });
+    const palette = new CommandPalette({
+      root: paletteRoot,
       state: () => this.#actionState(),
       run: (action) => void action.run(this.#host),
-      // The palette is a detour, not a place: shutting it puts the person back
-      // on the canvas, where the keys and the pointer already belong.
-      // The canvas is where the keys belong, and the paper is already in
-      // view: a focus that scrolls would move the Scene under the pointer.
-      closed: () => this.#canvas.focus({ preventScroll: true }),
+      // The palette shuts the way the stack shuts any note, so the keys and the
+      // focus come back to the canvas with it.
+      shut: () => this.#notes.shut('commands'),
+      // Escape is the stack's too: the note on top shuts, and the field never
+      // chooses for a note the person opened over it.
+      escape: () => this.#notes.shut(),
+    });
+    this.#notes.add('commands', {
+      root: paletteRoot,
+      keys: 'all',
+      holds: (target) => palette.holds(target),
+      shown: () => palette.reveal(),
+      shut: () => palette.conceal(),
+    });
+    this.#notes.add('shortcuts', {
+      root: sheet,
+      keys: 'escape',
+      opener: () => helpButton,
+      shown: () => helpButton.setAttribute('aria-expanded', 'true'),
+      shut: () => helpButton.setAttribute('aria-expanded', 'false'),
+    });
+    this.#notes.add('scenes', {
+      root: this.#note,
+      keys: 'escape',
+      // The status line's button lists the folder, so a press on it while the
+      // note is open re-lists it rather than shutting it and opening it again.
+      opener: () => this.querySelector('[data-act="open"]'),
     });
     // The point menu is the other note the pointer opens: a secondary press on a
     // bend handle, held to the one removal the keys and the palette use.
@@ -451,8 +479,9 @@ class EsbozoEditorElement extends HTMLElement {
     // A Space held while the page loses the focus never sends its release: the
     // pan has to end here, or the pointer stays a hand on the way back.
     document.addEventListener('pointerdown', this.#gestures.anyPress);
-    // Dismiss on the bubble path so the target still handles the press.
-    document.addEventListener('pointerdown', this.#shutSheetOnPress);
+    // The stack's press is on the bubble path, so a note it shuts still lets
+    // the press land where it was aimed.
+    this.#notes.listen();
     document.addEventListener('visibilitychange', this.#gestures.release);
     window.addEventListener('blur', this.#gestures.release);
     window.addEventListener('resize', this.#onResize);
@@ -473,7 +502,7 @@ class EsbozoEditorElement extends HTMLElement {
     document.removeEventListener('keydown', this.#onKeyDown);
     document.removeEventListener('keyup', this.#onKeyUp);
     document.removeEventListener('pointerdown', this.#gestures.anyPress);
-    document.removeEventListener('pointerdown', this.#shutSheetOnPress);
+    this.#notes.unlisten();
     document.removeEventListener('visibilitychange', this.#gestures.release);
     this.#rail.removeEventListener('pointerdown', this.#onRailDown);
     this.#rail.removeEventListener('click', this.#onRailClick);
@@ -547,8 +576,9 @@ class EsbozoEditorElement extends HTMLElement {
     this.#selectElements([]);
     this.#history.reset(serialiseScene(this.#scene));
     this.#menu.hidden = true;
-    this.#note.hidden = true;
-    this.#showSheet(false);
+    // The Scenes the notes named are not this page's any more: they leave with
+    // it, and the focus is nobody's to move.
+    this.#notes.clear();
     this.#whereLabel.textContent = '';
     this.#setSaved('idle');
     this.#page.paint();
@@ -675,7 +705,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#page.viewport.view = fittedView(scene, this.#page.viewport.size(), this.#connection.layout);
     this.#placeRail();
     this.#whereLabel.textContent = `${target.folder.name} / ${target.name}`;
-    this.#note.hidden = true;
+    this.#notes.clear('scenes');
     // Another Scene: the tool in hand and the words half-typed into the last
     // one belong to that one, not this, and the note shows its defaults. A Space
     // press holds the page in the hand, and another Scene is another page, so
@@ -1223,20 +1253,17 @@ class EsbozoEditorElement extends HTMLElement {
       event.preventDefault();
       return;
     }
-    if (this.#palette.open) {
-      // The palette's own input takes the arrows, Enter and Escape. Any other
-      // key with the focus off it still belongs to the palette, not the Scene.
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        this.#palette.close();
-      }
+    const note = this.#notes.answerKey(event);
+    if (note === 'shut') {
+      // The note on top answers Escape, and the note alone: it takes nothing of
+      // the Scene with it, so what a person selected stays selected.
+      event.preventDefault();
+      this.#notes.shut();
       return;
     }
-    if (!this.#sheet.hidden && event.key === 'Escape') {
-      // The sheet is the topmost thing the page opened: its Escape shuts it and
-      // leaves the Scene's selection where the person left it.
-      event.preventDefault();
-      this.#showSheet(false);
+    if (note === 'hold') {
+      // A key the note holds with the focus off its own field is still the
+      // note's, not the Scene's.
       return;
     }
     if (event.key === 'Escape' && this.#gestures.placing()) {
@@ -1272,7 +1299,6 @@ class EsbozoEditorElement extends HTMLElement {
       return;
     }
     if (event.key === 'Escape') {
-      this.#note.hidden = true;
       this.#selectElements([]);
       this.#setTool('select');
       this.#refresh();
@@ -1529,26 +1555,8 @@ class EsbozoEditorElement extends HTMLElement {
     } else if (action === 'roughness') {
       this.#stepDefaultRoughness();
     } else if (action === 'shortcuts') {
-      this.#showSheet(this.#sheet.hidden);
+      this.#notes.toggle('shortcuts');
     }
-  };
-
-  /** Keep the sheet's visibility and the help button's expanded state in sync. */
-  #showSheet(open: boolean): void {
-    this.#sheet.hidden = !open;
-    this.#helpButton.setAttribute('aria-expanded', String(open));
-  }
-
-  /** A press outside the sheet shuts it, and still lands where it was aimed. */
-  #shutSheetOnPress = (event: PointerEvent): void => {
-    if (this.#sheet.hidden) {
-      return;
-    }
-    const target = event.target as Node | null;
-    if (target !== null && (this.#sheet.contains(target) || this.#helpButton.contains(target))) {
-      return;
-    }
-    this.#showSheet(false);
   };
 
   /**
@@ -1625,12 +1633,20 @@ class EsbozoEditorElement extends HTMLElement {
     if (folder === null) {
       return;
     }
+    // The listing is a read, and a read answers late: the note it is for may be
+    // shut while the folder answers.
+    const ask = this.#notes.ask('scenes');
     this.#note.querySelector('.folder')!.textContent = folder.name;
     let names: string[];
     try {
       names = await folder.listScenes();
     } catch (error) {
       this.#setSaved('failed', (error as Error).message);
+      return;
+    }
+    if (!this.#notes.wants(ask)) {
+      // The person put the note away while the folder was answering: its answer
+      // is not news, and neither the list it read nor the note is painted.
       return;
     }
     this.#files.replaceChildren(
@@ -1650,7 +1666,7 @@ class EsbozoEditorElement extends HTMLElement {
       item.textContent = 'no Scenes here yet';
       this.#files.append(item);
     }
-    this.#note.hidden = false;
+    this.#notes.show('scenes');
   }
 
   #setSaved(state: 'idle' | 'saving' | 'saved' | 'new' | 'failed', detail = ''): void {

@@ -415,6 +415,33 @@ describe('the point menu', () => {
     await expect(deletePoint(ui)).toBeVisible();
   });
 
+  test('a press that shuts a note leaves the keys with the menu it opened', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    const sheet = ui.screen.getByRole('dialog', 'Shortcuts');
+
+    // The sheet over the shaft, so the press below is one outside a note, and
+    // the handle the press aims at is drawn under it.
+    await selectShaft(ui);
+    await screen.getByRole('button', 'Shortcuts').click();
+    await expect(sheet).toBeVisible();
+
+    // The secondary press on the peak shuts the sheet and opens the menu over
+    // the point: where the press was aimed is where the keys have to be.
+    await rightClick(ui, PEAK);
+    await expect(sheet).toBeHidden();
+    await expect(menu(ui)).toBeVisible();
+
+    // Escape is the menu's, as it is when no note was over it: a note shutting
+    // cannot take the keys from the press's own destination.
+    await browser.keyboard.press('Escape');
+    await expect(menu(ui)).toBeHidden();
+  });
+
   test('the corner row switches a round point sharp and back round', async ({
     app,
     browser,

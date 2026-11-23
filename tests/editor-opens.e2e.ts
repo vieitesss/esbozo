@@ -23,6 +23,7 @@ import {
   settle,
 } from './helpers.ts';
 import type { Folders, Ui } from './helpers.ts';
+import { focusOn } from './editor-shared.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
 
@@ -82,6 +83,10 @@ interface Holds {
     refuse: (message: string) => void;
     missing: () => void;
   }>;
+  /** True while the next listing of a picked folder waits for the test. */
+  listing: boolean;
+  /** The listings waiting to be answered, oldest first. */
+  listings: Array<{ land: () => void }>;
 }
 
 /** A write the stub's gate holds: it lands when the test says so. */
@@ -111,14 +116,27 @@ async function openPage(ui: Ui, folders: Folders): Promise<void> {
       const page = window as unknown as GateWindow;
       page.__esbozoFolders = stub.folders;
       page.__esbozoPicks = stub.picks;
-      page.__esbozoHolds = { name: null, answers: [] };
+      page.__esbozoHolds = { name: null, answers: [], listing: false, listings: [] };
       const pick = page.showDirectoryPicker;
       page.showDirectoryPicker = async (options) => {
         const folder = await pick(options);
         return {
           kind: folder.kind,
           name: folder.name,
-          values: () => folder.values(),
+          // A listing a test holds: the folder answers it when the test says so,
+          // so the page can be moved on while the Scenes note is still waiting.
+          values: () => {
+            if (!page.__esbozoHolds.listing) {
+              return folder.values();
+            }
+            page.__esbozoHolds.listing = false;
+            return (async function* held(): AsyncIterableIterator<{ kind: string; name: string }> {
+              await new Promise<void>((resolve) => {
+                page.__esbozoHolds.listings.push({ land: resolve });
+              });
+              yield* folder.values();
+            })();
+          },
           async getFileHandle(fileName, fileOptions) {
             const handle = await folder.getFileHandle(fileName, fileOptions);
             if (fileName !== page.__esbozoHolds.name) {
@@ -193,6 +211,33 @@ async function refuseRead(ui: Ui, message: string): Promise<void> {
 async function missRead(ui: Ui): Promise<void> {
   await ui.browser.evaluate(() => {
     (window as unknown as GateWindow).__esbozoHolds.answers.shift()!.missing();
+    return true;
+  });
+}
+
+/** Hold the next listing of a picked folder: its answer waits until the test lands it. */
+async function holdListing(ui: Ui): Promise<void> {
+  await ui.browser.evaluate(() => {
+    (window as unknown as GateWindow).__esbozoHolds.listing = true;
+    return true;
+  });
+}
+
+/** Wait until the page asks the folder for its Scenes, so the listing is in flight. */
+async function listingWaiting(ui: Ui): Promise<void> {
+  await expect
+    .poll(() =>
+      ui.browser.evaluate(
+        () => (window as unknown as GateWindow).__esbozoHolds.listings.length,
+      ),
+    )
+    .toBe(1);
+}
+
+/** Answer the held listing, as a folder that was only slow does. */
+async function landListing(ui: Ui): Promise<void> {
+  await ui.browser.evaluate(() => {
+    (window as unknown as GateWindow).__esbozoHolds.listings.shift()!.land();
     return true;
   });
 }
@@ -339,6 +384,127 @@ test("a Scene whose read fails while an edit's write is held keeps its failure",
   // Scene whose read failed is untouched.
   expect(await nudged(ui, 'a.json')).toBe(50);
   expect((await savedFiles(ui))['b.json']).toBe(B_SOURCE);
+});
+
+test('a listing that lands after the note shut does not reopen it', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui: Ui = { app, browser, screen };
+  await openPage(ui, folderWith());
+  await expect(screen.getByRole('dialog', 'Scene files')).toBeVisible();
+
+  // The person browses the same folder again, and this listing waits: the note
+  // is the one already in hand, and it is still the page's while the folder is
+  // asked what it holds.
+  await holdListing(ui);
+  await browseFolder(ui, 'A');
+  await listingWaiting(ui);
+
+  // They shut the note while its answer is on its way: a listing nobody is
+  // waiting for any more.
+  await browser.keyboard.press('Escape');
+  await expect(screen.getByRole('dialog', 'Scene files')).toBeHidden();
+  await landListing(ui);
+  await settle(ui);
+
+  // The note stays shut: an answer for a note that already left does not open
+  // it again. What the answer read is not on the page to be seen — the note is
+  // hidden — so a listing that opened it is the one thing this case proves.
+  await expect(screen.getByRole('dialog', 'Scene files')).toBeHidden();
+});
+
+test('a listing held while another note opens still shows the Scenes it read', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui: Ui = { app, browser, screen };
+  await openPage(ui, folderWith());
+  const note = screen.getByRole('dialog', 'Scene files');
+  const sheet = screen.getByRole('dialog', 'Shortcuts');
+
+  // The note is put away, and the folder asked what it holds: the listing waits,
+  // and nobody has seen the note it is for yet.
+  await browser.keyboard.press('Escape');
+  await expect(note).toBeHidden();
+  await holdListing(ui);
+  await browseFolder(ui, 'A');
+  await listingWaiting(ui);
+
+  // Another note opens over it while the folder is still answering. That is not
+  // the person putting the Scenes note away, so what the folder reads is still
+  // the list they asked for.
+  await screen.getByRole('button', 'Shortcuts').click();
+  await expect(sheet).toBeVisible();
+  await landListing(ui);
+  await settle(ui);
+
+  await expect(note).toBeVisible();
+  await expect(screen.getByRole('button', 'b.json')).toBeVisible();
+});
+
+test('a Scene opened from the note leaves the focus where the press left it', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui: Ui = { app, browser, screen };
+  await openPage(ui, folderWith());
+  const note = screen.getByRole('dialog', 'Scene files');
+
+  // The press on the row is the last thing the person did: the Scene opens, the
+  // note that listed it leaves the page under the row that goes with it, and the
+  // focus stays where that press left it. A canvas focused here wears the ring
+  // the page draws only for a person who reached the paper with the keys, so a
+  // Scene that opens with the focus on the paper puts a place nobody chose in
+  // front of them.
+  await screen.getByRole('button', 'a.json').click();
+  await expect(note).toBeHidden();
+  await expect.poll(() => focusOn(ui)).toBe('other');
+});
+
+test('a press outside the Scenes note shuts it and still lands where it was aimed', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui: Ui = { app, browser, screen };
+  await openPage(ui, folderWith());
+  const note = screen.getByRole('dialog', 'Scene files');
+  await screen.getByRole('button', 'a.json').click();
+  await browseFolder(ui, 'A');
+  await expect(note).toBeVisible();
+
+  // The press is the paper's: the note shuts, and the box under the pointer is
+  // the one the press selected, so the note let the press through.
+  await clickScene(ui, { x: 100, y: 80 });
+  await expect(note).toBeHidden();
+  await expect(screen.getByRole('dialog', 'Style')).toBeVisible();
+  await expect.poll(() => focusOn(ui)).toBe('canvas');
+});
+
+test('Escape shuts the Scenes note and leaves the selection alone', async ({ app, browser, screen }) => {
+  const ui: Ui = { app, browser, screen };
+  await openPage(ui, folderWith());
+  const note = screen.getByRole('dialog', 'Scene files');
+  const style = screen.getByRole('dialog', 'Style');
+  await screen.getByRole('button', 'a.json').click();
+
+  // One box selected, and the note asked for over it: the Escape that shuts the
+  // note is the note's, so what the person selected is still selected, and the
+  // keys are the canvas's again.
+  await clickScene(ui, { x: 100, y: 80 });
+  await expect(style).toBeVisible();
+  await browseFolder(ui, 'A');
+  await expect(note).toBeVisible();
+  await expect(style).toBeVisible();
+
+  await browser.keyboard.press('Escape');
+  await expect(note).toBeHidden();
+  await expect(style).toBeVisible();
+  await expect.poll(() => focusOn(ui)).toBe('canvas');
 });
 
 test("a Scene that opens new while an edit's write is held keeps its own word", async ({ app, browser, screen }) => {

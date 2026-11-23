@@ -54,6 +54,19 @@ export async function fullInk(ui: Ui): Promise<void> {
 
 // --------------------------------------------------------------- the palette
 
+/**
+ * Where the focus a note hands back went: the canvas it belongs to, the
+ * palette's field while the palette holds it, or somewhere else. The control is
+ * read by the name it gives a screen reader, which is what the page promises;
+ * where the markup puts it is the page's own business.
+ */
+export function focusOn(ui: Ui): Promise<'canvas' | 'search' | 'other'> {
+  return ui.browser.evaluate(() => {
+    const name = document.activeElement?.getAttribute('aria-label') ?? null;
+    return name === 'Scene canvas' ? 'canvas' : name === 'Command' ? 'search' : 'other';
+  });
+}
+
 /** A command palette row, by the name and the shortcut the row shows. */
 export function command(ui: Ui, name: string | RegExp) {
   return ui.screen.getByRole('option', { name });

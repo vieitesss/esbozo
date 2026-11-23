@@ -16,11 +16,11 @@ import {
   refuseWrite,
   savedFiles,
 } from './helpers.ts';
-import type { Ui } from './helpers.ts';
+import type { Point, Ui } from './helpers.ts';
 import { blurPage, livePage } from './cdp.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
-import { SCENE_SOURCE, THREE_SOURCE } from './editor-shared.ts';
+import { SCENE_SOURCE, THREE_SOURCE, focusOn, palette } from './editor-shared.ts';
 
 /** The bottom-centre band around the mode pill at 1366 × 768. */
 const MODE_PILL_BAND: Rect = { x: 601, y: 690, width: 164, height: 70 };
@@ -311,7 +311,129 @@ test('the ? button opens the Shortcuts sheet, and Escape shuts it', async ({ app
   await expect(sheet).toBeHidden();
   await expect(help).toHaveAttribute('aria-expanded', 'false');
   await expect(ui.screen.getByRole('dialog', 'Style')).toBeVisible();
+  // And the keys belong to the canvas again, wherever the focus was when the
+  // sheet was asked for.
+  await expect.poll(() => focusOn(ui)).toBe('canvas');
 });
+
+test('Escape shuts the note on top, and only that one', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+  const help = ui.screen.getByRole('button', 'Shortcuts');
+  const sheet = ui.screen.getByRole('dialog', 'Shortcuts');
+  const commands = ui.screen.getByRole('dialog', 'Commands');
+
+  // Two notes the page holds, one over the other: the sheet first, and the
+  // palette the keys ask for over it. Neither is asked for with a press, so the
+  // press that would shut the one under is not what puts them both there.
+  await help.click();
+  await expect(sheet).toBeVisible();
+  await palette(ui);
+  await expect(commands).toBeVisible();
+
+  // The first Escape is the note on top's alone, and the sheet under it stays;
+  // the second Escape is then that one's, because it is on top now.
+  await ui.browser.keyboard.press('Escape');
+  await expect(commands).toBeHidden();
+  await expect(sheet).toBeVisible();
+  await ui.browser.keyboard.press('Escape');
+  await expect(sheet).toBeHidden();
+  await expect(help).toHaveAttribute('aria-expanded', 'false');
+  await expect.poll(() => focusOn(ui)).toBe('canvas');
+});
+
+test('Escape from the Command field shuts the note on top, and not the Commands under it', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+  const help = ui.screen.getByRole('button', 'Shortcuts');
+  const sheet = ui.screen.getByRole('dialog', 'Shortcuts');
+  const commands = ui.screen.getByRole('dialog', 'Commands');
+  const field = ui.screen.getByRole('textbox', 'Command');
+
+  // Commands first, from the keys, with the caret in its field.
+  await palette(ui);
+  await expect.poll(() => focusOn(ui)).toBe('search');
+
+  // The sheet is asked for over it from the control beside it, and the caret
+  // comes back to the Command field: the note the person sees on top is the
+  // sheet, and the field they are typing in is the one under it.
+  await browser.keyboard.press('Shift+Tab');
+  await expect(help).toBeFocused();
+  await browser.keyboard.press('Enter');
+  await expect(sheet).toBeVisible();
+  await browser.keyboard.press('Tab');
+  await expect(field).toBeFocused();
+
+  // Escape is the top note's, wherever the focus sits: the sheet shuts and the
+  // Commands under it stays, so the visible order and the key agree.
+  await browser.keyboard.press('Escape');
+  await expect(sheet).toBeHidden();
+  await expect(commands).toBeVisible();
+  await browser.keyboard.press('Escape');
+  await expect(commands).toBeHidden();
+  await expect(help).toHaveAttribute('aria-expanded', 'false');
+});
+
+test('the note the page paints on top is the one Escape shuts', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+  const help = ui.screen.getByRole('button', 'Shortcuts');
+  const sheet = ui.screen.getByRole('dialog', 'Shortcuts');
+  const commands = ui.screen.getByRole('dialog', 'Commands');
+
+  // Commands first, and the sheet asked for over it from the control beside it,
+  // so no press puts either one away: the sheet is the note asked for last.
+  await palette(ui);
+  await browser.keyboard.press('Shift+Tab');
+  await expect(help).toBeFocused();
+  await browser.keyboard.press('Enter');
+  await expect(sheet).toBeVisible();
+  await expect(commands).toBeVisible();
+  await settle(ui);
+
+  // A press in the sheet's own box reaches the sheet, and not the Commands felt
+  // under it: the note the person sees on top is the note on top of the stack.
+  const under = await paintedNote(ui, BOTH_NOTES_COVER);
+  expect(under).toBe('Shortcuts');
+  await browser.keyboard.press('Escape');
+  await expect(sheet).toBeHidden();
+  await expect(commands).toBeVisible();
+
+  // And the other way round: the keys ask for Commands over the sheet, so the
+  // Commands felt is painted on top and its Escape is the field's, as it was
+  // before the stack existed.
+  await browser.keyboard.press('Escape');
+  await expect(commands).toBeHidden();
+  await help.click();
+  await expect(sheet).toBeVisible();
+  await palette(ui);
+  await expect(commands).toBeVisible();
+  await settle(ui);
+  expect(await paintedNote(ui, BOTH_NOTES_COVER)).toBe('Commands');
+  await browser.keyboard.press('Escape');
+  await expect(commands).toBeHidden();
+  await expect(sheet).toBeVisible();
+  await browser.keyboard.press('Escape');
+  await expect(sheet).toBeHidden();
+});
+
+/**
+ * A point on both notes at 1280 × 800: the sheet hangs from the bottom right
+ * corner, over the Commands felt, which covers the page.
+ */
+const BOTH_NOTES_COVER: Point = { x: 1100, y: 690 };
+
+/** The note a press at a point would reach, by the name it answers to. */
+function paintedNote(ui: Ui, at: Point): Promise<string | null> {
+  return ui.browser.evaluate((point: { x: number; y: number }) => {
+    const note = document.elementFromPoint(point.x, point.y)?.closest('[role="dialog"]');
+    return note === null || note === undefined ? null : note.getAttribute('aria-label');
+  }, at);
+}
 
 test('the Shortcuts sheet keeps its left border on the narrowest page', async ({
   app,

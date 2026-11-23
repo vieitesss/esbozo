@@ -27,7 +27,12 @@ function keyOf(id: string): string {
   return action.primary;
 }
 
-/** The chrome the element puts on the page before it draws anything. */
+/**
+ * The chrome the element puts on the page before it draws anything. The notes it
+ * opens over the paper — the sheet, the palette and the Scenes note — are
+ * siblings here, because the stack is what layers them: the note asked for last
+ * is painted on top, so their order in this string is not one.
+ */
 export const SHELL = `
 <div class="board">
 <div class="surface">
@@ -63,19 +68,19 @@ export const SHELL = `
     <span class="zoom">100%</span>
   </div>
   <div class="corner-help">
-    <div class="shortcuts" role="dialog" aria-label="Shortcuts" hidden>
-      <h4>Shortcuts</h4>
-      <dl class="keys">
-        <dt>Space</dt><dd>pan · middle-click too</dd>
-        <dt>wheel</dt><dd>zoom</dd>
-        <dt>${keyOf('zoom-in')} / ${keyOf('zoom-out')}</dt><dd>zoom</dd>
-        <dt>${keyOf('grid')}</dt><dd>Grid</dd>
-        <dt>Q</dt><dd>commands</dd>
-      </dl>
-    </div>
     <button type="button" data-act="shortcuts" aria-label="Shortcuts" aria-expanded="false">?</button>
   </div>
 </footer>
+<div class="shortcuts" role="dialog" aria-label="Shortcuts" hidden>
+  <h4>Shortcuts</h4>
+  <dl class="keys">
+    <dt>Space</dt><dd>pan · middle-click too</dd>
+    <dt>wheel</dt><dd>zoom</dd>
+    <dt>${keyOf('zoom-in')} / ${keyOf('zoom-out')}</dt><dd>zoom</dd>
+    <dt>${keyOf('grid')}</dt><dd>Grid</dd>
+    <dt>Q</dt><dd>commands</dd>
+  </dl>
+</div>
 <div class="palette" role="dialog" aria-label="Commands" hidden>
   <input
     type="text"

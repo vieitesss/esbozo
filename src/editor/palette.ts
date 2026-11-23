@@ -9,6 +9,10 @@
  * An action that cannot run is still listed: it says why it cannot, and the
  * arrows and Enter step over it. Ties to the editor are callbacks only, so the
  * palette knows nothing about the Scene and cannot change it by itself.
+ *
+ * Which note is on top, the press outside it and the focus that comes back with
+ * it are the editor's Notes stack's: the palette asks it to shut, and draws
+ * itself when the stack shows it.
  */
 import { ACTIONS } from './actions.js';
 import type { ActionState, EditorAction } from './actions.js';
@@ -19,8 +23,13 @@ export interface PaletteOptions {
   /** What the actions may look at, asked afresh on every open and every keystroke. */
   readonly state: () => ActionState;
   readonly run: (action: EditorAction) => void;
-  /** Told when the palette closes itself, so the editor can drop its focus. */
-  readonly closed?: () => void;
+  /** Shut the palette by the stack's rule, so the keys and the focus follow it. */
+  readonly shut: () => void;
+  /**
+   * Answer Escape: which note shuts is the stack's to say, because a person may
+   * have opened one over the palette, and the field cannot choose for it.
+   */
+  readonly escape: () => void;
 }
 
 export class CommandPalette {
@@ -41,34 +50,27 @@ export class CommandPalette {
     this.#input.addEventListener('input', () => this.#show());
     this.#input.addEventListener('keydown', this.#onKeyDown);
     this.#list.addEventListener('click', this.#onClick);
-    options.root.addEventListener('pointerdown', (event) => {
-      // A press on the paper behind the list is a press on nothing: it closes.
-      if (event.target === options.root) {
-        this.close();
-      }
-    });
   }
 
-  get open(): boolean {
-    return !this.#options.root.hidden;
-  }
-
-  /** Open with an empty query, every action listed, and the caret ready to filter. */
-  show(): void {
-    this.#options.root.hidden = false;
+  /** Draw the rows for the empty query, every action listed, and the caret ready to filter. */
+  reveal(): void {
     this.#input.value = '';
     this.#show();
     this.#input.focus();
   }
 
-  close(): void {
-    if (!this.open) {
-      return;
-    }
-    this.#options.root.hidden = true;
+  /** Put the marks the palette wears away: the stack has already hidden it. */
+  conceal(): void {
     this.#input.setAttribute('aria-expanded', 'false');
-    this.#input.blur();
-    this.#options.closed?.();
+  }
+
+  /**
+   * Whether a press here is a press on the palette rather than on the felt around
+   * it: the felt is the dialog itself, and everything it holds is the note —
+   * the field, the rows, and the message a query with no rows leaves.
+   */
+  holds(target: Node): boolean {
+    return target !== this.#options.root && this.#options.root.contains(target);
   }
 
   /** Draw the rows the query keeps, and put the active one on the first it can run. */
@@ -129,7 +131,7 @@ export class CommandPalette {
     }
     if (event.key === 'Escape') {
       event.preventDefault();
-      this.close();
+      this.#options.escape();
     }
   };
 
@@ -159,7 +161,7 @@ export class CommandPalette {
     if (action === undefined || action.reason(this.#options.state()) !== null) {
       return;
     }
-    this.close();
+    this.#options.shut();
     this.#options.run(action);
   }
 }
