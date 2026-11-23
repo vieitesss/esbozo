@@ -1084,3 +1084,35 @@ test('a drag docks the rail without touching the Scene, the SVG, the undo histor
   await expect(screen.getByRole('option', { name: 'Undo · ⌘Z' })).toContainText('nothing to undo');
   await browser.keyboard.press('Escape');
 });
+
+test('a drag’s side is kept, so the next editor starts there on a frame of its own', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+  const band: Rect = { x: 400, y: 0, width: 480, height: 240 };
+  const opened = await railPlace(ui, band);
+
+  // Released 40 px right of the empty Scene's frame, whose right side is 1,120
+  // px in: the right dock is the nearest by far.
+  await drag(ui, tileCentre(boxOfPlace(opened), 1), { x: 1080, y: 400 });
+  await settle(ui);
+  expect(await keptSide(ui), 'the drag is kept for the next start').toBe('right');
+  const docked = await railInk(ui, { x: 1000, y: 200, width: 280, height: 400 });
+  expect(docked.height, 'the strip stands up the right side').toBeGreaterThan(docked.width * 2);
+  expect(docked.x, 'the outline hangs one gap outside the frame').toBeGreaterThan(1128);
+  expect(docked.x, 'the outline hangs one gap outside the frame').toBeLessThan(1144);
+
+  // The page starts again in a window the first dock was never measured in: the
+  // empty Scene's frame is the 960×600 minimum about the new middle, so its right
+  // side is 2,200 px in and the 60 px outline hangs one gap outside it at 2,216.
+  // A side kept as a place would still be the 1,136 px one.
+  await openBare(ui, { width: 3440, height: 1440 });
+  const ink = await railInk(ui, { x: 2100, y: 500, width: 340, height: 440 });
+  expect(ink.x, 'the outline hangs one gap outside the newly measured frame').toBeGreaterThan(2208);
+  expect(ink.x, 'the outline hangs one gap outside the newly measured frame').toBeLessThan(2224);
+  expect(ink.height, 'the strip stands up the side it was left on').toBeGreaterThan(ink.width * 2);
+  expect(Math.abs(ink.y + ink.height / 2 - 1440 / 2), 'the strip is centred on the frame’s side').toBeLessThan(4);
+});
