@@ -1195,41 +1195,140 @@ export function shaftLabelAnchor(
 
 /**
  * How far along a segment a point falls, held inside it: 0 at `start`, 1 at
- * `end`. A segment with no length has no direction, so it answers `whenFlat`:
- * the caller's own idea of where along nothing is.
+ * `end`. A segment with no length has no direction to fall along, so it answers
+ * its own start.
  */
-export function alongSegment(start: Point, end: Point, point: Point, whenFlat = 0): number {
+export function alongSegment(start: Point, end: Point, point: Point): number {
   const across = end.x - start.x;
   const down = end.y - start.y;
   const lengthSquared = across * across + down * down;
   if (lengthSquared === 0) {
-    return whenFlat;
+    return 0;
   }
   const travelled = (point.x - start.x) * across + (point.y - start.y) * down;
   return Math.min(1, Math.max(0, travelled / lengthSquared));
 }
 
 /**
- * The `labelAt` that puts a shaft's Label centre on a point: how far along the
- * drawn shaft the point falls, held inside the shaft, and how far to its side —
- * signed along the side `shaftLabelAnchor` measures from, so 0 is on the shaft.
- * The inverse of `shaftLabelAnchor`, so a drag reads back the place the ink
- * would show.
+ * The `labelAt` that puts a shaft's Label centre on a point: the place along the
+ * drawn shaft nearest to that point, as a fraction of its arc length, and how far
+ * to the point's side — signed along the side `shaftLabelAnchor` measures from at
+ * that place, so 0 is on the shaft and a positive offset is the side the words
+ * ride above. The inverse of `shaftLabelAnchor`, so a drag reads back the place
+ * the ink would show, on a bent or curved shaft as much as on a straight one.
  *
  * A shaft with no length has no direction to travel, so its fraction stays the
  * one it had (`whenFlat`), rather than being erased where it cannot be read and
  * lost when the shaft reopens.
  */
 export function labelAtFor(
-  shaft: { start: Point; end: Point },
+  path: ShaftPath,
   anchor: Point,
   whenFlat = 0,
 ): { t: number; offset: number } {
-  const side = shaftSide({ x: shaft.end.x - shaft.start.x, y: shaft.end.y - shaft.start.y });
+  if (path.length === 0) {
+    const side = shaftSide({ x: 0, y: 0 });
+    return {
+      t: whenFlat,
+      offset: (anchor.x - path.start.x) * side.x + (anchor.y - path.start.y) * side.y,
+    };
+  }
+  let walked = 0;
+  let nearest: { at: Point; side: Point; along: number } | null = null;
+  let closest = Number.POSITIVE_INFINITY;
+  for (const piece of path.pieces) {
+    const u = nearestU(piece, anchor);
+    const at = pointOf(piece, u);
+    const away = Math.hypot(anchor.x - at.x, anchor.y - at.y);
+    if (away < closest) {
+      closest = away;
+      nearest = { at, side: shaftSide(directionAt(piece, u)), along: walked + arcAt(piece, u) };
+    }
+    walked += piece.length;
+  }
+  const found = nearest as { at: Point; side: Point; along: number };
   return {
-    t: alongSegment(shaft.start, shaft.end, anchor, whenFlat),
-    offset: (anchor.x - shaft.start.x) * side.x + (anchor.y - shaft.start.y) * side.y,
+    t: Math.min(1, Math.max(0, found.along / path.length)),
+    offset: (anchor.x - found.at.x) * found.side.x + (anchor.y - found.at.y) * found.side.y,
   };
+}
+
+/**
+ * How many places along a curve the nearest one is looked for before the bracket
+ * around the closest is narrowed: enough that a curve turning back on itself
+ * keeps every lobe it has, and short enough to walk on every pointer move.
+ */
+const NEAREST_STEPS = 64;
+
+/** How many turns a golden-section search takes to close on the place it hunts. */
+const NEAREST_TURNS = 40;
+
+/**
+ * How far along one piece the point nearest `point` falls, as the piece's own
+ * parameter. A straight run answers where the point projects onto it; a curve is
+ * sampled and the bracket around the closest sample narrowed, because a curve's
+ * distance to a point is not a share of its own parameter.
+ */
+function nearestU(piece: ShaftPiece, point: Point): number {
+  if (piece.kind === 'straight') {
+    return alongSegment(piece.from, piece.to, point);
+  }
+  let best = 0;
+  let bestAway = Number.POSITIVE_INFINITY;
+  for (let step = 0; step <= NEAREST_STEPS; step += 1) {
+    const u = step / NEAREST_STEPS;
+    const away = squaredAway(pointOf(piece, u), point);
+    if (away < bestAway) {
+      bestAway = away;
+      best = u;
+    }
+  }
+  const margin = 1 / NEAREST_STEPS;
+  return narrowest(piece, point, Math.max(0, best - margin), Math.min(1, best + margin));
+}
+
+/**
+ * The place inside one bracket a curve comes nearest `point`: a golden-section
+ * search, which needs no derivative and shrinks the bracket on every turn.
+ */
+function narrowest(piece: CurvedPiece, point: Point, from: number, to: number): number {
+  const golden = (Math.sqrt(5) - 1) / 2;
+  let short = from;
+  let long = to;
+  for (let turn = 0; turn < NEAREST_TURNS; turn += 1) {
+    const left = long - (long - short) * golden;
+    const right = short + (long - short) * golden;
+    if (squaredAway(pointOf(piece, left), point) <= squaredAway(pointOf(piece, right), point)) {
+      long = right;
+    } else {
+      short = left;
+    }
+  }
+  return (short + long) / 2;
+}
+
+/** The square of the distance between two points, for comparing distances only. */
+function squaredAway(from: Point, to: Point): number {
+  return (from.x - to.x) ** 2 + (from.y - to.y) ** 2;
+}
+
+/**
+ * How far along one piece its parameter `u` reaches, measured the way `uAt`
+ * measures it: the whole steps before it, plus the arc inside the step it falls
+ * in. So the fraction a drag reads back and the fraction the drawing places are
+ * the same measure of the same ink.
+ */
+function arcAt(piece: ShaftPiece, u: number): number {
+  if (piece.kind === 'straight') {
+    return piece.length * u;
+  }
+  const steps = piece.arcs.length - 1;
+  const step = Math.min(steps - 1, Math.max(0, Math.floor(u * steps)));
+  const from = step / steps;
+  return (
+    piece.arcs[step]! +
+    arcOf(piece.from, piece.control1, piece.control2, piece.to, from, Math.max(u, from))
+  );
 }
 
 /** A bar head: a short stroke across the end, perpendicular to the arrow. */

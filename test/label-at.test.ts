@@ -23,15 +23,21 @@ function pathOf(points: Written, corners: Corner): ShaftPath {
   return shaftPath(points, corners, undefined, undefined);
 }
 
-/** The three paths a Labelled arrow or line draws through. */
-const PATHS: ReadonlyArray<readonly [string, ShaftPath]> = [
-  ['a straight run', pathOf([{ x: 0, y: 0 }, { x: 200, y: 0 }], 'round')],
+/**
+ * The three paths a Labelled arrow or line draws through, each with the offsets
+ * a drag can land on off it: a sharp corner's fillet turns tighter than a hand
+ * ever drags beside it, so its own offsets stay inside the radius it bends by,
+ * where the nearest place on the ink is the place the drawing put the words.
+ */
+const PATHS: ReadonlyArray<readonly [string, ShaftPath, readonly number[]]> = [
+  ['a straight run', pathOf([{ x: 0, y: 0 }, { x: 200, y: 0 }], 'round'), [0, 12, -30]],
   [
     'a sharp corner',
     pathOf(
       [{ x: 0, y: 0 }, { x: 150, y: 100, corner: 'sharp' }, { x: 300, y: 0 }],
       'sharp',
     ),
+    [0, 4, -4],
   ],
   [
     'a round curve',
@@ -39,17 +45,17 @@ const PATHS: ReadonlyArray<readonly [string, ShaftPath]> = [
       [{ x: 0, y: 0 }, { x: 150, y: 100, corner: 'round' }, { x: 300, y: 0 }],
       'round',
     ),
+    [0, 12, -30],
   ],
 ];
 
-/** Fractions of the drawn shaft and offsets off it a drag can land on. */
+/** Fractions of the drawn shaft a drag can land on. */
 const FRACTIONS = [0, 0.1, 0.25, 0.5, 0.75, 0.9, 1];
-const OFFSETS = [0, 12, -30];
 
-for (const [label, path] of PATHS) {
+for (const [label, path, offsets] of PATHS) {
   test(`labelAtFor reads back the place shaftLabelAnchor draws on ${label}`, () => {
     for (const t of FRACTIONS) {
-      for (const offset of OFFSETS) {
+      for (const offset of offsets) {
         const anchor = shaftLabelAnchor(path, { t, offset });
         const back = labelAtFor(path, anchor);
         assert.ok(

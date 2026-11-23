@@ -191,15 +191,18 @@ function middleOf(box: Rect): { x: number; y: number } {
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }
 
-/** A box moved on the page, as a drag carries the words it measures. */
-function shifted(box: Rect, by: { x: number; y: number }): Rect {
-  return { ...box, x: box.x + by.x, y: box.y + by.y };
-}
-
 /**
- * Drag a bent shaft's Label along the ink it sits above, and hold the release to
- * the two things a person sees: the words under the pointer when the button
- * comes up, and the same words after the file the editor wrote is opened again.
+ * Drag a bent shaft's Label off the bend it opens above, and hold the release to
+ * the three things a person sees: the words under the pointer while the button
+ * is down, the place the file keeps for them, and the same words drawn by the
+ * page that opens that file again.
+ *
+ * The words are carried straight down towards the ink, so the place they land on
+ * is the bend's own normal: `t` stays the fraction halfway along the drawn ink,
+ * and the offset is the 60px left between them and the bulge they sit above.
+ * Read against the chord between the two ends — 200px below the bulge — the same
+ * release would save an offset near 260, and the words would jump when the file
+ * drew them again.
  */
 async function carryBentLabel(ui: Ui, corner: 'round' | 'sharp'): Promise<void> {
   const name = `bent-${corner}.json`;
@@ -211,28 +214,32 @@ async function carryBentLabel(ui: Ui, corner: 'round' | 'sharp'): Promise<void> 
   expect(start).not.toBeNull();
   const held = middleOf(start as Rect);
 
-  // Taken by the middle of that ink and carried 120px right and 60px down, which
-  // follows the right half of the bend. The words follow the pointer while the
-  // button is down, so the place is chosen on the page and not only once the
-  // release saves it.
-  const by = { x: 120, y: 60 };
+  // Taken by the middle of that ink and carried 40px down, towards the ink: the
+  // words are drawn where the pointer is while the button is still down, so the
+  // place is chosen on the page and not only once the release saves it.
+  const by = { x: 0, y: 40 };
   const to = { x: held.x + by.x, y: held.y + by.y };
   await drag(ui, held, to, 'left', async () => {
     await settle(ui);
-    const carrying = (await shot(ui)).darkBounds(shifted(BENT_WORDS, by), DARK);
-    expect(carrying).not.toBeNull();
-    const at = middleOf(carrying as Rect);
-    expect(Math.abs(at.x - to.x)).toBeLessThan(1.5);
-    expect(Math.abs(at.y - to.y)).toBeLessThan(1.5);
+    const carrying = await shot(ui);
+    // The words' ink is drawn where the pointer is, and gone from where they were
+    // taken, so the place is chosen on the page and not only once the release
+    // saves it. Boxes rather than bounds: the shaft's own hold is outlined while
+    // the button is down, and its border crosses the region the words sit in.
+    expect(carrying.darkCount({ x: to.x - 70, y: to.y - 12, width: 140, height: 24 }, DARK),
+      `the words are drawn at the pointer (${to.x}, ${to.y})`,
+    ).toBeGreaterThan(20);
+    expect(carrying.darkCount({ x: held.x - 70, y: held.y - 12, width: 140, height: 24 }, DARK),
+      `the words are gone from where they were taken (${held.x}, ${held.y})`,
+    ).toBe(0);
   });
 
-  // The place the file keeps is a fraction of the drawn ink: further along it
-  // than the bend, and to the side above it the words were carried on. The shaft
-  // itself did not move, so the press took the words and not the line.
+  // The place the file keeps is the ink's own: halfway along the drawn bend, and
+  // 60px off it. The shaft itself did not move, so the press took the words and
+  // not the line.
   const placed = await savedScene(ui, name);
   const bent = placed.elements.find((element) => element.id === 'bent');
-  expect(bent?.labelAt?.t).toBeGreaterThan(0.5);
-  expect(bent?.labelAt?.offset).toBeGreaterThan(0);
+  expect(bent?.labelAt).toEqual({ t: 0.5, offset: 60 });
   expect(bent?.points).toEqual([
     { x: 200, y: 400 },
     { x: 400, y: 200 },
@@ -241,13 +248,19 @@ async function carryBentLabel(ui: Ui, corner: 'round' | 'sharp'): Promise<void> 
 
   // The words the release leaves under the pointer, with the selection's own ink
   // gone first: a gesture that moved the words without the file saying so, or
-  // the other way round, is caught here.
+  // the other way round, is caught here. The region holds no other ink — the
+  // shaft is 40px below it, and the page's own frame outside it.
   await ui.browser.keyboard.press('Escape');
-  const dropped = (await shot(ui)).darkBounds(shifted(BENT_WORDS, by), DARK);
+  const dropped = (await shot(ui)).darkBounds(
+    { x: to.x - 100, y: to.y - 20, width: 200, height: 40 },
+    DARK,
+  );
   expect(dropped).not.toBeNull();
   const left = middleOf(dropped as Rect);
-  expect(Math.abs(left.x - to.x)).toBeLessThan(1.5);
-  expect(Math.abs(left.y - to.y)).toBeLessThan(1.5);
+  expect(left.x, `the words are drawn at the pointer (${to.x}, ${to.y})`).toBeLessThan(to.x + 1.5);
+  expect(left.x).toBeGreaterThan(to.x - 1.5);
+  expect(left.y).toBeLessThan(to.y + 1.5);
+  expect(left.y).toBeGreaterThan(to.y - 1.5);
 
   // A page that opens the Scene the save wrote draws them where the release left
   // them: the place is the file's own, and not something the drag left on the
