@@ -999,3 +999,38 @@ test('a touch drag from the strip’s padding docks the rail on the nearest side
   expect(ink.y, 'the outline hangs one gap under the frame').toBeLessThan(726);
   expect(Math.abs(ink.x + ink.width / 2 - 1280 / 2), 'the strip is centred').toBeLessThan(4);
 });
+
+test('a drag in a read-only Scene docks the rail and leaves the Scene’s file alone', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+
+  // A box asks the folder to write and the folder answers `403`, so the editor
+  // pages from then on may only read.
+  await holdWrites(ui, 'bare.json');
+  await browser.keyboard.press('r');
+  await drag(ui, { x: 200, y: 200 }, { x: 260, y: 260 });
+  await refuseWrite(ui, 'this folder is served read-only');
+  await allowWrites(ui);
+  await expect(screen.getByText('read-only')).toBeVisible();
+  await settle(ui);
+  const files = await savedFiles(ui);
+
+  // A drag is the page's chrome, not an edit: it docks on the left like any
+  // other, keeps the side, and writes nothing (D9). The box the refused draw left
+  // in the page frames the diagram at 0..710 across, so a release at (60, 265) is
+  // 60 px from the left side and 265 px from the frame's top and bottom.
+  const band: Rect = { x: 400, y: 0, width: 480, height: 240 };
+  const opened = await railPlace(ui, band);
+  await drag(ui, tileCentre(boxOfPlace(opened), 1), { x: 60, y: 265 });
+  await settle(ui);
+
+  const ink = await railInk(ui, { x: 0, y: 100, width: 190, height: 400 });
+  expect(ink.height, 'the strip stands up the left side').toBeGreaterThan(ink.width * 2);
+  expect(ink.x, 'the strip stops inside the editor’s left edge').toBeLessThan(70);
+  expect(await keptSide(ui), 'a read-only Scene keeps the side all the same').toBe('left');
+  expect(await savedFiles(ui), 'a drag writes no file').toEqual(files);
+});
