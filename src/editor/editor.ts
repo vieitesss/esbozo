@@ -128,11 +128,13 @@ class EsbozoEditorElement extends HTMLElement {
    */
   #railDragged = false;
   /**
-   * Whether a called-off press still owes the rail the click its release sends.
-   * That click lands on the tile the press landed on, and it picks no tool: the
-   * person called the press off, and a fresh press clears the debt (D6, D7).
+   * The pointer a called-off press left down still owes the rail the click its
+   * release sends, or null. That click lands on the tile the press landed on and
+   * picks no tool: the person called the press off. The debt is that pointer's
+   * alone, so another pointer's click, or a key's, still picks its own tool, and a
+   * fresh press by the same pointer pays it (D6, D7).
    */
-  #railClickOwed = false;
+  #railClickOwed: number | null = null;
   /** True once the editor's listeners are on the page. */
   #wired = false;
   /**
@@ -1449,15 +1451,13 @@ class EsbozoEditorElement extends HTMLElement {
       this.#railDragged = false;
       return;
     }
-    if (this.#railClickOwed) {
+    if (event instanceof PointerEvent && event.pointerId === this.#railClickOwed && event.detail !== 0) {
       // The click a called-off press's release sends lands on the tile it pressed:
-      // it is that press's own, and picks no tool. A click the keys made (`detail`
-      // 0: Enter or Space on a tile) is not the press's: the person asked for it
-      // after the cancel, so it runs.
-      this.#railClickOwed = false;
-      if (event.detail !== 0) {
-        return;
-      }
+      // it is that pointer's own, and picks no tool. A click the keys made (`detail`
+      // 0: Enter or Space on a tile) belongs to no pointer: the person asked for it
+      // after the cancel, so it runs and the debt waits for the pointer that owes it.
+      this.#railClickOwed = null;
+      return;
     }
     const button = (event.target as Element | null)?.closest('[data-tool]') as HTMLElement | null;
     const tool = button?.dataset['tool'];
@@ -1473,9 +1473,12 @@ class EsbozoEditorElement extends HTMLElement {
    * docks against the frame the drag started on (D3).
    */
   #onRailDown = (event: PointerEvent): void => {
-    // Any press on the rail is a press of its own, so the click a called-off one
-    // owes it is paid: the debt is the cancelled press's, and nobody else's.
-    this.#railClickOwed = false;
+    // A press by the pointer a called-off one left down is a press of its own, so
+    // the debt that pointer owes is paid here and its release picks as any press
+    // does. Another pointer's press pays nothing: the debt is not its own.
+    if (this.#railClickOwed === event.pointerId) {
+      this.#railClickOwed = null;
+    }
     // One drag at a time, and the primary button's: a second pointer, or the
     // right button, does nothing to a drag already in flight.
     if (this.#railDrag !== null || event.button !== 0 || !event.isPrimary) {
@@ -1566,7 +1569,7 @@ class EsbozoEditorElement extends HTMLElement {
     }
     this.#endRailDrag();
     this.#gestures.refuse(drag.pointer);
-    this.#railClickOwed = true;
+    this.#railClickOwed = drag.pointer;
     this.#hangRail();
   }
 
