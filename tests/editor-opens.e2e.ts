@@ -101,6 +101,8 @@ interface GateWindow {
   __esbozoPicks: string[];
   __esbozoHolds: Holds;
   __esbozoGates?: Held[];
+  /** The editor a host took off the page, kept where the page can put it back. */
+  __esbozoOff?: Element | undefined;
 }
 
 /**
@@ -369,6 +371,27 @@ test('a Scene read that fails after a later open changes nothing', async ({ app,
   expect((await savedFiles(ui))['b.json']).toBe(B_SOURCE);
 });
 
+/** Take the editor off the page, as a host that unmounts it does. */
+async function takeOff(ui: Ui): Promise<void> {
+  await ui.browser.evaluate(() => {
+    const page = window as unknown as GateWindow;
+    const editor = document.querySelector('esbozo-editor')!;
+    page.__esbozoOff = editor;
+    editor.remove();
+    return true;
+  });
+}
+
+/** Put the editor back on the page, as a host that mounts it again does. */
+async function putBack(ui: Ui): Promise<void> {
+  await ui.browser.evaluate(() => {
+    const page = window as unknown as GateWindow;
+    document.body.prepend(page.__esbozoOff!);
+    page.__esbozoOff = undefined;
+    return true;
+  });
+}
+
 /**
  * The folder these tests read: `a.json` is the Scene being edited, and the other
  * two names are the ones the note lists so a read can be started.
@@ -480,6 +503,57 @@ test('a listing held while another note opens still shows the Scenes it read', a
 
   await expect(note).toBeVisible();
   await expect(screen.getByRole('button', 'b.json')).toBeVisible();
+});
+
+test('a listing that answers after the editor was taken off the page shows nothing', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui: Ui = { app, browser, screen };
+  await openPage(ui, { ...folderWith(), B: { 'd.json': C_SOURCE } });
+  const note = screen.getByRole('dialog', 'Scene files');
+  await browser.keyboard.press('Escape');
+  await expect(note).toBeHidden();
+
+  // The person asks the note for another folder while it is shut, and the
+  // folder's answer waits: nobody has seen that listing yet.
+  await holdListing(ui);
+  await browseFolder(ui, 'B');
+  await listingWaiting(ui);
+
+  // The host takes the editor off the page and puts it back while the folder is
+  // still answering: the read left with the page it was made on.
+  await takeOff(ui);
+  await putBack(ui);
+  await landListing(ui);
+  await settle(ui);
+
+  // Nothing of the late listing: the note stays shut, and what it reads is not
+  // on it.
+  await expect(note).toBeHidden();
+  await expect(screen.getByRole('button', 'd.json')).toHaveCount(0);
+});
+
+test('a listing that fails after the editor was taken off the page writes no status', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui: Ui = { app, browser, screen };
+  await openPage(ui, { ...folderWith(), B: { 'd.json': C_SOURCE } });
+  const status = screen.getByRole('status');
+  await browser.keyboard.press('Escape');
+  await holdListing(ui);
+  await browseFolder(ui, 'B');
+  await listingWaiting(ui);
+
+  await takeOff(ui);
+  await putBack(ui);
+  await refuseListing(ui, 'the folder could not be read');
+  await settle(ui);
+
+  await expect(status).toHaveText('');
 });
 
 test('a Scene opened from the note leaves the focus where the press left it', async ({
