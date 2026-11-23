@@ -1211,6 +1211,20 @@ class EsbozoEditorElement extends HTMLElement {
       this.#gestures.cancel();
       return;
     }
+    if (event.key === 'Escape' && this.#gestures.placing()) {
+      // A shaft being placed is finished, not dropped: Escape ends the place at
+      // the last point it put down, as Enter does, and the preview segment goes
+      // with it. Half a shaft that was never a shaft — one point, or two on one
+      // spot — leaves the Scene as it was.
+      event.preventDefault();
+      this.#gestures.finishPlacing();
+      return;
+    }
+    if (event.key === 'Enter' && this.#gestures.placing()) {
+      event.preventDefault();
+      this.#gestures.finishPlacing();
+      return;
+    }
     if (this.#gestures.holdsScene()) {
       // Half a drag is not a Scene: an edit waits for the pointer to come up.
       return;

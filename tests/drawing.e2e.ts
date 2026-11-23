@@ -22,6 +22,7 @@ import {
   at,
   browseFolder,
   clickScene,
+  doubleClickScene,
   drag,
   dragBy,
   openEditor,
@@ -414,6 +415,39 @@ describe('the tools', () => {
     await drag(ui, { x: 900, y: 500 }, { x: 960, y: 540 });
     const drawn = (await savedScene(ui)).elements[2];
     expect({ x: drawn?.x, y: drawn?.y }).toEqual({ x: 330, y: 200 });
+  });
+});
+
+describe('a shaft placed by clicking', () => {
+  test('three clicks, the last a double-click, place a three-point arrow', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    // Paper below both boxes, where no click lands on an Element to Snap to.
+    const walk: Point[] = [
+      { x: 60, y: 200 },
+      { x: 120, y: 260 },
+      { x: 200, y: 200 },
+    ];
+    await browser.keyboard.press('a');
+    await clickScene(ui, walk[0]!);
+    await clickScene(ui, walk[1]!);
+    await doubleClickScene(ui, walk[2]!);
+
+    // The three points a person clicked, in the order they clicked them, and
+    // nothing else: the double-click's second click ends the place, it does not
+    // add a fourth.
+    const placed = (await savedScene(ui)).elements[2];
+    expect(placed?.type).toBe('arrow');
+    expect(placed?.points).toEqual(walk);
+    expect(placed?.heads).toEqual({ start: 'none', end: 'arrow' });
+    expect((await savedScene(ui)).elements.length).toBe(3);
+    // A finished shaft is selected, as a drawn one is.
+    await expect(screen.getByRole('dialog', 'Style')).toBeVisible();
   });
 });
 
