@@ -26,6 +26,7 @@ const {
   railFrame,
   clampedDock,
   leftDockEdge,
+  nearestDock,
   createLayout,
   parseFontFile,
   KALAM,
@@ -459,6 +460,30 @@ test('a left dock is a limit only where the editor stopped it, not where it land
   // not, though the strip's own near edge is 15 px in both cases.
   assert.equal(leftDockEdge(clampedDock({ x: -50, y: 400 }, standing, WINDOW, 'left'), OUTLINE, 'left'), 68);
   assert.equal(leftDockEdge(clampedDock({ x: 15, y: 400 }, standing, WINDOW, 'left'), OUTLINE, 'left'), null);
+});
+
+test('a released rail docks on the frame side the pointer is nearest', () => {
+  // An empty Scene's frame in a 1280×800 window: 160..1120 across, 100..700 down.
+  const frame = { x: 160, y: 100, width: 960, height: 600 };
+
+  // A release beyond a side is that side's, wherever along it the pointer is.
+  assert.equal(nearestDock(frame, { x: 640, y: 40 }), 'top');
+  assert.equal(nearestDock(frame, { x: 640, y: 760 }), 'bottom');
+  assert.equal(nearestDock(frame, { x: 60, y: 400 }), 'left');
+  assert.equal(nearestDock(frame, { x: 1220, y: 400 }), 'right');
+
+  // A release inside the frame docks on the side it is a shorter way from: 50 px
+  // under the top side and 140 px in from the left is the top's, which is the
+  // side the strip is then a gap above.
+  assert.equal(nearestDock(frame, { x: 300, y: 150 }), 'top');
+  assert.equal(nearestDock(frame, { x: 200, y: 400 }), 'left');
+  assert.equal(nearestDock(frame, { x: 1080, y: 500 }), 'right');
+  assert.equal(nearestDock(frame, { x: 700, y: 640 }), 'bottom');
+
+  // Two sides equally far off: the frame's own middle, and a release held out
+  // past a corner. The same drag docks in the same place every time.
+  assert.equal(nearestDock(frame, { x: 640, y: 400 }), 'top');
+  assert.equal(nearestDock(frame, { x: 100, y: 40 }), 'top');
 });
 
 /** The y of every point a path names, in the order it names them. */

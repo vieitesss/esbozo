@@ -687,6 +687,52 @@ function dockOn(
 }
 
 /**
+ * Which of the frame's four docks a drag of the rail was released nearest.
+ *
+ * Each side is the segment of the frame's own edge, and the answer is the side
+ * whose segment the pointer is a shorter way from: a release 50 px under the top
+ * side and 140 px in from the left docks on the top, and one held past a corner
+ * docks on the side it is nearest rather than on the corner it is nearest. A
+ * release equally far from two sides — the frame's middle, or one held out past
+ * a corner — takes the first of top, bottom, left, right, so the same drag always
+ * docks in the same place.
+ */
+export function nearestDock(frame: Box, at: Point): RailSide {
+  let nearest: RailSide = 'top';
+  let distance = Infinity;
+  for (const side of DOCK_ORDER) {
+    const squared = squaredToSide(frame, side, at);
+    if (squared < distance) {
+      nearest = side;
+      distance = squared;
+    }
+  }
+  return nearest;
+}
+
+/** The four sides in the order an equally near two are settled by. */
+const DOCK_ORDER: readonly RailSide[] = ['top', 'bottom', 'left', 'right'];
+
+/** The square of the distance from a pointer to one side of the frame, as that side's own segment. */
+function squaredToSide(frame: Box, side: RailSide, at: Point): number {
+  const lying = side === 'top' || side === 'bottom';
+  // The side's own axis is the axis it stands across, so what is left is how far
+  // past the side's ends the pointer is, which is nothing between them.
+  const across = lying
+    ? at.y - (side === 'top' ? frame.y : frame.y + frame.height)
+    : at.x - (side === 'left' ? frame.x : frame.x + frame.width);
+  const along = lying
+    ? outside(at.x, frame.x, frame.width)
+    : outside(at.y, frame.y, frame.height);
+  return across * across + along * along;
+}
+
+/** How far past one axis of a box a value lies, and nothing between that axis's two ends. */
+function outside(at: number, start: number, size: number): number {
+  return Math.max(0, start - at, at - (start + size));
+}
+
+/**
  * Where a left dock reaches, in screen units, or null when the rail is held
  * anywhere else: only a strip stopped at the editor's own left inset is a limit
  * the note's clearance has to clear (O1), and a dock that hangs beside the frame
