@@ -505,6 +505,56 @@ test('a left dock held inside the editor’s left edge is cleared with the note'
   expect((await shot(ui)).darkCount({ x: 120, ...BAND_ROWS, width: 300 }, 0.6)).toBeGreaterThan(10000);
 });
 
+test('a left dock that only reaches the editor’s edge keeps the editor’s own edge as the limit', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  // The page carried left just far enough that the dock lands on the 15 px inset
+  // with room either side of it: the frame is beside the strip, not under it, so
+  // nothing stopped the rail there and the editor's own edge stays the limit.
+  await openDock(ui, 'left', -76);
+  await pressBand(ui);
+  // The strip at the full ink a person sees, for the pixel read below.
+  await stripInk(ui);
+
+  expect(await zoomPercent(ui)).toBe(100);
+  expect((await shot(ui)).darkCount(RAIL_LIMIT, 0.6)).toBeGreaterThan(500);
+  expect((await savedFiles(ui))['clear.json']).toBe(CLEAR_SOURCE);
+});
+
+test('a fit with the note open lands the same view from either dock the rail came from', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  /**
+   * Fit the band with the note open, from a rail the page carried `carried` px
+   * left before it was docked: the same Scene, the same selection and the same
+   * open note, so the fit's own view may not depend on where the rail was.
+   */
+  const fitFrom = async (carried: number): Promise<{ zoom: number; strip: Rect }> => {
+    await openDock(ui, 'left', carried);
+    await pressBand(ui);
+    await browser.keyboard.press('Meta+0');
+    await settle(ui);
+    // A fit is the view's own move: the note it makes room for stays open (D5).
+    await expect(screen.getByRole('dialog', 'Style')).toBeVisible();
+    // A tile taking the focus holds the strip at the ink a person sees, wherever
+    // the fit left it; the rows below the band hold the strip's own ink alone.
+    await screen.getByRole('navigation', { name: 'Tools' }).getByRole('button', { name: 'Select' }).focus();
+    await fullInk(ui);
+    const strip = async (): Promise<Rect | null> => (await shot(ui)).darkBounds(STRIP_FOOT, 0.6);
+    await expect.poll(strip, { timeout: 5000 }).not.toBeNull();
+    return { zoom: await zoomPercent(ui), strip: (await strip())! };
+  };
+
+  // A rail floating beside the frame first, then one the page held at the edge.
+  expect(await fitFrom(0)).toEqual(await fitFrom(-120));
+});
+
 for (const side of ['left', 'top', 'bottom', 'right'] as const) {
   test(`a ${side} dock clear of the editor’s left edge leaves the editor’s own edge as the limit`, async ({
     app,
