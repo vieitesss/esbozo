@@ -1432,14 +1432,19 @@ class EsbozoEditorElement extends HTMLElement {
    * The release of a press on the rail: under the slop the button's own click
    * picks the tool, and past it the rail docks on the frame side the pointer is
    * nearest, through the one move the palette uses too (D6, D10).
+   *
+   * The release is the place the drag is read at, for the slop and for the side
+   * alike: Chromium can let the button go where no move ever went, and a move
+   * that already crossed the slop keeps the press a drag wherever it is released.
    */
   #onRailUp = (event: PointerEvent): void => {
     const drag = this.#railDrag;
     if (drag === null || event.pointerId !== drag.pointer) {
       return;
     }
+    drag.at = this.#page.viewport.screenPoint(event);
     this.#endRailDrag();
-    if (!drag.moved) {
+    if (!drag.moved && isClick(drag.from, drag.at)) {
       return;
     }
     this.#railDragged = true;
