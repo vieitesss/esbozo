@@ -1276,3 +1276,39 @@ test('a zoom in the middle of a rail drag leaves the dock where the press measur
   const middle = (ink: Rect): number => ink.x + ink.width / 2;
   expect(Math.abs(middle(zoomed) - middle(still)), 'the dock is the one the press measured').toBeLessThan(4);
 });
+
+test('a pinch that spans the rail and the paper draws nothing on the paper', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+  const band: Rect = { x: 400, y: 0, width: 480, height: 240 };
+  const opened = await railPlace(ui, band);
+  const files = await savedFiles(ui);
+
+  // A finger presses a tile and carries the rail left; a second finger lands on
+  // the paper and the two are drawn apart, which is how a pinch begins. The rail
+  // drag owns its pointer, so the paper is no place for the second contact to
+  // start a Rectangle on (D9, criterion 10).
+  await screen.getByRole('button', { name: 'Rectangle', exact: true }).click();
+  await holdWrites(ui, 'bare.json');
+  const page = livePage();
+  const cdp = await page.context().newCDPSession(page);
+  const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', points: Array<{ x: number; y: number; id: number }>) =>
+    cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points });
+  const grip = tileCentre(boxOfPlace(opened), 1);
+  const railFinger = { x: grip.x, y: grip.y, id: 0 };
+  const boardFinger = { x: 920, y: 250, id: 1 };
+  await touch('touchStart', [railFinger]);
+  await touch('touchMove', [{ x: 250, y: 400, id: 0 }]);
+  await touch('touchStart', [{ x: 250, y: 400, id: 0 }, boardFinger]);
+  await touch('touchMove', [{ x: 200, y: 400, id: 0 }, { x: 1020, y: 350, id: 1 }]);
+  await touch('touchEnd', []);
+  await settle(ui);
+
+  const held = await browser.evaluate(
+    () => ((window as unknown as { __esbozoGates?: unknown[] }).__esbozoGates ?? []).length,
+  );
+  expect(held, 'a pinch on the paper sends no save').toBe(0);
+  await allowWrites(ui);
+  expect(await savedFiles(ui), 'a pinch on the paper writes no file').toEqual(files);
+  expect(await keptSide(ui), 'the rail drag it started still docks').toBe('left');
+});
