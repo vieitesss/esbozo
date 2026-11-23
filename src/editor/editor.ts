@@ -266,9 +266,8 @@ class EsbozoEditorElement extends HTMLElement {
     if (this.#canvas !== undefined) {
       // Back on the page: the listeners left with it the last time, and an
       // editor that never got as far as drawing tries its connection again.
-      if (this.#connection.ready) {
-        this.#listen();
-      } else {
+      this.#listen();
+      if (!this.#connection.ready) {
         void this.#connection.connect();
       }
       return;
@@ -461,8 +460,8 @@ class EsbozoEditorElement extends HTMLElement {
       showPanning: () => this.#showPill(),
     });
 
-    // Nothing draws, takes the keys or asks the folder for a Scene until every
-    // module holds the ones it needs: the wiring is done, and starts here.
+    // Nothing draws or asks the folder for a Scene until every module holds the
+    // ones it needs: the wiring is done, and starts here.
     this.#page.viewport.showGrid(this.#grid);
 
     if (this.#ownsKeysWhenFocused) {
@@ -475,6 +474,12 @@ class EsbozoEditorElement extends HTMLElement {
       // must first take focus.
       active ??= this;
     }
+
+    // A press is the editor's and the keys it offers are its own from the moment
+    // it is on the page: the wiring is done here, before a font is asked for, so
+    // a measurement still on its way leaves nobody pressing into an editor that
+    // answers nothing (#63).
+    this.#listen();
 
     // Nothing can be placed without the font's measurement, so the editor waits
     // for it and says so in the status line when the page has none to give.
