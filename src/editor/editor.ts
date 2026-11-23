@@ -427,7 +427,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.addEventListener('pointerdown', this.#takeFocus);
     this.addEventListener('focusin', this.#onFocusIn);
     this.addEventListener('focusout', this.#onFocusOut);
-    this.#board.addEventListener('pointerdown', this.#gestures.down);
+    this.#board.addEventListener('pointerdown', this.#onPaperDown);
     this.#board.addEventListener('pointermove', this.#gestures.move);
     this.#board.addEventListener('pointerup', this.#gestures.up);
     this.#board.addEventListener('pointercancel', this.#gestures.cancel);
@@ -461,7 +461,7 @@ class EsbozoEditorElement extends HTMLElement {
   }
 
   disconnectedCallback(): void {
-    this.#board?.removeEventListener('pointerdown', this.#gestures.down);
+    this.#board?.removeEventListener('pointerdown', this.#onPaperDown);
     this.#board?.removeEventListener('pointermove', this.#gestures.move);
     this.#board?.removeEventListener('pointerup', this.#gestures.up);
     this.#board?.removeEventListener('pointercancel', this.#gestures.cancel);
@@ -1380,6 +1380,21 @@ class EsbozoEditorElement extends HTMLElement {
   }
 
   // ----------------------------------------------------------------------- UI
+
+  /**
+   * A press on the paper, unless a drag of the rail already has the gesture. A
+   * rail drag is one pointer's, and the board hears the browser's other contacts
+   * — a pinch that spans the strip and the paper — so a press that lands under it
+   * must not draw, pick or save (D9, criterion 10). The contact is ignored rather
+   * than the drag cancelled: the finger that pressed the rail keeps its release,
+   * and a drag's cancellation stays 29h's.
+   */
+  #onPaperDown = (event: PointerEvent): void => {
+    if (this.#railDrag !== null) {
+      return;
+    }
+    this.#gestures.down(event);
+  };
 
   #onRailClick = (event: Event): void => {
     if (this.#railDragged) {
