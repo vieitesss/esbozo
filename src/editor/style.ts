@@ -19,7 +19,7 @@
  * them Labels); alignment is offered to every Element too, and a shaft's Label
  * lines up its own lines with it.
  */
-import { shaftCorner } from './bend-point.js';
+import { shaftCorner, withShaftCorners } from './bend-point.js';
 import {
   CORNERS,
   FILL_KINDS,
@@ -203,7 +203,12 @@ const CONTROLS: readonly StyleControl[] = [
     choices: choicesOf(CORNERS),
     usable: cornered,
     read: (element) => (ended(element) ? shaftCorner(element) : element.corners),
-    write: (element, value) => ({ ...element, corners: oneOf(CORNERS, value, element.corners) }),
+    write: (element, value) => {
+      const corners = oneOf(CORNERS, value, element.corners);
+      // A Shaft's corners are its points': writing one here resets a mixed shaft
+      // rather than leaving a point that would keep turning its own way.
+      return ended(element) ? withShaftCorners(element, corners) : { ...element, corners };
+    },
   },
   {
     key: 'heads.start',
