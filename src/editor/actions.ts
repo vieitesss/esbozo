@@ -1,25 +1,3 @@
-/**
- * Every action the editor can do: its name, its shortcut and when it is offered.
- *
- * One list. The rail draws its tools from it, the palette lists it, the key
- * handler matches keys against it and the Style menu draws its Arrange rows from
- * it, so no shortcut can point at an action nothing offers, and no action can be
- * reachable by name but not by key.
- *
- * An action that cannot run says why (`reason`) instead of going missing: the
- * palette shows it disabled with that reason beside it, and the menu greys the
- * same button. `minSelected` is the least a row is worth drawing at all, which
- * is why Arrange stays out of the menu until two Elements are selected while the
- * palette still lists it, disabled, saying what it is waiting for.
- *
- * What is not here: nudge is a gesture (Shift and the arrows move the selection
- * by 1 or 10, and a held key is one undo step), and an Element's style is a
- * per-value choice the Style note offers, so neither is a row a name could run.
- *
- * Nothing here touches the Scene: an action's `run` asks the host (the editor)
- * to do it, so the registry stays a table and every change still lands through
- * the editor's one path.
- */
 import type { Element } from '../scene.js';
 import type { Theme } from '../css.js';
 import type { ArrangeAct } from './arrange.js';

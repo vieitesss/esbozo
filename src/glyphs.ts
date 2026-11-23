@@ -23,10 +23,8 @@
  * whole.
  */
 
-/** The anchors a Block places its lines on, as the Renderer writes them. */
 export type TextAnchor = 'start' | 'middle' | 'end';
 
-/** One command of a glyph outline, in pixels. */
 export type Curve =
   | { readonly type: 'M'; readonly x: number; readonly y: number }
   | { readonly type: 'L'; readonly x: number; readonly y: number }
@@ -48,34 +46,17 @@ export type Curve =
     }
   | { readonly type: 'Z' };
 
-/**
- * A parsed font, as outlines need it: the advance to anchor a line by, and the
- * curves the file draws for it. Layout owns the parse, so the words a PNG draws
- * are the words Layout measured.
- */
 export interface OutlineFont {
-  /** Advance width of one line at a font size. */
   advance(text: string, size: number): number;
-  /** One line as the font's curves, drawn from the baseline at `baseline`. */
   curves(text: string, x: number, baseline: number, size: number): readonly Curve[];
 }
 
-/** The outlines of one font, ready to write a line as SVG path data. */
 export interface Glyphs {
-  /**
-   * One line of words as path data, drawn from the baseline at `baseline` and
-   * anchored at `x` the way the Renderer's `text-anchor` anchors it. Empty when
-   * the line has no ink: a blank line takes its space and draws nothing. Null
-   * when the font gives no finite curves for it: the line cannot be drawn, and
-   * a caller must say so rather than draw part of it.
-   */
   path(text: string, size: number, x: number, baseline: number, anchor: TextAnchor): string | null;
 }
 
-/** How many decimals a path's numbers keep, the precision the Renderer writes its own paths with. */
 const DECIMALS = 2;
 
-/** The outlines of a parsed font, at the anchors a Block places its lines on. */
 export function glyphsOf(font: OutlineFont): Glyphs {
   return {
     path(text, size, x, baseline, anchor) {
@@ -89,7 +70,6 @@ export function glyphsOf(font: OutlineFont): Glyphs {
   };
 }
 
-/** The commands as one `d`, or null when a number of it is not finite. */
 function pathDataOf(curves: readonly Curve[]): string | null {
   const drawn: string[] = [];
   for (const curve of curves) {
@@ -102,7 +82,6 @@ function pathDataOf(curves: readonly Curve[]): string | null {
   return drawn.join('');
 }
 
-/** One command's coordinates, in the order SVG reads them. */
 function numbersOf(curve: Curve): number[] {
   switch (curve.type) {
     case 'M':
@@ -117,7 +96,6 @@ function numbersOf(curve: Curve): number[] {
   }
 }
 
-/** One number, rounded to the decimals a path keeps and written without padding zeroes. */
 function shortest(value: number): string {
   const step = 10 ** DECIMALS;
   const rounded = Math.round(value * step) / step;

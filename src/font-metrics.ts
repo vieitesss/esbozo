@@ -19,19 +19,12 @@
  */
 import type { Metrics } from './layout.js';
 
-/** The units per em a file is assumed to use when it does not say, as Layout assumes. */
 const FALLBACK_UNITS_PER_EM = 1000;
 
-/** The shortest `OS/2` table that states the typographic ascender, descender and line gap. */
 const OS2_TYPOGRAPHIC_LENGTH = 78;
 
-/** Where a table sits in the file, by its four-letter tag. */
 type Tables = Map<string, number>;
 
-/**
- * The metrics of a font file: bytes in, numbers out, like `measureFont` in the
- * CLI. Throws when the bytes are not a TrueType or OpenType font.
- */
 export function measureFontBytes(bytes: Uint8Array): Metrics {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const tables = directoryOf(view);
@@ -53,8 +46,6 @@ export function measureFontBytes(bytes: Uint8Array): Metrics {
   const descender = typographic === null ? view.getInt16(hhea + 6) : view.getInt16(typographic + 70);
   const lineGap = typographic === null ? 0 : view.getInt16(typographic + 72);
 
-  // Mirrors the CLI's reader: the vertical metrics place the lines, and a file
-  // that states none still gets one em between baselines.
   const lineHeightEm = ascender - descender > 0 ? (ascender - descender + lineGap) / unitsPerEm : 1;
   const inkCentreEm = (ascender + descender) / 2 / unitsPerEm;
 
@@ -82,7 +73,6 @@ export function measureFontBytes(bytes: Uint8Array): Metrics {
   };
 }
 
-/** The table directory: every tag in the file and where it starts. */
 function directoryOf(view: DataView): Tables {
   if (view.byteLength < 12) {
     throw notAFont();
@@ -108,7 +98,6 @@ function directoryOf(view: DataView): Tables {
   return tables;
 }
 
-/** A table this reader needs, and the bytes of it it has to be able to read. */
 function requireTable(view: DataView, tables: Tables, tag: string, length: number): number {
   const offset = tables.get(tag);
   if (offset === undefined || offset + length > view.byteLength) {
@@ -174,7 +163,6 @@ function characterMapOf(view: DataView, tables: Tables): (codePoint: number) => 
   throw new Error('the font has no character map this reader understands');
 }
 
-/** A code point's glyph index out of a format 4 map, whose segments are sorted. */
 function segmentOf(view: DataView, table: number, codePoint: number): number {
   const segmentCount = view.getUint16(table + 6);
   const ends = table + 14;
@@ -191,8 +179,6 @@ function segmentOf(view: DataView, table: number, codePoint: number): number {
     }
     const delta = view.getInt16(deltas + index);
     const rangeOffset = view.getUint16(ranges + index);
-    // A zero offset means the segment maps by its delta alone; otherwise it
-    // carries a per-character glyph index to add the delta to.
     if (rangeOffset === 0) {
       return (codePoint + delta) & 0xffff;
     }

@@ -1,20 +1,3 @@
-/**
- * The Scene edits a person makes to the selection: a style pick, an Arrange
- * move, a nudge, a Snap end let go, a delete, a duplicate and a paste.
- *
- * Each edit is a pure function from the Scene and the selection to the next
- * Scene and the selection that goes with it, or `null` where there is nothing
- * to edit at all. The custom element lands the result through its one apply
- * path, which decides whether anything changed: so an edit is one history step
- * and one save, and no caller patches the selection afterwards.
- *
- * What an edit writes is its helpers' to know — `styled` for one field, `arranged`
- * for a layer order or an alignment, `moved` and `released` for where an Element
- * draws, `freedEnd` for an end that stops following its Element, `copies` and
- * `without` for the Element list. This module is the one place where a selection
- * becomes a Scene change, so the find-by-id-and-replace shape it shares with the
- * bend point edits is written once, in `replaced`.
- */
 import { elementBounds, elementsById } from '../renderer.js';
 import { parseFragment, serialiseFragment } from '../scene.js';
 import type { Element as SceneElement, Scene } from '../scene.js';

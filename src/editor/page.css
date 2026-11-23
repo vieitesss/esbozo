@@ -1,13 +1,5 @@
-/* The served page's own chrome: the window the editor fills and the light/dark
-   switch beside it. Only `ez serve` and the built page link this file; an
-   embedded editor never gets it, so it can neither take the host page's margins
-   nor lock its scrolling. The editor's look is `editor.css`, scoped to the
-   element. */
 html, body { height: 100%; margin: 0; }
 
-/* The page's own palette, for the paper behind the editor and the switch on it.
-   The element declares the full set itself (editor.css), so an embedded editor
-   neither reads nor writes these. */
 :root {
   --ink: #1b1a17;
   --paper: #fbf8f1;
@@ -32,14 +24,12 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Here, and only here, the editor is the window. */
 esbozo-editor {
   position: fixed;
   inset: 0;
   height: 100%;
 }
 
-/* the page's own light/dark switch, in the hand, across from the status */
 .theme {
   all: unset;
   position: fixed;

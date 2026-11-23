@@ -45,10 +45,8 @@ import { SCENES_API, sceneWrite } from './scenes-api.js';
 import type { SceneListing, SceneWrite } from './scenes-api.js';
 import { parseScene } from './scene.js';
 
-/** The biggest write the server reads: a Scene is text, and a page of it is small. */
 const BODY_LIMIT = 8 * 1024 * 1024;
 
-/** The one path that answers which build this server is. */
 const HEALTH_API = '/api/health';
 
 /** The built page and its assets, beside the bundled CLI. */
@@ -126,7 +124,6 @@ async function checkPageAssets(): Promise<void> {
   }
 }
 
-/** Listen, and report a taken port as the startup problem it is. */
 async function listen(server: Server, host: string, port: number): Promise<string> {
   await new Promise<void>((resolve_, reject) => {
     const onError = (error: NodeJS.ErrnoException): void => {
@@ -171,7 +168,6 @@ async function handle(
       sendJson(response, 405, { error: 'use GET' });
       return;
     }
-    // A run from source dates nothing, so it has no `builtAt` to answer with.
     sendJson(response, 200, BUILT_AT === null ? { build: BUILD } : { build: BUILD, builtAt: BUILT_AT });
     return;
   }
@@ -215,10 +211,6 @@ function rawPathProblem(raw: string): string | null {
   return null;
 }
 
-/**
- * The Scene file names at the top level of the folder, sorted. No recursion, and
- * one rule with the API: every name here is a name the API opens.
- */
 async function listScenes(root: string): Promise<string[]> {
   const entries = await readdir(root, { withFileTypes: true });
   const candidates = entries
@@ -233,7 +225,6 @@ async function listScenes(root: string): Promise<string[]> {
   return listed.sort((left, right) => left.localeCompare(right));
 }
 
-/** Whether a file's bytes are a Scene, so a `.json` file beside the Scenes can be told apart. */
 async function parsesAsScene(path: string): Promise<boolean> {
   let source: string;
   try {
@@ -250,11 +241,6 @@ async function parsesAsScene(path: string): Promise<boolean> {
   return parseScene(source).ok;
 }
 
-/**
- * The failures that say "leave this name out" rather than "the folder broke":
- * gone between the listing and the read, unreadable, or replaced by a folder.
- * Everything else is the folder's answer, and the listing fails loudly with it.
- */
 function cannotList(error: unknown): boolean {
   const code = (error as NodeJS.ErrnoException).code;
   return code === 'ENOENT' || code === 'EACCES' || code === 'EPERM' || code === 'EISDIR';
@@ -346,11 +332,9 @@ async function handleScene(
     sendJson(response, error.status, { error: error.message });
     return;
   }
-  // The write is the answer: the files say what landed, so no body repeats it.
   sendJson(response, 200, {});
 }
 
-/** `null` for a name that is not a plain Scene file at the folder's top level. */
 function nameProblem(name: string): string | null {
   if (name === '') {
     return 'the Scene name is missing';
@@ -367,7 +351,6 @@ function nameProblem(name: string): string | null {
   return null;
 }
 
-/** A target that a symlink carries outside the folder is not the folder's. */
 async function staysInside(root: string, path: string): Promise<boolean> {
   if (resolve(path) !== join(root, basename(path))) {
     return false;
@@ -375,16 +358,10 @@ async function staysInside(root: string, path: string): Promise<boolean> {
   try {
     return (await realpath(path)).startsWith(root + sep);
   } catch (error) {
-    // Not there yet: a new Scene is written straight into the folder itself.
     return (error as NodeJS.ErrnoException).code === 'ENOENT';
   }
 }
 
-/**
- * A Scene is a file's bytes: a name that holds anything else — a folder, a pipe
- * — is not a Scene, and answers as a name that is not there. Nothing is opened
- * before its entry has said it is a file, so no read waits on what is not one.
- */
 async function readScene(path: string): Promise<string | null> {
   let found: Stats;
   try {
@@ -401,7 +378,6 @@ async function readScene(path: string): Promise<string | null> {
   return readFile(path, 'utf8');
 }
 
-/** A write the folder itself refuses, with the answer it deserves. */
 class WriteRefused extends Error {
   readonly status: number;
 
@@ -411,10 +387,8 @@ class WriteRefused extends Error {
   }
 }
 
-/** The writes in flight, one queue per output pair, so two never interleave. */
 const queued = new Map<string, Promise<void>>();
 
-/** Run `job` after every earlier job for `key`, whatever those jobs did. */
 function serialised<T>(key: string, job: () => Promise<T>): Promise<T> {
   const next = (queued.get(key) ?? Promise.resolve()).then(job);
   const settled = next.then(
@@ -430,19 +404,6 @@ function serialised<T>(key: string, job: () => Promise<T>): Promise<T> {
   return next;
 }
 
-/**
- * Replace the Scene and its SVG of one name together, at the two targets the
- * request already named.
- *
- * Both targets are checked before anything lands, and checked as entries only:
- * a target that is not a file cannot be replaced, and its contents are never
- * read on the way in. The Scene is then copied aside byte for byte — one copy,
- * kept no longer than the write — and the two texts are renamed into place,
- * Scene first. A failure is undone: the SVG is renamed last, so a failure there
- * leaves the SVG as it was and only the Scene has to be put back. A reader
- * between the two renames can see the new Scene beside the previous SVG; the SVG
- * never leads the Scene, and both are the same write once the request answers.
- */
 async function writePair(scene: string, svg: string, written: SceneWrite): Promise<void> {
   await refuseNonFile(scene);
   await refuseNonFile(svg);
@@ -459,12 +420,7 @@ async function writePair(scene: string, svg: string, written: SceneWrite): Promi
     await rename(sceneTemporary, scene);
     await rename(svgTemporary, svg);
   } catch (error) {
-    // The Scene goes back whenever the write did not finish, renamed or not: the
-    // copy is the same bytes either way, and this is the only way to know that
-    // the folder can still keep them.
     const unput = await putBack(scene, backup, hadScene);
-    // A restore that failed is the answer: the folder was told to forget bytes it
-    // could not keep, so it names the copy that is still there.
     keepBackup = unput !== null;
     throw unput ?? error;
   } finally {
@@ -476,7 +432,6 @@ async function writePair(scene: string, svg: string, written: SceneWrite): Promi
   }
 }
 
-/** A target that is not a file cannot be replaced: refuse it before anything lands. */
 async function refuseNonFile(target: string): Promise<void> {
   let found: Stats;
   try {
@@ -495,7 +450,6 @@ async function refuseNonFile(target: string): Promise<void> {
   }
 }
 
-/** Copy a Scene aside byte for byte, so a failed write can put those bytes back. */
 async function copyAside(target: string, backup: string): Promise<boolean> {
   try {
     await copyFile(target, backup);
@@ -508,11 +462,6 @@ async function copyAside(target: string, backup: string): Promise<boolean> {
   }
 }
 
-/**
- * Put back what a failed write replaced, and say so when even that fails: the
- * answer carries the copy's path, so the bytes are never lost silently and a
- * write the folder could not finish is never reported as done.
- */
 async function putBack(
   scene: string,
   backup: string,
@@ -520,14 +469,12 @@ async function putBack(
 ): Promise<WriteRefused | null> {
   try {
     if (hadScene) {
-      // A rename, so a reader never sees half of the Scene it had.
       await rename(backup, scene);
       return null;
     }
     try {
       await unlink(scene);
     } catch (error) {
-      // No Scene landed, so there is nothing to undo.
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
         throw error;
       }
@@ -550,7 +497,6 @@ function announcesJson(request: IncomingMessage): boolean {
   return type.split(';')[0]?.trim().toLowerCase() === 'application/json';
 }
 
-/** The body as text, or `null` when it grew past the limit. */
 async function readBody(request: IncomingMessage): Promise<string | null> {
   const chunks: Buffer[] = [];
   let size = 0;
@@ -565,10 +511,6 @@ async function readBody(request: IncomingMessage): Promise<string | null> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-/**
- * The page's own files, out of the folder the built CLI lives in: the table is
- * the whole list, so nothing else beside the CLI is published.
- */
 async function servePageAsset(
   request: IncomingMessage,
   response: ServerResponse,
@@ -588,9 +530,6 @@ async function servePageAsset(
     sendJson(response, 404, { error: `no page file ${pathname}` });
     return;
   }
-  // Everything the request takes, best first. A coding the build wrote beside
-  // the file is on offer only for a text page file; the file itself is on offer
-  // for all of them, the font included.
   const compressible = compresses(asset.mime);
   for (const encoding of takenBy(request.headers['accept-encoding'])) {
     if (encoding === 'identity') {
@@ -608,8 +547,6 @@ async function servePageAsset(
     const variant = `${path}.${SUFFIX[encoding]}`;
     const size = await fileSize(variant);
     if (size === null) {
-      // The build writes both variants of every text page file: a dist without
-      // one offers the other, and the file itself when that is acceptable.
       continue;
     }
     response.writeHead(200, {
@@ -622,9 +559,6 @@ async function servePageAsset(
     createReadStream(variant).pipe(response);
     return;
   }
-  // The request refused everything this page file is written in, the file
-  // itself included: a text page can be compressed, the font cannot, and there
-  // is nothing left either of them may be sent as.
   response.writeHead(406, {
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
@@ -639,31 +573,20 @@ async function servePageAsset(
   );
 }
 
-/**
- * Whether a page file is worth compressing. The page is text — HTML, CSS, JS,
- * the font's licence — and the font itself is a font: its own format is the
- * compression, and every browser that wants it would fetch it anyway.
- */
 function compresses(mime: string): boolean {
   return mime.startsWith('text/');
 }
 
-/** The encodings a page file can be sent in, best first on a tie. */
 const CODINGS = ['br', 'gzip'] as const;
 
-/** One content coding the build wrote. */
 type Coding = (typeof CODINGS)[number];
 
-/** The suffix the build writes a coding under, beside the file it stands for. */
 const SUFFIX: Record<Coding, string> = { br: 'br', gzip: 'gz' };
 
-/** A page file as it goes on the wire: a coding the build wrote, or the file itself. */
 type Encoding = Coding | 'identity';
 
-/** A coding the request does not take, so it is never sent. */
 const REFUSED = 0;
 
-/** An encoding the request takes without a weight of its own: acceptable, ranked last. */
 const UNRANKED = -1;
 
 /**
@@ -705,17 +628,14 @@ function takenBy(header: string | undefined): readonly Encoding[] {
   const ranked = [
     { encoding: 'br', weight: weights.get('br') ?? unnamed ?? 0 },
     { encoding: 'gzip', weight: weights.get('gzip') ?? unnamed ?? 0 },
-    // Acceptable, but below any weight the request spelled out.
     { encoding: 'identity', weight: named ?? (unnamed === 0 ? REFUSED : UNRANKED) },
   ] as const;
-  // A stable sort, so equal weights stay in the order above.
   return ranked
     .filter((offer) => offer.weight !== REFUSED)
     .sort((left, right) => right.weight - left.weight)
     .map((offer) => offer.encoding);
 }
 
-/** The size of a file, or null when there is none: a variant the dist lacks. */
 async function fileSize(path: string): Promise<number | null> {
   try {
     const info = await stat(path);

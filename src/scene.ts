@@ -129,25 +129,17 @@ export type TextAlign = (typeof TEXT_ALIGNS)[number];
 export const HEADS = ['none', 'arrow', 'dot', 'bar'] as const;
 export type Head = (typeof HEADS)[number];
 
-/**
- * Roughness is a whole number, with three named looks: 0 architect, 1 artist
- * and 2 cartoonist. The number keeps the Scene short and lets the editor step
- * through the looks; the names live in the docs and the Style menu.
- */
 export const ROUGHNESS_MIN = 0;
 export const ROUGHNESS_MAX = 2;
 
 const ELEMENT_TYPES = ['rectangle', 'ellipse', 'diamond', 'arrow', 'line', 'text'] as const;
 
-/** The Element types with an outline a Snap can land on. */
 const OUTLINED_TYPES = ['rectangle', 'ellipse', 'diamond'] as const;
 
-/** Whether an Element has an outline: only those can be Snap targets. */
 export function isOutlined(element: Element): element is OutlinedElement {
   return (OUTLINED_TYPES as readonly string[]).includes(element.type);
 }
 
-/** The seven-grey ladder runs from paper (0) to ink (6). */
 export const GREY_MIN = 0;
 export const GREY_MAX = 6;
 
@@ -221,9 +213,7 @@ interface ElementBase extends ElementStyle {
   seed: number;
 }
 
-/** An Element that can carry words inside it: everything but a Text. */
 interface LabelledBase extends ElementBase {
-  /** Words that belong to this Element. Wrapping and fit are Layout's job. */
   label?: string;
 }
 
@@ -380,7 +370,6 @@ const POINT_KEYS = ['x', 'y', 'snap', 'corner'] as const;
 const HEADS_KEYS = ['start', 'end'] as const;
 const LABEL_AT_KEYS = ['t', 'offset'] as const;
 
-/** Whole-pixel coordinates keep Scene diffs clean and the SVG small. */
 function wholePixels(value: number): number {
   const rounded = Math.round(value);
   // No negative zero: it serialises as `0` but is a different number in memory.
@@ -403,11 +392,6 @@ export function canonicalScene(scene: Scene): Scene {
   };
 }
 
-/**
- * One Element as it is drawn: whole pixels, so no two roundings draw it twice.
- * An arrow or line stays an arrow or line, so the shaft it draws can be asked
- * for without a cast.
- */
 export function canonicalElement(element: ArrowOrLineElement): ArrowOrLineElement;
 export function canonicalElement(element: Element): Element;
 export function canonicalElement(element: Element): Element {
@@ -434,19 +418,11 @@ function wholePoint(point: Point): Point {
   return { ...point, x: wholePixels(point.x), y: wholePixels(point.y) };
 }
 
-/** A shaft's points, rounded: its two ends and every bend point between them. */
 function wholePoints(points: [Point, Point, ...Point[]]): [Point, Point, ...Point[]] {
   const [start, second, ...bends] = points;
   return [wholePoint(start), wholePoint(second), ...bends.map(wholePoint)];
 }
 
-/**
- * A Label's place on its shaft, rounded where it is written: the fraction to the
- * decimals `writtenFraction` keeps — the same ones the editor's drag reads back,
- * so the place it shows is the place it saves — and the distance to whole pixels
- * like the geometry around it, so a position the editor assigns saves and
- * reopens as itself.
- */
 function canonicalLabelAt(labelAt: LabelAt): LabelAt {
   return { t: writtenFraction(labelAt.t), offset: wholePixels(labelAt.offset) };
 }
@@ -462,12 +438,6 @@ export function seedForId(id: string): number {
   return (first % (MAX_SEED - 1)) + 1;
 }
 
-/**
- * An empty Scene at the current schema version: what a new or missing Scene
- * file opens as. The title goes through the same check a file's title does, and
- * the style is a fresh copy of the defaults, so a new Scene and a reopened one
- * agree without a JSON round trip.
- */
 export function emptyScene(title: string = DEFAULT_TITLE): Scene {
   const problems: Problem[] = [];
   const parsedTitle = parseTitle(title, problems);
@@ -487,10 +457,6 @@ export function parseScene(source: string): ParseResult {
   return parseSceneObject(raw);
 }
 
-/**
- * The same parse, on a value that is already JSON: the one validation a Scene
- * and a clipboard fragment share, so neither has to write JSON to be read.
- */
 function parseSceneObject(raw: unknown): ParseResult {
   if (!isRecord(raw)) {
     return { ok: false, problems: [sceneProblem('must be a JSON object')] };
@@ -528,12 +494,6 @@ export function serialiseScene(scene: Scene): string {
   return sceneJson(canonical, canonical.elements.map(serialiseElementJson));
 }
 
-/**
- * A Scene file, out of the JSON of each Element it holds, in the Scene's order:
- * the head is written here, and each Element's own block is written once by
- * `serialiseElementJson`, so a page that already holds those blocks assembles
- * the very file this serialiser writes — not a second one that reads the same.
- */
 export function sceneJson(scene: Scene, elements: readonly string[]): string {
   return [
     '{',
@@ -546,12 +506,10 @@ export function sceneJson(scene: Scene, elements: readonly string[]): string {
   ].join('\n');
 }
 
-/** One Element's block in a Scene file: its own JSON, indented into the array. */
 export function serialiseElementJson(element: Element): string {
   return indented(JSON.stringify(serialiseElement(element), null, 2), 4);
 }
 
-/** The JSON of a value with every line moved right: a block on a line of its own. */
 function indented(json: string, spaces: number): string {
   const pad = ' '.repeat(spaces);
   return json
@@ -560,7 +518,6 @@ function indented(json: string, spaces: number): string {
     .join('\n');
 }
 
-/** The JSON of a value with every line but the first moved right: it follows `"key": `. */
 function following(json: string, spaces: number): string {
   const pad = ' '.repeat(spaces);
   return json
@@ -569,7 +526,6 @@ function following(json: string, spaces: number): string {
     .join('\n');
 }
 
-/** A Scene as the plain object a fragment is written from. */
 function sceneObject(scene: Scene): {
   version: number;
   title: string;
@@ -627,8 +583,6 @@ export function parseFragment(source: string, defaults: SceneStyle): Element[] |
     return null;
   }
   const parsed = parseSceneObject({
-    // An omitted version is the current one; a version that is there is left
-    // for Scene validation to judge, so `null` is refused like any other.
     ...('version' in raw ? { version: raw['version'] } : { version: SCENE_VERSION }),
     defaults,
     elements: localised(elements),
@@ -636,7 +590,6 @@ export function parseFragment(source: string, defaults: SceneStyle): Element[] |
   return parsed.ok ? parsed.scene.elements : null;
 }
 
-/** A Snap only means something inside the fragment it travels with. */
 function localised(elements: readonly unknown[]): unknown[] {
   const ids = new Set(
     elements
@@ -655,7 +608,6 @@ function localised(elements: readonly unknown[]): unknown[] {
   });
 }
 
-/** A point whose Snap names an Element the fragment does not carry loses the Snap. */
 function freeUnlessLocal(point: unknown, ids: ReadonlySet<unknown>): unknown {
   if (!isRecord(point)) {
     return point;
@@ -719,8 +671,6 @@ function serialiseStyle(style: SceneStyle): SceneStyle {
     tone: style.tone,
     corners: style.corners,
     fontSize: style.fontSize,
-    // An unwritten alignment stays unwritten, so a Scene saved from `emptyScene`
-    // reopens as one whose Labels centre and whose Text stays left.
     ...(style.textAlign === undefined ? {} : { textAlign: style.textAlign }),
   };
 }
@@ -760,8 +710,6 @@ function parseElements(
     return null;
   }
   const elements: Element[] = [];
-  // Every id the Scene lists, including the Elements that failed to parse, so a
-  // Snap to one of those is not a Snap to nothing.
   const seen = new Set<string>();
   for (const [index, entry] of raw.entries()) {
     if (!isRecord(entry)) {
@@ -789,22 +737,10 @@ function parseElements(
       elements.push(element);
     }
   }
-  // An Element that failed to parse is still one the author declared, so a Snap
-  // to it is not a Snap to nothing: its own problem is the one to report.
   validateSnapTargets(elements, seen, problems);
   return elements;
 }
 
-/**
- * A Snap end is drawn on its target's outline, so the target must exist and
- * must be a rectangle, ellipse or diamond. The problem names the arrow or line,
- * not the target: the Scene's own Element is what the author has to fix.
- *
- * `seen` holds every id the Scene lists, including the Elements that failed to
- * parse. A Snap to one of those is not a Snap to a missing Element: the target
- * has its own problem, and calling it missing would send the author looking for
- * the wrong thing.
- */
 function validateSnapTargets(
   elements: Element[],
   seen: ReadonlySet<string>,
@@ -819,9 +755,6 @@ function validateSnapTargets(
     const start = points[0];
     const end = points[points.length - 1]!;
     if (points.length === 2 && start.snap !== undefined && start.snap === end.snap) {
-      // Two ends on one outline have no line between two targets to aim
-      // along, so the arrow or line cannot say which way it points. A bend
-      // point between them gives the shaft the direction it was missing.
       problems.push({
         elementId: element.id,
         message: `both ends Snap to ${start.snap}`,
@@ -867,8 +800,6 @@ function parseElement(
     report(unknownKeyMessage(type, unknownKey)),
   );
 
-  // An alignment neither the Element nor the Scene writes is resolved per type
-  // here, so every Element carries the value its words are placed by.
   const written = parseStyle(raw, defaults, report);
   const style: ElementStyle = { ...written, textAlign: written.textAlign ?? unwrittenTextAlign(type) };
   const seedValue =
@@ -936,11 +867,6 @@ function elementKeys(type: Element['type'] | null): readonly string[] {
   return OUTLINED_ELEMENT_KEYS;
 }
 
-/**
- * A key an Element may not carry. `labelAt` is not a misspelling elsewhere: it
- * is a shaft's key, and only an arrow or line has a shaft, so the problem says
- * that instead of calling the key unknown.
- */
 function unknownKeyMessage(type: Element['type'] | null, unknownKey: string): string {
   if (unknownKey === 'labelAt' && type !== 'arrow' && type !== 'line') {
     return 'labelAt applies only to an arrow or line';
@@ -987,11 +913,6 @@ function parseTextContent(raw: unknown, report: (message: string) => void): stri
   return raw;
 }
 
-/**
- * A Label is words on an Element: an absent Label is `undefined`, and a Label
- * that is not words is a problem. Newlines are line breaks the author asked
- * for; everything else wraps to fit.
- */
 function parseLabel(
   raw: unknown,
   report: (message: string) => void,
@@ -1010,11 +931,6 @@ function parseLabel(
   return raw;
 }
 
-/**
- * Where a shaft's Label sits: a fraction along the drawn shaft, and a signed
- * distance to one side. Both are numbers the drawing uses, so both are checked
- * here and rounded by `canonicalLabelAt`.
- */
 function parseLabelAt(
   raw: unknown,
   report: (message: string) => void,
@@ -1030,12 +946,10 @@ function parseLabelAt(
     report(`labelAt: unknown key "${unknownKey}"`),
   );
   const t = parseFraction(raw.t, 'labelAt.t', report);
-  // Both fields are rounded by `canonicalLabelAt`, the one owner of a Label's place.
   const offset = parseNumber(raw.offset, 'labelAt.offset', report);
   return t === null || offset === null ? undefined : canonicalLabelAt({ t, offset });
 }
 
-/** A fraction of a shaft: a finite number from 0 to 1, 0 at its start and 1 at its end. */
 function parseFraction(
   raw: unknown,
   field: string,
@@ -1066,11 +980,6 @@ function parsePoints(
   return parsed.some((point) => point === null) ? null : (parsed as [Point, Point, ...Point[]]);
 }
 
-/**
- * One point of a shaft. `end` says whether it is the first or the last, which
- * is what decides where a `snap` and a `corner` belong: an end attaches to an
- * Element and does not turn, and a middle point turns and does not attach.
- */
 function parsePoint(
   raw: unknown,
   index: number,
@@ -1084,8 +993,6 @@ function parsePoint(
   rejectUnknownKeys(raw, POINT_KEYS, (unknownKey) => report(`unknown key "${unknownKey}"`));
   const x = parseWholePixels(raw.x, `points[${index}].x`, report);
   const y = parseWholePixels(raw.y, `points[${index}].y`, report);
-  // A Snap lands the end on a target's outline, where the shaft arrives from
-  // its neighbour: a middle point has no end to land, so it cannot hold one.
   let snap: string | undefined;
   if (raw.snap !== undefined && !end) {
     report(`points[${index}].snap applies only to the first or last point`);
@@ -1096,7 +1003,6 @@ function parsePoint(
       snap = raw.snap;
     }
   }
-  // A corner is the bend a middle point turns by: an end has no bend to style.
   let corner: Corner | undefined;
   if (raw.corner !== undefined && end) {
     report(`points[${index}].corner applies only to a middle point`);
@@ -1156,10 +1062,6 @@ function parseStyle(
   };
 }
 
-/**
- * An alignment the Scene does not write stays unset here, so each Element can
- * resolve its own; `parseElement` turns it into the value a Label or a Text draws with.
- */
 function parseTextAlign(
   raw: unknown,
   fallback: TextAlign | undefined,
@@ -1168,12 +1070,9 @@ function parseTextAlign(
   if (raw === undefined) {
     return fallback;
   }
-  // The fallback only reads when the value is wrong, and then the Scene fails to
-  // parse, so which of the two defaults stands in makes no difference.
   return parseChoice(raw, 'textAlign', TEXT_ALIGNS, fallback ?? UNWRITTEN_TEXT_ALIGN.label, report);
 }
 
-/** What an unwritten alignment means for this Element: a Label centres, a Text stays left. */
 /**
  * The alignment an Element's words take when neither it nor the Scene writes
  * one: what a scene file and the editor both resolve by, so a drawn Element is
@@ -1245,7 +1144,6 @@ function parseNumber(
   return raw;
 }
 
-/** Geometry is rounded to whole pixels on the way in, and `canonicalScene` rounds it for a Scene mutated in memory. */
 function parseWholePixels(
   raw: unknown,
   field: string,
@@ -1320,7 +1218,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/** A misspelled key is a problem worth reporting: it would otherwise be ignored in silence. */
 function rejectUnknownKeys(
   record: Record<string, unknown>,
   allowed: readonly string[],

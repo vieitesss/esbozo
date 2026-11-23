@@ -1,30 +1,3 @@
-/**
- * The pointer's state machine: every gesture the canvas understands, as one
- * piece of state and the four events that move it.
- *
- * A press takes the pointer, and what it may become is decided once, on the
- * press: a pan (Space or the middle button), a draw with the armed tool, a
- * resize or a dragged end off a handle, a bend pulled out of a segment's dot, a
- * Label carried off its words, a move, a sweep, or nothing but a click. The moves
- * reshape a *preview*; only the release settles it into the Scene, as one
- * history step and one write. So half a gesture is never a Scene, and an exit
- * that is not a release — `pointercancel`, a window blur, a hidden page, a Scene
- * switch, write access that ends — drops the preview and leaves the Scene
- * exactly as it was.
- *
- * The click is the other half of the machine. A press that never left the
- * click's own slop is a click, two of them in a row and close enough together
- * are a double-click, and the words a double-click opens are the ones the
- * *first* click found: selecting what it landed on may dock the note and carry
- * the view, so the second click does not see what the person aimed at. Nothing
- * else may pair — a drag, a key, a wheel zoom or a Shift each start a new
- * sequence — and a press on the note is answered here too, because docking the
- * note can put it under the very click that is opening words.
- *
- * The page supplies glyph positions; the typing session maps them back to the
- * field. Nothing here draws or measures; it decides, and hands the decision to
- * the editor.
- */
 import { elementsById, drawnShaft, outlineBox, shaftInk } from '../renderer.js';
 import { canonicalElement, isOutlined } from '../scene.js';
 import type { ArrowOrLineElement, Element as SceneElement, Scene } from '../scene.js';
@@ -224,10 +197,6 @@ function shownElements(elements: SceneElement[], drag: ShownDrag): SceneElement[
   return elements.map((element) => (element.id === drag.id ? drag.shown : element));
 }
 
-/**
- * The drag kinds `ShownDrag` names, as the one list both the type and the
- * runtime ask: a kind added or dropped here and not there is a compile error.
- */
 const SHOWN_KINDS: Record<ShownDrag['kind'], true> = {
   move: true,
   resize: true,
@@ -241,12 +210,6 @@ function asShownDrag(drag: Drag): ShownDrag | null {
   return drag.kind in SHOWN_KINDS ? (drag as ShownDrag) : null;
 }
 
-/**
- * A press on the canvas with the Select tool, kept until the next one: what was
- * under the pointer, where and when. A double-click asks this rather than the
- * pointer a second time, because the first click's own selection can move the
- * view before the second one lands.
- */
 interface Press {
   /** The Element whose words a double-click would edit, or null for bare canvas. */
   readonly id: string | null;
@@ -254,24 +217,10 @@ interface Press {
   readonly at: Point;
   /** When, on the event's own clock. */
   readonly time: number;
-  /**
-   * Whether Shift was held. A Shift press adds to a selection or takes away
-   * from one, and two of them in a row are two of those, never a double-click.
-   */
   readonly shift: boolean;
-  /**
-   * The bend point the press took by its handle, and the shaft it is a point of.
-   * Two presses on that one handle remove the point, and a press that has it
-   * never opens the words it stands on.
-   */
   readonly bend?: Bend;
 }
 
-/**
- * What the pointer asks of the editor, and the one place a gesture becomes a
- * change. The editor answers with what the page holds; nothing here keeps a
- * copy of the Scene, the selection or the view.
- */
 interface GestureHost {
   /** The paper the pointer is captured on. */
   readonly board: HTMLElement;
@@ -317,24 +266,9 @@ export class Gestures {
   #press: Press | null = null;
   /** The click before it: the first half of a double-click, until something else happens. */
   #lastClick: Press | null = null;
-  /**
-   * The press inside the words being typed, until the next one: a second press
-   * in the same place there selects the word instead of moving the caret.
-   */
   #wordsClick: Press | null = null;
-  /**
-   * The click the note owes the press that opened the words over it. That press
-   * was cancelled, so Chromium's click is the press's own and must run nothing.
-   */
   #cancelledClick = false;
   #spaceDown = false;
-  /**
-   * The pointers whose press the board refused: a secondary press or a Ctrl+click
-   * is a menu's, and a contact that lands while a rail drag owns a pointer is the
-   * drag's, so its release settles nothing — no point of a place, no end of a
-   * shaft, no pan. The refusal is the pointer's own: another pointer may be
-   * carrying a gesture at the same time, and its release is still its own.
-   */
   readonly #refused = new Set<number>();
   /** The Shaft a page mark names, which is what makes the mark a bend point's. */
   #shaft: ShaftOf = (id) => shaftIn(this.#host.scene(), id);
@@ -348,10 +282,6 @@ export class Gestures {
     return this.#drag;
   }
 
-  /**
-   * Whether a gesture that changes the Scene is in flight, so an edit waits for
-   * it: the pointer of a drag, or the place a shaft is being put down by.
-   */
   holdsScene(): boolean {
     const drag = this.#drag;
     return drag !== null && (drag.kind === 'draw' || asShownDrag(drag) !== null);
@@ -362,24 +292,10 @@ export class Gestures {
     return this.#drag !== null && this.#drag.kind === 'draw' && this.#drag.placing !== null;
   }
 
-  /**
-   * Whether a sweep of a selection is in flight: a gesture that changes nothing
-   * of the Scene, only the band it would land. The page ends it where it ends a
-   * Scene edit — Escape, another Scene, a page that may only read — because it
-   * holds the pointer just as one does. The pan is not one: it is the page's,
-   * and it stays in the hand it was taken with until its key or button comes up.
-   */
   sweeping(): boolean {
     return this.#drag?.kind === 'box';
   }
 
-  /**
-   * What the page shows while a gesture is in flight, or null when no gesture is
-   * in the way: the Scene as it is, under the words a session may be holding.
-   * The three answers are a drag that shows its own Elements, a drag that shows
-   * the Scene as it is and settles the page, and no drag at all — a sweep or a
-   * Text press shows the committed words, never the words under them.
-   */
   shownByDrag(): Shown | null {
     const drag = this.#drag;
     if (drag === null) {
@@ -413,11 +329,6 @@ export class Gestures {
     return this.#spaceDown || this.#drag?.kind === 'pan';
   }
 
-  /**
-   * Nothing pairs a click any more: a drag started, a key came, a zoom moved the
-   * page. A place in hand keeps its own last click, and loses it here with the
-   * rest, so a zoom or a pan never makes the next click the half of a pair.
-   */
   forgetClicks(): void {
     this.#press = null;
     this.#lastClick = null;
@@ -450,13 +361,6 @@ export class Gestures {
     this.#host.showPanning();
   }
 
-  /**
-   * End a Space pan: the key came up, or the page lost the focus that held it.
-   * A pan the pointer is still in the middle of ends here too, so a move after
-   * the event cannot carry the view any further. The pointer stays the board's
-   * until the button comes up, which is where every gesture lets it go: only a
-   * release the board gets can answer for the pan, and its default with it.
-   */
   endSpacePan(): void {
     const wasPanning = this.panning;
     if (this.#drag?.kind === 'pan') {
@@ -472,14 +376,6 @@ export class Gestures {
     }
   }
 
-  /**
-   * Let go of the pointer and discard its preview. Whether the browser or
-   * the editor cancels the gesture, only a finished gesture changes the Scene.
-   *
-   * A cancelled pointer the board refused cancels its own press and nothing
-   * more: another pointer may be carrying a gesture at the same time, and this
-   * pointer never put a point down for it to drop.
-   */
   cancel = (event?: PointerEvent): void => {
     if (event !== undefined && this.#refused.delete(event.pointerId)) {
       return;
@@ -498,13 +394,6 @@ export class Gestures {
     this.#host.refresh();
   };
 
-  /**
-   * The page lost the focus, or was hidden: no pointer of this gesture will
-   * ever come up here. A Space pan ends, a press that started no drag lets go of
-   * the pointer it took, and half a drag is dropped with the preview it painted —
-   * the same page a cancelled pointer leaves, so the frame that follows draws the
-   * Scene as it is held.
-   */
   release = (): void => {
     this.endSpacePan();
     if (this.#drag !== null) {
@@ -519,10 +408,6 @@ export class Gestures {
     this.#press = null;
   };
 
-  /**
-   * Let go of everything the pointer holds, without a frame of its own: a page
-   * that takes the editor off its DOM, or one that moves to another Scene.
-   */
   drop(): void {
     const wasDraggingPan = this.#drag?.kind === 'pan';
     this.#drag = null;
@@ -533,15 +418,6 @@ export class Gestures {
     }
   }
 
-  /**
-   * A press anywhere on the page, before it becomes a click: words being typed
-   * are finished here, while the focus is still theirs.
-   *
-   * The order matters for an input method. Losing the focus confirms a preedit
-   * into the field, so a blur that ended the session would keep words nobody
-   * chose; finishing first drops the preedit as an unconfirmed composition.
-   * A press off the canvas also starts a new click sequence, as the browser's own does.
-   */
   anyPress = (event: PointerEvent): void => {
     // A press the note answered itself never reaches here, so anything that does
     // is a new gesture: no click is owed to the press that opened the words.

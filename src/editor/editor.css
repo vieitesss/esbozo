@@ -20,14 +20,10 @@ esbozo-editor {
   --tape: color-mix(in srgb, var(--ink) 8%, transparent);
   --shadow: color-mix(in srgb, var(--ink) 55%, transparent);
   --sel: #3358d8;
-  /* words that do not fit what holds them: the one ruling `ez check` reports */
   --overflow: #c0392b;
 
   display: block;
   position: relative;
-  /* A host drops the element into its content, so it is a box with a height of
-     its own, not an overlay. The served page makes it fill the window
-     (`page.css`); a host resizes it with one rule. */
   width: 100%;
   height: 480px;
   background: var(--paper);
@@ -36,7 +32,6 @@ esbozo-editor {
      a transform, which is scrollable overflow here, and focusing the canvas
      would scroll the paper out from under the view. */
   overflow: clip;
-  /* dragging an Element must never select page text */
   user-select: none;
   -webkit-user-select: none;
   cursor: default;
@@ -52,14 +47,10 @@ esbozo-editor {
 
 esbozo-editor, esbozo-editor * { box-sizing: border-box; }
 
-/* The editor is focusable so an embedded page can hand it the keys, but the
-   ring the browser draws on a box this size is not how it says where it is: the
-   selection and the tool in hand do. */
 esbozo-editor:focus, esbozo-editor:focus-visible { outline: none; }
 
 esbozo-editor [hidden] { display: none !important; }
 
-/* paper grain: straight CSS plus an inline SVG, under the dot Grid */
 esbozo-editor::before {
   content: "";
   position: absolute;
@@ -76,11 +67,6 @@ esbozo-editor::before {
   opacity: 0.07;
 }
 
-/* The painted Scene: one layer the view moves with a CSS transform, so a zoom
-   moves what is already painted instead of laying out every `<text>` again. */
-/* The paper the pointer works on: the whole element, unmoved. The painted
-   Scene above moves inside it, so a press anywhere on the paper is the Scene's
-   even when the view has scaled the drawing away from that corner. */
 esbozo-editor .board {
   position: absolute;
   inset: 0;
@@ -94,7 +80,6 @@ esbozo-editor .surface {
   transform-origin: 0 0;
 }
 
-/* canvas */
 esbozo-editor .canvas {
   position: absolute;
   inset: 0;
@@ -102,16 +87,10 @@ esbozo-editor .canvas {
   width: 100%;
   height: 100%;
   touch-action: none;
-  /* The view scales this drawing, so what is outside its own box is still the
-     Scene: the element's edges are what shows the page, not the canvas box. */
   overflow: visible;
 }
 
-/* The canvas takes the focus when the palette shuts, so focus is visible there
-   and nowhere else: a ring around the paper, inside the window's edge. */
 esbozo-editor .canvas:focus { outline: none; }
-/* The ring is drawn on the element and not on the canvas, because the canvas is
-   the layer the view scales: a ring on it would shrink with a zoom. */
 esbozo-editor:has(.canvas:focus-visible)::after {
   content: "";
   position: absolute;
@@ -124,7 +103,6 @@ esbozo-editor:has(.canvas:focus-visible)::after {
 
 esbozo-editor .board.hand { cursor: grab; }
 esbozo-editor .board.panning { cursor: grabbing; }
-/* drawing: the pencil is the pointer, so the tool in hand reads on the canvas */
 esbozo-editor .board.pen { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='26' viewBox='0 0 26 26'%3E%3Cg transform='rotate(42 13 13)'%3E%3Cpath d='M11 5h4v13h-4z' fill='%23e8b23c' stroke='%231b1a17' stroke-width='1.2'/%3E%3Cpath d='M11 18h4l-2 4.5z' fill='%23f6f0e2' stroke='%231b1a17' stroke-width='1.2'/%3E%3C/g%3E%3C/svg%3E") 4 22, crosshair; }
 esbozo-editor .grid-rect { pointer-events: none; }
 esbozo-editor .dot { fill: var(--ink); opacity: 0.22; }
@@ -137,10 +115,6 @@ esbozo-editor .selection {
   pointer-events: none;
 }
 
-/* A selected shaft's Label: faint, so the words read as something a press
-   carries and not as another Element the selection chose. The dashes stand
-   outside the words, so they are no part of what a press takes: the box the
-   words paint says what a press there does. */
 esbozo-editor .label-cue {
   fill: none;
   stroke: var(--sel);
@@ -149,8 +123,6 @@ esbozo-editor .label-cue {
   pointer-events: none;
 }
 
-/* The words themselves, as the box a press on them takes: the pointer over them
-   is the grab a drag starts from, and nothing outside them advertises one. */
 esbozo-editor .label-grab {
   fill: transparent;
   stroke: none;
@@ -170,18 +142,10 @@ esbozo-editor .handle-n, esbozo-editor .handle-s { cursor: ns-resize; }
 esbozo-editor .handle-e, esbozo-editor .handle-w { cursor: ew-resize; }
 esbozo-editor .handle-start, esbozo-editor .handle-end { cursor: move; }
 
-/* A bend between a shaft's ends: the same square or circle at every zoom, and
-   the grab a drag of that one point starts from. */
 esbozo-editor .handle-bend { cursor: move; }
 
-/* The point a press picked, filled with the selection's own colour: the goods the
-   keys are about to act on read as chosen, and the shape and size of the mark
-   stay what every other handle has. */
 esbozo-editor .handle-bend.selected { fill: var(--sel); }
 
-/* Halfway along a segment of a selected shaft: smaller and fainter than a
-   handle, so it reads as the ink a press pulls a new bend out of rather than as
-   a point the shaft already holds. */
 esbozo-editor .handle-dot {
   fill: var(--sel);
   fill-opacity: 0.4;
@@ -189,8 +153,6 @@ esbozo-editor .handle-dot {
   cursor: move;
 }
 
-/* Snap: the Element a dragged arrow or line end will attach to. It stands off
-   the outline so it reads around the target rather than as the target's edge. */
 esbozo-editor .snap {
   fill: color-mix(in srgb, var(--sel) 14%, transparent);
   stroke: var(--sel);
@@ -206,19 +168,13 @@ esbozo-editor .sweep {
   pointer-events: none;
 }
 
-/* tool rail: a rough, hand-drawn strip hung on the frame around the diagram */
 esbozo-editor .rail {
-  /* Where the editor hangs the dock, in screen pixels, set on the strip once a
-     measurement places it. Until then the strip is out of sight, so these are
-     the numbers the shape starts from rather than a place anyone sees. */
   --rail-left: 50%;
   --rail-top: 15px;
   position: absolute;
   left: var(--rail-left);
   top: var(--rail-top);
   transform: translateX(-50%) rotate(-1.1deg);
-  /* A press that drags the strip is the strip's, on a finger as much as on a
-     mouse: the page around it never takes the gesture as a scroll. */
   touch-action: none;
   z-index: 20;
   display: flex;
@@ -235,18 +191,12 @@ esbozo-editor .rail {
 
 esbozo-editor .rail:hover, esbozo-editor .rail:focus-within { opacity: 1; }
 
-/* A dock on the frame's left or right side lays the strip up it instead of along
-   it: the dock's point is then the strip's own left edge and its middle. */
 esbozo-editor .rail[data-side='left'],
 esbozo-editor .rail[data-side='right'] {
   transform: translateY(-50%) rotate(-1.1deg);
   flex-direction: column;
 }
 
-/* A strip the editor has not placed yet stays unseen: with no frame measured there
-   is no side it is docked on, and the fallback place above is not one of them, so
-   showing it there would put it on a side it does not belong to and jump it away
-   once the measurement lands (D11). */
 esbozo-editor .rail:not([data-placed]) {
   visibility: hidden;
 }
@@ -275,10 +225,6 @@ esbozo-editor .rail button {
 esbozo-editor .rail button:hover { color: var(--ink); background: var(--line); transform: rotate(-2deg); }
 esbozo-editor .rail button[aria-pressed="true"] { color: var(--paper); background: var(--ink); transform: rotate(-1.5deg); }
 
-/* the shortcut, inside the button's bottom-left corner, so it never leans off
-   the tile onto the paper: it wears the button's own colour, ink on a hovered
-   tile and paper on the pressed one, so the theme keeps its contrast. Shown
-   only while the button is hovered; a tooltip still names it otherwise. */
 esbozo-editor .rail button .key {
   position: absolute;
   left: 3px;
@@ -334,10 +280,6 @@ esbozo-editor .text-input {
   -webkit-user-select: text;
 }
 
-/* the caret, drawn on the canvas at the glyphs: a hand-drawn line in the ink the
-   Elements are drawn with, so the page holds one black and no bright field. It
-   blinks from CSS, so a blink costs no frame, and a person who asked for less
-   motion keeps it still. */
 esbozo-editor .caret {
   fill: none;
   stroke: var(--ink);
@@ -355,11 +297,6 @@ esbozo-editor .caret {
   esbozo-editor .caret { animation: none; opacity: 1; }
 }
 
-/* what the selection covers, drawn in the Element's own group over its fill and
-   under its glyphs, so their ink keeps its colour and a filled Element cannot
-   cover the highlight; and the preedit an input method is still composing: the
-   words are drawn already, so the rule beneath them is what says they are not
-   confirmed yet */
 esbozo-editor .words-selection {
   fill: color-mix(in srgb, var(--sel) 22%, transparent);
   pointer-events: none;
@@ -375,7 +312,6 @@ esbozo-editor .preedit-rule {
   pointer-events: none;
 }
 
-/* a Label that does not fit its Element, on the rule `ez check` reports */
 esbozo-editor .overflow {
   fill: none;
   stroke: var(--overflow);
@@ -384,8 +320,6 @@ esbozo-editor .overflow {
   pointer-events: none;
 }
 
-/* corner status, in the hand: one concern per corner, so the frame covers the
-   page and every corner is placed in it, and only what is drawn takes a pointer */
 esbozo-editor .status {
   position: absolute;
   inset: 0;
@@ -402,7 +336,6 @@ esbozo-editor .status > div {
   max-width: calc(100% - 34px);
 }
 
-/* what the Scene is and what became of it: the top left corner */
 esbozo-editor .status .corner-id {
   top: 16px;
   left: 18px;
@@ -411,7 +344,6 @@ esbozo-editor .status .corner-id {
   gap: 1px;
 }
 
-/* what the view is doing: the bottom left corner */
 esbozo-editor .status .corner-view {
   left: 17px;
   bottom: 14px;
@@ -419,7 +351,6 @@ esbozo-editor .status .corner-view {
   gap: 13px;
 }
 
-/* a mode the page is in, while it names one: the bottom centre */
 esbozo-editor .status .corner-mode {
   left: 50%;
   bottom: 14px;
@@ -442,7 +373,6 @@ esbozo-editor .status button:hover { color: var(--ink); border-bottom-color: var
 esbozo-editor .status button[aria-pressed="true"] { color: var(--ink); border-bottom-color: var(--line-strong); }
 esbozo-editor .status .zoom { font-family: var(--font-mono); font-size: 10px; color: var(--muted); }
 
-/* the roughness the next Element takes: the label quiet, the value in ink */
 esbozo-editor .status [data-act="roughness"] b { font-weight: 400; color: var(--ink); }
 esbozo-editor .status .where {
   font-family: var(--font-mono);
@@ -455,7 +385,6 @@ esbozo-editor .status .where {
   max-width: 100%;
 }
 
-/* a taped pill, so a mode reads as something the page is doing and not a label */
 esbozo-editor .status .mode {
   display: inline-block;
   padding: 3px 11px;
@@ -474,8 +403,6 @@ esbozo-editor .status .mode:empty { display: none; }
 esbozo-editor .status .saved { font-size: 11.5px; opacity: 0.85; min-width: 1px; }
 esbozo-editor .status .saved[data-state="failed"] { color: var(--ink); border-bottom: 1px dashed var(--line-strong); }
 
-/* the Shortcuts sheet, behind a `?` that ends where the page's own light/dark
-   switch begins, so the two never share a pixel */
 esbozo-editor .status .corner-help {
   right: 78px;
   bottom: 14px;
@@ -493,16 +420,11 @@ esbozo-editor .status .corner-help > button {
 
 esbozo-editor .status .corner-help > button:hover { background: var(--line); }
 
-/* a taped note, like every other note the page lays over the paper: 8px off the
-   right of the page in the button's own 78px row, 46px up from its bottom edge
-   (the button's 14px and its 22px) */
 esbozo-editor .shortcuts {
   position: absolute;
   right: 78px;
   bottom: 46px;
   width: 246px;
-  /* The 78px the button sits in from the right, and 8px of page to the sheet's
-     left: below 332 CSS px the sheet gives up width rather than its left edge. */
   max-width: calc(100vw - 86px);
   padding: 12px 13px 11px;
   background: color-mix(in srgb, var(--paper) 97%, var(--ink));
@@ -545,14 +467,10 @@ esbozo-editor .shortcuts dd {
   color: var(--muted);
 }
 
-/* a window too narrow to hold four corners: the pill sits a row above the view
-   it would otherwise run into */
 @media (max-width: 720px) {
   esbozo-editor .status .corner-mode { bottom: 40px; }
 }
 
-/* Scenes to open: a note taped to the page. The notes' own layers are the
-   stack's, so what is painted on top is what Escape shuts; see notes.ts. */
 esbozo-editor .note {
   position: absolute;
   left: 50%;
@@ -568,7 +486,6 @@ esbozo-editor .note {
   font-size: 11.5px;
 }
 
-/* a strip of tape across the top of each note */
 esbozo-editor .note::before,
 esbozo-editor .style-note::before,
 esbozo-editor .point-menu::before,
@@ -644,10 +561,6 @@ esbozo-editor .note .new button {
 
 esbozo-editor .note .new button:hover { border-color: var(--line-strong); background: var(--line); }
 
-/* Style menu: a note taped to the right edge, and only there with a selection.
-   The editor pans or zooms the view to keep it off the selection, so nothing
-   here has to follow the pointer. Rows are grouped into look, words and
-   arrange, which is what keeps the note inside a 768px-high window. */
 esbozo-editor .style-note {
   position: absolute;
   z-index: 30;
@@ -664,7 +577,6 @@ esbozo-editor .style-note {
   font-size: 11.5px;
 }
 
-/* scroll rather than overflow a short window, and drop the tape so it is not clipped */
 @media (max-height: 500px) {
   esbozo-editor .style-note { overflow-y: auto; }
   esbozo-editor .style-note::before { display: none; }
@@ -749,9 +661,6 @@ esbozo-editor .style-note .acts button {
 
 esbozo-editor .style-note .acts button:hover { border-color: var(--line-strong); background: var(--line); }
 
-/* The point menu: the one row a right-click on a bend point offers, placed by
-   the pointer rather than docked, in the notes' paper and tape. Rows are
-   buttons, so a menu that grows a second row needs nothing here. */
 esbozo-editor .point-menu {
   position: absolute;
   z-index: 45;
@@ -779,7 +688,6 @@ esbozo-editor .point-menu button {
 esbozo-editor .point-menu button:hover { border-color: var(--line-strong); background: var(--line); }
 esbozo-editor .point-menu button:disabled { opacity: 0.45; cursor: default; border-style: dashed; }
 
-/* The command palette: every action by name, over the paper */
 esbozo-editor .palette {
   position: absolute;
   inset: 0;
@@ -847,6 +755,5 @@ esbozo-editor .palette .palette-nothing {
   font-size: 12.5px;
 }
 
-/* the disabled Arrange buttons the registry's rule greys out */
 esbozo-editor .style-note .acts button:disabled { opacity: 0.45; cursor: default; border-style: dashed; }
 esbozo-editor .style-note .acts button:disabled:hover { background: transparent; border-color: var(--line); }
