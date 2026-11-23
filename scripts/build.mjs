@@ -91,7 +91,9 @@ await build({
 /**
  * `ez bundle` copies this file out; it is not meant to be loaded from `dist`.
  * Minified because it is inlined into someone else's page, and it carries the
- * editor's CSS so the page needs no second request.
+ * editor's CSS so the page needs no second request. Rough.js is in it, and its
+ * MIT notice is a banner of its own: `legalComments` has nothing to keep,
+ * because the dependency's files carry no bang comment.
  */
 await build({
   entryPoints: ['src/editor/embed.ts'],
@@ -103,6 +105,7 @@ await build({
   minify: true,
   loader: { '.css': 'text' },
   plugins: [minifiedStylesheet],
+  banner: { js: '/*! Rough.js, MIT License, Copyright (c) 2019 Preet Shihn */' },
   logLevel: 'info',
 });
 
