@@ -179,11 +179,8 @@ class EsbozoEditorElement extends HTMLElement {
   #savedLabel!: HTMLElement;
   #menu!: HTMLElement;
   #roughButton!: HTMLButtonElement;
-  #sheet!: HTMLElement;
-  #helpButton!: HTMLButtonElement;
   /** The notes the page opens over the Scene, and which of them is on top. */
   #notes!: Notes;
-  #palette!: CommandPalette;
   /** The note a secondary press on a bend point opens, and the one row it holds. */
   #pointMenu!: PointMenu;
 
@@ -277,11 +274,16 @@ class EsbozoEditorElement extends HTMLElement {
     this.#savedLabel = this.querySelector('.saved')!;
     this.#menu = this.querySelector('.style-note')!;
     this.#roughButton = this.querySelector('[data-act="roughness"]')!;
-    this.#sheet = this.querySelector('.shortcuts')!;
-    this.#helpButton = this.querySelector('[data-act="shortcuts"]')!;
+    // The three notes are one stack: the palette asks for every action by name,
+    // the sheet names the keys, and the Scenes note lists the folder. Whichever
+    // a person asked for last is on top, and answers Escape and the press
+    // outside it; the stack hands the focus back to the canvas when it shuts.
+    const sheet = this.querySelector<HTMLElement>('.shortcuts')!;
+    const helpButton = this.querySelector<HTMLButtonElement>('[data-act="shortcuts"]')!;
+    const paletteRoot = this.querySelector<HTMLElement>('.palette')!;
     this.#notes = new Notes({ inside: this, canvas: this.#canvas });
-    this.#palette = new CommandPalette({
-      root: this.querySelector('.palette')!,
+    const palette = new CommandPalette({
+      root: paletteRoot,
       state: () => this.#actionState(),
       run: (action) => void action.run(this.#host),
       // The palette shuts the way the stack shuts any note, so the keys and the
@@ -291,23 +293,19 @@ class EsbozoEditorElement extends HTMLElement {
       // chooses for a note the person opened over it.
       escape: () => this.#notes.shut(),
     });
-    // The three notes are one stack: the palette asks for every action by name,
-    // the sheet names the keys, and the Scenes note lists the folder. Whichever
-    // a person asked for last is on top, and answers Escape and the press
-    // outside it; the stack hands the focus back to the canvas when it shuts.
     this.#notes.add('commands', {
-      root: this.querySelector('.palette')!,
+      root: paletteRoot,
       keys: 'all',
-      holds: (target) => this.#palette.holds(target),
-      shown: () => this.#palette.reveal(),
-      shut: () => this.#palette.conceal(),
+      holds: (target) => palette.holds(target),
+      shown: () => palette.reveal(),
+      shut: () => palette.conceal(),
     });
     this.#notes.add('shortcuts', {
-      root: this.#sheet,
+      root: sheet,
       keys: 'escape',
-      opener: () => this.#helpButton,
-      shown: () => this.#helpButton.setAttribute('aria-expanded', 'true'),
-      shut: () => this.#helpButton.setAttribute('aria-expanded', 'false'),
+      opener: () => helpButton,
+      shown: () => helpButton.setAttribute('aria-expanded', 'true'),
+      shut: () => helpButton.setAttribute('aria-expanded', 'false'),
     });
     this.#notes.add('scenes', {
       root: this.#note,
@@ -1556,18 +1554,9 @@ class EsbozoEditorElement extends HTMLElement {
     } else if (action === 'roughness') {
       this.#stepDefaultRoughness();
     } else if (action === 'shortcuts') {
-      this.#showSheet(!this.#notes.shows('shortcuts'));
+      this.#notes.toggle('shortcuts');
     }
   };
-
-  /** Ask for the sheet, or put it away: the stack shows it and marks the help button. */
-  #showSheet(open: boolean): void {
-    if (open) {
-      this.#notes.show('shortcuts');
-    } else {
-      this.#notes.shut('shortcuts');
-    }
-  }
 
   /**
    * The Scene-wide default roughness, which new Elements take. It sits in the

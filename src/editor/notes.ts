@@ -95,6 +95,15 @@ export class Notes {
     note.shown?.();
   }
 
+  /** Open the note, or put it away when it is already the page's. */
+  toggle(id: NoteId): void {
+    if (this.shows(id)) {
+      this.shut(id);
+    } else {
+      this.show(id);
+    }
+  }
+
   /**
    * Shut the note named, or the one on top when none is: Escape and the palette's
    * own actions answer the top alone, and the Scene's selection is never theirs.
