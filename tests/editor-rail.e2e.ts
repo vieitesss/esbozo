@@ -97,6 +97,12 @@ function rail(ui: Ui) {
 /** The seven tiles, in rail order: the order the strip draws them in on any side. */
 const TILES = ['Select', 'Rectangle', 'Ellipse', 'Diamond', 'Arrow', 'Line', 'Text'];
 
+/**
+ * How long a tile's press waits to reach that tile. A press lands on the tile's own
+ * middle, so chrome hanging over it keeps the pointer off it until this runs out.
+ */
+const PRESS_TIMEOUT = 2000;
+
 /** A dock by name, the way a person moves it: the palette has no key, button or grip (D8). */
 async function dockRail(ui: Ui, side: 'top' | 'bottom' | 'left' | 'right'): Promise<void> {
   const commands = ui.screen.getByRole('dialog', { name: 'Commands' });
@@ -199,6 +205,36 @@ async function openBare(ui: Ui, window?: { width: number; height: number }): Pro
   }
   await openEditor(ui, { A: { 'bare.json': BARE_SOURCE } }, 'bare.json');
   await settle(ui);
+}
+
+/** Make the page's folder picker answer with a long failure, or answer as the stub again. */
+async function failPicking(ui: Ui, words: string | null): Promise<void> {
+  await ui.browser.evaluate((message) => {
+    const api = window as unknown as {
+      showDirectoryPicker: (() => Promise<unknown>) | undefined;
+      __picked: (() => Promise<unknown>) | undefined;
+    };
+    if (message === null) {
+      api.showDirectoryPicker = api.__picked;
+    } else {
+      api.__picked = api.showDirectoryPicker;
+      api.showDirectoryPicker = async () => {
+        throw new Error(message);
+      };
+    }
+    return true;
+  }, words);
+}
+
+/** Every tile takes the press a person would make on it, in the order the strip draws them. */
+async function eachTileTakesItsPress(ui: Ui, where: string): Promise<void> {
+  for (const name of TILES) {
+    await rail(ui).getByRole('button', name).click({ timeout: PRESS_TIMEOUT });
+    await expect(
+      rail(ui).getByRole('button', { name, pressed: true }),
+      `a press at the middle of ${name} picks it, ${where}`,
+    ).toBeVisible();
+  }
 }
 
 test('an empty Scene hangs the rail above a centred 960×600 frame, 20 px down at 1280×800', async ({
@@ -665,6 +701,395 @@ test('a diagram larger than the frame keeps every dock outside its box by the ga
       `the ${side} dock ${standing ? 'stands up' : 'lies along'} the side`,
     ).toBe(true);
   }
+});
+
+test('a dock in a very small editor clears the status, so every tile takes its own press', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await browser.setViewport({ width: 360, height: 330 });
+  await openBare(ui);
+
+  /**
+   * Every tile of one dock takes the press a person would make on it: the pointer
+   * reaches the tile at its own middle, and the tile is the tool in hand after it.
+   * The status chrome sits above the rail, so a strip hanging under a corner there
+   * hands its nearest tile's press to another control (O2).
+   */
+  const pressEveryTile = async (side: 'top' | 'bottom' | 'left' | 'right', window: { width: number; height: number }) => {
+    await dockRail(ui, side);
+    for (const name of TILES) {
+      const tile = rail(ui).getByRole('button', name);
+      await tile.click({ timeout: PRESS_TIMEOUT });
+      await expect(
+        rail(ui).getByRole('button', name, { pressed: true }),
+        `a press at the middle of ${name} picks it, on the ${side} dock at ${window.width}×${window.height}`,
+      ).toBeVisible();
+    }
+  };
+
+  // A window that holds the horizontal strip but leaves the status in its way: the
+  // bottom dock meets the mode corner and the top the Scene's own name.
+  for (const side of ['top', 'bottom'] as const) {
+    await pressEveryTile(side, { width: 360, height: 330 });
+  }
+
+  // Standing up the side of a short editor, the left dock's middle meets the
+  // top-left status, which would take its top tiles' presses.
+  await browser.setViewport({ width: 360, height: 240 });
+  await settle(ui);
+  await pressEveryTile('left', { width: 360, height: 240 });
+
+  // The right dock may sit under the Style menu while it is open, and the status
+  // chrome is what its tiles still have to clear.
+  await browser.setViewport({ width: 360, height: 330 });
+  await settle(ui);
+  await pressEveryTile('right', { width: 360, height: 330 });
+});
+
+test('a left dock moved clear of the bottom status stops clear of the Shortcuts box too', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await browser.setViewport({ width: 1280, height: 800 });
+  await openBare(ui);
+  await browser.setViewport({ width: 280, height: 266 });
+  await settle(ui);
+  await dockRail(ui, 'left');
+
+  // The strip stopped at the editor's inset meets the bottom left corner first, and
+  // the room it takes to clear that corner is the room the Shortcuts button stands
+  // in: a move measured against the one corner it met would stop under the other.
+  // The press says which control got it, and the pointer is a person's.
+  await rail(ui).getByRole('button', 'Text').click({ timeout: PRESS_TIMEOUT });
+  await expect(rail(ui).getByRole('button', 'Text', { pressed: true })).toBeVisible();
+  await expect(screen.getByRole('dialog', { name: 'Shortcuts' })).toBeHidden();
+});
+
+test('an open hangs the rail clear of the status that open leaves, as a dock there does', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  const long = `${'L'.repeat(37)}.json`;
+  await browser.setViewport({ width: 360, height: 330 });
+  await openEditor(ui, { A: { 'a.json': BARE_SOURCE, [long]: BARE_SOURCE } }, long);
+  await settle(ui);
+
+  /**
+   * How far down the page the strip's ink reaches. The Scene is bare paper, so the
+   * only ink above the band's floor is the strip's own and the words in the status
+   * corner: the strip is the lower of the two, and its foot is where it hangs.
+   */
+  const band: Rect = { x: 0, y: 0, width: 360, height: 240 };
+  const foot = async (): Promise<number> => {
+    const ink = await railInk(ui, band);
+    return ink.y + ink.height;
+  };
+
+  // The status the open leaves is part of the chrome the rail clears: a Scene's
+  // name adds the row the save message sits in, and a dock beside it measures the
+  // corner as it is afterwards. An open that measured the corner before its own
+  // save message arrived would hang the strip over that message.
+  const opened = await foot();
+  await dockRail(ui, 'top');
+  const docked = await foot();
+  expect(
+    Math.abs(opened - docked),
+    'a first open hangs the strip where the same dock hangs it',
+  ).toBeLessThan(3);
+
+  // A folder that will not be picked says so in the same corner, at as many lines
+  // as the words take. The next good open must not keep the room that answer took.
+  await failPicking(ui, 'Folder unavailable; the file provider cannot open the folder right now. '.repeat(4));
+  await screen.getByRole('button', { name: /Open folder/ }).click();
+  await expect(screen.getByRole('status').filter({ hasText: 'Folder unavailable' })).toBeVisible();
+  await failPicking(ui, null);
+
+  await screen.getByRole('button', { name: /Open folder/ }).click();
+  await screen.getByRole('button', { name: 'a.json', exact: true }).click();
+  await expect(screen.getByRole('status').filter({ hasText: 'saved' })).toBeVisible();
+  const recovered = await foot();
+  await dockRail(ui, 'top');
+  const redocked = await foot();
+  expect(
+    Math.abs(recovered - redocked),
+    'an open after a failed pick hangs the strip where the same dock hangs it',
+  ).toBeLessThan(3);
+});
+
+test('a status corner that grows after the strip is placed hangs it where a dock that measured the corner hangs it', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  const long = 'Folder unavailable; the file provider cannot open the folder right now. '.repeat(4);
+  await browser.setViewport({ width: 360, height: 330 });
+  await openBare(ui);
+
+  /** How far down the page the strip's ink reaches: the corner's words are above it. */
+  const TOP_BAND: Rect = { x: 0, y: 0, width: 360, height: 240 };
+  const foot = async (): Promise<number> => {
+    const ink = await railInk(ui, TOP_BAND);
+    return ink.y + ink.height;
+  };
+  /** How far down the page the strip's ink starts: the pill's words are below it. */
+  const BOTTOM_BAND: Rect = { x: 0, y: 150, width: 360, height: 180 };
+  const top = async (): Promise<number> => (await railInk(ui, BOTTOM_BAND)).y;
+
+  // The corner above the strip is as tall as the words it holds, and a folder's
+  // failure says more than a Scene's name does. The words are drawn above the rail,
+  // so a strip that kept the room they took before they arrived hangs under them.
+  await failPicking(ui, long);
+  await screen.getByRole('button', { name: /Open folder/ }).click();
+  await expect(screen.getByRole('status').filter({ hasText: 'Folder unavailable' })).toBeVisible();
+  await dockRail(ui, 'top');
+  const tall = await foot();
+
+  // The corner an open leaves is the short one, and a strip placed against it stands
+  // higher up the page.
+  await failPicking(ui, null);
+  await screen.getByRole('button', { name: /Open folder/ }).click();
+  await screen.getByRole('button', { name: 'bare.json', exact: true }).click();
+  await expect(screen.getByRole('status').filter({ hasText: 'saved' })).toBeVisible();
+  await settle(ui);
+  expect(await foot(), 'the short corner leaves the strip higher up').toBeLessThan(tall - 20);
+
+  // The same words arrive again under a strip already placed, and the corner is
+  // measured again: the strip hangs where a dock made with those words in the corner
+  // hangs it, rather than keeping the room the short corner gave back.
+  await failPicking(ui, long);
+  await screen.getByRole('button', { name: /Open folder/ }).click();
+  await expect(screen.getByRole('status').filter({ hasText: 'Folder unavailable' })).toBeVisible();
+  await settle(ui);
+  expect(
+    Math.abs((await foot()) - tall),
+    'a corner that grows after the placement hangs the strip where a dock that measured it does',
+  ).toBeLessThan(3);
+  await eachTileTakesItsPress(ui, 'under a corner that grew on the top dock');
+  await failPicking(ui, null);
+
+  // The mode the page is in is the other corner that grows under a placed strip: a
+  // Space held names the pan in the pill at the bottom, which is what a bottom dock
+  // hangs above.
+  await dockRail(ui, 'bottom');
+  const inset = await top();
+  await browser.keyboard.down('Space');
+  await expect(screen.getByText('Panning')).toBeVisible();
+  await settle(ui);
+  expect(await top(), 'the pill that arrives after the placement moves the strip in clear of it').toBeLessThan(
+    inset - 20,
+  );
+  await eachTileTakesItsPress(ui, 'above a pill that arrived on the bottom dock');
+
+  // The pill goes with the pan, and the corner that shrinks gives the room back.
+  await browser.keyboard.up('Space');
+  await settle(ui);
+  expect(Math.abs((await top()) - inset), 'the corner that shrinks puts the strip back').toBeLessThan(3);
+});
+
+test('a corner that grows while a press holds the strip leaves it still, and the release clears it', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await browser.setViewport({ width: 360, height: 330 });
+  await openBare(ui);
+  await dockRail(ui, 'bottom');
+
+  // A press on a tile is a press a person is making: the pointer is on the strip,
+  // and no corner arriving under it may carry the strip out from under that hand.
+  // The pan is named in the pill at the bottom of the status bar while it lasts,
+  // which is the room the bottom dock hangs over.
+  // The band holds the strip and stops above the pill the pan puts in the status
+  // bar, so the strip's own ink is all it holds.
+  const band: Rect = { x: 0, y: 150, width: 360, height: 110 };
+  const grip = tileCentre(boxOfPlace(await railPlace(ui, band)), 3);
+  await browser.mouse.move(grip.x, grip.y);
+  await browser.mouse.down();
+  const held = await railPlace(ui, band);
+  await browser.keyboard.down('Space');
+  await expect(screen.getByText('Panning')).toBeVisible();
+  await settle(ui);
+  // The pill's own words are ink inside this band too, below the strip's top, so the
+  // strip's top and middle are what the press has to have kept.
+  const still = await railPlace(ui, band);
+  expect(Math.abs(still.top - held.top), 'a corner that grew under the pressed strip left its top').toBeLessThan(3);
+  expect(
+    Math.abs(still.centreX - held.centreX),
+    'a corner that grew under the pressed strip left its middle',
+  ).toBeLessThan(3);
+
+  // The press ends as the click it was, on the tile it landed on: the placement the
+  // corner asked for runs now, with the pointer off the strip.
+  await browser.mouse.up();
+  await expect(
+    rail(ui).getByRole('button', { name: 'Select', pressed: true }),
+    'the press that held the strip ended as the click on the tile it landed on',
+  ).toBeHidden();
+  await settle(ui);
+  expect(
+    (await railPlace(ui, band)).top,
+    'the release the corner waited for hangs the strip in clear of the pill',
+  ).toBeLessThan(held.top - 20);
+
+  // The pill goes with the pan, and the corner that shrinks gives the room back.
+  await browser.keyboard.up('Space');
+  await settle(ui);
+  expect(
+    Math.abs((await railPlace(ui, band)).top - held.top),
+    'the corner that shrinks puts the strip back',
+  ).toBeLessThan(3);
+});
+
+test('a drag released over the status docks the strip clear of it, so every tile takes its press', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await browser.setViewport({ width: 360, height: 330 });
+  await openBare(ui);
+
+  // The top dock hangs below the Scene's own name, so the strip's own band starts
+  // under it: the words in the corner are ink too, and they are no part of where
+  // the strip is.
+  const upper: Rect = { x: 0, y: 74, width: 360, height: 100 };
+  const opened = await railPlace(ui, upper);
+
+  // A person carries the strip down to the bottom side of a short editor, where the
+  // editor's own inset stops it: the status bar's rows are over the place the
+  // release lands, and a strip hung on the frame alone (D3) hands its nearest
+  // tiles' presses to Grid and Shortcuts (O2).
+  await drag(ui, tileCentre(boxOfPlace(opened), 1), { x: 180, y: 300 });
+  await settle(ui);
+  const lower: Rect = { x: 0, y: 150, width: 360, height: 110 };
+  const landed = await railPlace(ui, lower);
+  expect(landed.top, 'the release docks the strip along the bottom').toBeGreaterThan(lower.y + 20);
+
+  await eachTileTakesItsPress(ui, 'on a strip a drag released over the status bar');
+});
+
+test('a corner that grows over a dragged strip hangs it clear, and the corner that shrinks gives the place back', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await browser.setViewport({ width: 360, height: 330 });
+  await openBare(ui);
+  const upper: Rect = { x: 0, y: 74, width: 360, height: 100 };
+  const opened = await railPlace(ui, upper);
+
+  // The strip a person dragged hangs where their release docked it, which is the
+  // place this corner later grows over: the pan is named in the pill of the bottom
+  // status corner, and the band stops above the pill's own words.
+  await drag(ui, tileCentre(boxOfPlace(opened), 1), { x: 180, y: 300 });
+  await settle(ui);
+  const lower: Rect = { x: 0, y: 150, width: 360, height: 110 };
+  const dragged = await railPlace(ui, lower);
+
+  await browser.keyboard.down('Space');
+  await expect(screen.getByText('Panning')).toBeVisible();
+  await settle(ui);
+  const grew = await railPlace(ui, lower);
+  expect(grew.top, 'a corner that grew over the dragged strip hangs it in clear of the pill').toBeLessThan(
+    dragged.top - 20,
+  );
+  expect(
+    Math.abs(grew.centreX - dragged.centreX),
+    'the strip slides in clear across its side and keeps the place the drag gave it along it',
+  ).toBeLessThan(3);
+  await eachTileTakesItsPress(ui, 'on a dragged strip a corner grew over');
+
+  // The pill goes with the pan, and the strip returns to the place the drag left it
+  // in rather than to a place the corner's arrival chose.
+  await browser.keyboard.up('Space');
+  await settle(ui);
+  expect(
+    Math.abs((await railPlace(ui, lower)).top - dragged.top),
+    'the corner that shrinks gives the dragged strip its own place back',
+  ).toBeLessThan(3);
+});
+
+test('a resize hangs the strip on the frame again, clear of the corners that stayed behind', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await browser.setViewport({ width: 360, height: 330 });
+  await openBare(ui);
+  await dockRail(ui, 'bottom');
+
+  // The bottom dock of this short window hangs 45 px in to clear its two bottom
+  // corners. A wider window sets those corners back from the strip's own middle,
+  // and the frame's dock there needs none of that room: the resize hangs the
+  // strip where a dock on the same side hangs it.
+  await browser.setViewport({ width: 900, height: 330 });
+  await settle(ui);
+  const wide: Rect = { x: 300, y: 230, width: 300, height: 100 };
+  const resized = await railPlace(ui, wide);
+  await dockRail(ui, 'bottom');
+  const redocked = await railPlace(ui, wide);
+  expect(
+    Math.abs(resized.top - redocked.top),
+    'a wider window hangs the strip where the same dock hangs it',
+  ).toBeLessThan(3);
+  expect(
+    Math.abs(resized.centreX - redocked.centreX),
+    'the resize keeps the strip’s place along its side',
+  ).toBeLessThan(3);
+
+  // The window back to its short size brings those corners over the place the
+  // wide dock hangs on, and a dock measured here clears them: every tile of the
+  // strip the resize left takes its own press.
+  await browser.setViewport({ width: 360, height: 330 });
+  await settle(ui);
+  await eachTileTakesItsPress(ui, 'on the bottom dock a shrunken window left under the status');
+});
+
+test('a shorter window keeps the strip clear of the corner its lost height brings over it', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  const long = `${'L'.repeat(37)}.json`;
+  await browser.setViewport({ width: 360, height: 550 });
+  await openEditor(ui, { A: { 'a.json': BARE_SOURCE, [long]: BARE_SOURCE } }, long);
+  await settle(ui);
+  await failPicking(ui, 'Folder unavailable; the file provider cannot open the folder right now. '.repeat(4));
+  await screen.getByRole('button', { name: /Open folder/ }).click();
+  await expect(screen.getByRole('status').filter({ hasText: 'Folder unavailable' })).toBeVisible();
+  await failPicking(ui, null);
+
+  // The top dock hangs below the Scene's name and the folder's answer, which are
+  // the corner nearest it. A window 100 px shorter puts the frame's own dock 15 px
+  // inside the top edge, under that corner: the room the strip needed was measured
+  // in a window that is gone.
+  const band: Rect = { x: 0, y: 0, width: 360, height: 240 };
+  const foot = async (): Promise<number> => {
+    const ink = await railInk(ui, band);
+    return ink.y + ink.height;
+  };
+  await browser.setViewport({ width: 360, height: 450 });
+  await settle(ui);
+  const shrunk = await foot();
+  await eachTileTakesItsPress(ui, 'on the top dock a shorter window brought a corner over');
+  await dockRail(ui, 'top');
+  const redocked = await foot();
+  expect(
+    Math.abs(shrunk - redocked),
+    'a shorter window hangs the strip where the same dock hangs it',
+  ).toBeLessThan(3);
 });
 
 test('the left dock stands the strip up, faint until it is looked at, its outline around all seven', async ({
