@@ -66,11 +66,11 @@ export class CommandPalette {
 
   /**
    * Whether a press here is a press on the palette rather than on the felt around
-   * it: the field and the list are the note, and the rest of the dialog is the
-   * page behind it.
+   * it: the felt is the dialog itself, and everything it holds is the note —
+   * the field, the rows, and the message a query with no rows leaves.
    */
   holds(target: Node): boolean {
-    return this.#input.contains(target) || this.#list.contains(target);
+    return target !== this.#options.root && this.#options.root.contains(target);
   }
 
   /** Draw the rows the query keeps, and put the active one on the first it can run. */
