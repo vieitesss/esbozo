@@ -1606,10 +1606,10 @@ test('a host rule that shows its own glyphs cannot show the strip before it is d
 
     // The page keeps the right side and holds the font back, so the frame is
     // never measured and the strip has no dock to hang on. `host-glyphs.html` is
-    // this page with one rule of the host's own, which says nothing about esbozo:
-    // `svg { visibility: visible }` reaches every glyph inside the strip, and
-    // visibility is inherited, so a descendant of the strip can lift the strip's
-    // own hiding (issue #62).
+    // this page with two rules of the host's own, which say nothing about esbozo:
+    // `svg { visibility: visible }` reaches every glyph inside the strip and
+    // `button { visibility: visible }` every tile, and visibility is inherited, so
+    // a descendant of the strip can lift the strip's own hiding (issue #62).
     await browser.evaluate(() => {
       localStorage.setItem('esbozo.rail', 'right');
       return true;
@@ -1637,13 +1637,14 @@ test('a host rule that shows its own glyphs cannot show the strip before it is d
     expect(undocked.darkCount(UNDOCKED, 0.85), 'the host’s rule shows no ink of the strip').toBe(bare);
     await expect(strip, 'the strip kept on the right waits for its dock').toBeHidden();
 
-    // And a press there is no dock's either: a glyph can take the press a tile
-    // takes, which starts a drag of the strip, and a release up the page docks it
-    // on the nearest side — the top — so the page would remember another side.
-    await browser.mouse.move(UNDOCKED.x + 30, 40);
+    // And a press there is no dock's either: a glyph or a tile the host's rules
+    // bring back takes the press a tile takes, which starts a drag of the strip,
+    // and a release down the page docks it on the nearest side — the top — so the
+    // page would remember a side nobody asked for.
+    await browser.mouse.move(UNDOCKED.x + 48, 47);
     await browser.mouse.down();
-    await browser.mouse.move(UNDOCKED.x + 30, 120);
-    await browser.mouse.move(UNDOCKED.x + 30, 300);
+    await browser.mouse.move(UNDOCKED.x + 48, 120);
+    await browser.mouse.move(UNDOCKED.x + 48, 300);
     await browser.mouse.up();
     await settle(ui);
     expect(await keptSide(ui), 'the press was no dock’s').toBe('right');
@@ -2062,7 +2063,7 @@ async function writeBundle(): Promise<string> {
     // The host's own rule about its own glyphs, which reaches into the strip:
     // nothing here names esbozo (issue #62).
     'host-glyphs.html': page(
-      `${FULL} svg { visibility: visible }`,
+      `${FULL} svg { visibility: visible } button { visibility: visible }`,
       `<esbozo-editor scene="api/a" save="api/a" font="${FONT}"></esbozo-editor>`,
       bundle,
     ),
