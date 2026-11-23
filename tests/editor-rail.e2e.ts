@@ -97,6 +97,12 @@ function rail(ui: Ui) {
 /** The seven tiles, in rail order: the order the strip draws them in on any side. */
 const TILES = ['Select', 'Rectangle', 'Ellipse', 'Diamond', 'Arrow', 'Line', 'Text'];
 
+/**
+ * How long a tile's press waits to reach that tile. A press lands on the tile's own
+ * middle, so chrome hanging over it keeps the pointer off it until this runs out.
+ */
+const PRESS_TIMEOUT = 2000;
+
 /** A dock by name, the way a person moves it: the palette has no key, button or grip (D8). */
 async function dockRail(ui: Ui, side: 'top' | 'bottom' | 'left' | 'right'): Promise<void> {
   const commands = ui.screen.getByRole('dialog', { name: 'Commands' });
@@ -665,6 +671,52 @@ test('a diagram larger than the frame keeps every dock outside its box by the ga
       `the ${side} dock ${standing ? 'stands up' : 'lies along'} the side`,
     ).toBe(true);
   }
+});
+
+test('a dock in a very small editor clears the status, so every tile takes its own press', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await browser.setViewport({ width: 360, height: 330 });
+  await openBare(ui);
+
+  /**
+   * Every tile of one dock takes the press a person would make on it: the pointer
+   * reaches the tile at its own middle, and the tile is the tool in hand after it.
+   * The status chrome sits above the rail, so a strip hanging under a corner there
+   * hands its nearest tile's press to another control (O2).
+   */
+  const pressEveryTile = async (side: 'top' | 'bottom' | 'left' | 'right', window: { width: number; height: number }) => {
+    await dockRail(ui, side);
+    for (const name of TILES) {
+      const tile = rail(ui).getByRole('button', name);
+      await tile.click({ timeout: PRESS_TIMEOUT });
+      await expect(
+        rail(ui).getByRole('button', name, { pressed: true }),
+        `a press at the middle of ${name} picks it, on the ${side} dock at ${window.width}×${window.height}`,
+      ).toBeVisible();
+    }
+  };
+
+  // A window that holds the horizontal strip but leaves the status in its way: the
+  // bottom dock meets the mode corner and the top the Scene's own name.
+  for (const side of ['top', 'bottom'] as const) {
+    await pressEveryTile(side, { width: 360, height: 330 });
+  }
+
+  // Standing up the side of a short editor, the left dock's middle meets the
+  // top-left status, which would take its top tiles' presses.
+  await browser.setViewport({ width: 360, height: 240 });
+  await settle(ui);
+  await pressEveryTile('left', { width: 360, height: 240 });
+
+  // The right dock may sit under the Style menu while it is open, and the status
+  // chrome is what its tiles still have to clear.
+  await browser.setViewport({ width: 360, height: 330 });
+  await settle(ui);
+  await pressEveryTile('right', { width: 360, height: 330 });
 });
 
 test('the left dock stands the strip up, faint until it is looked at, its outline around all seven', async ({
