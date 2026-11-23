@@ -219,10 +219,15 @@ export class Notes {
     document.addEventListener('pointerdown', this.#onPress);
   }
 
-  /** Give every listener back, so no note answers for an element off the page. */
+  /**
+   * Give every listener back, so no note answers for an element off the page,
+   * and drop the read on its way: nothing a note waits for outlives the page it
+   * was asked from.
+   */
   unlisten(): void {
     this.#inside.removeEventListener('pointerdown', this.#onPress);
     document.removeEventListener('pointerdown', this.#onPress);
+    this.#ask = null;
   }
 
   /** A press outside the note on top shuts it, and is otherwise the press it was. */
