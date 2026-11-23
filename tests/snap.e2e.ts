@@ -100,6 +100,55 @@ const MIXED_SNAPPED_SOURCE = JSON.stringify(MIXED_SNAPPED_SCENE, null, 2);
 /** The view `MIXED_SNAPPED_SCENE` lands in, worked out the same way as `VIEW`. */
 const MIXED_SNAPPED: View = { zoom: 1, panX: 340, panY: 175 };
 
+/**
+ * The Review's shaft, its target painted over it: an arrow Snapped to a box
+ * that covers the leg it reaches its end on, so a move can carry the bend
+ * inside the target's outline. The fill is paper-light and opaque, so any ink
+ * the box covers is ink nobody sees.
+ */
+const INSIDE_SCENE = {
+  version: 1,
+  title: 'Bend inside',
+  defaults: { roughness: 0 },
+  elements: [
+    {
+      id: 'arrow',
+      type: 'arrow',
+      points: [
+        { x: -300, y: 50 },
+        { x: -150, y: 50, corner: 'sharp' },
+        { x: 0, y: 50, snap: 'box' },
+      ],
+    },
+    {
+      id: 'box',
+      type: 'rectangle',
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      fill: { kind: 'solid', grey: 1 },
+    },
+  ],
+};
+const INSIDE_SOURCE = JSON.stringify(INSIDE_SCENE, null, 2);
+
+/** The view `INSIDE_SCENE` lands in, worked out the same way as `VIEW`. */
+const INSIDE: View = { zoom: 1, panX: 740, panY: 350 };
+
+/** A point on the shaft's first leg, clear of the dots halfway along both legs. */
+const INSIDE_ON = { x: -200, y: 50 };
+
+/** A spot on the paper, clear of the box and of the shaft: where a press deselects. */
+const INSIDE_PAPER = { x: -250, y: 20 };
+
+/**
+ * The paper beside the box's near edge, level with the shaft: a head drawn on
+ * that edge fills it with its wings, and a shaft running past it puts nothing
+ * there but its own stroke.
+ */
+const INSIDE_HEAD: Rect = { x: 724, y: 392, width: 7, height: 16 };
+
 /** The view `BENT_SCENE` lands in, worked out the same way as `VIEW`. */
 const BENT: View = { zoom: 1, panX: 340, panY: 275 };
 
@@ -203,6 +252,7 @@ const SCENES = {
     'crossing.json': CROSSING_SOURCE,
     'bent.json': BENT_SOURCE,
     'mixed.json': MIXED_SNAPPED_SOURCE,
+    'inside.json': INSIDE_SOURCE,
     'bentfree.json': BENT_FREE_SOURCE,
     'loop.json': LOOP_SOURCE,
   },
@@ -1011,6 +1061,50 @@ describe('a bent shaft keeps its bend', () => {
       { x: 100, y: 380 },
       { x: 450, y: 380 },
     ]);
+  });
+
+  test('a move that carries a bend inside its target keeps the head on the near edge', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'inside.json');
+    await clickScene(ui, INSIDE_ON, [], INSIDE);
+    // The Review's drag: 225px along the shaft, which leaves the bend at
+    // (75,50), inside the box the end Snaps to.
+    await dragBy(ui, INSIDE_ON, 225, 0, INSIDE);
+
+    const scene = await savedAndChecked(ui, 'inside.json');
+    expect(scene.elements[0]?.points).toEqual([
+      { x: -75, y: 50 },
+      { x: 75, y: 50, corner: 'sharp' },
+      { x: 225, y: 50, snap: 'box' },
+    ]);
+
+    // The Snap is kept, so the end draws where the shaft reaches the box from
+    // outside: the near edge at (0,50), with the head pointing into the target
+    // and its wings on the paper beside the fill.
+    const paths = drawnPaths((await savedFiles(ui))['inside.svg'] ?? '');
+    const head = paths.find(
+      (points) => points.length === 3 && points.some((point) => reaches(point, { x: 0, y: 50 })),
+    );
+    expect(head, 'a head sits on the box’s near edge, not on its far one').toBeTruthy();
+    const wings = (head ?? []).filter((point) => !reaches(point, { x: 0, y: 50 }));
+    expect(
+      wings.every((point) => point.x < 0),
+      `its wings sit on the paper beside the fill, got ${JSON.stringify(wings)}`,
+    ).toBe(true);
+
+    // And that ink is on the page: the box's near edge is fully painted, so a
+    // head under it would leave nothing there but the shaft's own stroke.
+    await clickScene(ui, INSIDE_PAPER, [], INSIDE);
+    await settle(ui);
+    const painted = (await shot(ui)).darkBounds(INSIDE_HEAD, 0.6);
+    expect(
+      painted?.height ?? 0,
+      `the head’s wings are painted beside the box, got ${JSON.stringify(painted)}`,
+    ).toBeGreaterThan(6);
   });
 
   test('dragging the start keeps the bend and the end', async ({ app, browser, screen }) => {

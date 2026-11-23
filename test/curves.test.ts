@@ -638,6 +638,57 @@ test('two targets that share an outline are two targets, not one loop', async ()
   assert.ok(near(start.y, 100) && near(end.y, 100), 'and land on the shared top edge');
 });
 
+test('a bend a move puts inside its target keeps the head on the near edge', async () => {
+  // The Review's 225px nudge of a three-point shaft, drawn: the target spans
+  // x=0..100 and is painted over the arrow, and the move leaves the bend at
+  // (75,50), inside the box. The end keeps its Snap, so it lands where the
+  // arrow reaches the outline from outside — the near edge at (0,50) — and its
+  // head points into the target with its wings clear of the fill, rather than
+  // meeting the far edge with the wings hidden under it.
+  const svg = await ink({
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [
+      {
+        id: 'arrow',
+        type: 'arrow',
+        points: [
+          { x: -75, y: 50 },
+          { x: 75, y: 50, corner: 'sharp' },
+          { x: 225, y: 50, snap: 'box' },
+        ],
+      },
+      {
+        id: 'box',
+        type: 'rectangle',
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+        fill: { kind: 'solid', grey: 1 },
+      },
+    ],
+  });
+
+  const head = tags(svg, 'path')
+    .filter((tag) => attribute(tag, 'fill') === INK)
+    .map((tag) => drawnPoints(attribute(tag, 'd') ?? ''))
+    .find((points) => points.some((point) => near(point.x, 0) && near(point.y, 50)));
+  assert.ok(head !== undefined, 'a head sits on the near edge, not on the far one');
+  const wings = head.filter((point) => !(near(point.x, 0) && near(point.y, 50)));
+  assert.equal(wings.length, 2, 'the head is a triangle');
+  assert.ok(
+    wings.every((point) => point.x < 0),
+    `its wings sit outside the fill, got ${JSON.stringify(wings)}`,
+  );
+
+  const drawn = drawnPoints(attribute(shaftFrom(svg, { x: -75, y: 50 }), 'd') ?? '');
+  assert.ok(
+    drawn.every((point) => point.x <= 0.01),
+    `no ink runs on into the fill, got ${JSON.stringify(drawn)}`,
+  );
+});
+
 test('a line bends and softens its corners the same way an arrow does', async () => {
   const points = [
     { x: 0, y: 0 },
