@@ -1322,3 +1322,139 @@ test('a pinch that spans the rail and the paper draws nothing on the paper', asy
   expect(await savedFiles(ui), 'a pinch on the paper writes no file').toEqual(files);
   expect(await keptSide(ui), 'the rail drag it started still docks').toBe('left');
 });
+
+/**
+ * The browser protocol with a pointer of its own: a pen, a touch and the mouse,
+ * each pressed and let go when the test says so. e2e's fixtures each drive the
+ * primary pointer, and the gestures below are one pointer's while another holds
+ * the rail — a pen dragging the strip with a finger still on the paper, which no
+ * fixture can produce.
+ */
+async function mixedPointers() {
+  const page = livePage();
+  const client = await page.context().newCDPSession(page);
+  /** A press, a move or a release of the pen's or the mouse's own pointer. */
+  const press = async (
+    pointerType: 'pen' | 'mouse',
+    type: 'mousePressed' | 'mouseMoved' | 'mouseReleased',
+    x: number,
+    y: number,
+  ): Promise<void> => {
+    await client.send('Input.dispatchMouseEvent', {
+      pointerType,
+      type,
+      x,
+      y,
+      button: type === 'mouseMoved' ? 'none' : 'left',
+      buttons: type === 'mouseReleased' ? 0 : 1,
+      clickCount: 1,
+    });
+  };
+  return {
+    pen: (type: 'mousePressed' | 'mouseMoved' | 'mouseReleased', x: number, y: number) => press('pen', type, x, y),
+    mouse: (type: 'mousePressed' | 'mouseMoved' | 'mouseReleased', x: number, y: number) =>
+      press('mouse', type, x, y),
+    /** The touch's contacts, every one of them on every call, as the protocol takes them. */
+    touch: async (
+      type: 'touchStart' | 'touchMove' | 'touchEnd',
+      points: Array<{ x: number; y: number; id: number }>,
+    ): Promise<void> => {
+      await client.send('Input.dispatchTouchEvent', { type, touchPoints: points });
+    },
+  };
+}
+
+/** How many writes the page has asked the stubbed folder for, held or landed. */
+async function writeCount(ui: Ui): Promise<number> {
+  return ui.browser.evaluate(
+    () => ((window as unknown as { __esbozoGates?: unknown[] }).__esbozoGates ?? []).length,
+  );
+}
+
+test('a finger a rail drag ignored ends as ignored, so its release leaves the mouse’s Rectangle alone', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+  const band: Rect = { x: 400, y: 0, width: 480, height: 240 };
+  const opened = await railPlace(ui, band);
+  await screen.getByRole('button', { name: 'Rectangle', exact: true }).click();
+  await holdWrites(ui, 'bare.json');
+  const { pen, mouse, touch } = await mixedPointers();
+  const grip = tileCentre(boxOfPlace(opened), 1);
+
+  // A pen presses the rail and carries it left; a finger lands on the paper and
+  // stays there; the pen lets go, so the rail docks with the finger still down.
+  // Neither contact carries Ctrl: the board ignores the finger because a rail
+  // drag owns a pointer, not because a menu owns its press.
+  await pen('mousePressed', grip.x, grip.y);
+  await pen('mouseMoved', 250, 400);
+  await touch('touchStart', [{ x: 1000, y: 360, id: 0 }]);
+  await pen('mouseReleased', 250, 400);
+  await settle(ui);
+  expect(await keptSide(ui), 'the pen’s release docked the rail').toBe('left');
+
+  // A mouse draws a 100×80 Rectangle while the finger is still down, and the
+  // finger is lifted first: its release is its own, so the Rectangle the mouse is
+  // still drawing is not the finger's to settle (criterion 10).
+  await mouse('mouseMoved', 700, 200);
+  await mouse('mousePressed', 700, 200);
+  await mouse('mouseMoved', 750, 240);
+  await mouse('mouseMoved', 800, 280);
+  await touch('touchEnd', []);
+  await settle(ui);
+  expect(await writeCount(ui), 'the ignored finger’s release saves nothing').toBe(0);
+
+  // The mouse's own release is the one that finishes the Rectangle it drew.
+  await mouse('mouseReleased', 800, 280);
+  await expect.poll(() => writeCount(ui), { timeout: 5000 }).toBe(1);
+  await allowWrites(ui);
+  const drawn = (await savedScene(ui, 'bare.json')).elements[0];
+  expect([drawn?.width, drawn?.height], 'the mouse’s own Rectangle is what was saved').toEqual([100, 80]);
+});
+
+test('a mouse a held rail drag ignored ends as ignored, so an in-flight touch draw saves itself', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+  const band: Rect = { x: 400, y: 0, width: 480, height: 240 };
+  const opened = await railPlace(ui, band);
+  await screen.getByRole('button', { name: 'Rectangle', exact: true }).click();
+  await holdWrites(ui, 'bare.json');
+  const { pen, mouse, touch } = await mixedPointers();
+  const grip = tileCentre(boxOfPlace(opened), 1);
+
+  // A finger draws a 200×60 Rectangle on the paper and stays down; a pen then
+  // presses the rail and carries it left, so a drag owns a pointer while the
+  // draw is still in flight.
+  await touch('touchStart', [{ x: 900, y: 300, id: 0 }]);
+  await touch('touchMove', [{ x: 1000, y: 330, id: 0 }]);
+  await touch('touchMove', [{ x: 1100, y: 360, id: 0 }]);
+  await pen('mousePressed', grip.x, grip.y);
+  await pen('mouseMoved', 250, 400);
+
+  // The mouse presses the paper and lets go while the rail is still held: the
+  // board ignores both, and neither is the touch draw's to settle.
+  await mouse('mouseMoved', 700, 200);
+  await mouse('mousePressed', 700, 200);
+  await mouse('mouseReleased', 700, 200);
+  await settle(ui);
+  expect(await writeCount(ui), 'the ignored mouse’s release saves nothing').toBe(0);
+
+  // The finger's own release is the one that finishes its Rectangle, and the pen
+  // still docks the rail it is holding.
+  await touch('touchEnd', []);
+  await expect.poll(() => writeCount(ui), { timeout: 5000 }).toBe(1);
+  await allowWrites(ui);
+  const drawn = (await savedScene(ui, 'bare.json')).elements[0];
+  expect([drawn?.width, drawn?.height], 'the touch’s own Rectangle is what was saved').toEqual([200, 60]);
+
+  await pen('mouseReleased', 250, 400);
+  await settle(ui);
+  expect(await keptSide(ui), 'the pen’s release docks the rail').toBe('left');
+});
