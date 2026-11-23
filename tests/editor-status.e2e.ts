@@ -20,7 +20,7 @@ import type { Ui } from './helpers.ts';
 import { blurPage, livePage } from './cdp.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
-import { SCENE_SOURCE, THREE_SOURCE } from './editor-shared.ts';
+import { SCENE_SOURCE, THREE_SOURCE, focusOn, palette } from './editor-shared.ts';
 
 /** The bottom-centre band around the mode pill at 1366 × 768. */
 const MODE_PILL_BAND: Rect = { x: 601, y: 690, width: 164, height: 70 };
@@ -311,6 +311,35 @@ test('the ? button opens the Shortcuts sheet, and Escape shuts it', async ({ app
   await expect(sheet).toBeHidden();
   await expect(help).toHaveAttribute('aria-expanded', 'false');
   await expect(ui.screen.getByRole('dialog', 'Style')).toBeVisible();
+  // And the keys belong to the canvas again, wherever the focus was when the
+  // sheet was asked for.
+  await expect.poll(() => focusOn(ui)).toBe('canvas');
+});
+
+test('Escape shuts the note on top, and only that one', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+  const help = ui.screen.getByRole('button', 'Shortcuts');
+  const sheet = ui.screen.getByRole('dialog', 'Shortcuts');
+  const commands = ui.screen.getByRole('dialog', 'Commands');
+
+  // Two notes the page holds, one over the other: the sheet first, and the
+  // palette the keys ask for over it. Neither is asked for with a press, so the
+  // press that would shut the one under is not what puts them both there.
+  await help.click();
+  await expect(sheet).toBeVisible();
+  await palette(ui);
+  await expect(commands).toBeVisible();
+
+  // The first Escape is the note on top's alone, and the sheet under it stays;
+  // the second Escape is then that one's, because it is on top now.
+  await ui.browser.keyboard.press('Escape');
+  await expect(commands).toBeHidden();
+  await expect(sheet).toBeVisible();
+  await ui.browser.keyboard.press('Escape');
+  await expect(sheet).toBeHidden();
+  await expect(help).toHaveAttribute('aria-expanded', 'false');
+  await expect.poll(() => focusOn(ui)).toBe('canvas');
 });
 
 test('the Shortcuts sheet keeps its left border on the narrowest page', async ({

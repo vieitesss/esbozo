@@ -23,6 +23,7 @@ import {
   settle,
 } from './helpers.ts';
 import type { Folders, Ui } from './helpers.ts';
+import { focusOn } from './editor-shared.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
 
@@ -425,6 +426,48 @@ test('a listing that lands after the note shut neither reopens it nor shows what
   // it again, and the list it read is not the list the page holds.
   await expect(screen.getByRole('dialog', 'Scene files')).toBeHidden();
   await expect(screen.getByRole('button', 'z.json')).toBeHidden();
+});
+
+test('a press outside the Scenes note shuts it and still lands where it was aimed', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui: Ui = { app, browser, screen };
+  await openPage(ui, folderWith());
+  const note = screen.getByRole('dialog', 'Scene files');
+  await screen.getByRole('button', 'a.json').click();
+  await browseFolder(ui, 'A');
+  await expect(note).toBeVisible();
+
+  // The press is the paper's: the note shuts, and the box under the pointer is
+  // the one the press selected, so the note let the press through.
+  await clickScene(ui, { x: 100, y: 80 });
+  await expect(note).toBeHidden();
+  await expect(screen.getByRole('dialog', 'Style')).toBeVisible();
+  await expect.poll(() => focusOn(ui)).toBe('canvas');
+});
+
+test('Escape shuts the Scenes note and leaves the selection alone', async ({ app, browser, screen }) => {
+  const ui: Ui = { app, browser, screen };
+  await openPage(ui, folderWith());
+  const note = screen.getByRole('dialog', 'Scene files');
+  const style = screen.getByRole('dialog', 'Style');
+  await screen.getByRole('button', 'a.json').click();
+
+  // One box selected, and the note asked for over it: the Escape that shuts the
+  // note is the note's, so what the person selected is still selected, and the
+  // keys are the canvas's again.
+  await clickScene(ui, { x: 100, y: 80 });
+  await expect(style).toBeVisible();
+  await browseFolder(ui, 'A');
+  await expect(note).toBeVisible();
+  await expect(style).toBeVisible();
+
+  await browser.keyboard.press('Escape');
+  await expect(note).toBeHidden();
+  await expect(style).toBeVisible();
+  await expect.poll(() => focusOn(ui)).toBe('canvas');
 });
 
 test("a Scene that opens new while an edit's write is held keeps its own word", async ({ app, browser, screen }) => {

@@ -18,7 +18,7 @@ import {
 } from './helpers.ts';
 import type { Ui } from './helpers.ts';
 import { shot } from './pixels.ts';
-import { SCENE_SOURCE, GRID, CORNER, command, palette, zoomReadout } from './editor-shared.ts';
+import { SCENE_SOURCE, GRID, CORNER, command, focusOn, palette, zoomReadout } from './editor-shared.ts';
 
 test('Q opens the palette on every action, each with the key that does it', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
@@ -150,17 +150,6 @@ test('the palette stays shut while a Text is being typed', async ({ app, browser
  */
 const FIRST = { x: 460, y: 490, width: 180, height: 300 };
 
-/** Which of the page's two focus stops holds the focus: the search field or the canvas. */
-function focusOf(ui: Ui): Promise<'canvas' | 'search' | 'other'> {
-  return ui.browser.evaluate(() => {
-    const active = document.activeElement;
-    if (active === document.querySelector('.canvas')) {
-      return 'canvas';
-    }
-    return active === document.querySelector('.palette input') ? 'search' : 'other';
-  });
-}
-
 /**
  * A page that has the editor in its own flow, a screen down, with its own words
  * below: the window holds most of the editor and cuts its last 80 pixels off,
@@ -240,6 +229,34 @@ test('the focus the palette hands back leaves the paper where the pointer left i
   await expect(screen.getByRole('button', { name: 'Corners: sharp' })).toBeVisible();
 });
 
+test('a press outside the palette shuts it and hands the focus back to the canvas', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+
+  // The palette covers the page with the felt around its field and list, and a
+  // press on that felt is a press on nothing: it shuts the note, and the field
+  // lets go of the caret with it. What the press aims at takes the focus, so
+  // here that is the page rather than the canvas.
+  await palette(ui);
+  await expect.poll(async () => focusOn(ui)).toBe('search');
+  await browser.mouse.move(100, 700);
+  await browser.mouse.down();
+  await browser.mouse.up();
+  await expect(screen.getByRole('dialog', 'Commands')).toBeHidden();
+  await expect.poll(async () => focusOn(ui)).not.toBe('search');
+
+  // The keys are the page's again, as they are after an Escape: `g` is the Grid
+  // and not a letter the search field would have swallowed.
+  const withGrid = (await shot(ui)).darkCount(GRID, 0.9);
+  await browser.keyboard.press('g');
+  await settle(ui);
+  expect((await shot(ui)).darkCount(GRID, 0.9)).toBeLessThan(withGrid - 100);
+});
+
 test('the digits pick the tools by their place on the rail', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
@@ -285,7 +302,7 @@ test('shutting the palette puts the focus back on the canvas', async ({ app, bro
   await palette(ui);
   await browser.keyboard.press('Escape');
   await expect(screen.getByRole('dialog', 'Commands')).toBeHidden();
-  await expect.poll(async () => focusOf(ui)).toBe('canvas');
+  await expect.poll(async () => focusOn(ui)).toBe('canvas');
   const withGrid = (await shot(ui)).darkCount(GRID, 0.9);
   await browser.keyboard.press('g');
   await settle(ui);
@@ -296,7 +313,7 @@ test('shutting the palette puts the focus back on the canvas', async ({ app, bro
   await browser.keyboard.type('grid');
   await browser.keyboard.press('Enter');
   await expect(screen.getByRole('dialog', 'Commands')).toBeHidden();
-  await expect.poll(async () => focusOf(ui)).toBe('canvas');
+  await expect.poll(async () => focusOn(ui)).toBe('canvas');
   await expect.poll(async () => (await shot(ui)).darkCount(GRID, 0.9)).toBeGreaterThan(withGrid - 100);
 
   // A row that cannot run keeps the palette open and the caret in the search
@@ -308,7 +325,7 @@ test('shutting the palette puts the focus back on the canvas', async ({ app, bro
   // behind is the palette, open, and the caret in the search field.
   await command(ui, 'Delete · X · ⌫ · Del').click({ position: { x: 2, y: 2 } });
   await expect(screen.getByRole('dialog', 'Commands')).toBeVisible();
-  await expect.poll(async () => focusOf(ui)).toBe('search');
+  await expect.poll(async () => focusOn(ui)).toBe('search');
   await browser.keyboard.type('zzz');
   await expect(command(ui, 'Delete · X · ⌫ · Del')).toBeHidden();
   expect((await savedScene(ui)).elements.length).toBe(2);

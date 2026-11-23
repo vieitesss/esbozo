@@ -54,6 +54,20 @@ export async function fullInk(ui: Ui): Promise<void> {
 
 // --------------------------------------------------------------- the palette
 
+/**
+ * Where the focus a note hands back went: the canvas it belongs to, the
+ * palette's search field while the palette holds it, or somewhere else.
+ */
+export function focusOn(ui: Ui): Promise<'canvas' | 'search' | 'other'> {
+  return ui.browser.evaluate(() => {
+    const active = document.activeElement;
+    if (active === document.querySelector('.canvas')) {
+      return 'canvas';
+    }
+    return active === document.querySelector('.palette input') ? 'search' : 'other';
+  });
+}
+
 /** A command palette row, by the name and the shortcut the row shows. */
 export function command(ui: Ui, name: string | RegExp) {
   return ui.screen.getByRole('option', { name });

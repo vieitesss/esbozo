@@ -366,6 +366,8 @@ const CONTROLLED_HOST = `<!doctype html>
     editor.remove();
     slot.append(editor);
   };
+  window.detach = () => editor.remove();
+  window.attach = () => slot.append(editor);
 </script>
 <script type="module" src="editor.js"></script>
 </body>
@@ -1399,3 +1401,67 @@ for (const gesture of [
     }
   });
 }
+
+/**
+ * The notes are the stack's and the stack's press is the element's: an element
+ * taken off the page takes every listener with it, and one put back hears one
+ * press, not two. A press or an Escape the page answers twice would shut the
+ * note under the one it was meant for.
+ */
+test('an editor taken off the page and put back answers one press per note', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui: Ui = { app, browser, screen };
+  await ui.browser.route('**/editor.html', (route) =>
+    route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: CONTROLLED_HOST }),
+  );
+  await editorPage(ui);
+  const note = screen.getByRole('dialog', 'Scene files');
+  const sheet = screen.getByRole('dialog', 'Shortcuts');
+
+  // Two notes the page opened, one over the other: the Scenes note first, and
+  // the sheet over it. Both are asked for from the keys, so no press is in hand.
+  await screen.getByRole('button', /Open folder/).press('Enter');
+  await expect(note).toBeVisible();
+  await screen.getByRole('button', 'Shortcuts').press('Enter');
+  await expect(sheet).toBeVisible();
+
+  // Off the page, a press on the paper and an Escape answer no note at all: the
+  // listeners left with the element. Both notes are where the person left them
+  // when it comes back.
+  await browser.evaluate(() => {
+    (window as unknown as { detach: () => void }).detach();
+    return true;
+  });
+  await browser.mouse.move(300, 700);
+  await browser.mouse.down();
+  await browser.mouse.up();
+  await browser.keyboard.press('Escape');
+  await settle(ui);
+  await browser.evaluate(() => {
+    (window as unknown as { attach: () => void }).attach();
+    return true;
+  });
+  await expect(note).toBeVisible();
+  await expect(sheet).toBeVisible();
+
+  // One press outside shuts the note on top, and the one under it stays: a stack
+  // wired twice would have shut both on the same press.
+  await browser.mouse.move(300, 700);
+  await browser.mouse.down();
+  await browser.mouse.up();
+  await expect(sheet).toBeHidden();
+  await expect(note).toBeVisible();
+
+  // And one Escape shuts the sheet asked for over the note and leaves the note
+  // alone: a keydown the page listened to twice would have shut both at once.
+  await screen.getByRole('button', 'Shortcuts').press('Enter');
+  await expect(sheet).toBeVisible();
+  await browser.keyboard.press('Escape');
+  await expect(sheet).toBeHidden();
+  await expect(note).toBeVisible();
+  await browser.keyboard.press('Escape');
+  await expect(note).toBeHidden();
+});
