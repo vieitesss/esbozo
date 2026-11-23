@@ -1839,7 +1839,11 @@ class EsbozoEditorElement extends HTMLElement {
     try {
       names = await folder.listScenes();
     } catch (error) {
-      this.#setSaved('failed', (error as Error).message);
+      if (this.#notes.wants(ask)) {
+        // A failure for a read the note no longer wants is as stale as a list
+        // it would not paint: the status line speaks for the Scene in hand.
+        this.#setSaved('failed', (error as Error).message);
+      }
       return;
     }
     if (!this.#notes.wants(ask)) {
