@@ -211,17 +211,23 @@ export function withCorner(
  * The shaft turning by `corner` at every point: the Element's own `corners`
  * set, and every point's own `corner` dropped, so one pick resets a shaft whose
  * bend points disagreed and the Scene stores only the corner it means. Every
- * point keeps its place and its Snap, and nothing else of the Element changes.
+ * point keeps its place, its Snap and its Anchor, and nothing else of the
+ * Element changes: its own `corner` is the only key a pick touches.
  */
 export function withShaftCorners(
   element: ArrowOrLineElement,
   corner: Corner,
 ): ArrowOrLineElement {
-  const points = element.points.map((point) => ({
-    x: point.x,
-    y: point.y,
-    ...(point.snap === undefined ? {} : { snap: point.snap }),
-  }));
+  const points = element.points.map((point) => {
+    if (point.corner === undefined) {
+      return point;
+    }
+    // Every key but the `corner` is the point's to keep; a rebuild that lists
+    // the keys by hand is how an Anchor stops being drawn by.
+    const kept = { ...point };
+    delete kept.corner;
+    return kept;
+  });
   return { ...element, corners: corner, points: points as ArrowOrLineElement['points'] };
 }
 
