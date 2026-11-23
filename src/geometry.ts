@@ -1233,30 +1233,69 @@ export function labelAtFor(
       offset: (anchor.x - path.start.x) * side.x + (anchor.y - path.start.y) * side.y,
     };
   }
-  let walked = 0;
-  let nearest: { at: Point; side: Point; along: number } | null = null;
-  let closest = Number.POSITIVE_INFINITY;
-  for (const piece of path.pieces) {
-    const u = nearestU(piece, anchor);
-    const at = pointOf(piece, u);
-    const away = Math.hypot(anchor.x - at.x, anchor.y - at.y);
-    if (away < closest) {
-      closest = away;
-      nearest = { at, side: shaftSide(directionAt(piece, u)), along: walked + arcAt(piece, u) };
-    }
-    walked += piece.length;
-  }
-  const found = nearest as { at: Point; side: Point; along: number };
+  const t = writtenFraction(nearestFraction(path, anchor));
+  // The side is read at the fraction a Scene keeps, not at the inkless float the
+  // search lands on: where the ink turns upright, a place a hair inside the end
+  // faces the other way from the end itself, and the words would be drawn on the
+  // side the pointer never was.
+  const found = placedOn(path, t);
+  const side = shaftSide(found.direction);
   return {
-    t: Math.min(1, Math.max(0, found.along / path.length)),
-    offset: (anchor.x - found.at.x) * found.side.x + (anchor.y - found.at.y) * found.side.y,
+    t,
+    offset: (anchor.x - found.at.x) * side.x + (anchor.y - found.at.y) * side.y,
   };
 }
 
 /**
- * How many places along a curve the nearest one is looked for before the bracket
- * around the closest is narrowed: enough that a curve turning back on itself
- * keeps every lobe it has, and short enough to walk on every pointer move.
+ * How many decimals of a Label's fraction along its shaft a Scene keeps: fine
+ * enough that a Label slides along even a long shaft, short enough that the
+ * saved file stays readable.
+ */
+const LABEL_AT_T_DECIMALS = 4;
+
+/**
+ * A fraction along a shaft as a Scene keeps it: the decimals it writes, with no
+ * negative zero. The place a drag reads back is this one, because a side read at
+ * a fraction the save rounds could face the other way from the side drawn there.
+ */
+export function writtenFraction(t: number): number {
+  const scale = 10 ** LABEL_AT_T_DECIMALS;
+  const kept = Math.min(1, Math.max(0, t));
+  const rounded = Math.round(kept * scale) / scale;
+  return rounded === 0 ? 0 : rounded;
+}
+
+/** How far along the drawn shaft a point falls, as a fraction of its own length. */
+function nearestFraction(path: ShaftPath, anchor: Point): number {
+  let walked = 0;
+  let found: { piece: ShaftPiece; u: number; from: number } | null = null;
+  let closest = Number.POSITIVE_INFINITY;
+  for (const piece of path.pieces) {
+    const u = nearestU(piece, anchor);
+    const away = squaredAway(pointOf(piece, u), anchor);
+    if (away < closest) {
+      closest = away;
+      found = { piece, u, from: walked };
+    }
+    walked += piece.length;
+  }
+  const nearest = found as { piece: ShaftPiece; u: number; from: number };
+  // A shaft of one straight run is measured by its own parameter: a projection
+  // reads back the exact fraction such a shaft has always written, with no round
+  // trip through two lengths to land a float below the tie it rounds on.
+  if (path.pieces.length === 1 && nearest.piece.kind === 'straight') {
+    return nearest.u;
+  }
+  const along = nearest.from + arcAt(nearest.piece, nearest.u);
+  return along / path.length;
+}
+
+/**
+ * How many places along a curve the nearest one is looked for before the lobe
+ * each one starts is narrowed: enough that a sample lands in every lobe a curve
+ * turning back on itself has, and short enough to walk on every pointer move.
+ * The narrowed lobes are then compared, because the best sample alone cannot say
+ * which lobe holds the closest ink.
  */
 const NEAREST_STEPS = 64;
 
@@ -1266,25 +1305,53 @@ const NEAREST_TURNS = 40;
 /**
  * How far along one piece the point nearest `point` falls, as the piece's own
  * parameter. A straight run answers where the point projects onto it; a curve is
- * sampled and the bracket around the closest sample narrowed, because a curve's
- * distance to a point is not a share of its own parameter.
+ * sampled, every lobe of its distance narrowed, and the nearest of those kept,
+ * because a curve's distance to a point is not a share of its own parameter.
  */
 function nearestU(piece: ShaftPiece, point: Point): number {
   if (piece.kind === 'straight') {
     return alongSegment(piece.from, piece.to, point);
   }
   let best = 0;
-  let bestAway = Number.POSITIVE_INFINITY;
-  for (let step = 0; step <= NEAREST_STEPS; step += 1) {
-    const u = step / NEAREST_STEPS;
+  let closest = Number.POSITIVE_INFINITY;
+  const consider = (u: number): void => {
     const away = squaredAway(pointOf(piece, u), point);
-    if (away < bestAway) {
-      bestAway = away;
+    if (away < closest) {
+      closest = away;
       best = u;
     }
-  }
+  };
+  // The ends as they are: a point past the ink clamps onto the end it went past,
+  // which is the place the drawing keeps, and not the float just inside it where
+  // the side can face the other way.
+  consider(0);
+  consider(1);
   const margin = 1 / NEAREST_STEPS;
-  return narrowest(piece, point, Math.max(0, best - margin), Math.min(1, best + margin));
+  for (const u of lobes(piece, point)) {
+    consider(narrowest(piece, point, Math.max(0, u - margin), Math.min(1, u + margin)));
+  }
+  return best;
+}
+
+/**
+ * Where a curve's distance to a point has a bottom of its own: the sampled places
+ * that are nearer the point than both their neighbours, one per lobe.
+ */
+function lobes(piece: CurvedPiece, point: Point): number[] {
+  const away = Array.from({ length: NEAREST_STEPS + 1 }, (_, step) =>
+    squaredAway(pointOf(piece, step / NEAREST_STEPS), point),
+  );
+  const bottoms: number[] = [];
+  for (let step = 0; step <= NEAREST_STEPS; step += 1) {
+    if (step > 0 && away[step - 1]! < away[step]!) {
+      continue;
+    }
+    if (step < NEAREST_STEPS && away[step + 1]! <= away[step]!) {
+      continue;
+    }
+    bottoms.push(step / NEAREST_STEPS);
+  }
+  return bottoms;
 }
 
 /**

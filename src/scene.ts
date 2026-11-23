@@ -98,6 +98,7 @@
  * Style menu offers exactly what a Scene may hold and keeps only the words a
  * person reads, so a control can never save a value the file would reject.
  */
+import { writtenFraction } from './geometry.js';
 import { sha256, sha256Hex } from './sha256.js';
 
 const SCENE_VERSION = 1;
@@ -379,12 +380,6 @@ const POINT_KEYS = ['x', 'y', 'snap', 'corner'] as const;
 const HEADS_KEYS = ['start', 'end'] as const;
 const LABEL_AT_KEYS = ['t', 'offset'] as const;
 
-/**
- * `labelAt.t` keeps four decimals: fine enough that a Label slides along even a
- * long shaft, short enough that the saved file stays readable.
- */
-const LABEL_AT_T_DECIMALS = 4;
-
 /** Whole-pixel coordinates keep Scene diffs clean and the SVG small. */
 function wholePixels(value: number): number {
   const rounded = Math.round(value);
@@ -446,14 +441,14 @@ function wholePoints(points: [Point, Point, ...Point[]]): [Point, Point, ...Poin
 }
 
 /**
- * A Label's place on its shaft, rounded where it is written: the fraction to
- * `LABEL_AT_T_DECIMALS`, the distance to whole pixels like the geometry around
- * it, so a position the editor assigns saves and reopens as itself.
+ * A Label's place on its shaft, rounded where it is written: the fraction to the
+ * decimals `writtenFraction` keeps — the same ones the editor's drag reads back,
+ * so the place it shows is the place it saves — and the distance to whole pixels
+ * like the geometry around it, so a position the editor assigns saves and
+ * reopens as itself.
  */
 function canonicalLabelAt(labelAt: LabelAt): LabelAt {
-  const scale = 10 ** LABEL_AT_T_DECIMALS;
-  const rounded = Math.round(labelAt.t * scale) / scale;
-  return { t: rounded === 0 ? 0 : rounded, offset: wholePixels(labelAt.offset) };
+  return { t: writtenFraction(labelAt.t), offset: wholePixels(labelAt.offset) };
 }
 
 /**
