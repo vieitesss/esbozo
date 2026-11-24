@@ -1,10 +1,10 @@
 import { elementBounds, elementsById } from '../renderer.js';
-import { parseFragment, serialiseFragment } from '../scene.js';
+import { parseFragment } from '../scene.js';
 import type { Element as SceneElement, Scene } from '../scene.js';
 import type { Layout } from '../layout.js';
 import { arranged } from './arrange.js';
 import type { ArrangeAct } from './arrange.js';
-import { copies, idsOf, replaced, without } from './elements.js';
+import { copies, fragmentOf, idsOf, replaced, without } from './elements.js';
 import { boxOf, landingOffset, moved } from './geometry.js';
 import type { Point, View } from './geometry.js';
 import { freedEnd, isShaft } from './snap.js';
@@ -187,8 +187,8 @@ export function pasted(
 /**
  * A duplicate is a copy pasted in place, offset so the copy reads as a copy: one
  * step. It goes through the fragment Copy writes and Paste reads, so a Snap to
- * an Element outside the selection is dropped and the stored point is kept, and
- * a Snap to an Element inside the selection follows its copy.
+ * an Element outside the selection is dropped and the end is stored where it
+ * drew, and a Snap to an Element inside the selection follows its copy.
  *
  * The caller hands over the Elements it selects as the page shows them, as a
  * Copy does, so a duplicate made during a drag copies what the page draws.
@@ -198,6 +198,6 @@ export function duplicated(
   elements: readonly SceneElement[],
   landing: Landing,
 ): Edited | null {
-  const fragment = parseFragment(serialiseFragment(scene, elements), scene.defaults);
+  const fragment = parseFragment(fragmentOf(scene, elements), scene.defaults);
   return pasted(scene, fragment ?? [], landing);
 }
