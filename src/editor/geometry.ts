@@ -11,19 +11,10 @@
  */
 import { alongSegment } from '../geometry.js';
 import type { ShaftPath } from '../geometry.js';
-import {
-  elementBounds,
-  elementsById,
-  wordsInkBounds,
-  pageBounds,
-  renderElement,
-  shaftInk,
-  shaftLabel,
-  strokeWidthOf,
-} from '../renderer.js';
+import { elementBounds, wordsInkBounds, pageBounds, renderElement, shaftInk, shaftLabel, strokeWidthOf } from '../renderer.js';
 import type { HeadInk, ShaftInk } from '../renderer.js';
 import type { Layout } from '../layout.js';
-import { MIN_SIZE, isOutlined, snapTargetId } from '../scene.js';
+import { MIN_SIZE, isOutlined, snapTargetId, elementsById } from '../scene.js';
 import type { ArrowOrLineElement, Element, Scene } from '../scene.js';
 import { isShaft } from './snap.js';
 

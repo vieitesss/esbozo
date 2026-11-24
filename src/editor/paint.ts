@@ -16,9 +16,9 @@
  * bytes comes from the platform's digest, off the task that asked for it too.
  */
 import type { Box, Layout } from '../layout.js';
-import { elementsById, renderElement, sceneSvg } from '../renderer.js';
+import { renderElement, sceneSvg } from '../renderer.js';
 import type { DrawnElement } from '../renderer.js';
-import { canonicalElement, sceneJson, serialiseElementJson, snapTargetId } from '../scene.js';
+import { canonicalElement, sceneJson, serialiseElementJson, snapTargetId, elementsById } from '../scene.js';
 import type { Element, Scene } from '../scene.js';
 import { sha256HexAsync } from '../sha256.js';
 

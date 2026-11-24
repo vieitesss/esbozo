@@ -25,8 +25,8 @@
  * the editor's to say, through `PageHost`. Nothing here reads the Scene's own
  * state or decides what an edit is.
  */
-import { drawnGeometry, elementsById, outlineBox, shaftLabel, wordsInkBounds } from '../renderer.js';
-import { isOutlined, snapTargetId } from '../scene.js';
+import { drawnGeometry, outlineBox, shaftLabel, wordsInkBounds } from '../renderer.js';
+import { isOutlined, snapTargetId, elementsById } from '../scene.js';
 import type { Corner, Element as SceneElement, Scene } from '../scene.js';
 import type { Block, Layout, LineGlyphs } from '../layout.js';
 import { HANDLES, boxBetween, boxOf, clearedView, handlePoint, unionOf } from './geometry.js';

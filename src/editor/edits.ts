@@ -1,5 +1,5 @@
-import { elementBounds, elementsById } from '../renderer.js';
-import { parseFragment } from '../scene.js';
+import { elementBounds } from '../renderer.js';
+import { parseFragment, elementsById } from '../scene.js';
 import type { ArrowOrLineElement, Element as SceneElement, Scene } from '../scene.js';
 import type { Layout } from '../layout.js';
 import { arranged } from './arrange.js';

@@ -1,6 +1,13 @@
 import { RoughGenerator } from 'roughjs/bin/generator.js';
 import type { Drawable, OpSet, Options } from 'roughjs/bin/core.js';
-import { canonicalElement, canonicalScene, hashScene, isOutlined, snapTargetId } from './scene.js';
+import {
+  canonicalElement,
+  canonicalScene,
+  elementsById,
+  hashScene,
+  isOutlined,
+  snapTargetId,
+} from './scene.js';
 import type {
   ArrowOrLineElement,
   Corner,
@@ -57,9 +64,7 @@ const GREY_LAST = GREY_INK_PERCENT.length - 1;
 
 export type { Box } from './layout.js';
 
-export function elementsById(elements: readonly Element[]): Map<string, Element> {
-  return new Map(elements.map((element) => [element.id, element]));
-}
+export { elementsById };
 
 export function renderScene(scene: Scene, layout: Layout): string {
   const canonical = canonicalScene(scene);

@@ -1,5 +1,5 @@
-import { drawnGeometry, elementsById, drawnShaft, outlineBox, shaftInk } from '../renderer.js';
-import { canonicalElement, isOutlined } from '../scene.js';
+import { drawnGeometry, drawnShaft, outlineBox, shaftInk } from '../renderer.js';
+import { canonicalElement, isOutlined, elementsById } from '../scene.js';
 import type { ArrowOrLineElement, Element as SceneElement, Scene } from '../scene.js';
 import type { Layout } from '../layout.js';
 import { labelAtFor } from '../geometry.js';

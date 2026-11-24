@@ -1,7 +1,7 @@
-import { MIN_SIZE, seedForId, snapTargetId } from '../scene.js';
+import { MIN_SIZE, seedForId, snapTargetId, elementsById } from '../scene.js';
 import { serialiseFragment, unwrittenTextAlign } from '../scene.js';
 import type { Element, ElementStyle, Point, Scene, SceneStyle, TextElement } from '../scene.js';
-import { drawnShaft, elementsById } from '../renderer.js';
+import { drawnShaft } from '../renderer.js';
 import { boxBetween } from './geometry.js';
 import { isShaft } from './snap.js';
 import type { DrawableType, ToolId } from './actions.js';

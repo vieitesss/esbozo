@@ -15,9 +15,9 @@
  * ends where they draw: only a free end moves.
  */
 import { anchorOf, anchorPoint, insideOutline } from '../geometry.js';
-import { drawnGeometry, elementsById } from '../renderer.js';
+import { drawnGeometry } from '../renderer.js';
 import type { Anchor, ArrowOrLineElement, Element, OutlinedElement, Point } from '../scene.js';
-import { isOutlined, snapTargetId } from '../scene.js';
+import { isOutlined, snapTargetId, elementsById } from '../scene.js';
 
 /** Which end of an arrow or line: the first point, or the last. */
 export const ENDS = ['start', 'end'] as const;
