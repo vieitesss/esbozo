@@ -1,7 +1,7 @@
 import { MIN_SIZE, seedForId, snapTargetId, elementsById } from '../scene.js';
 import { serialiseFragment, unwrittenTextAlign } from '../scene.js';
 import type { Element, ElementStyle, Point, Scene, SceneStyle, TextElement } from '../scene.js';
-import { drawnShaft } from '../renderer.js';
+import { drawnGeometry } from '../renderer.js';
 import { boxBetween } from './geometry.js';
 import { isShaft } from './snap.js';
 import type { DrawableType, ToolId } from './actions.js';
@@ -243,7 +243,7 @@ function freedEnds(
   }
   // Both ends at once, with every target still in hand: a shaft may hold one
   // Element at both its ends, and freeing one first would move the other.
-  const [drawnStart, drawnEnd] = drawnShaft(element, byId);
+  const [drawnStart, drawnEnd] = drawnGeometry(element, byId).ends!;
   const freed = points.map((point, index) => {
     if ((index !== 0 && index !== last) || !drops(index)) {
       return point;
@@ -305,7 +305,7 @@ export function without(elements: readonly Element[], removed: ReadonlySet<strin
         return element;
       }
       // Where the end draws now, with the target still in the Scene to resolve it.
-      const [drawnStart, drawnEnd] = drawnShaft(element, byId);
+      const [drawnStart, drawnEnd] = drawnGeometry(element, byId).ends!;
       const freed = points.map((point, index) =>
         drops(index) ? free(index === 0 ? drawnStart : drawnEnd) : point,
       );
