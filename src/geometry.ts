@@ -517,6 +517,17 @@ const CURVE_FLATNESS = 0.1;
 const CURVE_MIN_STEPS = 16;
 const CURVE_MAX_STEPS = 1024;
 
+/**
+ * How far a curve may bend before it is read as the straight line it cannot be
+ * told from: the bend `CURVE_MAX_STEPS` steps measure at `CURVE_FLATNESS`, so a
+ * piece is drawn at the resolution it is measured at. Rough.js flattens every
+ * curve it is handed at one point a pixel, so the ink past this asks for more
+ * points than a browser or a stack holds: a leg of a trillion pixels pulls its
+ * bend three hundred thousand pixels off the chord, and `pointsOnPath` recurses
+ * until `ez render` writes no SVG at all. A non-finite bend is past this too.
+ */
+const CURVE_MAX_TIGHT = (CURVE_MAX_STEPS * CURVE_MAX_STEPS * 8 * CURVE_FLATNESS) / 6;
+
 const CURVE_SOLVE_STEPS = 40;
 
 /**
@@ -980,6 +991,20 @@ export function curve(
   control2: Point,
   to: Point,
 ): CurvedPiece {
+  if (!(tightness(from, control1, control2, to) <= CURVE_MAX_TIGHT)) {
+    return flatCurve(from, to);
+  }
+  const arcs = arcsOf(from, control1, control2, to);
+  return { kind: 'curved', from, control1, control2, to, arcs, length: arcs[arcs.length - 1]! };
+}
+
+/**
+ * The same span drawn as the straight line it is: control points a third and two
+ * thirds of the way, so the piece keeps its kind, its ends and its arc lengths.
+ */
+function flatCurve(from: Point, to: Point): CurvedPiece {
+  const control1 = lerp(from, to, 1 / 3);
+  const control2 = lerp(from, to, 2 / 3);
   const arcs = arcsOf(from, control1, control2, to);
   return { kind: 'curved', from, control1, control2, to, arcs, length: arcs[arcs.length - 1]! };
 }
@@ -1023,12 +1048,22 @@ function curveSpeed(from: Point, control1: Point, control2: Point, to: Point, u:
 }
 
 function curveSteps(from: Point, control1: Point, control2: Point, to: Point): number {
-  const tight = Math.max(
+  const steps = Math.ceil(
+    Math.sqrt((6 * tightness(from, control1, control2, to)) / (8 * CURVE_FLATNESS)),
+  );
+  return Math.min(CURVE_MAX_STEPS, Math.max(CURVE_MIN_STEPS, steps));
+}
+
+/**
+ * How far the control points pull a curve off the line between its ends: the
+ * larger of the two second differences, which is what says how much ink the
+ * span has to bend.
+ */
+function tightness(from: Point, control1: Point, control2: Point, to: Point): number {
+  return Math.max(
     Math.hypot(from.x - 2 * control1.x + control2.x, from.y - 2 * control1.y + control2.y),
     Math.hypot(control1.x - 2 * control2.x + to.x, control1.y - 2 * control2.y + to.y),
   );
-  const steps = Math.ceil(Math.sqrt((6 * tight) / (8 * CURVE_FLATNESS)));
-  return Math.min(CURVE_MAX_STEPS, Math.max(CURVE_MIN_STEPS, steps));
 }
 
 /**
