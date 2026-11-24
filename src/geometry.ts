@@ -19,6 +19,9 @@ export interface EndTarget {
   readonly anchor?: Anchor;
 }
 
+/** Which end of a Shaft a place is measured from. */
+type End = 'start' | 'end';
+
 const CORNER_RADIUS = 12;
 
 function centreOf(outline: Outline): Point {
@@ -576,14 +579,28 @@ interface ShaftDot {
   readonly index: number;
 }
 
+interface DrawnPoints {
+  /** Every point the ink runs through, with each end landed on its outline. */
+  readonly drawn: Point[];
+  /** The target a covered end stops at, or null where its ink runs free. */
+  readonly covered: { readonly start: Outline | null; readonly end: Outline | null };
+}
+
+/**
+ * The points a Shaft is drawn through: each Snapped end landed on its target's
+ * outline, at its Anchor or where the rule for an end without one puts it. An
+ * end whose neighbouring point a move carried inside the target it Snaps to is
+ * reported as covered, and the ink stops where it enters that target.
+ */
 function drawnPoints(
   points: readonly [Point, Point, ...Point[]],
   startTarget: EndTarget | undefined,
   endTarget: EndTarget | undefined,
-): Point[] {
+): DrawnPoints {
   const last = points.length - 1;
+  const covered: { start: Outline | null; end: Outline | null } = { start: null, end: null };
   if (last === 1) {
-    return settledEnds([points[0], points[1]], startTarget, endTarget);
+    return { drawn: settledEnds([points[0], points[1]], startTarget, endTarget), covered };
   }
   const drawn = points.map((point) => ({ x: point.x, y: point.y }));
   const loop = points[0].snap !== undefined && points[0].snap === points[last]!.snap;
@@ -597,83 +614,124 @@ function drawnPoints(
     anchoredEnd === null
   ) {
     [drawn[0], drawn[last]] = loopEnds(startTarget.outline, points[1]);
-    return drawn;
+    return { drawn, covered };
   }
-  // Both ends land on their outlines before either is cut back, so the ink a
-  // covered end is cut along runs from where the other end draws, not from the
+  // Both ends land on their outlines before either is cut, so the ink a covered
+  // end stops at is the ink drawn from where the other end draws, not from the
   // place the Scene still stores for it.
   if (anchoredStart !== null) {
     drawn[0] = anchoredStart;
   } else if (startTarget !== undefined) {
     drawn[0] = pointOnOutline(startTarget.outline, points[1]);
+    if (!loop && insideOutline(startTarget.outline, points[1])) {
+      covered.start = startTarget.outline;
+    }
   }
   if (anchoredEnd !== null) {
     drawn[last] = anchoredEnd;
   } else if (endTarget !== undefined) {
     drawn[last] = pointOnOutline(endTarget.outline, points[last - 1]!);
-  }
-  if (!loop) {
-    if (anchoredStart === null && startTarget !== undefined) {
-      cutBack(drawn, 0, startTarget.outline);
-    }
-    if (anchoredEnd === null && endTarget !== undefined) {
-      cutBack(drawn, last, endTarget.outline);
+    if (!loop && insideOutline(endTarget.outline, points[last - 1]!)) {
+      covered.end = endTarget.outline;
     }
   }
-  return drawn;
+  return { drawn, covered };
 }
 
 /**
- * Cuts the ink back to where it enters a target, for an end whose neighbouring
- * point sits inside it: every drawn point between the end and the first one
- * outside the target collapses onto that entry, so the ink stops at the outline
- * instead of running on under the fill.
+ * How far along the ink a covered end enters its target. The walk starts at
+ * that end, which is drawn on the outline, and reads the ink itself: the first
+ * place the curve is outside the target is where the ink has to stop.
  */
-function cutBack(drawn: Point[], end: number, target: Outline): void {
-  const step = end === 0 ? 1 : -1;
-  if (!insideOutline(target, drawn[end + step]!)) {
-    return;
+function entryAlong(pieces: readonly ShaftPiece[], target: Outline, side: End): number | null {
+  const outward = side === 'start' ? 1 : -1;
+  const start = side === 'start' ? 0 : pieces.length - 1;
+  const starts: number[] = [];
+  let walked = 0;
+  for (const piece of pieces) {
+    starts.push(walked);
+    walked += piece.length;
   }
-  let outside = -1;
-  for (let index = end + step; index >= 0 && index < drawn.length; index += step) {
-    if (!insideOutline(target, drawn[index]!)) {
-      outside = index;
-      break;
+  for (let index = start; index >= 0 && index < pieces.length; index += outward) {
+    const piece = pieces[index]!;
+    const beyond = side === 'start' ? piece.to : piece.from;
+    if (!insideOutline(target, beyond)) {
+      return starts[index]! + arcAt(piece, entryFraction(piece, target, side));
     }
   }
-  if (outside === -1) {
-    return;
-  }
-  const tip = crossingInto(target, drawn[outside]!, drawn[outside - step]!);
-  for (let index = end; index !== outside; index += step) {
-    drawn[index] = { x: tip.x, y: tip.y };
-  }
+  return null;
 }
 
 /**
- * Where the ink between a point outside an outline and a point inside it cross
- * it. Both points are already known to be on their sides, and a rectangle, an
- * ellipse and a diamond are convex, so the ink crosses once: the walk halves
- * the span until the two sides are `CROSSING_PX` apart, and answers with the
- * outside one so no ink runs on into the fill.
+ * The fraction of a piece where it crosses into `target`, answered on the side
+ * that is outside: the piece is known to be inside the target at one end and
+ * outside it at the other, so the walk halves the span until the two sides are
+ * `CROSSING_PX` apart and no ink runs on into the fill.
  */
-function crossingInto(target: Outline, from: Point, to: Point): Point {
-  let outside = 0;
-  let inside = 1;
+function entryFraction(piece: ShaftPiece, target: Outline, side: End): number {
+  let inside = side === 'start' ? 0 : 1;
+  let outside = side === 'start' ? 1 : 0;
   for (let step = 0; step < CROSSING_STEPS; step += 1) {
-    const middle = (outside + inside) / 2;
-    if (insideOutline(target, lerp(from, to, middle))) {
+    const middle = (inside + outside) / 2;
+    if (insideOutline(target, pointOf(piece, middle))) {
       inside = middle;
     } else {
       outside = middle;
     }
-    const reached = lerp(from, to, outside);
-    const nearly = lerp(from, to, inside);
+    const reached = pointOf(piece, outside);
+    const nearly = pointOf(piece, inside);
     if (Math.hypot(nearly.x - reached.x, nearly.y - reached.y) <= CROSSING_PX) {
       break;
     }
   }
-  return lerp(from, to, outside);
+  return outside;
+}
+
+/**
+ * The ink cut at a distance along it, counted from one end: the piece the cut
+ * falls in keeps the curve it was drawn on, so the ink left before it holds the
+ * control points it always had.
+ */
+function cutAt(pieces: readonly ShaftPiece[], distance: number, side: End): ShaftPiece[] {
+  const kept: ShaftPiece[] = [];
+  let walked = 0;
+  for (const piece of pieces) {
+    const from = walked;
+    const to = walked + piece.length;
+    walked = to;
+    if (side === 'end') {
+      if (from >= distance) {
+        break;
+      }
+      kept.push(sliceOf(piece, 0, uAt(piece, Math.min(distance, to) - from)));
+      continue;
+    }
+    if (to <= distance) {
+      continue;
+    }
+    kept.push(sliceOf(piece, uAt(piece, Math.max(distance, from) - from), 1));
+  }
+  return kept;
+}
+
+/** The segments the same cut leaves, in the arc lengths the shorter ink keeps. */
+function cutSegments(
+  segments: readonly ShaftSegment[],
+  distance: number,
+  side: End,
+): ShaftSegment[] {
+  if (side === 'end') {
+    return segments
+      .filter((segment) => segment.from < distance)
+      .map((segment) => ({ ...segment, to: Math.min(segment.to, distance) }));
+  }
+  return segments
+    .filter((segment) => segment.to > distance)
+    .map((segment) => ({
+      ...segment,
+      from: Math.max(segment.from, distance) - distance,
+      to: segment.to - distance,
+    }));
 }
 
 function loopEnds(target: Outline, bend: Point): [Point, Point] {
@@ -690,29 +748,36 @@ function loopEnds(target: Outline, bend: Point): [Point, Point] {
   ];
 }
 
-export function shaftEnds(
-  points: readonly [Point, Point, ...Point[]],
-  startTarget: EndTarget | undefined,
-  endTarget: EndTarget | undefined,
-): [Point, Point] {
-  const drawn = drawnPoints(points, startTarget, endTarget);
-  return [drawn[0]!, drawn[drawn.length - 1]!];
-}
-
 export function shaftPath(
   points: readonly [Point, Point, ...Point[]],
   corners: Corner,
   startTarget: EndTarget | undefined,
   endTarget: EndTarget | undefined,
 ): ShaftPath {
-  const drawn = drawnPoints(points, startTarget, endTarget);
-  const { pieces, segments } = piecesOf(gathered(drawn, points, corners));
-  const start = drawn[0]!;
-  const end = drawn[drawn.length - 1]!;
-  const inked = pieces.length === 0 ? [straight(start, end)] : pieces;
+  const { drawn, covered } = drawnPoints(points, startTarget, endTarget);
+  const whole = piecesOf(gathered(drawn, points, corners));
+  // Both entries are measured on the whole ink, so a cut at one end says nothing
+  // about where the other end's crossing lies.
+  const entries: [number | null, number | null] = [
+    covered.start === null ? null : entryAlong(whole.pieces, covered.start, 'start'),
+    covered.end === null ? null : entryAlong(whole.pieces, covered.end, 'end'),
+  ];
+  let { pieces, segments } = whole;
+  for (const [side, entry] of [
+    ['end', entries[1]],
+    ['start', entries[0]],
+  ] as const) {
+    if (entry !== null) {
+      pieces = cutAt(pieces, entry, side);
+      segments = cutSegments(segments, entry, side);
+    }
+  }
+  const first = pieces[0]?.from ?? drawn[0]!;
+  const last = pieces[pieces.length - 1]?.to ?? drawn[drawn.length - 1]!;
+  const inked = pieces.length === 0 ? [straight(first, last)] : pieces;
   return {
-    start: { x: start.x, y: start.y },
-    end: { x: end.x, y: end.y },
+    start: { x: first.x, y: first.y },
+    end: { x: last.x, y: last.y },
     pieces: inked,
     segments,
     length: inked.reduce((total, piece) => total + piece.length, 0),
