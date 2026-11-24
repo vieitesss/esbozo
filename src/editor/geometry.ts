@@ -83,7 +83,9 @@ export function unionOf(boxes: readonly Box[]): Box | null {
  *
  * An arrow or line is picked by the ink it draws — every straight run and every
  * curve of its shaft, and each head on its ends — `tolerance` Scene units off
- * it, so the empty chord between two ends is bare canvas; a Label by the box its
+ * it, so the empty chord between two ends is bare canvas. A dashed or dotted
+ * shaft is picked along its whole run, gaps included: the dashes are how the
+ * stroke draws, not where it is. A Label is picked by the box its
  * paper paints, glyph overhang included; every other Element by its box, grown
  * by the ink a rough outline draws outside it, and then by `tolerance` too.
  *
