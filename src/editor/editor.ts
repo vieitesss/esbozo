@@ -1455,15 +1455,8 @@ class EsbozoEditorElement extends HTMLElement {
    * page leaves empty has no box and takes nothing.
    */
   #statusChrome(): Box[] {
-    const page = this.#page.viewport.box();
     return this.#statusCorners()
-      .map((corner) => corner.getBoundingClientRect())
-      .map((corner) => ({
-        x: corner.left - page.left,
-        y: corner.top - page.top,
-        width: corner.width,
-        height: corner.height,
-      }))
+      .map((corner) => this.#page.viewport.localBox(corner))
       .filter((corner) => corner.width > 0 && corner.height > 0);
   }
 

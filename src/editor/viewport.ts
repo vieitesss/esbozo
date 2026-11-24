@@ -18,12 +18,14 @@
 import { toScene, toScreen } from './geometry.js';
 import type { Box, Point, Pointer, View } from './geometry.js';
 
-/** The page's box, in the browser's own pixels. */
+/** The page's box, in layout pixels, with its scale from client pixels. */
 interface PageBox {
   readonly left: number;
   readonly top: number;
   readonly width: number;
   readonly height: number;
+  readonly scaleX: number;
+  readonly scaleY: number;
 }
 
 /** The nodes the view writes to, and the room it maps into. */
@@ -63,12 +65,17 @@ export class Viewport {
 
   /** The paper's box on the page, before the view moves anything. */
   box(): PageBox {
-    const rect = this.#parts.board.getBoundingClientRect();
+    const board = this.#parts.board;
+    const rect = board.getBoundingClientRect();
+    const scaleX = scaleOf(rect.width, board.offsetWidth);
+    const scaleY = scaleOf(rect.height, board.offsetHeight);
     return {
       left: rect.left,
       top: rect.top,
-      width: rect.width || window.innerWidth,
-      height: rect.height || window.innerHeight,
+      width: rect.width / scaleX || window.innerWidth,
+      height: rect.height / scaleY || window.innerHeight,
+      scaleX,
+      scaleY,
     };
   }
 
@@ -87,7 +94,22 @@ export class Viewport {
   /** A pointer's place, in the pixels the overlay draws in. */
   screenPoint(pointer: Pointer): Point {
     const box = this.box();
-    return { x: pointer.clientX - box.left, y: pointer.clientY - box.top };
+    return {
+      x: (pointer.clientX - box.left) / box.scaleX,
+      y: (pointer.clientY - box.top) / box.scaleY,
+    };
+  }
+
+  /** An element's box relative to the paper, in the pixels the overlay draws in. */
+  localBox(element: Element): Box {
+    const page = this.box();
+    const rect = element.getBoundingClientRect();
+    return {
+      x: (rect.left - page.left) / page.scaleX,
+      y: (rect.top - page.top) / page.scaleY,
+      width: rect.width / page.scaleX,
+      height: rect.height / page.scaleY,
+    };
   }
 
   /** A Scene box, in the pixels the overlay draws in. */
@@ -129,4 +151,15 @@ export class Viewport {
   showGrid(on: boolean): void {
     this.#parts.gridRect.style.display = on ? '' : 'none';
   }
+}
+
+/**
+ * How much a CSS `transform: scale()` or `zoom` on a host shrinks or grows the
+ * paper: its client size over its layout size. `offsetWidth` is a whole number
+ * of pixels while the client size is not, so a difference under one pixel is
+ * rounding, not scale, and reads as 1 — an unscaled page maps a pointer exactly.
+ */
+function scaleOf(client: number, layout: number): number {
+  if (client <= 0 || layout <= 0 || Math.abs(client - layout) < 1) return 1;
+  return client / layout;
 }

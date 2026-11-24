@@ -171,6 +171,106 @@ interface Embed {
 /** The folder the bundle was written into once, for the whole file. */
 let bundled: Promise<string> | undefined;
 
+test('a CSS-scaled host maps rail drags, slop, and Scene gestures in layout pixels', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), {
+    'scaled-transform': EMPTY_SOURCE,
+    'scaled-zoom': EMPTY_SOURCE,
+  });
+  try {
+    const ui: Ui = { app, browser, screen };
+    const tile = screen.getByRole('button', { name: 'Rectangle', exact: true });
+    /** The Rectangle tile's centre in rendered pixels (2nd of 7 tiles on the top rail). */
+    const rectangleGrip = async (file: string): Promise<{ x: number; y: number }> => {
+      const ink = (await shot(ui)).darkBounds({ x: 160, y: 0, width: 320, height: 60 }, 0.6);
+      if (ink === null) {
+        throw new Error(`${file}: top rail shows no ink`);
+      }
+      return {
+        x: Math.round(ink.x + (ink.width * 1.5) / 7),
+        y: Math.round(ink.y + ink.height / 2),
+      };
+    };
+    for (const key of ['scaled-transform', 'scaled-zoom'] as const) {
+      const file = `${key}.html`;
+      // 1. Rail release at layout (180, 140) — (90, 70) in rendered pixels — docks left.
+      await app.open(`${embed.url}/${file}`);
+      await expect(screen.getByRole('status')).toHaveText('saved');
+      await browser.evaluate(() => {
+        localStorage.removeItem('esbozo.rail');
+        return true;
+      });
+      await app.open(`${embed.url}/${file}`);
+      await expect(screen.getByRole('status')).toHaveText('saved');
+      await settle(ui);
+      const grip = await rectangleGrip(file);
+      await drag(ui, grip, { x: 90, y: 70 });
+      await settle(ui);
+      const docked = await browser.evaluate(() => localStorage.getItem('esbozo.rail'));
+      expect(docked, `${file}: rail release at layout (180,140) docks left`).toBe('left');
+
+      // 2. A 4-layout-px release-only drag (2 rendered px) behaves as unscaled: commits top, does not pick tool.
+      await browser.evaluate(() => {
+        localStorage.removeItem('esbozo.rail');
+        return true;
+      });
+      await app.open(`${embed.url}/${file}`);
+      await expect(screen.getByRole('status')).toHaveText('saved');
+      await settle(ui);
+      const grip2 = await rectangleGrip(file);
+      const live = livePage();
+      const cdp = await live.context().newCDPSession(live);
+      try {
+        await cdp.send('Input.dispatchMouseEvent', {
+          type: 'mousePressed',
+          x: grip2.x,
+          y: grip2.y,
+          button: 'left',
+          buttons: 1,
+          clickCount: 1,
+        });
+        await cdp.send('Input.dispatchMouseEvent', {
+          type: 'mouseReleased',
+          x: grip2.x + 2,
+          y: grip2.y,
+          button: 'left',
+          buttons: 0,
+          clickCount: 1,
+        });
+      } finally {
+        await cdp.detach();
+      }
+      await settle(ui);
+      const slopSide = await browser.evaluate(() => localStorage.getItem('esbozo.rail'));
+      expect(slopSide, `${file}: 4-layout-px release-only drag commits top`).toBe('top');
+      await expect(tile).toHaveAttribute('aria-pressed', 'false');
+
+      // 3. A draw from layout (200, 200) to (400, 320) lands at the matching Scene coordinates
+      // (EMPTY on 1280×800 has zoom 1, panX 480, panY 280 -> (-280, -80, 200×120)).
+      const before = embed.writes(key);
+      await tile.click();
+      await drag(ui, { x: 100, y: 100 }, { x: 200, y: 160 });
+      await expect.poll(() => embed.writes(key)).toBeGreaterThan(before);
+      const saved = JSON.parse(await embed.saved(key)) as {
+        elements: Array<{ type: string; x: number; y: number; width: number; height: number }>;
+      };
+      const drawn = saved.elements.at(-1);
+      expect(drawn, `${file}: drew a rectangle`).toMatchObject({
+        type: 'rectangle',
+        x: 200 - EMPTY.panX,
+        y: 200 - EMPTY.panY,
+        width: 200,
+        height: 120,
+      });
+    }
+  } finally {
+    await embed.stop();
+  }
+});
+
 test('a font the page swaps is measured again for the words already on the page', async ({
   app,
   browser,
@@ -2166,6 +2266,17 @@ async function writeBundle(): Promise<string> {
     'bordered.html': page(
       `body { margin: 0 } esbozo-editor { height: 100vh; border: 20px solid #333; padding: 12px }`,
       `<esbozo-editor scene="api/link" save="api/link" font="${FONT}"></esbozo-editor>`,
+      bundle,
+    ),
+    // Scaled hosts: 1280×800 origin-aligned, halved by CSS transform or CSS zoom (issue #68).
+    'scaled-transform.html': page(
+      'body { margin: 0 } esbozo-editor { position: absolute; left: 0; top: 0; width: 1280px; height: 800px; transform-origin: 0 0; transform: scale(.5) }',
+      `<esbozo-editor scene="api/scaled-transform" save="api/scaled-transform" font="${FONT}"></esbozo-editor>`,
+      bundle,
+    ),
+    'scaled-zoom.html': page(
+      'body { margin: 0 } esbozo-editor { position: absolute; left: 0; top: 0; width: 1280px; height: 800px; zoom: .5 }',
+      `<esbozo-editor scene="api/scaled-zoom" save="api/scaled-zoom" font="${FONT}"></esbozo-editor>`,
       bundle,
     ),
   };

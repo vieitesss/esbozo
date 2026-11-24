@@ -398,14 +398,7 @@ export class Page {
     if (note.hidden) {
       return null;
     }
-    const canvas = this.viewport.box();
-    const box = note.getBoundingClientRect();
-    return {
-      x: box.left - canvas.left,
-      y: box.top - canvas.top,
-      width: box.width,
-      height: box.height,
-    };
+    return this.viewport.localBox(note);
   }
 
   /**
