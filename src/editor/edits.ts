@@ -1,9 +1,10 @@
 import { drawnGeometry } from '../renderer.js';
-import { parseFragment, elementsById } from '../scene.js';
+import { canonicalElement, parseFragment, elementsById } from '../scene.js';
 import type { ArrowOrLineElement, Element as SceneElement, Scene } from '../scene.js';
 import type { Layout } from '../layout.js';
 import { arranged } from './arrange.js';
 import type { ArrangeAct } from './arrange.js';
+import { withBend } from './bend-point.js';
 import { copies, fragmentOf, idsOf, replaced, without } from './elements.js';
 import { boxOf, landingOffset, moved } from './geometry.js';
 import type { Point, View } from './geometry.js';
@@ -102,6 +103,81 @@ export function nudged(
       ...scene,
       elements: replaced(scene.elements, new Set(selection), (element) =>
         moved(element, dx, dy),
+      ),
+    },
+    selection: null,
+  };
+}
+
+/**
+ * Settle into the Scene the Elements a gesture showed: each one takes the place
+ * of the Element that has its id, and every other Element is the Scene's. What
+ * a drag draws while the pointer holds it and what its release writes are this
+ * one projection, so a gesture cannot show one thing and save another. A settle
+ * that shows what the Scene already holds changes nothing.
+ */
+export function settled(scene: Scene, shown: ReadonlyMap<string, SceneElement>): Edited {
+  return {
+    scene: {
+      ...scene,
+      elements: replaced(scene.elements, new Set(shown.keys()), (element) =>
+        shown.get(element.id) ?? element,
+      ),
+    },
+    selection: null,
+  };
+}
+
+/**
+ * Settle a dragged end where the release put it: attached to `target` with the
+ * Anchor of the outline point nearest it, or free over paper. The Snap switch,
+ * the other end and every other Element are the Scene's — only this end's own
+ * geometry and Snap are written.
+ */
+export function ended(
+  scene: Scene,
+  shaft: ArrowOrLineElement,
+  which: End,
+  to: Point,
+  target: string | null,
+): Edited {
+  const placed = withEnd(shaft, which, to, target, elementsById(scene.elements));
+  return settled(scene, new Map([[shaft.id, placed]]));
+}
+
+/**
+ * Settle a dragged bend point where the release put it, and only that point: its
+ * corner, every other bend and both ends — Snaps and Anchors included — stay the
+ * Scene's.
+ */
+export function bent(
+  scene: Scene,
+  shaft: ArrowOrLineElement,
+  index: number,
+  to: Point,
+): Edited {
+  return settled(scene, new Map([[shaft.id, withBend(shaft, index, to)]]));
+}
+
+/**
+ * Place a shaft's Label where a drag put it, and only the place: the words were
+ * the gesture's to move and the ends the shaft is drawn by are the Scene's. The
+ * place arrives as the drag showed it and is rounded where the Scene rounds
+ * every number, so the place the ink showed is the place the file holds.
+ */
+export function labelled(scene: Scene, placed: SceneElement): Edited | null {
+  if (!isShaft(placed)) {
+    return null;
+  }
+  const { labelAt } = canonicalElement(placed);
+  if (labelAt === undefined) {
+    return null;
+  }
+  return {
+    scene: {
+      ...scene,
+      elements: replaced(scene.elements, new Set([placed.id]), (element) =>
+        isShaft(element) ? { ...element, labelAt } : element,
       ),
     },
     selection: null,
