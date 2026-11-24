@@ -1,4 +1,4 @@
-import { drawnGeometry, drawnShaft, outlineBox, shaftInk } from '../renderer.js';
+import { drawnGeometry } from '../renderer.js';
 import { canonicalElement, isOutlined, elementsById } from '../scene.js';
 import type { ArrowOrLineElement, Element as SceneElement, Scene } from '../scene.js';
 import type { Layout } from '../layout.js';
@@ -593,8 +593,8 @@ export class Gestures {
       const which = handle.getAttribute('data-handle');
       const element = this.#host.scene().elements.find((candidate) => candidate.id === id);
       if (element !== undefined && isShaft(element) && (which === 'start' || which === 'end')) {
-        const [start, end] = drawnShaft(element, elementsById(this.#host.scene().elements));
-        const origin = which === 'start' ? start : end;
+        const ends = drawnGeometry(element, elementsById(this.#host.scene().elements)).ends;
+        const origin = which === 'start' ? ends![0] : ends![1];
         this.#drag = {
           kind: 'end',
           id,
@@ -612,7 +612,7 @@ export class Gestures {
           kind: 'resize',
           id,
           handle: handle.getAttribute('data-handle') as Handle,
-          origin: outlineBox(element),
+          origin: drawnGeometry(element).box,
           from: viewport.scenePoint(event),
           shown: element,
         };
@@ -664,10 +664,10 @@ export class Gestures {
         // a press on them never moves the shaft they are written about. The ink
         // itself is what the place on the shaft is read back from, so a bent
         // shaft's words stay on the bend the drawing put them on.
-        const path = shaftInk(
+        const path = drawnGeometry(
           pick.element,
           elementsById(this.#host.scene().elements),
-        ).path;
+        ).path!;
         this.#drag = {
           kind: 'label',
           id: pick.element.id,

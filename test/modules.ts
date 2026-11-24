@@ -37,6 +37,7 @@ export interface ProjectModules {
   elementBounds: typeof import('../src/renderer.ts').elementBounds;
   shaftInk: typeof import('../src/renderer.ts').shaftInk;
   shaftLabel: typeof import('../src/renderer.ts').shaftLabel;
+  outlineBox: typeof import('../src/renderer.ts').outlineBox;
   strokeWidthOf: typeof import('../src/renderer.ts').strokeWidthOf;
   wordsInkBounds: typeof import('../src/renderer.ts').wordsInkBounds;
   bendDots: typeof import('../src/editor/bend-point.ts').bendDots;
@@ -68,7 +69,7 @@ export async function loadProjectModules(): Promise<ProjectModules> {
       `export { parseScene, serialiseScene, hashScene, emptyScene, serialiseFragment, parseFragment } from ${source('scene.ts')};`,
       `export { History } from ${source('editor/history.ts')};`,
       `export { wordsShift } from ${source('editor/words.ts')};`,
-      `export { renderScene, renderElement, drawnGeometry, drawnShaft, pageBounds, elementBounds, shaftInk, shaftLabel, strokeWidthOf, wordsInkBounds } from ${source('renderer.ts')};`,
+      `export { renderScene, renderElement, drawnGeometry, drawnShaft, pageBounds, elementBounds, shaftInk, shaftLabel, outlineBox, strokeWidthOf, wordsInkBounds } from ${source('renderer.ts')};`,
       `export { bendDots } from ${source('editor/bend-point.ts')};`,
       `export { elementAt, caretLine, railFrame, clampedDock, leftDockEdge, nearestDock } from ${source('editor/geometry.ts')};`,
       `export { anchorPoint, anchorOf } from ${source('geometry.ts')};`,
