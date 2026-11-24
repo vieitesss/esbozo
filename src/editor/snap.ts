@@ -55,7 +55,7 @@ export function withPoint(
 }
 
 /** This shaft with one end's point replaced: the other end and every bend is kept. */
-export function withEndPoint(
+function withEndPoint(
   element: ArrowOrLineElement,
   end: End,
   point: Point,
@@ -64,7 +64,7 @@ export function withEndPoint(
 }
 
 /** The Element this end is attached to, or null when the end is free. */
-export function attachedTo(element: ArrowOrLineElement, end: End): string | null {
+function attachedTo(element: ArrowOrLineElement, end: End): string | null {
   return snapTargetId(endPoint(element, end));
 }
 
@@ -83,7 +83,7 @@ export function snapOn(element: ArrowOrLineElement, end: End): boolean {
  * already holds. A longer shaft may hold one Element at both ends, because the
  * bend between them is a loop.
  */
-export function otherTarget(element: ArrowOrLineElement, end: End): string | null {
+function otherTarget(element: ArrowOrLineElement, end: End): string | null {
   return element.points.length === 2 ? attachedTo(element, otherEnd(end)) : null;
 }
 
@@ -95,7 +95,7 @@ export function otherTarget(element: ArrowOrLineElement, end: End): string | nul
  * box is not either. `skip` is the Element an end may not attach to because the
  * arrow's other end is there already.
  */
-export function targetAt(
+function targetAt(
   elements: readonly Element[],
   point: Point,
   skip: string | null = null,
@@ -110,6 +110,68 @@ export function targetAt(
     }
   }
   return null;
+}
+
+/**
+ * Which target an end takes at `point`, given the Snap switch, `Alt`, the other
+ * end, and whether an already-Snapped end stays on its current target.
+ */
+export function snapTarget(
+  elements: readonly Element[],
+  point: Point,
+  options: {
+    readonly shaft?: ArrowOrLineElement | undefined;
+    readonly end?: End;
+    readonly skipAttach?: boolean;
+    readonly keepCurrentTarget?: boolean;
+    readonly ignoreSnapSwitch?: boolean;
+  } = {},
+): string | null {
+  const {
+    shaft,
+    end = 'end',
+    skipAttach = false,
+    keepCurrentTarget = false,
+    ignoreSnapSwitch = false,
+  } = options;
+  if (keepCurrentTarget && shaft !== undefined) {
+    const current = attachedTo(shaft, end);
+    if (current !== null) {
+      return current;
+    }
+  }
+  if (skipAttach) {
+    return null;
+  }
+  if (!ignoreSnapSwitch && shaft !== undefined && !snapOn(shaft, end)) {
+    return null;
+  }
+  const other = shaft !== undefined ? otherTarget(shaft, end) : null;
+  return targetAt(elements, point, other);
+}
+
+/**
+ * Turn one end's Snap switch on or off where it draws now. Off frees the end
+ * where it draws and writes `"snap": false` with no Anchor; on drops `false`
+ * and attaches the end to the Element under it, or leaves it free over paper.
+ */
+export function withSnapSwitch(
+  elements: readonly Element[],
+  element: ArrowOrLineElement,
+  end: End,
+  on: boolean,
+): ArrowOrLineElement {
+  const byId = elementsById(elements);
+  if (on) {
+    const drawn = endPoint(element, end);
+    const target = snapTarget(elements, drawn, { shaft: element, end, ignoreSnapSwitch: true });
+    return target === null
+      ? withEndPoint(element, end, { x: drawn.x, y: drawn.y })
+      : withEnd(element, end, drawn, target, byId);
+  }
+  const freed = freedEnds(element, (which) => which === end, byId);
+  const spot = endPoint(freed, end);
+  return withEndPoint(freed, end, { x: spot.x, y: spot.y, snap: false });
 }
 
 /**
@@ -225,17 +287,36 @@ function sameOutline(outline: OutlinedElement, before: Element | undefined): boo
   );
 }
 
-/** One end freed where it draws now, the other end left as it is. */
-export function freedEnd(
+/**
+ * One shaft with every Snapped end matching `shouldFree` freed where it draws
+ * now, whole-pixel, with no Anchor. Both ends are read from `drawnGeometry`
+ * together while every target is still in `byId`, because a loop may hold one
+ * Element at both its ends and freeing one first would move the other.
+ */
+export function freedEnds(
   element: ArrowOrLineElement,
-  end: End,
+  shouldFree: (end: End, target: string) => boolean,
   byId: ReadonlyMap<string, Element>,
 ): ArrowOrLineElement {
-  if (!attachedTo(element, end)) {
+  const startTarget = attachedTo(element, 'start');
+  const endTarget = attachedTo(element, 'end');
+  const freeStart = startTarget !== null && shouldFree('start', startTarget);
+  const freeEnd = endTarget !== null && shouldFree('end', endTarget);
+  if (!freeStart && !freeEnd) {
     return element;
   }
-  const [start, finish] = drawnEnds(element, byId);
-  return withEnd(element, end, end === 'start' ? start : finish, null, byId);
+  const [drawnStart, drawnEnd] = drawnEnds(element, byId);
+  const last = element.points.length - 1;
+  const points = element.points.map((point, index) => {
+    if (index === 0 && freeStart) {
+      return drawnStart;
+    }
+    if (index === last && freeEnd) {
+      return drawnEnd;
+    }
+    return point;
+  });
+  return { ...element, points: points as ArrowOrLineElement['points'] };
 }
 
 /** Both ends as the Renderer draws them, Snap resolved and stored whole-pixel. */

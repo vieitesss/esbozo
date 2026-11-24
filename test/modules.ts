@@ -26,6 +26,7 @@ export interface ProjectModules {
   hashScene: typeof import('../src/scene.ts').hashScene;
   serialiseFragment: typeof import('../src/scene.ts').serialiseFragment;
   parseFragment: typeof import('../src/scene.ts').parseFragment;
+  elementsById: typeof import('../src/scene.ts').elementsById;
   History: typeof import('../src/editor/history.ts').History;
   wordsShift: typeof import('../src/editor/words.ts').wordsShift;
   emptyScene: typeof import('../src/scene.ts').emptyScene;
@@ -34,6 +35,11 @@ export interface ProjectModules {
   drawnGeometry: typeof import('../src/renderer.ts').drawnGeometry;
   pageBounds: typeof import('../src/renderer.ts').pageBounds;
   bendDots: typeof import('../src/editor/bend-point.ts').bendDots;
+  snapTarget: typeof import('../src/editor/snap.ts').snapTarget;
+  withEnd: typeof import('../src/editor/snap.ts').withEnd;
+  withSnapSwitch: typeof import('../src/editor/snap.ts').withSnapSwitch;
+  freedEnds: typeof import('../src/editor/snap.ts').freedEnds;
+  anchoredEnds: typeof import('../src/editor/snap.ts').anchoredEnds;
   elementAt: typeof import('../src/editor/geometry.ts').elementAt;
   caretLine: typeof import('../src/editor/geometry.ts').caretLine;
   railFrame: typeof import('../src/editor/geometry.ts').railFrame;
@@ -59,11 +65,12 @@ export async function loadProjectModules(): Promise<ProjectModules> {
   await writeFile(
     entry,
     [
-      `export { parseScene, serialiseScene, hashScene, emptyScene, serialiseFragment, parseFragment } from ${source('scene.ts')};`,
+      `export { parseScene, serialiseScene, hashScene, emptyScene, serialiseFragment, parseFragment, elementsById } from ${source('scene.ts')};`,
       `export { History } from ${source('editor/history.ts')};`,
       `export { wordsShift } from ${source('editor/words.ts')};`,
       `export { renderScene, renderElement, drawnGeometry, pageBounds } from ${source('renderer.ts')};`,
       `export { bendDots } from ${source('editor/bend-point.ts')};`,
+      `export { snapTarget, withEnd, withSnapSwitch, freedEnds, anchoredEnds } from ${source('editor/snap.ts')};`,
       `export { elementAt, caretLine, railFrame, clampedDock, leftDockEdge, nearestDock } from ${source('editor/geometry.ts')};`,
       `export { anchorPoint, anchorOf } from ${source('geometry.ts')};`,
       `export { PaintCache, sceneFile } from ${source('editor/paint.ts')};`,

@@ -4,7 +4,16 @@ import { PRIMARY_SCENE_EXTENSION, sceneFileNameFor, sceneStem } from '../paths.j
 import { isClick, replaced, selectedFrom } from './elements.js';
 import { movableCount } from './arrange.js';
 import type { ArrangeAct } from './arrange.js';
-import { deleted, duplicated, nudged, pasted, rearranged, restyled, switched } from './edits.js';
+import {
+  deleted,
+  duplicated,
+  edited,
+  nudged,
+  pasted,
+  rearranged,
+  restyled,
+  switched,
+} from './edits.js';
 import type { Edited, Landing } from './edits.js';
 import { actionById, actionFor } from './actions.js';
 import type { ActionHost, ActionState, ToolId } from './actions.js';
@@ -40,7 +49,7 @@ import { History } from './history.js';
 import { railArt } from './rail.js';
 import { readRailSide, writeRailSide } from './rail-preference.js';
 import { SHELL } from './shell.js';
-import { anchoredEnds, isShaft, snapOn } from './snap.js';
+import { isShaft, snapOn } from './snap.js';
 import type { End } from './snap.js';
 import { Typing } from './typing.js';
 import { sceneFile } from './paint.js';
@@ -404,7 +413,7 @@ class EsbozoEditorElement extends HTMLElement {
         this.#refresh();
       },
       refused: (problem) => this.#setSaved('failed', problem),
-      applyScene: (next, select) => this.#applyScene(next, { select }),
+      applyScene: (next, select) => this.#land(edited(this.#scene, next.elements, select)),
       forgetWordClick: () => this.#gestures.forgetWordClick(),
     });
 
@@ -1114,19 +1123,11 @@ class EsbozoEditorElement extends HTMLElement {
     if (!this.#connection.writable()) {
       return;
     }
-    // An Anchored end is stored where its Anchor draws it, so a target that moved
-    // or resized does not leave the ends that hold it behind. Every edit lands
-    // here, and a plain click changes nothing: one pass with the Scene it
-    // replaces, not a rule each gesture remembers.
-    const settled: Scene = {
-      ...next,
-      elements: anchoredEnds(next.elements, this.#scene.elements),
-    };
-    const after = sceneFile(settled);
+    const after = sceneFile(next);
     const changed = after !== sceneFile(this.#scene);
     const { select } = options;
     if (changed) {
-      this.#scene = settled;
+      this.#scene = next;
     }
     if (select !== undefined) {
       this.#selectElements(select);

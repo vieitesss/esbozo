@@ -1,9 +1,8 @@
 import { MIN_SIZE, seedForId, snapTargetId, elementsById } from '../scene.js';
 import { serialiseFragment, unwrittenTextAlign } from '../scene.js';
 import type { Element, ElementStyle, Point, Scene, SceneStyle, TextElement } from '../scene.js';
-import { drawnGeometry } from '../renderer.js';
 import { boxBetween } from './geometry.js';
-import { isShaft } from './snap.js';
+import { freedEnds, isShaft } from './snap.js';
 import type { DrawableType, ToolId } from './actions.js';
 
 /** The box a plain click draws with a box tool, in Scene units. */
@@ -220,38 +219,9 @@ function freedOutside(scene: Scene, elements: readonly Element[]): Element[] {
   for (const element of elements) {
     byId.set(element.id, element);
   }
-  return elements.map((element) => freedEnds(element, carried, byId));
-}
-
-/** One Element, its ends Snapped outside the copy stored where they draw now. */
-function freedEnds(
-  element: Element,
-  carried: ReadonlySet<string>,
-  byId: ReadonlyMap<string, Element>,
-): Element {
-  if (!isShaft(element)) {
-    return element;
-  }
-  const points = element.points;
-  const last = points.length - 1;
-  const drops = (index: number): boolean => {
-    const target = snapTargetId(points[index]!);
-    return target !== null && !carried.has(target);
-  };
-  if (!drops(0) && !drops(last)) {
-    return element;
-  }
-  // Both ends at once, with every target still in hand: a shaft may hold one
-  // Element at both its ends, and freeing one first would move the other.
-  const [drawnStart, drawnEnd] = drawnGeometry(element, byId).ends!;
-  const freed = points.map((point, index) => {
-    if ((index !== 0 && index !== last) || !drops(index)) {
-      return point;
-    }
-    const drawn = index === 0 ? drawnStart : drawnEnd;
-    return { x: Math.round(drawn.x), y: Math.round(drawn.y) };
-  });
-  return { ...element, points: freed as [Point, Point, ...Point[]] };
+  return elements.map((element) =>
+    isShaft(element) ? freedEnds(element, (_end, target) => !carried.has(target), byId) : element,
+  );
 }
 
 /**
@@ -290,25 +260,7 @@ export function without(elements: readonly Element[], removed: ReadonlySet<strin
   const byId = elementsById(elements);
   return elements
     .filter((element) => !removed.has(element.id))
-    .map((element) => {
-      if (element.type !== 'arrow' && element.type !== 'line') {
-        return element;
-      }
-      const points = element.points;
-      const last = points.length - 1;
-      const drops = (index: number): boolean => {
-        const point = points[index];
-        const target = point === undefined ? null : snapTargetId(point);
-        return target !== null && removed.has(target);
-      };
-      if (!drops(0) && !drops(last)) {
-        return element;
-      }
-      // Where the end draws now, with the target still in the Scene to resolve it.
-      const [drawnStart, drawnEnd] = drawnGeometry(element, byId).ends!;
-      const freed = points.map((point, index) =>
-        drops(index) ? free(index === 0 ? drawnStart : drawnEnd) : point,
-      );
-      return { ...element, points: freed as [Point, Point, ...Point[]] };
-    });
+    .map((element) =>
+      isShaft(element) ? freedEnds(element, (_end, target) => removed.has(target), byId) : element,
+    );
 }

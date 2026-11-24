@@ -8,7 +8,7 @@ import { withBend } from './bend-point.js';
 import { copies, fragmentOf, idsOf, replaced, without } from './elements.js';
 import { boxOf, landingOffset, moved } from './geometry.js';
 import type { Point, View } from './geometry.js';
-import { endPoint, freedEnd, isShaft, otherTarget, snapOn, targetAt, withEnd, withEndPoint } from './snap.js';
+import { anchoredEnds, isShaft, snapOn, withEnd, withSnapSwitch } from './snap.js';
 import type { End } from './snap.js';
 import { styled } from './style.js';
 import type { StyleKey } from './style.js';
@@ -38,6 +38,22 @@ export interface Landing {
   readonly viewport: { readonly width: number; readonly height: number };
 }
 
+/**
+ * One Scene edit's result: every Anchored end whose target's outline changed is
+ * updated to where its Anchor draws now, so the Scene an edit returns is the
+ * Scene that lands.
+ */
+export function edited(
+  before: Scene,
+  elements: readonly SceneElement[],
+  selection: readonly string[] | null = null,
+): Edited {
+  return {
+    scene: { ...before, elements: anchoredEnds(elements, before.elements) },
+    selection,
+  };
+}
+
 /** Change the selected Elements' style, every pick arriving here. */
 export function restyled(
   scene: Scene,
@@ -45,15 +61,10 @@ export function restyled(
   key: StyleKey,
   value: string,
 ): Edited {
-  return {
-    scene: {
-      ...scene,
-      elements: replaced(scene.elements, new Set(selection), (element) =>
-        styled(element, key, value),
-      ),
-    },
-    selection: null,
-  };
+  return edited(
+    scene,
+    replaced(scene.elements, new Set(selection), (element) => styled(element, key, value)),
+  );
 }
 
 /**
@@ -71,16 +82,13 @@ export function rearranged(
 ): Edited {
   const elements = scene.elements;
   let byId: ReadonlyMap<string, SceneElement> | undefined;
-  return {
-    scene: {
-      ...scene,
-      elements: arranged(elements, selection, act, (element) => {
-        byId ??= elementsById(elements);
-        return drawnGeometry(element, byId, layout).bounds;
-      }),
-    },
-    selection: null,
-  };
+  return edited(
+    scene,
+    arranged(elements, selection, act, (element) => {
+      byId ??= elementsById(elements);
+      return drawnGeometry(element, byId, layout).bounds;
+    }),
+  );
 }
 
 /**
@@ -98,15 +106,10 @@ export function nudged(
   if (selection.length === 0) {
     return null;
   }
-  return {
-    scene: {
-      ...scene,
-      elements: replaced(scene.elements, new Set(selection), (element) =>
-        moved(element, dx, dy),
-      ),
-    },
-    selection: null,
-  };
+  return edited(
+    scene,
+    replaced(scene.elements, new Set(selection), (element) => moved(element, dx, dy)),
+  );
 }
 
 /**
@@ -117,15 +120,10 @@ export function nudged(
  * that shows what the Scene already holds changes nothing.
  */
 export function settled(scene: Scene, shown: ReadonlyMap<string, SceneElement>): Edited {
-  return {
-    scene: {
-      ...scene,
-      elements: replaced(scene.elements, new Set(shown.keys()), (element) =>
-        shown.get(element.id) ?? element,
-      ),
-    },
-    selection: null,
-  };
+  return edited(
+    scene,
+    replaced(scene.elements, new Set(shown.keys()), (element) => shown.get(element.id) ?? element),
+  );
 }
 
 /**
@@ -173,15 +171,12 @@ export function labelled(scene: Scene, placed: SceneElement): Edited | null {
   if (labelAt === undefined) {
     return null;
   }
-  return {
-    scene: {
-      ...scene,
-      elements: replaced(scene.elements, new Set([placed.id]), (element) =>
-        isShaft(element) ? { ...element, labelAt } : element,
-      ),
-    },
-    selection: null,
-  };
+  return edited(
+    scene,
+    replaced(scene.elements, new Set([placed.id]), (element) =>
+      isShaft(element) ? { ...element, labelAt } : element,
+    ),
+  );
 }
 
 /**
@@ -190,10 +185,7 @@ export function labelled(scene: Scene, placed: SceneElement): Edited | null {
  * it drew under is the id the Scene keeps.
  */
 export function added(scene: Scene, element: SceneElement): Edited {
-  return {
-    scene: { ...scene, elements: [...scene.elements, element] },
-    selection: [element.id],
-  };
+  return edited(scene, [...scene.elements, element], [element.id]);
 }
 
 /**
@@ -219,26 +211,8 @@ export function switched(
   if (element === undefined || !isShaft(element) || snapOn(element, end) === on) {
     return null;
   }
-  const byId = elementsById(scene.elements);
-  const drawn = endPoint(element, end);
-  let switched: ArrowOrLineElement;
-  if (on) {
-    const target = targetAt(scene.elements, drawn, otherTarget(element, end));
-    switched =
-      target === null
-        ? withEndPoint(element, end, { x: drawn.x, y: drawn.y })
-        : withEnd(element, end, drawn, target, byId);
-  } else {
-    // Freed where it draws first, so the point the `false` lands on is the one
-    // the last frame shows, and no Anchor is left behind for a Snap that is gone.
-    const freed = freedEnd(element, end, byId);
-    const spot = endPoint(freed, end);
-    switched = withEndPoint(freed, end, { x: spot.x, y: spot.y, snap: false });
-  }
-  return {
-    scene: { ...scene, elements: replaced(scene.elements, new Set([element.id]), () => switched) },
-    selection: null,
-  };
+  const next = withSnapSwitch(scene.elements, element, end, on);
+  return edited(scene, replaced(scene.elements, new Set([element.id]), () => next));
 }
 
 /**
@@ -255,10 +229,11 @@ export function deleted(
   if (ids.size === 0) {
     return null;
   }
-  return {
-    scene: { ...scene, elements: without(scene.elements, ids) },
-    selection: selection.filter((id) => !ids.has(id)),
-  };
+  return edited(
+    scene,
+    without(scene.elements, ids),
+    selection.filter((id) => !ids.has(id)),
+  );
 }
 
 /** Where a fragment of these Elements lands, so a copy reads as a copy and stays on the page. */
@@ -282,10 +257,11 @@ export function pasted(
     return null;
   }
   const added = copies(elements, idsOf(scene.elements), landingOf(elements, landing));
-  return {
-    scene: { ...scene, elements: [...scene.elements, ...added] },
-    selection: added.map((element) => element.id),
-  };
+  return edited(
+    scene,
+    [...scene.elements, ...added],
+    added.map((element) => element.id),
+  );
 }
 
 /**
