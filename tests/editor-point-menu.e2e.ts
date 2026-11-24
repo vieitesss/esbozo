@@ -996,6 +996,63 @@ describe('the point menu', () => {
     ]);
   });
 
+  test('a secondary press on a handle the page no longer draws opens nothing', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+    await selectShaft(ui);
+
+    // The handle at the peak is the one a person presses there, and pressing it
+    // opens the menu for the peak: what is drawn and what it names agree.
+    await rightClick(ui, PEAK);
+    await expect(menu(ui)).toBeVisible();
+    await browser.keyboard.press('Escape');
+    await expect(menu(ui)).toBeHidden();
+    await settle(ui);
+
+    // A Delete and a secondary press in one task, so the frame that would take
+    // the peak's handle away has not come when the press lands: the mark under
+    // the pointer is still the one drawn for the peak, and the point it named is
+    // gone. The dip is the point that took its index, and it is the one the
+    // arrow points at now — a menu opened for it removes what the press never
+    // aimed at.
+    await browser.evaluate(
+      ({ x, y }: { x: number; y: number }) => {
+        document.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true }),
+        );
+        const mark = document.elementFromPoint(x, y);
+        if (mark === null) {
+          throw new Error('nothing under the pointer where the handle is');
+        }
+        mark.dispatchEvent(
+          new PointerEvent('pointerdown', {
+            button: 2,
+            buttons: 2,
+            clientX: x,
+            clientY: y,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+        return true;
+      },
+      pagePoint(PEAK),
+    );
+
+    // The peak went, and the rest of the arrow is still there: no menu opened for
+    // the point that took its index, and no row removed it.
+    await expect(menu(ui)).toBeHidden();
+    await expect.poll(async () => pointsOf(await savedScene(ui, 'zig.json'))).toEqual([
+      ZIG_POINTS[0],
+      ZIG_POINTS[2],
+      ZIG_POINTS[3],
+    ]);
+  });
+
   test('no key edits the Scene while the menu is open', async ({ app, browser, screen }) => {
     const ui = { app, browser, screen };
     await open(ui);
