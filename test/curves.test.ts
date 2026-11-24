@@ -925,6 +925,63 @@ test('a bend a move puts inside its target keeps the head on the near edge', asy
   );
 });
 
+test('a covered bend aims from the other end’s drawn place, not its stored one', async () => {
+  // The Review's -425px nudge of a Shaft Snapped into two boxes, as the Scene it
+  // saves: the move leaves the middle bend at (75,50) inside the left box, and
+  // the right end stored at (-25,50) while it is drawn on its own box at
+  // (300,50). So the ink reaching the left box arrives from the right, and the
+  // head belongs on that box's right edge with its wings clear of the fill.
+  // Aiming from the right end's stored place put the head on the far edge and
+  // ran a leg across the whole fill.
+  const { svg, apex, wings } = await drawnHead({
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [
+      {
+        id: 'a',
+        type: 'arrow',
+        heads: { start: 'arrow', end: 'none' },
+        points: [
+          { x: -325, y: 50, snap: 'left' },
+          { x: 75, y: 50 },
+          { x: -25, y: 50, snap: 'right' },
+        ],
+      },
+      {
+        id: 'left',
+        type: 'rectangle',
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+        tone: 'muted',
+        fill: { kind: 'solid', grey: 1 },
+      },
+      { id: 'right', type: 'rectangle', x: 300, y: 0, width: 100, height: 100, tone: 'muted' },
+    ],
+  });
+
+  assert.ok(
+    near(apex.x, 100) && near(apex.y, 50),
+    `the head sits on the near edge, got ${apex.x},${apex.y}`,
+  );
+  assert.ok(
+    wings.every((point) => point.x > 100),
+    `its wings sit outside the fill, got ${JSON.stringify(wings)}`,
+  );
+  const shaft = tags(svg, 'path')
+    .filter((tag) => attribute(tag, 'stroke') === INK)
+    .flatMap((tag) => drawnPoints(attribute(tag, 'd') ?? ''));
+  assert.ok(
+    shaft.every((point) => point.x > 99),
+    `no ink runs across the fill, got ${JSON.stringify(shaft)}`,
+  );
+  assert.ok(
+    near(Math.max(...shaft.map((point) => point.x)), 300),
+    `the ink ends on the other box, got ${Math.max(...shaft.map((point) => point.x))}`,
+  );
+});
+
 test('a bend on the target’s outline and one past it keep the head on the outline', async () => {
   // The rows either side of the Review's. With the bend at (0,50) it sits on
   // the outline and the leg to the end collapses: the head is on the near edge,
@@ -949,6 +1006,147 @@ test('a bend on the target’s outline and one past it keep the head on the outl
   );
 });
 
+test('a covered end whose neighbour is its target’s centre stops on the near edge', async () => {
+  // The Review's round row: the bend at (50,50) is the ellipse's own middle, so
+  // the drawn end has no direction to aim from and falls back on the one
+  // `pointOnOutline` invents — the ellipse's top. The spline through that
+  // fallback curls back out of the fill, and the ink entering it from the far
+  // end grazes the outline 60px short on the lower flank, leaving the head
+  // there with its shaft cut away from the paper. The ink that arrives from the
+  // far end still enters on the near edge at (0,50), however far away it begins.
+  for (const startX of [-1e3, -1e6, -1e8]) {
+    const { apex, wings } = await drawnHead({
+      version: 1,
+      defaults: { roughness: 0 },
+      elements: [
+        { id: 'a', type: 'arrow', corners: 'round', points: [
+          { x: startX, y: 50 },
+          { x: 50, y: 50 },
+          { x: 75, y: 50, snap: 'oval' },
+        ] },
+        {
+          id: 'oval',
+          type: 'ellipse',
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          tone: 'muted',
+          fill: { kind: 'solid', grey: 1 },
+        },
+      ],
+    });
+
+    assert.ok(
+      near(apex.x, 0, 0.25) && near(apex.y, 50, 0.25),
+      `a start at ${startX} stops on the near edge, got ${apex.x},${apex.y}`,
+    );
+    assert.ok(
+      wings.every((point) => point.x < 0),
+      `its wings sit outside the fill, got ${JSON.stringify(wings)}`,
+    );
+  }
+});
+
+test('a covered bend beside its target’s centre stops on the near edge', async () => {
+  // The Review's near-centre rows: the bend sits one to ten pixels off the
+  // ellipse's own middle, and that aim gives `pointOnOutline` no usable
+  // direction — it lands the drawn end on an arbitrary part of the outline, an
+  // ellipse's top, and the spline through it leaves the fill and comes back in
+  // on a flank seventeen pixels away. The ink enters there and nowhere else, so
+  // no crossing walk can recover the near edge: only the landing can. The tips
+  // below are the reference build's, at `3eaa217`, which lands such an end on
+  // the leg that reaches the target from outside; the drawn tip sits within
+  // `CROSSING_PX` of it, where the cut stops the ink.
+  const rows: { target: 'ellipse' | 'rectangle'; bend: number; tip: Point }[] = [
+    { target: 'ellipse', bend: 45, tip: { x: 0.23, y: 45.24 } },
+    { target: 'ellipse', bend: 49, tip: { x: 0.01, y: 49.05 } },
+    { target: 'ellipse', bend: 50.1, tip: { x: 0, y: 50 } },
+    { target: 'ellipse', bend: 50.5, tip: { x: 0.01, y: 50.95 } },
+    { target: 'ellipse', bend: 55, tip: { x: 0.23, y: 54.76 } },
+    { target: 'ellipse', bend: 60, tip: { x: 0.92, y: 59.53 } },
+    { target: 'rectangle', bend: 55, tip: { x: 0, y: 54.76 } },
+  ];
+
+  for (const row of rows) {
+    const { apex, wings } = await drawnHead({
+      version: 1,
+      defaults: { roughness: 0 },
+      elements: [
+        { id: 'a', type: 'arrow', corners: 'round', points: [
+          { x: -1e3, y: 50 },
+          { x: 50, y: row.bend },
+          { x: 75, y: 50, snap: 'target' },
+        ] },
+        {
+          id: 'target',
+          type: row.target,
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          tone: 'muted',
+          fill: { kind: 'solid', grey: 1 },
+        },
+      ],
+    });
+
+    assert.ok(
+      near(apex.x, row.tip.x, 0.25) && near(apex.y, row.tip.y, 0.25),
+      `a ${row.target} target with the bend at (50,${row.bend}) stops on the near edge, got ${apex.x},${apex.y}`,
+    );
+    assert.ok(
+      wings.every((point) => point.x < 0.01),
+      `its wings sit outside the fill, got ${JSON.stringify(wings)}`,
+    );
+  }
+});
+
+test('a round covered shaft a trillion pixels long still renders', async () => {
+  // The issue's own scale, at the ends the Review tried beside the ellipse: the
+  // round spline over a leg that long puts its control points further off its
+  // chord than a page can show. Rough.js flattens the ink it is handed at a
+  // point a pixel, so `pointsOnPath` recurses until the stack gives out and
+  // `ez render` writes no SVG at all — one the build before this change draws.
+  for (const type of ['ellipse', 'rectangle'] as const) {
+    for (const bend of [50, 60]) {
+      const svg = renderScene(
+        parsed({
+          version: 1,
+          defaults: { roughness: 0 },
+          elements: [
+            { id: 'a', type: 'arrow', corners: 'round', points: [
+              { x: -1e12, y: 50 },
+              { x: bend, y: bend },
+              { x: 75, y: 50, snap: 'target' },
+            ] },
+            {
+              id: 'target',
+              type,
+              x: 0,
+              y: 0,
+              width: 100,
+              height: 100,
+              tone: 'muted',
+              fill: { kind: 'solid', grey: 1 },
+            },
+          ],
+        }),
+        LAYOUT,
+      );
+
+      const heads = tags(svg, 'path').filter((tag) => attribute(tag, 'fill') === INK);
+      assert.equal(heads.length, 1, `a ${type} target with the bend at ${bend} draws one head`);
+      const tip = drawnPoints(attribute(heads[0]!, 'd') ?? '')[0]!;
+      assert.ok(
+        Math.hypot(tip.x - 50, tip.y - 50) < 70,
+        `the head sits on the target, got ${tip.x},${tip.y}`,
+      );
+      assert.doesNotMatch(svg, /NaN/, 'the ink is drawn from numbers');
+    }
+  }
+});
+
 test('a shaft with every point inside its target keeps the aim its bend gives it', async () => {
   // Nothing of this shaft is outside the box — the start included — so there is
   // no outside ink to aim from: the end keeps landing where the ray through the
@@ -957,6 +1155,27 @@ test('a shaft with every point inside its target keeps the aim its bend gives it
   // offer, it already offers.
   const { apex } = await drawnHead(insideTarget(10, 75));
   assert.ok(near(apex.x, 100) && near(apex.y, 50), `the end aims through its bend, got ${apex.x},${apex.y}`);
+});
+
+test('a long span whose bend is covered stops the head on the near edge', async () => {
+  // The walk that finds where the ink enters the target stops when the two
+  // sides of its search are a quarter of a pixel apart. Counting halvings
+  // instead would bound the error in the parameter and not in pixels: over a
+  // span of a trillion pixels the tip fell a whole target short of the near
+  // edge and sat on the covered bend at (75,50). Every start here is left of
+  // the box that spans x=0..100 and runs through y=50, so the one crossing is
+  // its near edge at x=0, however far away the ink begins.
+  for (const startX of [-1e8, -1e12]) {
+    const { apex, wings } = await drawnHead(insideTarget(startX, 75));
+    assert.ok(
+      near(apex.x, 0) && near(apex.y, 50),
+      `a start at ${startX} stops on the near edge, got ${apex.x},${apex.y}`,
+    );
+    assert.ok(
+      wings.every((point) => point.x < 0),
+      `its wings sit outside the fill, got ${JSON.stringify(wings)}`,
+    );
+  }
 });
 
 test('a loop whose bend moves inside its target still leaves and returns on the outline', async () => {

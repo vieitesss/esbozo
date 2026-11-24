@@ -21,7 +21,6 @@ import {
   fillets,
   pathMeetsGap,
   quadraticRoots,
-  shaftEnds,
   shaftLabelAnchor,
   shaftPath,
   shaftTangentAt,
@@ -138,8 +137,9 @@ export function outlineBox(element: OutlinedElement): Box {
 
 /**
  * The two ends an arrow or line draws, each Snapped end resolved onto its
- * target's outline: the shaft the editor picks by, so a click follows the ink
- * rather than the empty box around it.
+ * target's outline and a covered bend's ink stopped where it enters: the shaft
+ * the editor picks by, so a click follows the ink rather than the empty box
+ * around it.
  *
  * The ends are the canonical ones the SVG is drawn from, rounded like a saved
  * Scene. A Scene in hand keeps more precision than a file writes, and a shaft's
@@ -150,13 +150,8 @@ export function drawnShaft(
   element: ArrowOrLineElement,
   byId: ReadonlyMap<string, Element>,
 ): [Point, Point] {
-  const canonical = canonicalElement(element);
-  const last = canonical.points.length - 1;
-  return shaftEnds(
-    canonical.points,
-    snapTarget(canonical, canonical.points[0], byId),
-    snapTarget(canonical, canonical.points[last]!, byId),
-  );
+  const path = shaftPathOf(canonicalElement(element), byId);
+  return [path.start, path.end];
 }
 
 export interface ShaftInk {

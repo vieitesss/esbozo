@@ -19,6 +19,9 @@ export interface EndTarget {
   readonly anchor?: Anchor;
 }
 
+/** Which end of a Shaft a place is measured from. */
+type End = 'start' | 'end';
+
 const CORNER_RADIUS = 12;
 
 function centreOf(outline: Outline): Point {
@@ -120,7 +123,17 @@ export function pointOnOutline(outline: Outline, from: Point): Point {
 
 const OUTLINE_WALK = 72;
 
-const CROSSING_WALK = 30;
+/**
+ * How near the outline a crossing walk leaves the ink: a quarter pixel, so the
+ * ink stops outside the fill and no further from it than that. A walk counting
+ * halvings instead bounds its own parameter, and a Scene's coordinates are only
+ * required to be finite, so a long enough leg turns that into pixels by the
+ * hundred.
+ */
+const CROSSING_PX = 0.25;
+
+/** Halvings a crossing walk may take before it settles for the nearest it can measure. */
+const CROSSING_STEPS = 60;
 
 /** Angles the ellipse is walked at before the walk is narrowed. */
 const ELLIPSE_WALK = 360;
@@ -504,6 +517,17 @@ const CURVE_FLATNESS = 0.1;
 const CURVE_MIN_STEPS = 16;
 const CURVE_MAX_STEPS = 1024;
 
+/**
+ * How far a curve may bend before it is read as the straight line it cannot be
+ * told from: the bend `CURVE_MAX_STEPS` steps measure at `CURVE_FLATNESS`, so a
+ * piece is drawn at the resolution it is measured at. Rough.js flattens every
+ * curve it is handed at one point a pixel, so the ink past this asks for more
+ * points than a browser or a stack holds: a leg of a trillion pixels pulls its
+ * bend three hundred thousand pixels off the chord, and `pointsOnPath` recurses
+ * until `ez render` writes no SVG at all. A non-finite bend is past this too.
+ */
+const CURVE_MAX_TIGHT = (CURVE_MAX_STEPS * CURVE_MAX_STEPS * 8 * CURVE_FLATNESS) / 6;
+
 const CURVE_SOLVE_STEPS = 40;
 
 /**
@@ -566,14 +590,28 @@ interface ShaftDot {
   readonly index: number;
 }
 
+interface DrawnPoints {
+  /** Every point the ink runs through, with each end landed on its outline. */
+  readonly drawn: Point[];
+  /** The target a covered end stops at, or null where its ink runs free. */
+  readonly covered: { readonly start: Outline | null; readonly end: Outline | null };
+}
+
+/**
+ * The points a Shaft is drawn through: each Snapped end landed on its target's
+ * outline, at its Anchor or where the rule for an end without one puts it. An
+ * end whose neighbouring point a move carried inside the target it Snaps to is
+ * reported as covered, and the ink stops where it enters that target.
+ */
 function drawnPoints(
   points: readonly [Point, Point, ...Point[]],
   startTarget: EndTarget | undefined,
   endTarget: EndTarget | undefined,
-): Point[] {
+): DrawnPoints {
   const last = points.length - 1;
+  const covered: { start: Outline | null; end: Outline | null } = { start: null, end: null };
   if (last === 1) {
-    return settledEnds([points[0], points[1]], startTarget, endTarget);
+    return { drawn: settledEnds([points[0], points[1]], startTarget, endTarget), covered };
   }
   const drawn = points.map((point) => ({ x: point.x, y: point.y }));
   const loop = points[0].snap !== undefined && points[0].snap === points[last]!.snap;
@@ -587,33 +625,47 @@ function drawnPoints(
     anchoredEnd === null
   ) {
     [drawn[0], drawn[last]] = loopEnds(startTarget.outline, points[1]);
-    return drawn;
+    return { drawn, covered };
   }
+  // Both ends land on their outlines before either is cut, so the ink a covered
+  // end stops at is the ink drawn from where the other end draws, not from the
+  // place the Scene still stores for it.
   if (anchoredStart !== null) {
     drawn[0] = anchoredStart;
   } else if (startTarget !== undefined) {
-    aimEnd(drawn, points, 0, startTarget.outline, loop);
+    covered.start = landedEnd(drawn, points, 0, startTarget.outline, loop);
   }
   if (anchoredEnd !== null) {
     drawn[last] = anchoredEnd;
   } else if (endTarget !== undefined) {
-    aimEnd(drawn, points, last, endTarget.outline, loop);
+    covered.end = landedEnd(drawn, points, last, endTarget.outline, loop);
   }
-  return drawn;
+  return { drawn, covered };
 }
 
-function aimEnd(
+/**
+ * Lands a Snapped end on its target's outline and says which target still has
+ * ink to cut, or null where the end already sits where the ink is drawn. An end
+ * whose neighbour is inside the target gives the aim no direction: `pointOnOutline`
+ * reads the ray from the target's middle to that neighbour, and a neighbour near
+ * the middle sends it to an arbitrary part of the outline — an ellipse's top — so
+ * the spline through that landing leaves the fill and comes back in on a flank,
+ * which is no entry at all. Such an end is put where the leg reaching it from
+ * outside crosses the outline instead, with the points the walk covered collapsed
+ * onto it; `entryAlong` then trims whatever ink the collapse leaves running on.
+ */
+function landedEnd(
   drawn: Point[],
   points: readonly [Point, Point, ...Point[]],
   end: number,
   target: Outline,
   loop: boolean,
-): void {
+): Outline | null {
   const step = end === 0 ? 1 : -1;
   const beside = points[end + step]!;
   drawn[end] = pointOnOutline(target, beside);
   if (loop || !insideOutline(target, beside)) {
-    return;
+    return null;
   }
   let outside = -1;
   for (let index = end + step; index >= 0 && index < points.length; index += step) {
@@ -623,32 +675,165 @@ function aimEnd(
     }
   }
   if (outside === -1) {
-    return;
+    return null;
   }
   const tip = crossingInto(target, points[outside]!, points[outside - step]!);
   for (let index = end; index !== outside; index += step) {
     drawn[index] = { x: tip.x, y: tip.y };
   }
+  return target;
 }
 
 /**
- * Where the ink between a point outside an outline and a point inside it cross
- * it. Both points are already known to be on their sides, and a rectangle, an
- * ellipse and a diamond are convex, so the ink crosses once: the walk halves
- * the span until the two sides are a millionth of a pixel apart.
+ * How far along the ink a covered end enters its target. The walk starts at
+ * that end, which is drawn on the outline, and reads the ink itself: the first
+ * place the curve is outside the target is where the ink has to stop.
  */
-function crossingInto(target: Outline, from: Point, to: Point): Point {
-  let outside = 0;
-  let inside = 1;
-  for (let step = 0; step < CROSSING_WALK; step += 1) {
-    const middle = (outside + inside) / 2;
-    if (insideOutline(target, lerp(from, to, middle))) {
+function entryAlong(pieces: readonly ShaftPiece[], target: Outline, side: End): number | null {
+  const outward = side === 'start' ? 1 : -1;
+  const start = side === 'start' ? 0 : pieces.length - 1;
+  const starts: number[] = [];
+  let walked = 0;
+  for (const piece of pieces) {
+    starts.push(walked);
+    walked += piece.length;
+  }
+  for (let index = start; index >= 0 && index < pieces.length; index += outward) {
+    const piece = pieces[index]!;
+    const beyond = side === 'start' ? piece.to : piece.from;
+    if (!insideOutline(target, beyond)) {
+      return starts[index]! + arcAt(piece, entrySides(piece, target, side).outside);
+    }
+  }
+  return null;
+}
+
+/**
+ * The fraction of a piece where it crosses into `target`, answered on both
+ * sides: the piece is known to be inside the target at the covered end and
+ * outside it where the ink comes from, so the walk halves that span until the
+ * two are `CROSSING_PX` apart and no ink runs on into the fill. A round spline
+ * through an aim a little off the target's middle crosses the outline more than
+ * once — in on the near edge, out, and back in — and halving the whole piece
+ * settles on whichever crossing its halves disagree across, a flank graze far
+ * from the entry. So the walk finds the first place the ink is inside first,
+ * and halves only the step before it.
+ */
+function entrySides(
+  piece: ShaftPiece,
+  target: Outline,
+  side: End,
+): { inside: number; outside: number } {
+  let { inside, outside } = entrySpan(piece, target, side);
+  for (let step = 0; step < CROSSING_STEPS; step += 1) {
+    const middle = (inside + outside) / 2;
+    if (insideOutline(target, pointOf(piece, middle))) {
       inside = middle;
     } else {
       outside = middle;
     }
+    const reached = pointOf(piece, outside);
+    const nearly = pointOf(piece, inside);
+    if (Math.hypot(nearly.x - reached.x, nearly.y - reached.y) <= CROSSING_PX) {
+      break;
+    }
   }
-  return lerp(from, to, inside);
+  return { inside, outside };
+}
+
+/**
+ * The two fractions of a piece either side of the first place the ink enters
+ * `target`, read from the end the ink comes from: the piece is walked a quarter
+ * pixel at a time until a sample is inside the outline, which leaves the one
+ * before it outside. Only the spans where the piece lies within the target's own
+ * box are read — its outline is inside that box — so the walk costs what the
+ * target is worth, not what a leg a trillion pixels long is.
+ */
+function entrySpan(
+  piece: ShaftPiece,
+  target: Outline,
+  side: End,
+): { inside: number; outside: number } {
+  const inward = side === 'start' ? -1 : 1;
+  const free = side === 'start' ? 1 : 0;
+  let outside = free;
+  const spans = spansWithin(piece, target);
+  if (inward === -1) {
+    spans.reverse();
+  }
+  for (const [low, high] of spans) {
+    const from = inward === 1 ? low : high;
+    const to = inward === 1 ? high : low;
+    const start = arcAt(piece, from);
+    const end = arcAt(piece, to);
+    const steps = Math.max(1, Math.ceil(Math.abs(end - start) / CROSSING_PX));
+    for (let step = 0; step <= steps; step += 1) {
+      const u =
+        step === 0 ? from : step === steps ? to : uAt(piece, start + ((end - start) * step) / steps);
+      if (insideOutline(target, pointOf(piece, u))) {
+        return { inside: u, outside };
+      }
+      outside = u;
+    }
+  }
+  return { inside: side === 'start' ? 0 : 1, outside: free };
+}
+
+/**
+ * Where the leg between a point outside an outline and one inside it crosses the
+ * outline: read on a straight piece, so the same quarter pixel that stops a cut
+ * stops this walk, and answered on the inside, where the ink ends.
+ */
+function crossingInto(target: Outline, outside: Point, inside: Point): Point {
+  const leg = straight(outside, inside);
+  return pointOf(leg, entrySides(leg, target, 'end').inside);
+}
+
+/**
+ * The ink cut at a distance along it, counted from one end: the piece the cut
+ * falls in keeps the curve it was drawn on, so the ink left before it holds the
+ * control points it always had.
+ */
+function cutAt(pieces: readonly ShaftPiece[], distance: number, side: End): ShaftPiece[] {
+  const kept: ShaftPiece[] = [];
+  let walked = 0;
+  for (const piece of pieces) {
+    const from = walked;
+    const to = walked + piece.length;
+    walked = to;
+    if (side === 'end') {
+      if (from >= distance) {
+        break;
+      }
+      kept.push(sliceOf(piece, 0, uAt(piece, Math.min(distance, to) - from)));
+      continue;
+    }
+    if (to <= distance) {
+      continue;
+    }
+    kept.push(sliceOf(piece, uAt(piece, Math.max(distance, from) - from), 1));
+  }
+  return kept;
+}
+
+/** The segments the same cut leaves, in the arc lengths the shorter ink keeps. */
+function cutSegments(
+  segments: readonly ShaftSegment[],
+  distance: number,
+  side: End,
+): ShaftSegment[] {
+  if (side === 'end') {
+    return segments
+      .filter((segment) => segment.from < distance)
+      .map((segment) => ({ ...segment, to: Math.min(segment.to, distance) }));
+  }
+  return segments
+    .filter((segment) => segment.to > distance)
+    .map((segment) => ({
+      ...segment,
+      from: Math.max(segment.from, distance) - distance,
+      to: segment.to - distance,
+    }));
 }
 
 function loopEnds(target: Outline, bend: Point): [Point, Point] {
@@ -665,29 +850,36 @@ function loopEnds(target: Outline, bend: Point): [Point, Point] {
   ];
 }
 
-export function shaftEnds(
-  points: readonly [Point, Point, ...Point[]],
-  startTarget: EndTarget | undefined,
-  endTarget: EndTarget | undefined,
-): [Point, Point] {
-  const drawn = drawnPoints(points, startTarget, endTarget);
-  return [drawn[0]!, drawn[drawn.length - 1]!];
-}
-
 export function shaftPath(
   points: readonly [Point, Point, ...Point[]],
   corners: Corner,
   startTarget: EndTarget | undefined,
   endTarget: EndTarget | undefined,
 ): ShaftPath {
-  const drawn = drawnPoints(points, startTarget, endTarget);
-  const { pieces, segments } = piecesOf(gathered(drawn, points, corners));
-  const start = drawn[0]!;
-  const end = drawn[drawn.length - 1]!;
-  const inked = pieces.length === 0 ? [straight(start, end)] : pieces;
+  const { drawn, covered } = drawnPoints(points, startTarget, endTarget);
+  const whole = piecesOf(gathered(drawn, points, corners));
+  // Both entries are measured on the whole ink, so a cut at one end says nothing
+  // about where the other end's crossing lies.
+  const entries: [number | null, number | null] = [
+    covered.start === null ? null : entryAlong(whole.pieces, covered.start, 'start'),
+    covered.end === null ? null : entryAlong(whole.pieces, covered.end, 'end'),
+  ];
+  let { pieces, segments } = whole;
+  for (const [side, entry] of [
+    ['end', entries[1]],
+    ['start', entries[0]],
+  ] as const) {
+    if (entry !== null) {
+      pieces = cutAt(pieces, entry, side);
+      segments = cutSegments(segments, entry, side);
+    }
+  }
+  const first = pieces[0]?.from ?? drawn[0]!;
+  const last = pieces[pieces.length - 1]?.to ?? drawn[drawn.length - 1]!;
+  const inked = pieces.length === 0 ? [straight(first, last)] : pieces;
   return {
-    start: { x: start.x, y: start.y },
-    end: { x: end.x, y: end.y },
+    start: { x: first.x, y: first.y },
+    end: { x: last.x, y: last.y },
     pieces: inked,
     segments,
     length: inked.reduce((total, piece) => total + piece.length, 0),
@@ -838,6 +1030,20 @@ export function curve(
   control2: Point,
   to: Point,
 ): CurvedPiece {
+  if (!(tightness(from, control1, control2, to) <= CURVE_MAX_TIGHT)) {
+    return flatCurve(from, to);
+  }
+  const arcs = arcsOf(from, control1, control2, to);
+  return { kind: 'curved', from, control1, control2, to, arcs, length: arcs[arcs.length - 1]! };
+}
+
+/**
+ * The same span drawn as the straight line it is: control points a third and two
+ * thirds of the way, so the piece keeps its kind, its ends and its arc lengths.
+ */
+function flatCurve(from: Point, to: Point): CurvedPiece {
+  const control1 = lerp(from, to, 1 / 3);
+  const control2 = lerp(from, to, 2 / 3);
   const arcs = arcsOf(from, control1, control2, to);
   return { kind: 'curved', from, control1, control2, to, arcs, length: arcs[arcs.length - 1]! };
 }
@@ -881,12 +1087,22 @@ function curveSpeed(from: Point, control1: Point, control2: Point, to: Point, u:
 }
 
 function curveSteps(from: Point, control1: Point, control2: Point, to: Point): number {
-  const tight = Math.max(
+  const steps = Math.ceil(
+    Math.sqrt((6 * tightness(from, control1, control2, to)) / (8 * CURVE_FLATNESS)),
+  );
+  return Math.min(CURVE_MAX_STEPS, Math.max(CURVE_MIN_STEPS, steps));
+}
+
+/**
+ * How far the control points pull a curve off the line between its ends: the
+ * larger of the two second differences, which is what says how much ink the
+ * span has to bend.
+ */
+function tightness(from: Point, control1: Point, control2: Point, to: Point): number {
+  return Math.max(
     Math.hypot(from.x - 2 * control1.x + control2.x, from.y - 2 * control1.y + control2.y),
     Math.hypot(control1.x - 2 * control2.x + to.x, control1.y - 2 * control2.y + to.y),
   );
-  const steps = Math.ceil(Math.sqrt((6 * tight) / (8 * CURVE_FLATNESS)));
-  return Math.min(CURVE_MAX_STEPS, Math.max(CURVE_MIN_STEPS, steps));
 }
 
 /**
@@ -1354,6 +1570,40 @@ export function cutAtGap(pieces: readonly ShaftPiece[], gap: Box): CutPath[] {
     cut.push(open);
   }
   return cut;
+}
+
+/**
+ * The fractions of a piece where it lies within `box`: the spans the entry walk
+ * reads, so a piece never crossed there costs nothing. A rectangle, a diamond
+ * and an ellipse all keep their outline inside their box, so the spans hold
+ * every place the piece can be inside the target.
+ */
+function spansWithin(piece: ShaftPiece, box: Box): [number, number][] {
+  const stops = [0, ...edgeCrossings(piece, box), 1];
+  const spans: [number, number][] = [];
+  for (let index = 0; index + 1 < stops.length; index += 1) {
+    const from = stops[index]!;
+    const to = stops[index + 1]!;
+    if (from === to || !insideBox(pointOf(piece, (from + to) / 2), box)) {
+      continue;
+    }
+    const last = spans[spans.length - 1];
+    if (last !== undefined && last[1] === from) {
+      last[1] = to;
+    } else {
+      spans.push([from, to]);
+    }
+  }
+  return spans;
+}
+
+function insideBox(point: Point, box: Box): boolean {
+  return (
+    point.x >= box.x &&
+    point.x <= box.x + box.width &&
+    point.y >= box.y &&
+    point.y <= box.y + box.height
+  );
 }
 
 function outsideSpans(piece: ShaftPiece, gap: Box): [number, number][] {
