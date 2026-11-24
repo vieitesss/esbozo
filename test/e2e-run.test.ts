@@ -1,3 +1,10 @@
+/**
+ * Script seam: `scripts/e2e-run.mjs` between `pnpm e2e` and the e2e runner.
+ *
+ * What is asserted is the guard a caller meets: a bare local run is refused
+ * with exit 2 and the per-file invocation, `CI=1` and `--all` run the full
+ * suite through the queue and fresh-tmp wrappers, and named files run alone.
+ */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
