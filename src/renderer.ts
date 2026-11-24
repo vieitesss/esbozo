@@ -3,24 +3,26 @@ import type { Drawable, OpSet, Options } from 'roughjs/bin/core.js';
 import { canonicalElement, canonicalScene, hashScene, isOutlined, snapTargetId } from './scene.js';
 import type {
   ArrowOrLineElement,
+  Corner,
   Element,
   Head,
   OutlinedElement,
   Point,
   Scene,
   StrokeWidth,
-  TextElement,
 } from './scene.js';
 import { STROKE_WIDTH_PX } from './layout.js';
 import type { Block, Box, Layout } from './layout.js';
 import {
   arrowHeadTriangle,
   barThrough,
+  cornerOf,
   curve,
   cutAtGap,
   fillets,
   pathMeetsGap,
   quadraticRoots,
+  shaftDots,
   shaftLabelAnchor,
   shaftPath,
   shaftTangentAt,
@@ -127,8 +129,7 @@ export function elementBounds(
   byId: ReadonlyMap<string, Element>,
   layout: Layout,
 ): Box {
-  const placed = placement(element, byId, layout);
-  return joined(placed.box, placed.words);
+  return drawnGeometry(element, byId, layout).bounds;
 }
 
 export function outlineBox(element: OutlinedElement): Box {
@@ -150,8 +151,11 @@ export function drawnShaft(
   element: ArrowOrLineElement,
   byId: ReadonlyMap<string, Element>,
 ): [Point, Point] {
-  const path = shaftPathOf(canonicalElement(element), byId);
-  return [path.start, path.end];
+  const ends = drawnGeometry(element, byId).ends;
+  if (ends === null) {
+    throw new Error(`${element.id}: only an arrow or line draws ends`);
+  }
+  return [ends[0], ends[1]];
 }
 
 export interface ShaftInk {
@@ -160,9 +164,11 @@ export interface ShaftInk {
 }
 
 export function shaftInk(element: ArrowOrLineElement, byId: ReadonlyMap<string, Element>): ShaftInk {
-  const canonical = canonicalElement(element);
-  const path = shaftPathOf(canonical, byId);
-  return { path, heads: headsOf(canonical, path).map((head) => head.ink) };
+  const drawn = drawnGeometry(element, byId);
+  if (drawn.path === null) {
+    throw new Error(`${element.id}: only an arrow or line draws a shaft`);
+  }
+  return { path: drawn.path, heads: drawn.heads };
 }
 
 export function shaftLabel(
@@ -170,8 +176,8 @@ export function shaftLabel(
   byId: ReadonlyMap<string, Element>,
   layout: Layout,
 ): Block | null {
-  const placed = placement(element, byId, layout);
-  return placed.kind === 'shaft' ? placed.words : null;
+  const drawn = drawnGeometry(element, byId, layout);
+  return drawn.path === null ? null : drawn.words;
 }
 
 export function strokeWidthOf(element: Element): number {
@@ -312,50 +318,293 @@ function extendWithCurve(
   }
 }
 
-type Placement =
-  | {
-      kind: 'shaft';
-      element: ArrowOrLineElement;
-      path: ShaftPath;
-      words: Block | null;
-      box: Box;
-    }
-  | { kind: 'text'; element: TextElement; words: Block; box: Box }
-  | { kind: 'outline'; element: OutlinedElement; words: Block | null; box: Box };
+/** A bend point as a Shaft draws it: one of its own points between the ends. */
+interface DrawnBend {
+  /** The `points` index it is stored at: the index a handle names. */
+  readonly index: number;
+  readonly at: Point;
+  /** The corner it turns by: its own, or the Shaft's where it writes none. */
+  readonly corner: Corner;
+}
 
-function placement(
+/** A dot halfway along one segment of a Shaft's ink, where a pull adds a bend point. */
+interface DrawnDot {
+  /** The `points` index a pull there inserts at. */
+  readonly index: number;
+  readonly at: Point;
+}
+
+/**
+ * Everything the Renderer drew for one Element, in one answer: the box it covers
+ * and the ink a press lands on, both ends of a Shaft as they draw with every Snap
+ * resolved, the bend points it turns by, the dots halfway along its segments,
+ * and the box its Label paints.
+ *
+ * This is the one question the Editor asks about an Element's geometry, so a
+ * handle, a pick, a Snap and a Label's cue can never disagree with the page the
+ * SVG draws. The shape of what is drawn needs no measurement; the words do, so
+ * a query asked without a Layout still answers ends, bends, dots, boxes and ink
+ * for an Element that carries no words, and says so loudly when it has to
+ * measure some.
+ */
+export interface DrawnGeometry {
+  /** Every box the drawing covers, a Label's words included. */
+  readonly bounds: Box;
+  /** The box the Element's own ink covers, grown by the extremes its paths reach. */
+  readonly ink: Box;
+  /** The Element's own box: the box it occupies, or the bounds of the Shaft it draws. */
+  readonly box: Box;
+  /** Both ends as they draw, each Snap resolved onto its target's outline, or null. */
+  readonly ends: readonly [Point, Point] | null;
+  /** The path a Shaft draws, its ends resolved and a covered bend's ink stopped, or null. */
+  readonly path: ShaftPath | null;
+  /** The heads drawn on a Shaft's ends. */
+  readonly heads: readonly HeadInk[];
+  /** The bend points a Shaft turns by, in drawing order. */
+  readonly bends: readonly DrawnBend[];
+  /** The dots halfway along the segments of a Shaft's ink. */
+  readonly dots: readonly DrawnDot[];
+  /** The Label's words as Layout placed them, or null where it has none. */
+  readonly words: Block | null;
+  /** The box a Label's ink paints, glyph overhang included, or null. */
+  readonly label: Box | null;
+  /** The width of the stroke the Element draws with. */
+  readonly strokeWidth: number;
+}
+
+/** One answer, made when it is first asked for and kept after. */
+function made<T>(make: () => T): () => T {
+  let built = false;
+  let value!: T;
+  return () => {
+    if (!built) {
+      value = make();
+      built = true;
+    }
+    return value;
+  };
+}
+
+/** The shaft this Element draws, or null where it draws no path of its own. */
+function shaftOf(element: Element): ArrowOrLineElement | null {
+  return element.type === 'arrow' || element.type === 'line' ? element : null;
+}
+
+/** The drawables an outlined Element is drawn with, and the generator that made them. */
+interface Outlines {
+  readonly generator: RoughGenerator;
+  readonly fills: readonly Drawable[];
+  readonly outlines: readonly Drawable[];
+}
+
+/**
+ * One Element's drawn geometry, worked out a piece at a time: a pick that only
+ * wants the ink does not measure a Label, and a Snap that only wants the ends
+ * does not roughen a bent shaft into its box.
+ */
+class Drawn implements DrawnGeometry {
+  /** The Element as given: a bend point of a gesture in flight is still where it holds it. */
+  readonly #given: Element;
+  /** The Element as the SVG draws it, rounded like a saved Scene. */
+  readonly #element: Element;
+  readonly #byId: ReadonlyMap<string, Element>;
+  readonly #layout: Layout | undefined;
+  readonly #path: () => ShaftPath | null;
+  readonly #words: () => Block | null;
+  readonly #box: () => Box;
+  readonly #bounds: () => Box;
+  readonly #ink: () => Box;
+  readonly #drawables: () => Outlines;
+  readonly #heads: () => readonly HeadInk[];
+  readonly #bends: () => readonly DrawnBend[];
+  readonly #dots: () => readonly DrawnDot[];
+  readonly #label: () => Box | null;
+
+  constructor(element: Element, byId: ReadonlyMap<string, Element>, layout?: Layout) {
+    // The same canonical Element `renderScene` draws: a Scene the editor mutates
+    // keeps more precision than a saved one writes, and the bounds a host fits and
+    // selects by have to be the bounds of the ink.
+    this.#given = element;
+    this.#element = canonicalElement(element);
+    this.#byId = byId;
+    this.#layout = layout;
+    this.#path = made(() => {
+      const shaft = shaftOf(this.#element);
+      return shaft === null ? null : shaftPathOf(shaft, this.#byId);
+    });
+    this.#words = made(() => this.#wordsOf());
+    this.#box = made(() => this.#boxOf());
+    this.#bounds = made(() => joined(this.#box(), this.#words()));
+    this.#drawables = made(() => this.#drawablesOf());
+    this.#ink = made(() => this.#inkOf());
+    this.#heads = made(() => {
+      const shaft = shaftOf(this.#element);
+      return shaft === null ? [] : headsOf(shaft, this.#path()!).map((head) => head.ink);
+    });
+    this.#bends = made(() => this.#bendsOf());
+    this.#dots = made(() => {
+      const path = this.#path();
+      return path === null ? [] : shaftDots(path);
+    });
+    this.#label = made(() => {
+      const words = this.#words();
+      return words === null ? null : wordsInkBounds(words);
+    });
+  }
+
+  get bounds(): Box {
+    return this.#bounds();
+  }
+
+  get ink(): Box {
+    return this.#ink();
+  }
+
+  get box(): Box {
+    return this.#box();
+  }
+
+  get ends(): readonly [Point, Point] | null {
+    const path = this.#path();
+    return path === null ? null : [path.start, path.end];
+  }
+
+  get path(): ShaftPath | null {
+    return this.#path();
+  }
+
+  get heads(): readonly HeadInk[] {
+    return this.#heads();
+  }
+
+  get bends(): readonly DrawnBend[] {
+    return this.#bends();
+  }
+
+  get dots(): readonly DrawnDot[] {
+    return this.#dots();
+  }
+
+  get words(): Block | null {
+    return this.#words();
+  }
+
+  get label(): Box | null {
+    return this.#label();
+  }
+
+  get strokeWidth(): number {
+    return strokeWidthOf(this.#element);
+  }
+
+  /**
+   * The SVG that draws this very geometry. Kept beside the query so the ink a
+   * press reads and the ink the page shows come from one Roughening of one path.
+   */
+  svg(): string {
+    const element = this.#element;
+    const shaft = shaftOf(element);
+    if (shaft !== null) {
+      return arrowOrLineSvg(shaft, this.#path()!, this.#words());
+    }
+    if (element.type === 'text') {
+      return renderBlock(this.#words()!, element.tone === 'muted' ? MUTED : INK);
+    }
+    const { generator, fills, outlines } = this.#drawables();
+    return outlinedSvg(this.#outlined(), this.#words(), generator, fills, outlines);
+  }
+
+  #layoutOf(): Layout {
+    if (this.#layout === undefined) {
+      throw new Error(
+        `${this.#given.id}: measuring words needs the Layout the Scene is drawn with`,
+      );
+    }
+    return this.#layout;
+  }
+
+  #outlined(): OutlinedElement {
+    const element = this.#element;
+    if (!isOutlined(element)) {
+      throw new Error(
+        `${this.#given.id}: only a rectangle, ellipse or diamond draws an outline`,
+      );
+    }
+    return element;
+  }
+
+  #wordsOf(): Block | null {
+    const element = this.#element;
+    if (element.type !== 'text' && element.label === undefined) {
+      return null;
+    }
+    const layout = this.#layoutOf();
+    if (element.type === 'text') {
+      return layout.text(element);
+    }
+    const shaft = shaftOf(element);
+    return shaft === null ? layout.label(this.#outlined()) : shaftWords(shaft, this.#path()!, layout);
+  }
+
+  #boxOf(): Box {
+    const element = this.#element;
+    if (element.type === 'text') {
+      return this.#words()!;
+    }
+    const shaft = shaftOf(element);
+    return shaft === null ? outlineBox(this.#outlined()) : shaftBox(shaft, this.#path()!);
+  }
+
+  #inkOf(): Box {
+    const element = this.#element;
+    const shaft = shaftOf(element);
+    if (shaft !== null) {
+      return this.#bounds();
+    }
+    if (element.type === 'text') {
+      return wordsInkBounds(this.#words()!);
+    }
+    const { fills, outlines } = this.#drawables();
+    return inkOf(this.#bounds(), this.#outlined(), [...fills, ...outlines]);
+  }
+
+  #drawablesOf(): Outlines {
+    const element = this.#outlined();
+    const generator = new RoughGenerator();
+    return {
+      generator,
+      fills: fillDrawables(generator, element),
+      outlines: outlineDrawables(generator, element),
+    };
+  }
+
+  #bendsOf(): readonly DrawnBend[] {
+    const shaft = shaftOf(this.#given);
+    if (shaft === null) {
+      return [];
+    }
+    const bends: DrawnBend[] = [];
+    for (let index = 1; index < shaft.points.length - 1; index += 1) {
+      const at = shaft.points[index]!;
+      bends.push({ index, at, corner: cornerOf(at, shaft.corners) });
+    }
+    return bends;
+  }
+}
+
+/**
+ * What the Renderer drew for one Element: its ink, its bounds, its ends and
+ * bends where they land, its segment dots and its Label's box.
+ *
+ * `layout` is passed wherever the answer includes words; without one the query
+ * answers the drawn shape alone and raises when it is asked to measure a Label.
+ */
+export function drawnGeometry(
   element: Element,
   byId: ReadonlyMap<string, Element>,
-  layout: Layout,
-): Placement {
-  // The same canonical Element `renderScene` draws: a Scene the editor mutates
-  // keeps more precision than a saved one writes, and the bounds a host fits and
-  // selects by have to be the bounds of the ink.
-  const canonical = canonicalElement(element);
-  switch (canonical.type) {
-    case 'arrow':
-    case 'line': {
-      const path = shaftPathOf(canonical, byId);
-      return {
-        kind: 'shaft',
-        element: canonical,
-        path,
-        words: shaftWords(canonical, path, layout),
-        box: shaftBox(canonical, path),
-      };
-    }
-    case 'text': {
-      const words = layout.text(canonical);
-      return { kind: 'text', element: canonical, words, box: words };
-    }
-    default:
-      return {
-        kind: 'outline',
-        element: canonical,
-        words: layout.label(canonical),
-        box: outlineBox(canonical),
-      };
-  }
+  layout?: Layout,
+): DrawnGeometry {
+  return new Drawn(element, byId, layout);
 }
 
 /**
@@ -421,26 +670,13 @@ export function renderElement(
   byId: ReadonlyMap<string, Element>,
   layout: Layout,
 ): DrawnElement {
-  const placed = placement(element, byId, layout);
-  const bounds = joined(placed.box, placed.words);
-  if (placed.kind === 'outline') {
-    const generator = new RoughGenerator();
-    const fills = fillDrawables(generator, placed.element);
-    const outlines = outlineDrawables(generator, placed.element);
-    return {
-      bounds,
-      ink: inkOf(bounds, placed.element, [...fills, ...outlines]),
-      words: placed.words,
-      svg: outlinedSvg(placed.element, placed.words, generator, fills, outlines),
-    };
-  }
-  if (placed.kind === 'shaft') {
-    const svg = arrowOrLineSvg(placed.element, placed.path, placed.words);
-    return { bounds, ink: bounds, words: placed.words, svg };
-  }
-  const ink = wordsInkBounds(placed.words);
-  const svg = renderBlock(placed.words, placed.element.tone === 'muted' ? MUTED : INK);
-  return { bounds, ink, words: placed.words, svg };
+  const drawn = new Drawn(element, byId, layout);
+  return {
+    bounds: drawn.bounds,
+    ink: drawn.ink,
+    words: drawn.words,
+    svg: drawn.svg(),
+  };
 }
 
 function joined(box: Box, words: Block | null): Box {
