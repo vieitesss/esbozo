@@ -11,7 +11,6 @@ import {
   bendFromHandle,
   dotAt,
   sameBend,
-  shaftIn,
   withBend,
   withInsertedBend,
 } from './bend-point.js';
@@ -20,7 +19,7 @@ import type { ToolId } from './actions.js';
 import { drawn, drawnAtClick, freshId, idsOf, isClick } from './elements.js';
 import type { ElementTool } from './elements.js';
 import { added, bent, ended, labelled, settled } from './edits.js';
-import type { Edited } from './edits.js';
+import type { Hand } from './hand.js';
 import type { Page, Shown } from './page.js';
 import { endPoint, isShaft, snapTarget, withEnd } from './snap.js';
 import type { End } from './snap.js';
@@ -309,28 +308,18 @@ interface GestureHost {
   /** The tool rail: the page's chrome, so a press on it is no press on the board (D5). */
   readonly rail: HTMLElement;
 
-  /** The Scene in hand, and the measurement its Labels break with. */
-  scene(): Scene;
+  /** The Scene in hand: its Scene, selection, Bend point, writability and landing gate. */
+  readonly hand: Hand;
   layout(): Layout;
   /** The page supplies pointer coordinates, painted ink and glyph positions. */
   readonly page: Pick<Page, 'ink' | 'paint' | 'viewport' | 'wordsNearest' | 'wordsOffset'>;
 
-  selected(): readonly string[];
-  select(ids: readonly string[]): void;
-  /** The one bend point the selection holds, set by a press and let go by the next one. */
-  selectBend(bend: Bend | null): void;
-  /** Remove the bend point a double-click holds, as one step: the editor's own removal. */
-  removeBend(bend: Bend): void;
   tool(): ToolId;
   setTool(tool: ToolId): void;
-  /** True when this page may change the Scene at all. */
-  writable(): boolean;
 
   /** Open the field, or read and move its selection while it is open. */
   readonly typing: Pick<Typing, 'text' | 'typedOffset' | 'openWords' | 'openTextInput'>;
 
-  /** A Scene edit lands, as one history step and one write, with the selection it names. */
-  land(edit: Edited | null): void;
   /** The note follows the selection, the view makes room for it, the page repaints. */
   refresh(): void;
   /** Refresh the status bar after the held Space or pan drag changes. */
@@ -372,7 +361,7 @@ function attachTarget(
   point: Point,
   skipAttaching: boolean,
 ): string | null {
-  const elements = host.scene().elements;
+  const elements = host.hand.scene.elements;
   const element = elements.find((candidate) => candidate.id === id);
   const shaft = element !== undefined && isShaft(element) ? element : undefined;
   return snapTarget(elements, point, { shaft, end, skipAttach: skipAttaching });
@@ -391,7 +380,7 @@ function pathOf(
 ): ArrowOrLineElement {
   const first = points[0]!;
   const last = points[points.length - 1]!;
-  let path = strokeOf(drawn(tool, first, last, id, host.scene().defaults));
+  let path = strokeOf(drawn(tool, first, last, id, host.hand.scene.defaults));
   for (let index = points.length - 2; index >= 1; index -= 1) {
     path = withInsertedBend(path, 1, points[index]!);
   }
@@ -421,7 +410,7 @@ function placePreview(
   const end = whole(cursor);
   const path = pathOf(host, drag.tool, [...points, end], drag.id);
   return {
-    preview: withEnd(path, 'end', end, target, elementsById(host.scene().elements)),
+    preview: withEnd(path, 'end', end, target, elementsById(host.hand.scene.elements)),
     target,
   };
 }
@@ -488,11 +477,11 @@ function finishDrawing(
     return startPlacing(host, drag, at, event);
   }
   const placed = isClick(drag.from, at)
-    ? drawnAtClick(drag.tool, drag.from, drag.id, host.scene().defaults)
-    : drawn(drag.tool, drag.from, at, drag.id, host.scene().defaults);
+    ? drawnAtClick(drag.tool, drag.from, drag.id, host.hand.scene.defaults)
+    : drawn(drag.tool, drag.from, at, drag.id, host.hand.scene.defaults);
   host.setTool('select');
   if (placed === null) {
-    host.select([]);
+    host.hand.select([]);
     host.refresh();
     return null;
   }
@@ -502,10 +491,10 @@ function finishDrawing(
         'end',
         endPoint(placed, 'end'),
         attachTarget(host, drag.id, 'end', at, event.altKey),
-        elementsById(host.scene().elements),
+        elementsById(host.hand.scene.elements),
       )
     : placed;
-  host.land(added(host.scene(), element));
+  host.hand.land(added(host.hand.scene, element));
   return null;
 }
 
@@ -565,7 +554,7 @@ function finishPlace(
   host.setTool('select');
   const distinct = new Set(points.map((point) => `${point.x},${point.y}`));
   if (distinct.size < 2) {
-    host.select([]);
+    host.hand.select([]);
     host.refresh();
     return;
   }
@@ -575,9 +564,9 @@ function finishPlace(
     'end',
     end,
     attachTarget(host, drag.id, 'end', release, skipSnap),
-    elementsById(host.scene().elements),
+    elementsById(host.hand.scene.elements),
   );
-  host.land(added(host.scene(), element));
+  host.hand.land(added(host.hand.scene, element));
 }
 
 /**
@@ -598,7 +587,7 @@ function resolveEnd(
   pointer: Point,
   skipSnap: boolean,
 ): { to: Point; target: string | null } {
-  const elements = host.scene().elements;
+  const elements = host.hand.scene.elements;
   const element = elements.find((candidate) => candidate.id === drag.id);
   const shaft = element !== undefined && isShaft(element) ? element : undefined;
   return {
@@ -630,7 +619,7 @@ function settleEnd(
   at: Point,
   skipSnap: boolean,
 ): null {
-  const element = host.scene().elements.find((candidate) => candidate.id === drag.id);
+  const element = host.hand.scene.elements.find((candidate) => candidate.id === drag.id);
   if (!drag.moved || element === undefined || !isShaft(element)) {
     // The gesture painted a preview and maybe a highlight; a Scene it did not
     // change must not leave either of them on the page.
@@ -638,7 +627,7 @@ function settleEnd(
     return null;
   }
   const { to, target } = resolveEnd(host, drag, at, skipSnap);
-  host.land(ended(host.scene(), element, drag.which, to, target));
+  host.hand.land(ended(host.hand.scene, element, drag.which, to, target));
   return null;
 }
 
@@ -651,7 +640,7 @@ function bendBase(
   host: GestureHost,
   drag: Extract<Drag, { kind: 'bend' }>,
 ): ArrowOrLineElement | undefined {
-  const element = host.scene().elements.find((candidate) => candidate.id === drag.id);
+  const element = host.hand.scene.elements.find((candidate) => candidate.id === drag.id);
   if (element === undefined || !isShaft(element)) {
     return undefined;
   }
@@ -674,13 +663,13 @@ function settleBend(
   const base = bendBase(host, drag);
   const picked = drag.inserted || drag.shift ? null : { id: drag.id, index: drag.index };
   if (!drag.moved || base === undefined) {
-    host.selectBend(picked);
+    host.hand.pickBend(picked);
     host.refresh();
     return null;
   }
   const to = { x: drag.origin.x + at.x - drag.from.x, y: drag.origin.y + at.y - drag.from.y };
-  host.selectBend(picked);
-  host.land(bent(host.scene(), base, drag.index, to));
+  host.hand.pickBend(picked);
+  host.hand.land(bent(host.hand.scene, base, drag.index, to));
   return null;
 }
 
@@ -690,7 +679,7 @@ function settleBend(
  * carried nothing leaves the Scene as it was, and records no step.
  */
 function settleLabel(host: GestureHost, drag: Extract<Drag, { kind: 'label' }>): null {
-  host.land(labelled(host.scene(), drag.shown));
+  host.hand.land(labelled(host.hand.scene, drag.shown));
   return null;
 }
 
@@ -700,7 +689,7 @@ function settleLabel(host: GestureHost, drag: Extract<Drag, { kind: 'label' }>):
  * drag cannot show one thing and save another.
  */
 function settleShown(host: GestureHost, drag: ShownDrag): null {
-  host.land(settled(host.scene(), swapOf(drag)));
+  host.hand.land(settled(host.hand.scene, swapOf(drag)));
   return null;
 }
 
@@ -771,7 +760,7 @@ const move: DragKind<Extract<Drag, { kind: 'move' }>> = {
     }
     drag.by = { x: dx, y: dy };
     const shown = new Map<string, SceneElement>();
-    for (const element of host.scene().elements) {
+    for (const element of host.hand.scene.elements) {
       const origin = drag.origins.get(element.id);
       if (origin !== undefined) {
         shown.set(element.id, moved(origin, dx, dy));
@@ -792,7 +781,7 @@ const resize: DragKind<Extract<Drag, { kind: 'resize' }>> = {
   follow(drag, event, run) {
     const { host } = run;
     const point = host.page.viewport.scenePoint(event);
-    const element = host.scene().elements.find((candidate) => candidate.id === drag.id);
+    const element = host.hand.scene.elements.find((candidate) => candidate.id === drag.id);
     if (element === undefined) {
       return;
     }
@@ -841,9 +830,9 @@ const draw: DragKind<Extract<Drag, { kind: 'draw' }>> = {
       ? attachTarget(host, drag.id, 'end', point, event.altKey)
       : null;
     drag.target = target;
-    const preview = drawn(drag.tool, drag.from, point, drag.id, host.scene().defaults);
+    const preview = drawn(drag.tool, drag.from, point, drag.id, host.hand.scene.defaults);
     drag.preview = isShaft(preview)
-      ? withEnd(preview, 'end', point, target, elementsById(host.scene().elements))
+      ? withEnd(preview, 'end', point, target, elementsById(host.hand.scene.elements))
       : preview;
     host.page.paint();
   },
@@ -894,7 +883,7 @@ const draw: DragKind<Extract<Drag, { kind: 'draw' }>> = {
   },
   cancel(_drag, run) {
     // The preview drew under an id the Scene never took.
-    run.host.select([]);
+    run.host.hand.select([]);
   },
 };
 
@@ -907,7 +896,7 @@ const end: DragKind<Extract<Drag, { kind: 'end' }>> = {
   follow(drag, event, run) {
     const { host } = run;
     const point = host.page.viewport.scenePoint(event);
-    const element = host.scene().elements.find((candidate) => candidate.id === drag.id);
+    const element = host.hand.scene.elements.find((candidate) => candidate.id === drag.id);
     if (element === undefined || !isShaft(element)) {
       return;
     }
@@ -916,7 +905,7 @@ const end: DragKind<Extract<Drag, { kind: 'end' }>> = {
     const { to, target } = resolveEnd(host, drag, point, event.altKey);
     drag.moved = drag.moved || point.x !== drag.from.x || point.y !== drag.from.y;
     drag.target = target;
-    drag.shown = withEnd(element, drag.which, to, target, elementsById(host.scene().elements));
+    drag.shown = withEnd(element, drag.which, to, target, elementsById(host.hand.scene.elements));
     host.page.paint();
   },
   settle(drag, event, run) {
@@ -1048,10 +1037,10 @@ const box: DragKind<Extract<Drag, { kind: 'box' }>> = {
   settle(drag, _event, run) {
     const { host } = run;
     const swept = boxBetween(drag.from, drag.to);
-    const picked = elementsInBox(host.scene().elements, swept, host.layout()).map(
+    const picked = elementsInBox(host.hand.scene.elements, swept, host.layout()).map(
       (element) => element.id,
     );
-    host.select(drag.additive ? [...new Set([...host.selected(), ...picked])] : picked);
+    host.hand.select(drag.additive ? [...new Set([...host.hand.selected, ...picked])] : picked);
     host.refresh();
     return null;
   },
@@ -1091,7 +1080,7 @@ export class Gestures {
   #cancelledClick = false;
   #spaceDown = false;
   /** The Shaft a page mark names, which is what makes the mark a bend point's. */
-  #shaft: ShaftOf = (id) => shaftIn(this.#host.scene(), id);
+  #shaft: ShaftOf = (id) => this.#host.hand.shaft(id);
 
   constructor(host: GestureHost) {
     this.#host = host;
@@ -1137,7 +1126,7 @@ export class Gestures {
   /** The Scene and the overlay marks the gesture in flight shows, or null with none. */
   preview(): Preview | null {
     const drag = this.#drag;
-    return drag === null ? null : entryOf(drag).preview(drag, this.#host.scene());
+    return drag === null ? null : entryOf(drag).preview(drag, this.#host.hand.scene);
   }
 
   /** Whether a Space press is holding the page in the hand, so the pencil stands down. */
@@ -1342,7 +1331,7 @@ export class Gestures {
     }
     // A press that is not a pan lets go of the point the press before it picked:
     // the point belongs to one press, and only a pan keeps it in the hand.
-    this.#host.selectBend(null);
+    this.#host.hand.pickBend(null);
     const place = this.#drag;
     if (place !== null && entryOf(place).hold?.(place, viewport.scenePoint(event)) === true) {
       // With a shaft in hand the press carries the preview to where it lands: it
@@ -1358,7 +1347,7 @@ export class Gestures {
     }
     // A read-only page still selects, sweeps and pans; it just cannot change
     // the Scene, so a press never starts a drag that would.
-    const editing = this.#host.writable();
+    const editing = this.#host.hand.writable;
     const handle = editing ? (target?.closest('[data-handle]') ?? null) : null;
     if (handle !== null) {
       this.#press = null;
@@ -1393,9 +1382,9 @@ export class Gestures {
       }
       const id = handle.getAttribute('data-element') ?? '';
       const which = handle.getAttribute('data-handle');
-      const element = this.#host.scene().elements.find((candidate) => candidate.id === id);
+      const element = this.#host.hand.scene.elements.find((candidate) => candidate.id === id);
       if (element !== undefined && isShaft(element) && (which === 'start' || which === 'end')) {
-        const ends = drawnGeometry(element, elementsById(this.#host.scene().elements)).ends;
+        const ends = drawnGeometry(element, elementsById(this.#host.hand.scene.elements)).ends;
         const origin = which === 'start' ? ends![0] : ends![1];
         this.#drag = {
           kind: 'end',
@@ -1433,7 +1422,7 @@ export class Gestures {
     // the ones the page painted for the Scene it holds, so no Element is drawn
     // to find out.
     const pick = pickAt(
-      this.#host.scene().elements,
+      this.#host.hand.scene.elements,
       point,
       reach,
       this.#host.layout(),
@@ -1451,7 +1440,7 @@ export class Gestures {
     };
     if (pick === null) {
       if (!event.shiftKey) {
-        this.#host.select([]);
+        this.#host.hand.select([]);
       }
       this.#drag = { kind: 'box', from: point, to: point, additive: event.shiftKey };
       this.#host.refresh();
@@ -1468,7 +1457,7 @@ export class Gestures {
         // shaft's words stay on the bend the drawing put them on.
         const path = drawnGeometry(
           pick.element,
-          elementsById(this.#host.scene().elements),
+          elementsById(this.#host.hand.scene.elements),
         ).path!;
         this.#drag = {
           kind: 'label',
@@ -1557,10 +1546,12 @@ export class Gestures {
         const opening =
           bend !== undefined || first.id === null
             ? undefined
-            : this.#host.scene().elements.find((element) => element.id === first.id);
+            : this.#host.hand.scene.elements.find((element) => element.id === first.id);
         if (bend !== undefined && sameBend(click.bend, bend)) {
           this.#drag = null;
-          this.#host.removeBend(bend);
+          if (!this.#host.hand.removeBend(bend)) {
+            this.#host.refresh();
+          }
           return;
         }
         if (opening !== undefined) {
@@ -1603,7 +1594,7 @@ export class Gestures {
     const opening =
       first.id === null
         ? undefined
-        : this.#host.scene().elements.find((element) => element.id === first.id);
+        : this.#host.hand.scene.elements.find((element) => element.id === first.id);
     if (opening === undefined) {
       return;
     }
@@ -1652,7 +1643,7 @@ export class Gestures {
     if (pressed === null) {
       return false;
     }
-    const byId = elementsById(this.#host.scene().elements);
+    const byId = elementsById(this.#host.hand.scene.elements);
     const origin = dotAt(drawnGeometry(pressed.shaft, byId), pressed.bend.index);
     if (origin === null) {
       return false;
@@ -1684,13 +1675,13 @@ export class Gestures {
    * the selection the gesture will carry.
    */
   #selectForPress(id: string, shift: boolean): void {
-    const selected = this.#host.selected();
+    const selected = this.#host.hand.selected;
     if (shift) {
-      this.#host.select(
+      this.#host.hand.select(
         selected.includes(id) ? selected.filter((one) => one !== id) : [...selected, id],
       );
     } else if (!selected.includes(id)) {
-      this.#host.select([id]);
+      this.#host.hand.select([id]);
     }
   }
 
@@ -1705,14 +1696,14 @@ export class Gestures {
       this.#drag = { kind: 'text', at: point };
       return;
     }
-    const id = freshId(tool, idsOf(this.#host.scene().elements));
-    this.#host.select([id]);
+    const id = freshId(tool, idsOf(this.#host.hand.scene.elements));
+    this.#host.hand.select([id]);
     this.#drag = {
       kind: 'draw',
       tool,
       id,
       from: point,
-      preview: drawn(tool, point, point, id, this.#host.scene().defaults),
+      preview: drawn(tool, point, point, id, this.#host.hand.scene.defaults),
       target: null,
       shift,
       placing: null,
@@ -1767,8 +1758,8 @@ export class Gestures {
 
   /** The Elements the selection holds, in the Scene's order. */
   #selectedElements(): SceneElement[] {
-    const selected = new Set(this.#host.selected());
-    return this.#host.scene().elements.filter((element) => selected.has(element.id));
+    const selected = new Set(this.#host.hand.selected);
+    return this.#host.hand.scene.elements.filter((element) => selected.has(element.id));
   }
 
   /** Whether a pointer move is still within the press that started it. */

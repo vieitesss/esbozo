@@ -1,17 +1,12 @@
 import { emptyScene, parseFragment } from '../scene.js';
-import type { Corner, Element as SceneElement, Scene } from '../scene.js';
+import type { Element as SceneElement, Scene } from '../scene.js';
 import { PRIMARY_SCENE_EXTENSION, sceneFileNameFor, sceneStem } from '../paths.js';
 import { selectedFrom } from './elements.js';
 import { movableCount } from './arrange.js';
 import type { ArrangeAct } from './arrange.js';
 import {
-  bendRemoved,
-  cornerSwitched,
   defaultRoughnessStepped,
-  deleted,
   duplicated,
-  edited,
-  pasted,
   rearranged,
   restyled,
   switched,
@@ -21,8 +16,6 @@ import { actionById, actionFor } from './actions.js';
 import type { ActionHost, ActionState, ToolId } from './actions.js';
 import type { PngExport } from './export.js';
 import { Gestures } from './gestures.js';
-import { shaftIn } from './bend-point.js';
-import type { Bend } from './bend-point.js';
 import { clipboardApi, copySelection, copyTo, cutSelection, pasteClipboard } from './clipboard.js';
 import type { ClipboardHost } from './clipboard.js';
 import { Connection } from './connection.js';
@@ -132,12 +125,11 @@ class EsbozoEditorElement extends HTMLElement {
    * the Scene their answer speaks for, and the one way it becomes an edit.
    */
   readonly #clipboard: ClipboardHost = {
-    scene: () => this.#hand.scene,
+    hand: this.#hand,
     selected: () => this.#selectedElements(),
+    landing: () => this.#landing(),
     token: () => this.#connection.token,
     target: () => this.#connection.target,
-    insert: (elements) => this.#insertCopies(elements),
-    remove: (ids) => this.#remove(ids),
     status: (detail) => this.#setSaved('failed', detail),
   };
 
@@ -279,14 +271,9 @@ class EsbozoEditorElement extends HTMLElement {
       inside: this,
       canvas: this.#canvas,
       canOpen: () => this.#connection.writable() && this.#typing.text() === null,
-      shaft: (id) => shaftIn(this.#hand.scene, id),
+      hand: this.#hand,
       drawn: () => this.#page.drawn(),
-      selectBend: (bend) => {
-        this.#hand.pickBend(bend);
-        this.#refresh();
-      },
-      switchCorner: (bend, corner) => this.#switchCorner(bend, corner),
-      remove: (bend) => this.#removeBend(bend),
+      refresh: () => this.#refresh(),
       shut: () => this.#notes.shut('point'),
     });
     this.#notes.add('point', {
@@ -310,16 +297,11 @@ class EsbozoEditorElement extends HTMLElement {
     this.#typing = new Typing({
       field: this,
       page: () => this.#page,
-      scene: () => this.#hand.scene,
+      hand: this.#hand,
       layout: () => this.#connection.layout,
-      writable: () => this.#connection.writable(),
       useSelectTool: () => this.#setTool('select'),
-      selectElement: (id) => {
-        this.#hand.select([id]);
-        this.#refresh();
-      },
+      refresh: () => this.#refresh(),
       refused: (problem) => this.#setSaved('failed', problem),
-      applyScene: (next, select) => this.#hand.land(edited(this.#hand.scene, next.elements, select)),
       forgetWordClick: () => this.#gestures.forgetWordClick(),
     });
 
@@ -338,14 +320,11 @@ class EsbozoEditorElement extends HTMLElement {
       },
       {
         layout: () => this.#connection.layout,
-        scene: () => this.#hand.scene,
+        hand: this.#hand,
         shown: () => this.#shown(),
-        selected: () => this.#hand.selected,
-        bend: () => this.#hand.bend,
         preview: () => this.#gestures.preview(),
         dragging: () => this.#gestures.drag !== null,
         railEdge: () => this.#rail.edge(),
-        writable: () => this.#connection.writable(),
         typing: this.#typing,
       },
     );
@@ -374,22 +353,12 @@ class EsbozoEditorElement extends HTMLElement {
       canvas: this.#canvas,
       menu: this.#menu,
       rail: railEl,
-      scene: () => this.#hand.scene,
+      hand: this.#hand,
       layout: () => this.#connection.layout,
       page: this.#page,
-      selected: () => this.#hand.selected,
-      select: (ids) => {
-        this.#hand.select(ids);
-      },
-      selectBend: (bend) => {
-        this.#hand.pickBend(bend);
-      },
-      removeBend: (bend) => this.#removeBend(bend),
       tool: () => this.#tool,
       setTool: (tool) => this.#setTool(tool),
-      writable: () => this.#connection.writable(),
       typing: this.#typing,
-      land: (edit) => this.#hand.land(edit),
       refresh: () => this.#refresh(),
       showPanning: () => this.#showPill(),
     });
@@ -716,52 +685,12 @@ class EsbozoEditorElement extends HTMLElement {
   #deleteSelected(): void {
     const bend = this.#hand.spendBend();
     if (bend !== null) {
-      this.#removeBend(bend);
+      if (!this.#hand.removeBend(bend)) {
+        this.#refresh();
+      }
       return;
     }
-    this.#remove(new Set(this.#hand.selected));
-  }
-
-  /**
-   * Switch the one bend point a press holds to `corner`: the point's own corner,
-   * written where it differs from the Element's own and left out where it is the
-   * same. Every other point keeps its place, its `corner` and its Snap, and the
-   * Element keeps its `corners`; the point stays the selection's, so the handle
-   * it draws is already the shape the switch made.
-   */
-  #switchCorner(bend: Bend, corner: Corner): void {
-    const edit = cornerSwitched(this.#hand.scene, bend, corner);
-    if (edit === null) {
-      this.#refresh();
-      return;
-    }
-    this.#hand.land(edit);
-  }
-
-  /**
-   * Remove the one bend point a press holds: the removal the key, the palette and
-   * the double-click share. Every other point keeps its place, its `corner` and
-   * its Snap, and a removal that would leave a two-point self-loop removes
-   * nothing at all — the shaft stays, the point stays and no byte is written. The
-   * shaft keeps the selection; the point does not.
-   */
-  #removeBend(bend: Bend): void {
-    const edit = bendRemoved(this.#hand.scene, bend);
-    if (edit === null) {
-      this.#refresh();
-      return;
-    }
-    this.#hand.letGoBend();
-    this.#hand.land(edit);
-  }
-
-  /**
-   * Delete the Elements with these ids, as one step. Only the ids given go: a
-   * cut that copied one Element deletes that Element, whatever the selection
-   * has become while the clipboard took the copy.
-   */
-  #remove(ids: ReadonlySet<string>): void {
-    this.#hand.land(deleted(this.#hand.scene, this.#hand.selected, ids));
+    this.#hand.remove(new Set(this.#hand.selected));
   }
 
   /** Duplicate the selected Elements: Paste of what Copy would write. */
@@ -789,7 +718,7 @@ class EsbozoEditorElement extends HTMLElement {
       return;
     }
     const text = event.clipboardData?.getData('text/plain') ?? '';
-    this.#insertCopies(parseFragment(text, this.#hand.scene.defaults) ?? []);
+    this.#hand.insert(parseFragment(text, this.#hand.scene.defaults) ?? [], this.#landing());
     event.preventDefault();
   };
 
@@ -822,7 +751,7 @@ class EsbozoEditorElement extends HTMLElement {
       event.preventDefault();
       // Cut removes exactly what it copied: the point a press holds is a place on
       // the shaft, never an Element the clipboard carries off.
-      this.#remove(new Set(selected.map((element) => element.id)));
+      this.#hand.remove(new Set(selected.map((element) => element.id)));
     }
   };
 
@@ -878,11 +807,6 @@ class EsbozoEditorElement extends HTMLElement {
       element !== null &&
       (element.isContentEditable || element.tagName === 'INPUT' || element.tagName === 'TEXTAREA')
     );
-  }
-
-  /** Adds copies of the given Elements as one step, selected, so a paste can be moved at once. */
-  #insertCopies(elements: readonly SceneElement[]): void {
-    this.#hand.land(pasted(this.#hand.scene, elements, this.#landing()));
   }
 
   /** What a paste or a duplicate needs of the page to land where a person can see it. */
