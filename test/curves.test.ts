@@ -959,6 +959,27 @@ test('a shaft with every point inside its target keeps the aim its bend gives it
   assert.ok(near(apex.x, 100) && near(apex.y, 50), `the end aims through its bend, got ${apex.x},${apex.y}`);
 });
 
+test('a long span whose bend is covered stops the head on the near edge', async () => {
+  // The walk that finds where the ink enters the target stops when the two
+  // sides of its search are a quarter of a pixel apart. Counting halvings
+  // instead would bound the error in the parameter and not in pixels: over a
+  // span of a trillion pixels the tip fell a whole target short of the near
+  // edge and sat on the covered bend at (75,50). Every start here is left of
+  // the box that spans x=0..100 and runs through y=50, so the one crossing is
+  // its near edge at x=0, however far away the ink begins.
+  for (const startX of [-1e8, -1e12]) {
+    const { apex, wings } = await drawnHead(insideTarget(startX, 75));
+    assert.ok(
+      near(apex.x, 0) && near(apex.y, 50),
+      `a start at ${startX} stops on the near edge, got ${apex.x},${apex.y}`,
+    );
+    assert.ok(
+      wings.every((point) => point.x < 0),
+      `its wings sit outside the fill, got ${JSON.stringify(wings)}`,
+    );
+  }
+});
+
 test('a loop whose bend moves inside its target still leaves and returns on the outline', async () => {
   // Both ends Snapped to one Element aim at the bend they share, so a loop keeps
   // the rule it has: the bend at (360,80) sits inside the oval, and the ends
