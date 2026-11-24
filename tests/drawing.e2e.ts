@@ -923,6 +923,41 @@ describe('Text typed in place', () => {
     });
   });
 
+  test('a finger double tap on a Text edits it, and a tap elsewhere leaves the words', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    await browser.keyboard.press('t');
+    await clickScene(ui, { x: 420, y: 300 });
+    await screen.getByRole('textbox', { name: 'Text' }).pressSequentially('first');
+    await screen.getByRole('textbox', { name: 'Text' }).press('Escape');
+
+    // Two taps on the words are the double click that opens them, and the second
+    // one's own mouse press is what used to take the focus back off the field.
+    const placed = (await savedScene(ui)).elements[2];
+    const middle = {
+      x: (placed?.x ?? 0) + (placed?.width ?? 0) / 2,
+      y: (placed?.y ?? 0) + (placed?.height ?? 0) / 2,
+    };
+    await touchTap(at(middle));
+    await touchTap(at(middle));
+    const field = screen.getByRole('textbox', { name: 'Text' });
+    await expect(field).toBeFocused();
+    await field.pressSequentially(' first');
+
+    // A finger on bare paper is the click away that leaves the words, as the
+    // mouse's is: the session ends and the Scene keeps what was typed.
+    await touchTap(at({ x: 700, y: 500 }));
+
+    const scene = await savedScene(ui);
+    expect(scene.elements.length).toBe(3);
+    expect(scene.elements[2]?.content).toBe('first first');
+  });
+
   test('Enter on an empty line commits, and an empty Text leaves nothing behind', async ({
     app,
     browser,
