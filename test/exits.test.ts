@@ -105,13 +105,13 @@ describe('Exits', () => {
     ]);
   });
 
-  it('disconnect discards typing, drops gesture, ends space pan, ends rail drag, lets go bend, clears point note, disarms tool', () => {
+  it('disconnect discards typing, releases gesture, ends space pan, ends rail drag, lets go bend, clears point note, disarms tool', () => {
     const { holders, calls } = fakeHolders();
     const exits = new M.Exits(holders);
     assert.equal(exits.run('disconnect'), false);
     assert.deepEqual(calls, [
       'typing.discard',
-      'gesture.drop',
+      'gesture.release',
       'spacePan.end',
       'rail.endDrag',
       'bend.letGo',

@@ -83,7 +83,7 @@ export const EXIT_TABLE: Readonly<Record<Exit, ExitRow>> = {
     notes: 'clearPoint',
     rail: 'endDrag',
     typing: 'discard',
-    gesture: 'drop',
+    gesture: 'release',
     spacePan: 'end',
     bend: 'letGo',
     selection: 'keep',
