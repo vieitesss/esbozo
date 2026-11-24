@@ -405,8 +405,9 @@ test('Paste lands a copied shaft without its target where its ends draw', async 
   // comes with it, so both Snaps go and each end holds the point it drew: a
   // copy that looks like the original, offset only by the paste's own 16px.
   await clickScene(ui, BENT_ON, [], BENT);
-  await browser.keyboard.press('Meta+c');
-  await browser.keyboard.press('Meta+v');
+  await browser.keyboard.press('ControlOrMeta+c');
+  await browser.keyboard.press('ControlOrMeta+v');
+  await expect.poll(async () => (await savedScene(ui, 'bent.json')).elements.length).toBe(4);
 
   const scene = await savedAndChecked(ui, 'bent.json');
   expect(scene.elements.map((element) => element.id)).toEqual(['a', 'b', 'c', 'arrow-1']);
