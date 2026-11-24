@@ -456,6 +456,7 @@ class EsbozoEditorElement extends HTMLElement {
       board: this.#board,
       canvas: this.#canvas,
       menu: this.#menu,
+      rail: this.#rail,
       scene: () => this.#scene,
       layout: () => this.#connection.layout,
       page: this.#page,
@@ -1063,8 +1064,17 @@ class EsbozoEditorElement extends HTMLElement {
    * Put a tool in hand: the rail marks it, and only a drawing tool shows the
    * pencil. A drawing tool changes the Scene, so a read-only page stays on
    * Select however the tool was asked for — rail, letter or number.
+   *
+   * A tool picked while a shaft is in hand ends the place at its last point, as
+   * Enter does: the points belong to the tool that started the place, so the next
+   * click would put down a point of that tool's Element while the strip showed
+   * another. A place of fewer than two points is no shaft and saves nothing, so a
+   * pick over one point leaves the Scene as it was.
    */
   #setTool(tool: ToolId): void {
+    if (this.#gestures.placing()) {
+      this.#gestures.finishPlacing();
+    }
     if (tool !== 'select' && !this.#connection.writable()) {
       return;
     }

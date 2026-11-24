@@ -236,6 +236,8 @@ interface GestureHost {
   readonly canvas: SVGSVGElement;
   /** The docked Style note, which answers a second click of its own. */
   readonly menu: HTMLElement;
+  /** The tool rail: the page's chrome, so a press on it is no press on the board (D5). */
+  readonly rail: HTMLElement;
 
   /** The Scene in hand, and the measurement its Labels break with. */
   scene(): Scene;
@@ -440,10 +442,14 @@ export class Gestures {
     }
     if (!inside) {
       this.#lastClick = null;
-      // A press beside the canvas — the rail, a note, the page around it — is not
-      // the next point of the shaft in hand: the place ends at its last point
-      // before that press edits anything.
-      this.finishPlacing();
+      // A press beside the canvas — a note, the page around it — is not the next
+      // point of the shaft in hand: the place ends at its last point before that
+      // press edits anything. The rail is the one press that is not the board's at
+      // all (D5): the shaft keeps the points it has, and it is the tile's own
+      // click, picking a tool, that ends the place.
+      if (!this.#host.rail.contains(event.target as Node | null)) {
+        this.finishPlacing();
+      }
     }
   };
 
