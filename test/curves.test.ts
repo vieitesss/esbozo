@@ -1054,6 +1054,48 @@ test('a bend on the target’s outline and one past it keep the head on the outl
   );
 });
 
+test('a covered end whose neighbour is its target’s centre stops on the near edge', async () => {
+  // The Review's round row: the bend at (50,50) is the ellipse's own middle, so
+  // the drawn end has no direction to aim from and falls back on the one
+  // `pointOnOutline` invents — the ellipse's top. The spline through that
+  // fallback curls back out of the fill, and the ink entering it from the far
+  // end grazes the outline 60px short on the lower flank, leaving the head
+  // there with its shaft cut away from the paper. The ink that arrives from the
+  // far end still enters on the near edge at (0,50), however far away it begins.
+  for (const startX of [-1e3, -1e6, -1e8]) {
+    const { apex, wings } = await drawnHead({
+      version: 1,
+      defaults: { roughness: 0 },
+      elements: [
+        { id: 'a', type: 'arrow', corners: 'round', points: [
+          { x: startX, y: 50 },
+          { x: 50, y: 50 },
+          { x: 75, y: 50, snap: 'oval' },
+        ] },
+        {
+          id: 'oval',
+          type: 'ellipse',
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          tone: 'muted',
+          fill: { kind: 'solid', grey: 1 },
+        },
+      ],
+    });
+
+    assert.ok(
+      near(apex.x, 0, 0.25) && near(apex.y, 50, 0.25),
+      `a start at ${startX} stops on the near edge, got ${apex.x},${apex.y}`,
+    );
+    assert.ok(
+      wings.every((point) => point.x < 0),
+      `its wings sit outside the fill, got ${JSON.stringify(wings)}`,
+    );
+  }
+});
+
 test('a shaft with every point inside its target keeps the aim its bend gives it', async () => {
   // Nothing of this shaft is outside the box — the start included — so there is
   // no outside ink to aim from: the end keeps landing where the ray through the
