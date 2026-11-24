@@ -64,6 +64,8 @@ Every rule the bundle writes is rooted at `esbozo-editor`, so the host page keep
 
 The theme follows `<html data-theme>`: set `"dark"` for dark paper. The bundle does not follow `prefers-color-scheme` on its own, because a host page has usually decided that already.
 
+A host that scales the element with CSS `transform: scale(...)` or `zoom` works as-is: pointer positions and layout measurements convert through the element's scale.
+
 ## Size
 
 The bundle is one minified file, Rough.js and the editor's stylesheet included, of about 60 kB gzipped. `test/embed-bundle.test.ts` measures it and prints the number on every run, and fails if it grows past 64 kB gzipped, so a dependency that quietly doubles it cannot land unnoticed.

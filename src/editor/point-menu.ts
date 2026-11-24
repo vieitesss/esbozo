@@ -155,10 +155,14 @@ export class PointMenu {
     // where it has to fit: the pointer's place is clamped into that box, so a
     // press at the window's own corner still shows the whole row.
     const box = inside.getBoundingClientRect();
+    const scaleX = inside.offsetWidth > 0 && box.width > 0 ? box.width / inside.offsetWidth : 1;
+    const scaleY = inside.offsetHeight > 0 && box.height > 0 ? box.height / inside.offsetHeight : 1;
+    const roomX = inside.offsetWidth || box.width;
+    const roomY = inside.offsetHeight || box.height;
     const place = (want: number, room: number, size: number) =>
       Math.round(Math.max(INSET, Math.min(want, room - size - INSET)));
-    root.style.left = `${place(at.x - box.left, box.width, root.offsetWidth)}px`;
-    root.style.top = `${place(at.y - box.top, box.height, root.offsetHeight)}px`;
+    root.style.left = `${place((at.x - box.left) / scaleX, roomX, root.offsetWidth)}px`;
+    root.style.top = `${place((at.y - box.top) / scaleY, roomY, root.offsetHeight)}px`;
     // The menu opens on the row Enter ran when it was the only one — the removal
     // — so that key goes on doing what it did. A point it cannot remove leaves no
     // row holding the keys: the arrows are how that point's corner is reached.

@@ -18,12 +18,14 @@
 import { toScene, toScreen } from './geometry.js';
 import type { Box, Point, Pointer, View } from './geometry.js';
 
-/** The page's box, in the browser's own pixels. */
+/** The page's box, in layout pixels, with its scale from client pixels. */
 interface PageBox {
   readonly left: number;
   readonly top: number;
   readonly width: number;
   readonly height: number;
+  readonly scaleX: number;
+  readonly scaleY: number;
 }
 
 /** The nodes the view writes to, and the room it maps into. */
@@ -63,12 +65,19 @@ export class Viewport {
 
   /** The paper's box on the page, before the view moves anything. */
   box(): PageBox {
-    const rect = this.#parts.board.getBoundingClientRect();
+    const board = this.#parts.board;
+    const rect = board.getBoundingClientRect();
+    const layoutWidth = board.offsetWidth;
+    const layoutHeight = board.offsetHeight;
+    const scaleX = layoutWidth > 0 && rect.width > 0 ? rect.width / layoutWidth : 1;
+    const scaleY = layoutHeight > 0 && rect.height > 0 ? rect.height / layoutHeight : 1;
     return {
       left: rect.left,
       top: rect.top,
-      width: rect.width || window.innerWidth,
-      height: rect.height || window.innerHeight,
+      width: layoutWidth || rect.width || window.innerWidth,
+      height: layoutHeight || rect.height || window.innerHeight,
+      scaleX,
+      scaleY,
     };
   }
 
@@ -87,7 +96,22 @@ export class Viewport {
   /** A pointer's place, in the pixels the overlay draws in. */
   screenPoint(pointer: Pointer): Point {
     const box = this.box();
-    return { x: pointer.clientX - box.left, y: pointer.clientY - box.top };
+    return {
+      x: (pointer.clientX - box.left) / box.scaleX,
+      y: (pointer.clientY - box.top) / box.scaleY,
+    };
+  }
+
+  /** An element's box relative to the paper, in the pixels the overlay draws in. */
+  localBox(element: Element): Box {
+    const page = this.box();
+    const rect = element.getBoundingClientRect();
+    return {
+      x: (rect.left - page.left) / page.scaleX,
+      y: (rect.top - page.top) / page.scaleY,
+      width: rect.width / page.scaleX,
+      height: rect.height / page.scaleY,
+    };
   }
 
   /** A Scene box, in the pixels the overlay draws in. */
