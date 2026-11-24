@@ -33,7 +33,8 @@
     "e2e:shots": "pnpm build && node scripts/queue.mjs e2e node scripts/fresh-tmp.mjs e2e run tests/screenshots.e2e.ts",
     "e2e:linux": "node scripts/queue.mjs e2e node scripts/fresh-tmp.mjs node scripts/e2e-linux.mjs",
     "serve:editor": "pnpm build && node dist/cli.js serve dist --port 4319",
-    "probe": "node scripts/probe-editor.mjs"
+    "probe": "node scripts/probe-editor.mjs",
+    "probe:node": "node scripts/probe-node.mjs"
   },
   "dependencies": {
     "@resvg/resvg-wasm": "^2.6.2",

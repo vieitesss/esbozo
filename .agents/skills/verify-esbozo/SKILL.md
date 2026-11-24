@@ -33,6 +33,19 @@ EOF
 
 `pnpm probe` prints `probing http://127.0.0.1:<port>/editor.html` on stderr when ready.
 
+For Node-only module checks (no Chromium, no build needed), use `pnpm probe:node [probe.mjs]` or pipe source on stdin; its default export receives `loadProjectModules()` (`parseScene`, `drawnGeometry`, `snapTarget`, `Rail`, `Hand`, `Exits`, etc.) and any non-`undefined` return value prints as JSON on stdout:
+
+```sh
+pnpm probe:node <<'EOF'
+export default async ({ parseScene, elementsById, drawnGeometry, createLayout, parseFontFile, KALAM }) => {
+  const parsed = parseScene('{"version":1,"elements":[{"id":"a","type":"ellipse","x":10,"y":20,"width":100,"height":60}]}');
+  if (!parsed.ok) throw new Error('invalid scene');
+  const layout = createLayout(parseFontFile(KALAM));
+  return drawnGeometry(parsed.scene.elements[0], elementsById(parsed.scene.elements), layout).box;
+};
+EOF
+```
+
 ### Mode B: real folder server (`ez serve`)
 
 Use `ez serve` when the editor must open, edit, and save real `.esbozo` or `.json` Scene files on disk, or when you want to verify `GET`/`PUT` persistence alongside the UI. Create a disposable folder with the `esbozo-` prefix so it matches `test/temp.ts`.
