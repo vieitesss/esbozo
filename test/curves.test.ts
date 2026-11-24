@@ -1096,6 +1096,57 @@ test('a covered end whose neighbour is its target’s centre stops on the near e
   }
 });
 
+test('a covered bend beside its target’s centre stops on the near edge', async () => {
+  // The Review's near-centre rows: the bend sits a fraction of a pixel to sixty
+  // pixels off the ellipse's own middle, so the spline through that aim crosses
+  // the outline twice — it enters on the near edge and grazes a flank on its way
+  // back to the drawn end. Cutting at the graze left the head seventeen pixels
+  // off, on the wrong side of the fill. The tips are the reference build's, at
+  // `3eaa217`, and a near-centre bend belongs where that build puts it.
+  const rows: { target: 'ellipse' | 'rectangle'; bend: number; tip: Point }[] = [
+    { target: 'ellipse', bend: 45, tip: { x: 0.23, y: 45.24 } },
+    { target: 'ellipse', bend: 49, tip: { x: 0.01, y: 49.05 } },
+    { target: 'ellipse', bend: 50.1, tip: { x: 0, y: 50 } },
+    { target: 'ellipse', bend: 50.5, tip: { x: 0.01, y: 50.95 } },
+    { target: 'ellipse', bend: 55, tip: { x: 0.23, y: 54.76 } },
+    { target: 'ellipse', bend: 60, tip: { x: 0.92, y: 59.53 } },
+    { target: 'rectangle', bend: 55, tip: { x: 0, y: 54.76 } },
+  ];
+
+  for (const row of rows) {
+    const { apex, wings } = await drawnHead({
+      version: 1,
+      defaults: { roughness: 0 },
+      elements: [
+        { id: 'a', type: 'arrow', corners: 'round', points: [
+          { x: -1e3, y: 50 },
+          { x: 50, y: row.bend },
+          { x: 75, y: 50, snap: 'target' },
+        ] },
+        {
+          id: 'target',
+          type: row.target,
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          tone: 'muted',
+          fill: { kind: 'solid', grey: 1 },
+        },
+      ],
+    });
+
+    assert.ok(
+      near(apex.x, row.tip.x, 0.25) && near(apex.y, row.tip.y, 0.25),
+      `a ${row.target} target with the bend at (50,${row.bend}) stops on the near edge, got ${apex.x},${apex.y}`,
+    );
+    assert.ok(
+      wings.every((point) => point.x < 0.01),
+      `its wings sit outside the fill, got ${JSON.stringify(wings)}`,
+    );
+  }
+});
+
 test('a round covered shaft a trillion pixels long still renders', async () => {
   // The issue's own scale, at the ends the Review tried beside the ellipse: the
   // round spline over a leg that long puts its control points further off its
