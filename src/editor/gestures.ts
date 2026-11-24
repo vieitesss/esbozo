@@ -19,6 +19,8 @@ import type { Bend, ShaftOf } from './bend-point.js';
 import type { ToolId } from './actions.js';
 import { drawn, drawnAtClick, freshId, idsOf, isClick } from './elements.js';
 import type { ElementTool } from './elements.js';
+import { added } from './edits.js';
+import type { Edited } from './edits.js';
 import type { Page, Shown } from './page.js';
 import { attachedTo, endPoint, isShaft, otherTarget, snapOn, targetAt, withEnd } from './snap.js';
 import type { End } from './snap.js';
@@ -321,6 +323,8 @@ interface GestureHost {
 
   /** A Scene change lands, as one history step and one write. */
   applyScene(next: Scene, options?: { amend?: boolean; select?: readonly string[] }): void;
+  /** One Scene edit lands, as one history step and one write, with the selection it names. */
+  land(edit: Edited | null): void;
   /** The note follows the selection, the view makes room for it, the page repaints. */
   refresh(): void;
   /** Refresh the status bar after the held Space or pan drag changes. */
@@ -495,7 +499,7 @@ function finishDrawing(
     host.refresh();
     return null;
   }
-  const settled = isShaft(placed)
+  const element = isShaft(placed)
     ? withEnd(
         placed,
         'end',
@@ -504,10 +508,7 @@ function finishDrawing(
         elementsById(host.scene().elements),
       )
     : placed;
-  host.applyScene(
-    { ...host.scene(), elements: [...host.scene().elements, settled] },
-    { select: [drag.id] },
-  );
+  host.land(added(host.scene(), element));
   return null;
 }
 
@@ -572,17 +573,14 @@ function finishPlace(
     return;
   }
   const end = points[points.length - 1]!;
-  const settled = withEnd(
+  const element = withEnd(
     pathOf(host, drag.tool, points, drag.id),
     'end',
     end,
     attachTarget(host, drag.id, 'end', release, skipSnap),
     elementsById(host.scene().elements),
   );
-  host.applyScene(
-    { ...host.scene(), elements: [...host.scene().elements, settled] },
-    { select: [drag.id] },
-  );
+  host.land(added(host.scene(), element));
 }
 
 /**

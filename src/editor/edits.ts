@@ -109,6 +109,18 @@ export function nudged(
 }
 
 /**
+ * Add the Element a press drew, selected so it can be styled at once. A draw's
+ * release lands nothing else: what the tool made is the one change, and the id
+ * it drew under is the id the Scene keeps.
+ */
+export function added(scene: Scene, element: SceneElement): Edited {
+  return {
+    scene: { ...scene, elements: [...scene.elements, element] },
+    selection: [element.id],
+  };
+}
+
+/**
  * Turn one end of the selected arrow or line on or off, where it draws now. Off
  * writes `"snap": false` and leaves the end where the eye last saw it, with no
  * Anchor and its `x`, `y` at that spot: it attaches to nothing until the switch

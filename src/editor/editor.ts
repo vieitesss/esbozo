@@ -475,6 +475,7 @@ class EsbozoEditorElement extends HTMLElement {
       writable: () => this.#connection.writable(),
       typing: this.#typing,
       applyScene: (next, options) => this.#applyScene(next, options),
+      land: (edit) => this.#land(edit),
       refresh: () => this.#refresh(),
       showPanning: () => this.#showPill(),
     });
