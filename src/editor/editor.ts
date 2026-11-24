@@ -148,6 +148,14 @@ class EsbozoEditorElement extends HTMLElement {
    */
   #railWaiting = false;
   /**
+   * The button a held Space would activate, while a Space press is down: Space
+   * gives a focused button the activation Enter does, on the release, and only
+   * when the pointer never took the Space to pan the page.
+   */
+  #spaceButton: HTMLElement | null = null;
+  /** Whether the pointer took the held Space to pan the page, which is no pick of a tile. */
+  #spacePanned = false;
+  /**
    * True once the strip was drawn in a box this editor had, which is the only box the
    * frame around the diagram is measured in: an editor the page gave no box has none
    * to measure, and nothing drawn with one (#64).
@@ -1520,6 +1528,15 @@ class EsbozoEditorElement extends HTMLElement {
       return;
     }
     if (event.key === ' ' || event.code === 'Space') {
+      // A Space the keys hand to the button the focus sits on is that button's
+      // activation, as Enter is, and the release below runs it. The press is
+      // still the pan's: a Space held over the paper takes it in the hand, which
+      // is what a person pressing one Space expects, and a Space the pointer
+      // never panned with is the button's alone.
+      if (!this.#gestures.spaceDown) {
+        this.#spaceButton = (event.target as Element | null)?.closest('button') ?? null;
+        this.#spacePanned = false;
+      }
       this.#gestures.holdSpace();
       event.preventDefault();
       return;
@@ -1642,7 +1659,18 @@ class EsbozoEditorElement extends HTMLElement {
       return;
     }
     if (event.key === ' ' || event.code === 'Space') {
+      const button = this.#spaceButton;
+      const panned = this.#spacePanned;
+      this.#spaceButton = null;
+      this.#spacePanned = false;
       this.#gestures.endSpacePan();
+      // A Space no pointer panned with is the focused button's own activation,
+      // which the press above took the key from: a tile picks its tool as it does
+      // with Enter. A press the pointer took to pan the page picked nothing, and
+      // a person holding Space to carry the page is not asking for a tool.
+      if (button !== null && !panned) {
+        button.click();
+      }
     }
   };
 
@@ -1715,6 +1743,12 @@ class EsbozoEditorElement extends HTMLElement {
     if (this.#railDrag !== null) {
       this.#gestures.refuse(event.pointerId);
       return;
+    }
+    // A press on the paper with Space down is the page in the hand, not a tool:
+    // the Space that carried it is no activation of the button the focus sits on
+    // (`#onKeyUp`).
+    if (this.#gestures.spaceDown) {
+      this.#spacePanned = true;
     }
     this.#gestures.down(event);
   };
@@ -1869,6 +1903,10 @@ class EsbozoEditorElement extends HTMLElement {
   #onInterrupt = (): void => {
     this.#gestures.release();
     this.#callOffRailDrag();
+    // A Space held when the page went out of sight never sends its release here,
+    // so the button it would have activated is let go with it.
+    this.#spaceButton = null;
+    this.#spacePanned = false;
   };
 
   /** The placement a press held back, made now that no press holds the strip (O2). */
