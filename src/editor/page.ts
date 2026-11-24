@@ -29,9 +29,9 @@ import { drawnGeometry } from '../renderer.js';
 import { isOutlined, snapTargetId, elementsById } from '../scene.js';
 import type { Corner, Element as SceneElement, Scene } from '../scene.js';
 import type { Block, Layout, LineGlyphs } from '../layout.js';
-import { HANDLES, boxBetween, boxOf, clearedView, handlePoint, unionOf } from './geometry.js';
+import { HANDLES, boxOf, clearedView, handlePoint, unionOf } from './geometry.js';
 import type { Box, Point } from './geometry.js';
-import type { Drag } from './gestures.js';
+import type { Carried, Preview } from './gestures.js';
 import { bendDots, nameBendHandle, nameDot, sameBend } from './bend-point.js';
 import type { Bend, BendPoint } from './bend-point.js';
 import { PaintCache, paintedInk } from './paint.js';
@@ -95,7 +95,9 @@ interface PageHost {
   /** The one bend point that selection holds, and no other. */
   bend(): Bend | null;
   /** The gesture in flight, as the drawing and the overlay read it. */
-  drag(): Drag | null;
+  preview(): Preview | null;
+  /** Whether a gesture holds the pointer, so the view makes no room for the note. */
+  dragging(): boolean;
   /**
    * Where a left dock's own outline reaches, in screen units, or null when the
    * rail is held anywhere else: the room the note leaves cannot start before it.
@@ -244,7 +246,7 @@ export class Page {
    * what the page shows, so a box grown by the words being typed is cleared too.
    */
   clearOfNote(): void {
-    if (this.#host.drag() !== null) {
+    if (this.#host.dragging()) {
       return;
     }
     const box = this.#noteBox();
@@ -415,8 +417,8 @@ export class Page {
    * carries, and a pan or a zoom draws nothing at all.
    */
   #drawScene(): void {
-    const drag = this.#host.drag();
-    if (drag !== null && drag.kind === 'move') {
+    const carried = this.#host.preview()?.carried ?? null;
+    if (carried !== null) {
       if (this.#paintables !== null && this.#paintables.generation !== this.#drawnMeasurement) {
         // A font landed while the pointer was down: every Label may break
         // differently, so the drawings this gesture carries are made again —
@@ -424,9 +426,9 @@ export class Page {
         // changed no measurement draws nothing.
         this.#drawElements(this.#host.scene().elements);
       }
-      this.#moveGroups(drag);
-      this.#followSnaps(drag);
-      if (drag.shown.size > 0) {
+      this.#moveGroups(carried);
+      this.#followSnaps(carried);
+      if (carried.elements.size > 0) {
         // A preview is not the Scene: the frame after the gesture has to draw
         // what the Scene holds, however the gesture ended — a release that
         // changed nothing, a cancelled pointer or a lost focus included.
@@ -516,14 +518,14 @@ export class Page {
    * so the gesture draws nothing at all. The release settles the Scene, and the
    * painting that follows draws the moved Elements where they landed.
    */
-  #moveGroups(drag: Extract<Drag, { kind: 'move' }>): void {
+  #moveGroups(carried: Carried): void {
     const moved = new Set<string>();
-    for (const id of drag.shown.keys()) {
+    for (const id of carried.elements.keys()) {
       const group = this.#groups.get(id);
       if (group === undefined) {
         continue;
       }
-      group.node.setAttribute('transform', `translate(${drag.by.x} ${drag.by.y})`);
+      group.node.setAttribute('transform', `translate(${carried.by.x} ${carried.by.y})`);
       moved.add(id);
     }
     for (const id of this.#moved) {
@@ -545,23 +547,23 @@ export class Page {
    * gesture ends on draws it again — or keeps it, when the release left the
    * Scene exactly as it was.
    */
-  #followSnaps(drag: Extract<Drag, { kind: 'move' }>): void {
-    if (drag.shown.size === 0) {
+  #followSnaps(carried: Carried): void {
+    if (carried.elements.size === 0) {
       return;
     }
     const scene = this.#host.scene();
     const byId = new Map<string, SceneElement>();
     for (const element of scene.elements) {
-      byId.set(element.id, drag.shown.get(element.id) ?? element);
+      byId.set(element.id, carried.elements.get(element.id) ?? element);
     }
     const paintables = (this.#paintables ??= new PaintCache(this.#host.layout()));
     for (const element of scene.elements) {
-      if (drag.shown.has(element.id) || !isShaft(element)) {
+      if (carried.elements.has(element.id) || !isShaft(element)) {
         continue;
       }
       if (!element.points.some((point) => {
         const target = snapTargetId(point);
-        return target !== null && drag.shown.has(target);
+        return target !== null && carried.elements.has(target);
       })) {
         continue;
       }
@@ -602,7 +604,7 @@ export class Page {
         this.#appendRect(overlay, { ...this.viewport.pageBox(words), class: 'overflow' });
       }
     }
-    const drag = this.#host.drag();
+    const preview = this.#host.preview();
     const selected = this.#host.selected();
     const boxes: Box[] = [];
     for (const id of selected) {
@@ -626,14 +628,13 @@ export class Page {
         this.#drawLabelCue(overlay, first);
       }
     }
-    if (drag !== null && drag.kind === 'box') {
-      this.#appendRect(overlay, {
-        ...this.viewport.pageBox(boxBetween(drag.from, drag.to)),
-        class: 'sweep',
-      });
+    const sweep = preview?.sweep ?? null;
+    if (sweep !== null) {
+      this.#appendRect(overlay, { ...this.viewport.pageBox(sweep), class: 'sweep' });
     }
-    if (drag !== null && (drag.kind === 'draw' || drag.kind === 'end') && drag.target !== null) {
-      const target = this.#host.scene().elements.find((element) => element.id === drag.target);
+    const snapTarget = preview?.snapTarget ?? null;
+    if (snapTarget !== null) {
+      const target = this.#host.scene().elements.find((element) => element.id === snapTarget);
       if (target !== undefined && isOutlined(target)) {
         // The Element the dragged end would attach to, so a drop is no surprise.
         const outline = this.viewport.pageBox(drawnGeometry(target).box);
@@ -691,12 +692,12 @@ export class Page {
     if (painted === undefined) {
       return null;
     }
-    const drag = this.#host.drag();
-    if (drag !== null && drag.kind === 'move' && drag.shown.has(id)) {
+    const carried = this.#host.preview()?.carried ?? null;
+    if (carried?.elements.has(id) === true) {
       return {
         ...painted.bounds,
-        x: painted.bounds.x + drag.by.x,
-        y: painted.bounds.y + drag.by.y,
+        x: painted.bounds.x + carried.by.x,
+        y: painted.bounds.y + carried.by.y,
       };
     }
     return painted.bounds;
@@ -704,11 +705,8 @@ export class Page {
 
   /** The Element as the page shows it: the gesture's own version while one is in flight. */
   #shownElement(id: string): SceneElement | undefined {
-    const drag = this.#host.drag();
-    if (drag !== null && drag.kind === 'move') {
-      return drag.shown.get(id) ?? this.#painted?.byId.get(id);
-    }
-    return this.#painted?.byId.get(id);
+    const carried = this.#host.preview()?.carried ?? null;
+    return carried?.elements.get(id) ?? this.#painted?.byId.get(id);
   }
 
   /**
