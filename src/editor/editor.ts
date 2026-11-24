@@ -427,7 +427,8 @@ class EsbozoEditorElement extends HTMLElement {
         shown: () => this.#shown(),
         selected: () => this.#selected,
         bend: () => this.#picked.bend,
-        drag: () => this.#gestures.drag,
+        preview: () => this.#gestures.preview(),
+        dragging: () => this.#gestures.drag !== null,
         railEdge: () => this.#railEdge(),
         writable: () => this.#connection.writable(),
         typing: this.#typing,
@@ -816,7 +817,7 @@ class EsbozoEditorElement extends HTMLElement {
   #shown(): Shown {
     // The gesture says what it shows when one is in the way: no gesture at all
     // leaves the Scene under the words a session may be holding half-written.
-    const shown = this.#gestures.shownByDrag();
+    const shown = this.#gestures.preview();
     if (shown !== null) {
       return shown;
     }
