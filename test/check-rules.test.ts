@@ -698,7 +698,7 @@ test('a test that imports an Editor module for itself is the same finding', asyn
   );
 });
 
-test('the four modules Node tests load today, and a module outside the Editor, are quiet', async () => {
+test('every module on the allow-list, and a module outside the Editor, is quiet', async () => {
   await quiet({
     'test/modules.ts': [
       'const source = (module: string): string => `../src/${module}`;',
@@ -706,6 +706,7 @@ test('the four modules Node tests load today, and a module outside the Editor, a
       "source('editor/words.ts');",
       "source('editor/geometry.ts');",
       "source('editor/paint.ts');",
+      "source('editor/bend-point.ts');",
     ].join('\n'),
     'test/placement.test.ts': "import type { Scene } from '../src/scene.ts';\n",
   });

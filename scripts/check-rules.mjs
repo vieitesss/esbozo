@@ -48,8 +48,17 @@ const SUITES = /^(?:test|tests)\//;
  * The `src/editor/` modules a Node test may load, as `test/modules.ts` loads
  * them today. The set is frozen on purpose: a Node test that needs another one
  * is asking the Editor for an inside, and Seam 2 is where it is proved.
+ * `bend-point.ts` is the exception the rule allows: what it decides is one
+ * arithmetic rule over a Scene and a view, and a tie in that rule is a place no
+ * page is driven to on purpose.
  */
-const TEST_EDITOR_MODULES = new Set(['history.ts', 'words.ts', 'geometry.ts', 'paint.ts']);
+const TEST_EDITOR_MODULES = new Set([
+  'history.ts',
+  'words.ts',
+  'geometry.ts',
+  'paint.ts',
+  'bend-point.ts',
+]);
 
 /** A path in a test that names a module under `src/editor/`: written whole, or as a loader builds it. */
 const EDITOR_MODULE = /(?:^|\/)editor\/([\w.-]+\.ts)$/;
@@ -300,8 +309,8 @@ function testSeams(file) {
  * Rule 4: a Node test loads an Editor module that is not on the allow-list.
  *
  * `test/modules.ts` bundles `src/editor/` by name, so an import rule reading
- * import statements never sees what the bundle reaches. The four modules it
- * loads today are the whole of what `node:test` may see of the Editor.
+ * import statements never sees what the bundle reaches. The five modules on the
+ * allow-list are the whole of what `node:test` may see of the Editor.
  */
 function testEditorModules(file) {
   const { path, source, report } = file;
