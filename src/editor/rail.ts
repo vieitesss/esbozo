@@ -512,6 +512,7 @@ export interface MountedRail {
   dock(side: RailSide): void;
   escape(): boolean;
   interrupt(): void;
+  endDrag(): void;
   holding(): boolean;
   edge(): number | null;
   markTool(tool: ToolId): void;
@@ -654,7 +655,6 @@ export function mountRail(dom: RailDomHost): MountedRail {
     unlisten() {
       dom.rail.removeEventListener('pointerdown', onDown);
       dom.rail.removeEventListener('click', onClick);
-      rail.endDrag();
       boxWatch.disconnect();
     },
     forget: () => rail.forget(),
@@ -663,6 +663,7 @@ export function mountRail(dom: RailDomHost): MountedRail {
     dock: (side) => rail.dock(side),
     escape: () => rail.escape(),
     interrupt: () => rail.interrupt(),
+    endDrag: () => rail.endDrag(),
     holding: () => rail.holding(),
     edge: () => rail.edge(),
     markTool(tool) {

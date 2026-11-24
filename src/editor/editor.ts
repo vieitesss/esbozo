@@ -374,7 +374,7 @@ class EsbozoEditorElement extends HTMLElement {
       },
       rail: {
         callOff: () => this.#rail.escape(),
-        endDrag: () => {},
+        endDrag: () => this.#rail.endDrag(),
         forget: () => this.#rail.forget(),
       },
       typing: {
