@@ -174,7 +174,8 @@ export class PaintCache {
   async files(scene: Scene): Promise<SceneFiles> {
     const drawings = this.#drawingsFor(scene);
     const json = sceneFile(scene);
-    return { json, svg: sceneSvg(scene, await sha256HexAsync(json), drawings) };
+    const hash = await sha256HexAsync(json);
+    return { json, svg: sceneSvg(scene, hash, drawings, hash) };
   }
 
   /**
