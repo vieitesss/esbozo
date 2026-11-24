@@ -222,7 +222,7 @@ test('Spread spaces a negative gap by its centres even when the outer widths dif
   expect(['lead', 'broad', 'tail'].map((id) => saved.get(id)?.width)).toEqual([40, 70, 20]);
 });
 
-test('Spread evens boxes and leaves a Snapped line to its targets', async ({ app, browser, screen }) => {
+test('Spread evens boxes and moves a Snapped line’s free end', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'laced.json': LACED_SOURCE } }, 'laced.json');
 
@@ -233,24 +233,27 @@ test('Spread evens boxes and leaves a Snapped line to its targets', async ({ app
   await clickScene(ui, { x: 140, y: 70 }, ['Shift'], LACED);
   await control(ui, 'Spread: horizontal').click();
 
-  // The line is not measured or moved, so the boxes are all Spread sees: the
-  // outer two keep 40 and 420 and the gaps even out at 130, so the middle box
-  // moves from 180 to 230. The line's own ends are not Spread's to rewrite.
+  // The line's free end moves, as the body drag moves it, so its drawn 80-unit
+  // run is one of the four boxes Spread evens out: the outer two keep 40 and
+  // 420 and the gaps even out at 60, which moves the middle box from 180 to 300
+  // and the line's free end from 180 to 240. The line's Snapped end stays where
+  // it draws on the box it holds.
   const scene = await savedScene(ui, 'laced.json');
   const saved = new Map(scene.elements.map((element) => [element.id, element]));
-  expect(['frame', 'post', 'beam'].map((id) => saved.get(id)?.x)).toEqual([40, 230, 420]);
+  expect(['frame', 'post', 'beam'].map((id) => saved.get(id)?.x)).toEqual([40, 300, 420]);
   expect(saved.get('tie')?.points).toEqual([
     { x: 100, y: 70, snap: 'frame' },
-    { x: 180, y: 70 },
+    { x: 240, y: 70 },
   ]);
   expect(scene.elements.map((element) => element.id)).toEqual(['frame', 'post', 'beam', 'tie']);
 });
 
-test('Arrange leaves a Snapped line to its targets', async ({ app, browser, screen }) => {
+test('Arrange moves a Snapped line’s free end and leaves its Snaps where they draw', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'tether.json': TETHER_SOURCE } }, 'tether.json');
 
-  // All four: only the two rectangles can be lined up, so only `post` moves.
+  // All four: the two rectangles and the line with a free end can be lined up,
+  // and the line Snapped at both ends cannot.
   await clickScene(ui, { x: 110, y: 70 }, [], TETHER);
   await clickScene(ui, { x: 310, y: 70 }, ['Shift'], TETHER);
   await clickScene(ui, { x: 390, y: 70 }, ['Shift'], TETHER);
@@ -260,10 +263,13 @@ test('Arrange leaves a Snapped line to its targets', async ({ app, browser, scre
   const scene = await savedScene(ui, 'tether.json');
   const saved = new Map(scene.elements.map((element) => [element.id, element]));
   expect([saved.get('frame')?.x, saved.get('post')?.x]).toEqual([60, 60]);
-  // A Snapped end follows its target by itself, so neither line is rewritten.
+  // The line Snapped at one end follows the body drag's rule: its free end moves
+  // with the line-up and its Snapped end stays where it draws, so the Snap and
+  // the target it names are the Scene's still. The line Snapped at both ends has
+  // no end Arrange may move, so it is left exactly as it was.
   expect(saved.get('tether')?.points).toEqual([
     { x: 260, y: 70, snap: 'post' },
-    { x: 420, y: 70 },
+    { x: 120, y: 70 },
   ]);
   expect(saved.get('weft')?.points).toEqual([
     { x: 160, y: 70, snap: 'frame' },
@@ -275,9 +281,10 @@ test('Arrange offers a disabled action when nothing it can move is selected', as
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'tether.json': TETHER_SOURCE } }, 'tether.json');
 
-  // The line Snapped at one end and the one Snapped at both: nothing Arrange
-  // could move, so its buttons are offered but disabled. Order still applies,
-  // because a layer is a position in the list and not a place on the page.
+  // The line Snapped at both ends has no end Arrange could move, and the one
+  // Snapped at one end has only its free end: that one is not two Elements, so
+  // its buttons are offered but disabled. Order still applies, because a layer
+  // is a position in the list and not a place on the page.
   await clickScene(ui, { x: 390, y: 70 }, [], TETHER);
   await clickScene(ui, { x: 210, y: 70 }, ['Shift'], TETHER);
   await expect(control(ui, 'Arrange: left')).toBeDisabled();

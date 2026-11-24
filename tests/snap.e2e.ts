@@ -299,6 +299,29 @@ const LOOSE_SCENE = {
 };
 const LOOSE_SOURCE = JSON.stringify(LOOSE_SCENE, null, 2);
 
+/**
+ * A line whose end writes `"snap": false` and draws on the paper beside `post`:
+ * the end a switch turned off over nothing, which switching on again leaves free.
+ */
+const OFF_PAPER_SCENE = {
+  version: 1,
+  title: 'Off paper',
+  defaults: { roughness: 0 },
+  elements: [
+    { id: 'post', type: 'rectangle', x: 300, y: 40, width: 120, height: 80 },
+    {
+      id: 'tie',
+      type: 'line',
+      points: [
+        { x: 60, y: 80 },
+        { x: 250, y: 80, snap: false },
+      ],
+      heads: { start: 'none', end: 'none' },
+    },
+  ],
+};
+const OFF_PAPER_SOURCE = JSON.stringify(OFF_PAPER_SCENE, null, 2);
+
 /** The view both of those Scenes land in: `post`'s bounds, at 1:1. */
 const PINNED: View = { zoom: 1, panX: 400, panY: 320 };
 
@@ -348,6 +371,7 @@ const SCENES = {
     'loop.json': LOOP_SOURCE,
     'pinned.json': PINNED_SOURCE,
     'loose.json': LOOSE_SOURCE,
+    'offpaper.json': OFF_PAPER_SOURCE,
     'held.json': HELD_SOURCE,
   },
 };
@@ -1052,6 +1076,134 @@ describe('the note follows the Scene', () => {
     expect(scene.elements[2]?.points).toEqual([
       { x: 160, y: 80 },
       { x: 300, y: 80, snap: 'to' },
+    ]);
+  });
+});
+
+describe('the Snap switch on each end', () => {
+  test('switching an end off writes "snap": false where it draws, and on attaches it again', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'snapped.json');
+
+    await clickScene(ui, { x: 230, y: 80 }, [], SNAPPED);
+    await expect(control(ui, 'Start Snap')).toHaveAttribute('aria-pressed', 'true');
+    await control(ui, 'Start Snap').click();
+
+    // Off: the end stays where it draws, on `from`'s right edge, with no Anchor,
+    // and the file says so.
+    const off = await savedAndChecked(ui, 'snapped.json');
+    expect(off.elements[2]?.points).toEqual([
+      { x: 160, y: 80, snap: false },
+      { x: 300, y: 80, snap: 'to' },
+    ]);
+    await expect(control(ui, 'Start Snap')).toHaveAttribute('aria-pressed', 'false');
+
+    // On again over an Element: the end attaches there, at the outline point
+    // nearest the spot it drew, and the Anchor names it.
+    await control(ui, 'Start Snap').click();
+    const on = await savedAndChecked(ui, 'snapped.json');
+    expect(on.elements[2]?.points).toEqual([
+      { x: 160, y: 80, snap: 'from', anchor: { x: 1, y: 0.5 } },
+      { x: 300, y: 80, snap: 'to' },
+    ]);
+    await expect(control(ui, 'Start Snap')).toHaveAttribute('aria-pressed', 'true');
+
+    // One undo takes the switch on back off, and nothing else with it.
+    await browser.keyboard.press('Meta+z');
+    const undone = await savedScene(ui, 'snapped.json');
+    expect(undone.elements[2]?.points).toEqual([
+      { x: 160, y: 80, snap: false },
+      { x: 300, y: 80, snap: 'to' },
+    ]);
+  });
+
+  test('switched on over the paper, a free end stays free with no "snap" key', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'offpaper.json');
+
+    await clickScene(ui, { x: 180, y: 80 }, [], SNAP);
+    await expect(control(ui, 'End Snap')).toHaveAttribute('aria-pressed', 'false');
+
+    // Nothing is under the end, so on is a free end like one that never wrote a
+    // `snap`: it attaches to nothing, and no `false` is left behind.
+    await control(ui, 'End Snap').click();
+    const on = await savedScene(ui, 'offpaper.json');
+    expect(on.elements[1]?.points).toEqual([
+      { x: 60, y: 80 },
+      { x: 250, y: 80 },
+    ]);
+    await expect(control(ui, 'End Snap')).toHaveAttribute('aria-pressed', 'true');
+
+    // Off again writes the `false`, wherever the end is and whatever it holds.
+    await control(ui, 'End Snap').click();
+    const off = await savedScene(ui, 'offpaper.json');
+    expect(off.elements[1]?.points).toEqual([
+      { x: 60, y: 80 },
+      { x: 250, y: 80, snap: false },
+    ]);
+    await expect(control(ui, 'End Snap')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  test('the switch is a real control: reached by Tab, toggled with Space or Enter', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'snapped.json');
+    await clickScene(ui, { x: 230, y: 80 }, [], SNAPPED);
+
+    // One tab stop per end, in the order the ends are read.
+    await control(ui, 'Start Snap').focus();
+    await browser.keyboard.press('Tab');
+    await expect(control(ui, 'End Snap')).toBeFocused();
+
+    // Enter turns the end it holds off, and Space turns the fresh control back
+    // on: the note is rebuilt after each toggle, so each key is pressed on the
+    // control the new note has.
+    await browser.keyboard.press('Enter');
+    const off = await savedScene(ui, 'snapped.json');
+    expect(off.elements[2]?.points).toEqual([
+      { x: 160, y: 80, snap: 'from' },
+      { x: 300, y: 80, snap: false },
+    ]);
+
+    await control(ui, 'End Snap').focus();
+    await browser.keyboard.press('Space');
+    const on = await savedScene(ui, 'snapped.json');
+    expect(on.elements[2]?.points).toEqual([
+      { x: 160, y: 80, snap: 'from' },
+      { x: 300, y: 80, snap: 'to', anchor: { x: 0, y: 0.5 } },
+    ]);
+  });
+
+  test('an end whose switch is off attaches to nothing, whatever it is dragged over', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'loose.json');
+
+    await clickScene(ui, { x: 180, y: 80 }, [], SNAP);
+    await expect(control(ui, 'End Snap')).toHaveAttribute('aria-pressed', 'false');
+
+    // The end starts inside `post` and stays over it the whole drag: it goes
+    // where the pointer takes it and keeps the `false` that turned it off.
+    await dragBy(ui, { x: 320, y: 80 }, 40, 20, SNAP);
+
+    const scene = await savedAndChecked(ui, 'loose.json');
+    expect(scene.elements[1]?.points).toEqual([
+      { x: 60, y: 80 },
+      { x: 360, y: 100, snap: false },
     ]);
   });
 });
