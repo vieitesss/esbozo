@@ -4,7 +4,16 @@ import { PRIMARY_SCENE_EXTENSION, sceneFileNameFor, sceneStem } from '../paths.j
 import { isClick, replaced, selectedFrom } from './elements.js';
 import { movableCount } from './arrange.js';
 import type { ArrangeAct } from './arrange.js';
-import { deleted, duplicated, nudged, pasted, rearranged, restyled, switched } from './edits.js';
+import {
+  deleted,
+  duplicated,
+  edited,
+  nudged,
+  pasted,
+  rearranged,
+  restyled,
+  switched,
+} from './edits.js';
 import type { Edited, Landing } from './edits.js';
 import { actionById, actionFor } from './actions.js';
 import type { ActionHost, ActionState, ToolId } from './actions.js';
@@ -404,7 +413,7 @@ class EsbozoEditorElement extends HTMLElement {
         this.#refresh();
       },
       refused: (problem) => this.#setSaved('failed', problem),
-      applyScene: (next, select) => this.#applyScene(next, { select }),
+      applyScene: (next, select) => this.#land(edited(this.#scene, next.elements, select)),
       forgetWordClick: () => this.#gestures.forgetWordClick(),
     });
 

@@ -43,7 +43,7 @@ export interface Landing {
  * updated to where its Anchor draws now, so the Scene an edit returns is the
  * Scene that lands.
  */
-function edited(
+export function edited(
   before: Scene,
   elements: readonly SceneElement[],
   selection: readonly string[] | null = null,
