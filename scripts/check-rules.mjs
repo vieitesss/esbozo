@@ -54,7 +54,9 @@ const SUITES = /^(?:test|tests)\//;
  * is asking the Editor for an inside, and Seam 2 is where it is proved.
  * `bend-point.ts` is the exception the rule allows: what it decides is one
  * arithmetic rule over a Scene and a view, and a tie in that rule is a place no
- * page is driven to on purpose.
+ * page is driven to on purpose. `snap.ts` is the same kind of exception: one
+ * set of pure Scene-to-Scene Snap rules over target choice, settling, freeing,
+ * and Anchored ends.
  */
 const TEST_EDITOR_MODULES = new Set([
   'history.ts',
@@ -62,6 +64,7 @@ const TEST_EDITOR_MODULES = new Set([
   'geometry.ts',
   'paint.ts',
   'bend-point.ts',
+  'snap.ts',
 ]);
 
 /** A path in a test that names a module under `src/editor/`: written whole, or as a loader builds it. */
