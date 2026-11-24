@@ -1,7 +1,10 @@
 /**
  * Run the five `pnpm check` steps in order, streaming their output live and
- * printing a one-line summary at the very end so `pnpm check 2>&1 | tail -1`
- * always shows either `check: ok (...)` or `check: FAILED at <step> — <error>`.
+ * printing a one-line summary (`check: ok (...)` or
+ * `check: FAILED at <step> — <error>`) as the script's own last line. Through
+ * `pnpm check`, pnpm appends its own `[ELIFECYCLE] Command failed...` footer
+ * after a failing script, so read the summary from `pnpm check 2>&1 | tail -3`
+ * (or `pnpm --silent check 2>&1 | tail -1`).
  */
 import { spawn } from 'node:child_process';
 

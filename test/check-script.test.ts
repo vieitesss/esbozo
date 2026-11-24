@@ -64,6 +64,73 @@ process.stdout.write(\`ok \${step}\\n\`);
   assert.deepEqual(ran, ['typecheck', 'lint']);
 });
 
+test('through the real pnpm check wrapper, the ok summary is still the last line', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'esbozo-check-wrapper-ok-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const runner = join(dir, 'runner.mjs');
+  await writeFile(runner, '');
+  await writeFile(
+    join(dir, 'package.json'),
+    JSON.stringify({
+      name: 'probe',
+      version: '0.0.0',
+      private: true,
+      scripts: { check: `node ${SCRIPT}` },
+    }),
+  );
+
+  // Merge streams through a shell so line order is chronological, exactly as
+  // in the documented `pnpm check 2>&1 | tail -1`.
+  const run = spawnSync('sh', ['-c', 'pnpm check 2>&1'], {
+    cwd: dir,
+    encoding: 'utf8',
+    env: { ...process.env, ESBOZO_CHECK_RUNNER: runner },
+  });
+  assert.equal(run.status, 0, run.stdout);
+  const lines = run.stdout.trimEnd().split('\n');
+  assert.equal(lines.at(-1), 'check: ok (typecheck, lint, knip, check-rules, test)');
+});
+
+test('through the real pnpm check wrapper, the FAILED summary sits within the last three lines', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'esbozo-check-wrapper-fail-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const runner = join(dir, 'runner.mjs');
+  await writeFile(
+    runner,
+    `if (process.argv[2] === 'lint') {
+  process.stderr.write('src/foo.ts:12:5 error: unused variable\\n');
+  process.exit(2);
+}
+`,
+  );
+  await writeFile(
+    join(dir, 'package.json'),
+    JSON.stringify({
+      name: 'probe',
+      version: '0.0.0',
+      private: true,
+      scripts: { check: `node ${SCRIPT}` },
+    }),
+  );
+
+  const run = spawnSync('sh', ['-c', 'pnpm check 2>&1'], {
+    cwd: dir,
+    encoding: 'utf8',
+    env: { ...process.env, ESBOZO_CHECK_RUNNER: runner },
+  });
+  assert.equal(run.status, 2);
+  const lines = run.stdout.trimEnd().split('\n');
+  // pnpm appends its own ELIFECYCLE footer after a failing script, so the
+  // summary is second-to-last, not last.
+  assert.match(lines.at(-1) ?? '', /Command failed with exit code 2/);
+  assert.ok(
+    lines
+      .slice(-3)
+      .some((line) => line === 'check: FAILED at lint — src/foo.ts:12:5 error: unused variable'),
+    lines.slice(-3).join('\n'),
+  );
+});
+
 test('extracts decisive error line over earlier info output', async (t) => {
   const { dir, runner } = await makeRunner(
     t,
