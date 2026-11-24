@@ -5,6 +5,9 @@
  *
  *   ez render <scene> [--font <file>]
  *   ez check <scene> [--font <file>] [--css <stylesheet>]
+ *   ez anchor <scene> <element> <start|end> <place>
+ *   ez anchor <scene> --all
+ *   ez snap <scene> <element> <start|end> <target|off>
  *   ez png <scene> --theme light|dark [--css <stylesheet>]
  *                  [--ink <colour>] [--paper <colour>] [--muted <colour>]
  *                  [--font <file>]
@@ -14,6 +17,17 @@
  * `render` writes `<name>.svg` beside the Scene and prints that path.
  * `check` reports what is wrong with a Scene and prints nothing when it is
  * clean, so a script can rely on the exit code alone.
+ * `anchor` and `snap` edit a Scene in place, on the arrow or line their element
+ * id names. `anchor` puts one end on a named place of its target's outline —
+ * `top`, `bottom-left`, a pair of fractions, or `none` to drop the Anchor and aim
+ * at the centre again — and `--all` freezes every Snapped end that carries no
+ * Anchor where it draws today, so the SVG does not move. `snap` attaches an end
+ * to an Element, at the outline point nearest where it draws, or writes
+ * `"snap": false` with `off`. An Anchor writes the end's `x`, `y` at the spot it
+ * draws on, so the file's numbers and its ink agree. Both print the end they
+ * changed. Both refuse what the schema refuses, with `ez check`'s exit codes, and
+ * neither writes a Scene the parser turns down.
+ *
  * `png` writes `<name>.<theme>.png` beside the Scene and prints that path, so
  * `sketch.esbozo` gives `sketch.light.png` and `sketch.dark.png`. A Scene is a
  * `.esbozo` file, or a `.json` one that holds a Scene: the extension only names
@@ -60,14 +74,15 @@ import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BUILD, BUILT_AT } from './build-id.js';
+import { anchorOf, anchorPoint, pointOnOutline } from './geometry.js';
 import { sceneStem, svgFileName } from './paths.js';
-import { parseScene } from './scene.js';
-import { renderScene } from './renderer.js';
+import { isOutlined, parseScene, serialiseScene, snapTargetId } from './scene.js';
+import { drawnShaft, elementsById, renderScene } from './renderer.js';
 import { THEMES, renderPng } from './png.js';
 import { serve } from './serve.js';
 import type { ServeOptions } from './serve.js';
 import type { PngOptions, Theme } from './png.js';
-import type { Scene } from './scene.js';
+import type { Anchor, ArrowOrLineElement, OutlinedElement, Point, Scene } from './scene.js';
 import { chooseFont, layoutFor, readStylesheet } from './font.js';
 import type { Layout } from './layout.js';
 
@@ -82,6 +97,36 @@ const EXIT = {
 
 const RENDER_USAGE = 'usage: ez render <scene> [--font <file>]';
 const CHECK_USAGE = 'usage: ez check <scene> [--font <file>] [--css <stylesheet>]';
+/**
+ * The places an Anchor takes on the command line: names for the middle of a
+ * side, the middle of the box, and its four corners. A Scene never holds a name,
+ * only the fractions these stand for.
+ */
+const SIDE_PLACES: Readonly<Record<string, Anchor>> = {
+  top: { x: 0.5, y: 0 },
+  bottom: { x: 0.5, y: 1 },
+  left: { x: 0, y: 0.5 },
+  right: { x: 1, y: 0.5 },
+  center: { x: 0.5, y: 0.5 },
+};
+
+/** A name for a corner of the box, as fractions of it. */
+const CORNER_PLACES: Readonly<Record<string, Anchor>> = {
+  'top-left': { x: 0, y: 0 },
+  'top-right': { x: 1, y: 0 },
+  'bottom-left': { x: 0, y: 1 },
+  'bottom-right': { x: 1, y: 1 },
+};
+
+/** Every place a person can name, in the order the help lists them. */
+const PLACE_WORDS = [...Object.keys(SIDE_PLACES), ...Object.keys(CORNER_PLACES)];
+
+const ANCHOR_USAGE = [
+  'usage: ez anchor <scene> <element> <start|end> <place>',
+  '       ez anchor <scene> --all',
+  `  place: ${PLACE_WORDS.join(', ')}, a pair of fractions "fx,fy", or none`,
+].join('\n');
+const SNAP_USAGE = 'usage: ez snap <scene> <element> <start|end> <target|off>';
 const PNG_USAGE =
   'usage: ez png <scene> --theme light|dark [--css <stylesheet>]' +
   ' [--ink <colour>] [--paper <colour>] [--muted <colour>] [--font <file>]';
@@ -110,7 +155,7 @@ const CSS_SUBSET = [
   'Palette colours must be opaque.',
 ].join('\n');
 
-const USAGE = `${RENDER_USAGE}\n${CHECK_USAGE}\n${PNG_USAGE}\n${SERVE_USAGE}\n${BUNDLE_USAGE}\n${CSS_SUBSET}\n${EXIT_CODES}\n`;
+const USAGE = `${RENDER_USAGE}\n${CHECK_USAGE}\n${ANCHOR_USAGE}\n${SNAP_USAGE}\n${PNG_USAGE}\n${SERVE_USAGE}\n${BUNDLE_USAGE}\n${CSS_SUBSET}\n${EXIT_CODES}\n`;
 
 async function main(argv: readonly string[]): Promise<number> {
   const [command, ...rest] = argv;
@@ -119,6 +164,12 @@ async function main(argv: readonly string[]): Promise<number> {
   }
   if (command === 'check') {
     return runCheck(rest);
+  }
+  if (command === 'anchor') {
+    return runAnchor(rest);
+  }
+  if (command === 'snap') {
+    return runSnap(rest);
   }
   if (command === 'png') {
     return runPng(rest);
@@ -258,6 +309,411 @@ function failed(problems: readonly string[]): { ok: false; exitCode: number } {
     process.stderr.write(`${problem}\n`);
   }
   return { ok: false, exitCode: EXIT.missingThemeOrFont };
+}
+
+/*
+ * `anchor` and `snap`: the two commands that edit a Scene in place.
+ *
+ * An Anchor names a place on a Snap target's box, so the names below exist on
+ * the command line only: the Scene always stores fractions, and a person who
+ * wants a corner of a rounded box or of an ellipse gets the point where the box
+ * corner's line to the centre meets the outline, because those shapes have no
+ * corner where their box has one.
+ */
+
+/** Which end of an arrow or line a command names: its first point, or its last. */
+const ENDS = ['start', 'end'] as const;
+type End = (typeof ENDS)[number];
+
+/**
+ * What a command says to anchor an end at, before the target's outline is known:
+ * a place on the box, a corner of it, or no Anchor at all.
+ */
+type Place =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'spot'; readonly anchor: Anchor; readonly corner: boolean };
+
+/** What a command made of a Scene: the Scene to save, and the lines a person reads. */
+interface Change {
+  readonly scene: Scene;
+  readonly lines: readonly string[];
+}
+
+/** A command's answer: what it made, or the message and exit code it refused with. */
+type Answer<T> =
+  | { readonly ok: true; readonly value: T }
+  | { readonly ok: false; readonly message: string; readonly exitCode: number };
+
+function refusal(message: string, exitCode: number): { ok: false; message: string; exitCode: number } {
+  return { ok: false, message, exitCode };
+}
+
+/** Load the Scene a command names, apply its edit, and save what it made. */
+async function editScene<T extends { readonly scenePath: string }>(
+  request: Answer<T>,
+  apply: (scene: Scene, request: T) => Answer<Change>,
+): Promise<number> {
+  if (!request.ok) {
+    process.stderr.write(`${request.message}\n`);
+    return request.exitCode;
+  }
+  const scene = await loadScene(request.value.scenePath);
+  if (!scene.ok) {
+    return scene.exitCode;
+  }
+  const answer = apply(scene.value, request.value);
+  if (!answer.ok) {
+    process.stderr.write(`${answer.message}\n`);
+    return answer.exitCode;
+  }
+  return saveScene(request.value.scenePath, answer.value);
+}
+
+async function runAnchor(argv: readonly string[]): Promise<number> {
+  return editScene(parseAnchorArguments(argv), (scene, request) =>
+    request.all ? freezeEnds(scene) : placeEnd(scene, request),
+  );
+}
+
+async function runSnap(argv: readonly string[]): Promise<number> {
+  return editScene(parseSnapArguments(argv), snapEnd);
+}
+
+/** One end anchored at a named place, or with its Anchor dropped. */
+type AnchorRequest =
+  | { readonly scenePath: string; readonly all: true }
+  | {
+      readonly scenePath: string;
+      readonly all: false;
+      readonly elementId: string;
+      readonly end: End;
+      readonly place: Place;
+    };
+
+/** One end attached to an Element, or written free with `off`. */
+interface SnapRequest {
+  readonly scenePath: string;
+  readonly elementId: string;
+  readonly end: End;
+  /** The Element to attach to, or null for `off`: an end that remembers no Snap. */
+  readonly target: string | null;
+}
+
+function parseAnchorArguments(argv: readonly string[]): Answer<AnchorRequest> {
+  if (argv.includes('--all')) {
+    const rest = argv.filter((word) => word !== '--all');
+    const scenePath = rest[0];
+    if (rest.length !== 1 || scenePath === undefined || scenePath === '') {
+      return refusal(ANCHOR_USAGE, EXIT.usage);
+    }
+    if (scenePath.startsWith('--')) {
+      return refusal(ANCHOR_USAGE, EXIT.usage);
+    }
+    return { ok: true, value: { scenePath, all: true } };
+  }
+
+  const [scenePath, elementId, word, place] = argv;
+  if (
+    argv.length !== 4 ||
+    argv.some((argument) => argument === '' || argument.startsWith('--')) ||
+    scenePath === undefined ||
+    elementId === undefined ||
+    place === undefined
+  ) {
+    return refusal(ANCHOR_USAGE, EXIT.usage);
+  }
+  const end = parseEnd(word);
+  if (end === null) {
+    return refusal(endMessage(word), EXIT.usage);
+  }
+  const parsed = parsePlace(place);
+  if (!parsed.ok) {
+    return parsed;
+  }
+  return { ok: true, value: { scenePath, all: false, elementId, end, place: parsed.value } };
+}
+
+function parseSnapArguments(argv: readonly string[]): Answer<SnapRequest> {
+  const [scenePath, elementId, word, target] = argv;
+  if (
+    argv.length !== 4 ||
+    argv.some((argument) => argument === '' || argument.startsWith('--')) ||
+    scenePath === undefined ||
+    elementId === undefined ||
+    target === undefined
+  ) {
+    return refusal(SNAP_USAGE, EXIT.usage);
+  }
+  const end = parseEnd(word);
+  if (end === null) {
+    return refusal(endMessage(word), EXIT.usage);
+  }
+  return {
+    ok: true,
+    value: { scenePath, elementId, end, target: target === 'off' ? null : target },
+  };
+}
+
+/** The end a word names, or null where it names none. */
+function parseEnd(word: string | undefined): End | null {
+  return ENDS.find((candidate) => candidate === word) ?? null;
+}
+
+/** Why a word is no end: a Shaft has a start and an end, and nothing between. */
+function endMessage(word: string | undefined): string {
+  return `an end is start or end, got ${JSON.stringify(word)}`;
+}
+
+/** The place a word names: a name, a pair of fractions, or `none`. */
+function parsePlace(word: string): Answer<Place> {
+  if (word === 'none') {
+    return { ok: true, value: { kind: 'none' } };
+  }
+  const side = SIDE_PLACES[word];
+  if (side !== undefined) {
+    return { ok: true, value: { kind: 'spot', anchor: side, corner: false } };
+  }
+  const corner = CORNER_PLACES[word];
+  if (corner !== undefined) {
+    return { ok: true, value: { kind: 'spot', anchor: corner, corner: true } };
+  }
+  const anchor = pairOfFractions(word);
+  if (anchor === null) {
+    return refusal(
+      `a place is ${PLACE_WORDS.join(', ')}, a pair of fractions "fx,fy", or none,` +
+        ` got ${JSON.stringify(word)}`,
+      EXIT.usage,
+    );
+  }
+  // A fraction outside the box is the one thing `ez check` refuses about an Anchor.
+  for (const [axis, value] of [
+    ['x', anchor.x],
+    ['y', anchor.y],
+  ] as const) {
+    if (!(value >= 0 && value <= 1)) {
+      return refusal(`anchor ${axis} must be between 0 and 1, got ${value}`, EXIT.invalidScene);
+    }
+  }
+  return { ok: true, value: { kind: 'spot', anchor, corner: false } };
+}
+
+/** A pair of fractions written `fx,fy`, or null where the word is not one. */
+function pairOfFractions(word: string): Anchor | null {
+  const parts = word.split(',');
+  if (parts.length !== 2) {
+    return null;
+  }
+  const [x, y] = parts.map((part) => (/^-?\d+(?:\.\d+)?$/.test(part) ? Number(part) : Number.NaN));
+  return x === undefined || y === undefined || Number.isNaN(x) || Number.isNaN(y) ? null : { x, y };
+}
+
+/** The Scene with one end anchored at a named place, or its Anchor dropped. */
+function placeEnd(scene: Scene, request: AnchorRequest & { all: false }): Answer<Change> {
+  const found = findShaft(scene, request.elementId);
+  if (!found.ok) {
+    return found;
+  }
+  const element = found.value;
+  const index = endIndex(element, request.end);
+  const point = element.points[index]!;
+  const target = snappedTarget(scene, element, request.end);
+  if (!target.ok) {
+    return target;
+  }
+  const anchor =
+    request.place.kind === 'none' ? undefined : placeOn(request.place, target.value);
+  const stored =
+    anchor === undefined ? withoutAnchor(point) : drawnAt(point, target.value, anchor);
+  return {
+    ok: true,
+    value: {
+      scene: withPoint(scene, element, index, stored),
+      lines: [changedLine(element.id, request.end, stored)],
+    },
+  };
+}
+
+/** The Scene with one end attached to an Element, or written free with `off`. */
+function snapEnd(scene: Scene, request: SnapRequest): Answer<Change> {
+  const found = findShaft(scene, request.elementId);
+  if (!found.ok) {
+    return found;
+  }
+  const element = found.value;
+  const index = endIndex(element, request.end);
+  const point = element.points[index]!;
+
+  let stored: Point;
+  if (request.target === null) {
+    stored = { x: point.x, y: point.y, snap: false };
+  } else {
+    const target = scene.elements.find((candidate) => candidate.id === request.target);
+    if (target === undefined) {
+      return refusal(`no Element "${request.target}" in the Scene`, EXIT.invalidScene);
+    }
+    if (!isOutlined(target)) {
+      return refusal(
+        `snap target "${request.target}" must be a rectangle, ellipse or diamond`,
+        EXIT.invalidScene,
+      );
+    }
+    // The same place the editor's drop takes: the outline point nearest the spot
+    // the end is drawn at now, not the target's centre.
+    const [atStart, atEnd] = drawnShaft(element, elementsById(scene.elements));
+    const anchor = anchorOf(target, request.end === 'start' ? atStart : atEnd);
+    stored = { ...drawnAt(point, target, anchor), snap: request.target };
+  }
+
+  return {
+    ok: true,
+    value: {
+      scene: withPoint(scene, element, index, stored),
+      lines: [changedLine(element.id, request.end, stored)],
+    },
+  };
+}
+
+/**
+ * Every Snapped end that carries no Anchor, given the Anchor of the spot it
+ * draws at today, so freezing it moves no ink.
+ */
+function freezeEnds(scene: Scene): Answer<Change> {
+  const byId = elementsById(scene.elements);
+  const lines: string[] = [];
+  const elements = scene.elements.map((element) => {
+    if (element.type !== 'arrow' && element.type !== 'line') {
+      return element;
+    }
+    const [atStart, atEnd] = drawnShaft(element, byId);
+    const last = element.points.length - 1;
+    let changed = false;
+    const points = element.points.map((point, index) => {
+      const end: End | null = index === 0 ? 'start' : index === last ? 'end' : null;
+      if (end === null || point.anchor !== undefined) {
+        return point;
+      }
+      const target = snapTargetId(point);
+      const outline = target === null ? undefined : byId.get(target);
+      if (outline === undefined || !isOutlined(outline)) {
+        return point;
+      }
+      const stored = drawnAt(
+        point,
+        outline,
+        anchorOf(outline, end === 'start' ? atStart : atEnd),
+      );
+      changed = true;
+      lines.push(changedLine(element.id, end, stored));
+      return stored;
+    });
+    return changed ? ({ ...element, points } as ArrowOrLineElement) : element;
+  });
+  return { ok: true, value: { scene: { ...scene, elements }, lines } };
+}
+
+/** The arrow or line an id names, or why the Scene has no such Shaft. */
+function findShaft(scene: Scene, id: string): Answer<ArrowOrLineElement> {
+  const element = scene.elements.find((candidate) => candidate.id === id);
+  if (element === undefined) {
+    return refusal(`no Element "${id}" in the Scene`, EXIT.invalidScene);
+  }
+  if (element.type !== 'arrow' && element.type !== 'line') {
+    return refusal(
+      `"${id}" is a ${element.type}: only an arrow or a line has ends`,
+      EXIT.invalidScene,
+    );
+  }
+  return { ok: true, value: element };
+}
+
+/** The outlined Element an end Snaps to, or why it can hold no Anchor. */
+function snappedTarget(
+  scene: Scene,
+  element: ArrowOrLineElement,
+  end: End,
+): Answer<OutlinedElement> {
+  const id = snapTargetId(element.points[endIndex(element, end)]!);
+  if (id === null) {
+    return refusal(
+      `"${element.id} ${end}" has no Snap: give it one with ez snap`,
+      EXIT.invalidScene,
+    );
+  }
+  const target = scene.elements.find((candidate) => candidate.id === id);
+  if (target === undefined || !isOutlined(target)) {
+    return refusal(`snap target "${id}" must be a rectangle, ellipse or diamond`, EXIT.invalidScene);
+  }
+  return { ok: true, value: target };
+}
+
+/** Where an end sits among its Shaft's points: the first one, or the last. */
+function endIndex(element: ArrowOrLineElement, end: End): number {
+  return end === 'start' ? 0 : element.points.length - 1;
+}
+
+/** The Anchor a named place means on this outline: fractions the Renderer draws there. */
+function placeOn(place: Place & { kind: 'spot' }, outline: OutlinedElement): Anchor {
+  if (!place.corner) {
+    return place.anchor;
+  }
+  const corner = {
+    x: outline.x + place.anchor.x * outline.width,
+    y: outline.y + place.anchor.y * outline.height,
+  };
+  return anchorOf(outline, pointOnOutline(outline, corner));
+}
+
+/** The end stored where its Anchor draws it, so the file's numbers read true. */
+function drawnAt(point: Point, target: OutlinedElement, anchor: Anchor): Point {
+  const drawn = anchorPoint(target, anchor);
+  return { ...point, x: drawn.x, y: drawn.y, anchor };
+}
+
+/** The same point with no Anchor: the Renderer aims the end again. */
+function withoutAnchor(point: Point): Point {
+  const cleared = { ...point };
+  delete cleared.anchor;
+  return cleared;
+}
+
+/** The Scene with one of a Shaft's points replaced. */
+function withPoint(scene: Scene, element: ArrowOrLineElement, index: number, point: Point): Scene {
+  const points = element.points.map((candidate, at) => (at === index ? point : candidate));
+  const changed = { ...element, points } as ArrowOrLineElement;
+  return {
+    ...scene,
+    elements: scene.elements.map((candidate) => (candidate.id === element.id ? changed : candidate)),
+  };
+}
+
+/** The one line a command prints about the end it changed. */
+function changedLine(id: string, end: End, point: Point): string {
+  const snap = typeof point.snap === 'string' ? point.snap : 'off';
+  const anchor =
+    point.anchor === undefined ? '' : `, anchor {x: ${point.anchor.x}, y: ${point.anchor.y}}`;
+  return `${id} ${end}: snap ${snap}${anchor}`;
+}
+
+/** Save the Scene a command built, refusing to write one the parser turns down. */
+async function saveScene(scenePath: string, change: Change): Promise<number> {
+  const text = serialiseScene(change.scene);
+  const checked = parseScene(text);
+  if (!checked.ok) {
+    printProblems(checked.problems);
+    return EXIT.invalidScene;
+  }
+  try {
+    await writeFile(scenePath, text, 'utf8');
+  } catch (error) {
+    process.stderr.write(
+      `cannot write Scene ${scenePath}: ${(error as NodeJS.ErrnoException).message}\n`,
+    );
+    return EXIT.writeFailed;
+  }
+  for (const line of change.lines) {
+    process.stdout.write(`${line}\n`);
+  }
+  return EXIT.ok;
 }
 
 async function runPng(argv: readonly string[]): Promise<number> {
@@ -472,6 +928,14 @@ function parsePngArguments(argv: readonly string[]): PngArguments | null {
 
 type LoadedScene = { ok: true; value: Scene } | { ok: false; exitCode: number };
 
+/** Every problem a parse found, one line each, naming the Element it belongs to. */
+function printProblems(problems: readonly { elementId: string | null; message: string }[]): void {
+  for (const problem of problems) {
+    const where = problem.elementId === null ? '' : `${problem.elementId}: `;
+    process.stderr.write(`${where}${problem.message}\n`);
+  }
+}
+
 async function loadScene(scenePath: string): Promise<LoadedScene> {
   let source: string;
   try {
@@ -483,10 +947,7 @@ async function loadScene(scenePath: string): Promise<LoadedScene> {
 
   const parsed = parseScene(source);
   if (!parsed.ok) {
-    for (const problem of parsed.problems) {
-      const where = problem.elementId === null ? '' : `${problem.elementId}: `;
-      process.stderr.write(`${where}${problem.message}\n`);
-    }
+    printProblems(parsed.problems);
     return { ok: false, exitCode: EXIT.invalidScene };
   }
   return { ok: true, value: parsed.scene };

@@ -93,7 +93,12 @@ export function fillets(outline: Outline): Fillet[] {
   });
 }
 
-function pointOnOutline(outline: Outline, from: Point): Point {
+/**
+ * Where the line from the box's centre out through `from` leaves the outline:
+ * the spot a named corner means, since an ellipse and a rounded box have no
+ * corner where their box has one.
+ */
+export function pointOnOutline(outline: Outline, from: Point): Point {
   const centre = centreOf(outline);
   const dx = from.x - centre.x;
   const dy = from.y - centre.y;
