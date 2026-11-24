@@ -183,6 +183,18 @@ test('a style pick is one undo step', async ({ app, browser, screen }) => {
   expect((await savedScene(ui)).elements[0]?.roughness).toBe(1);
 });
 
+test('a Space on a focused control picks it, as Enter does', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'scene.json': SCENE_SOURCE } }, 'scene.json');
+  await clickScene(ui, { x: 100, y: 80 });
+
+  // A Space the pointer never panned with belongs to the button the focus sits
+  // on, the note's as the rail's: the pick it makes is the edit a click makes.
+  await control(ui, 'Rough: cartoonist').focus();
+  await browser.keyboard.press('Space');
+  expect((await savedScene(ui)).elements[0]?.roughness).toBe(2);
+});
+
 test('the roughness label stays quiet and the value is in ink', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   await ui.browser.setViewport({ width: 1366, height: 768 });

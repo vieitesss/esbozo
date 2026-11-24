@@ -1372,6 +1372,106 @@ test('a press that moves 3 px on a tile picks that tool and leaves the rail wher
   );
 });
 
+/**
+ * Whether a tile is the tool in hand, as the page presses it: the one state a
+ * person sees on the strip, read without touching the Scene a pick changes.
+ */
+async function picked(ui: Ui, name: string): Promise<string | null> {
+  return ui.screen.getByRole('button', { name, exact: true }).getAttribute('aria-pressed');
+}
+
+test('a Space on a focused tile picks its tool, and a Space the pointer pans with picks nothing', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+
+  // Space is the activation Enter is, so the tile the focus sits on is what a
+  // keyboard person reaches: Rectangle is the tool in hand and Select is not.
+  await screen.getByRole('button', { name: 'Rectangle', exact: true }).focus();
+  await browser.keyboard.press('Space');
+  await settle(ui);
+  expect(await picked(ui, 'Rectangle'), 'the tile answered Space').toBe('true');
+  expect(await picked(ui, 'Select')).toBe('false');
+
+  // The Space a pointer took to pan the page is the page's, not the tile's: the
+  // Ellipse keeps the focus, the page moves under the pointer, and the rail keeps
+  // the Rectangle the keyboard picked in hand.
+  await screen.getByRole('button', { name: 'Ellipse', exact: true }).focus();
+  await browser.keyboard.down('Space');
+  await drag(ui, { x: 640, y: 560 }, { x: 640, y: 420 });
+  await browser.keyboard.up('Space');
+  await settle(ui);
+  expect(await picked(ui, 'Ellipse'), 'a Space that panned is no pick').toBe('false');
+  expect(await picked(ui, 'Rectangle')).toBe('true');
+
+  expect(await problems(ui), 'the page threw nothing').toEqual([]);
+});
+
+test('a Space whose focus moved before the release picks nothing, as a native button’s Space does not', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+  const rect = screen.getByRole('button', { name: 'Rectangle', exact: true });
+  const ellipse = screen.getByRole('button', { name: 'Ellipse', exact: true });
+
+  // A Space pressed on the Rectangle tile is the Rectangle's only while the focus
+  // stays on it. The pointer picks the Ellipse before the key comes up, and a
+  // release that lands on another tile is no activation at all: the person's own
+  // pick stands, and the stale press clicks nothing behind it.
+  await rect.focus();
+  await browser.keyboard.down('Space');
+  await ellipse.click();
+  await settle(ui);
+  expect(await picked(ui, 'Ellipse'), 'the pointer picked the Ellipse').toBe('true');
+  await browser.keyboard.up('Space');
+  await settle(ui);
+  expect(await picked(ui, 'Rectangle'), 'a release whose focus moved clicks no tile').toBe('false');
+  expect(await picked(ui, 'Ellipse'), 'the pointer’s pick stands').toBe('true');
+
+  // The keys alone say the same: the focus moved between the press and the
+  // release, so the release is nobody's activation.
+  await rect.focus();
+  await browser.keyboard.down('Space');
+  await ellipse.focus();
+  await browser.keyboard.up('Space');
+  await settle(ui);
+  expect(await picked(ui, 'Rectangle'), 'a focus that moved clicks nothing').toBe('false');
+  expect(await picked(ui, 'Ellipse')).toBe('true');
+
+  expect(await problems(ui), 'the page threw nothing').toEqual([]);
+});
+
+test('a Space held across a Scene switch picks nothing in the Scene it lands in', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'one.json': BARE_SOURCE, 'two.json': BARE_SOURCE } }, 'one.json');
+  await settle(ui);
+  const rect = screen.getByRole('button', { name: 'Rectangle', exact: true });
+
+  // A press belongs to the Scene it was made in: the focus and the tile both go
+  // with the switch, so the release in the new Scene activates nothing there.
+  await rect.focus();
+  await browser.keyboard.down('Space');
+  await screen.getByRole('button', { name: /Open folder/ }).click();
+  await screen.getByRole('button', { name: 'two.json', exact: true }).click();
+  await settle(ui);
+  await browser.keyboard.up('Space');
+  await settle(ui);
+  expect(await picked(ui, 'Rectangle'), 'a press from another Scene clicks no tile').toBe('false');
+  expect(await picked(ui, 'Select'), 'the new Scene keeps the tool it opened with').toBe('true');
+
+  expect(await problems(ui), 'the page threw nothing').toEqual([]);
+});
+
 test('a mouse drag from a tile docks the rail on the nearest side and picks no tool', async ({
   app,
   browser,
@@ -1888,6 +1988,45 @@ test('a mouse a held rail drag ignored ends as ignored, so an in-flight touch dr
   await pen('mouseReleased', 250, 400);
   await settle(ui);
   expect(await keptSide(ui), 'the pen’s release docks the rail').toBe('left');
+});
+
+test('a tap picks nothing on a tile while another pointer holds a drag of the rail, and picks again after it lets go', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+  const band: Rect = { x: 400, y: 0, width: 480, height: 240 };
+  const opened = await railPlace(ui, band);
+  const { pen, touch } = await mixedPointers();
+  const grip = tileCentre(boxOfPlace(opened), 1);
+
+  // A pen presses Rectangle and carries it 20 px, past the click's 4 px slop, and
+  // stays down: the strip is that one pointer's until it lets go (D6).
+  await pen('mousePressed', grip.x, grip.y);
+  await pen('mouseMoved', grip.x + 20, grip.y);
+  await settle(ui);
+
+  // A finger taps the Ellipse tile while the pen still holds the drag. The tap is
+  // no pick of its own — a second contact under a drag picks nothing (D9) — so
+  // the drag keeps the strip and Select stays the tool in hand.
+  const ellipse = tileCentre(boxOfPlace(opened), 2);
+  await touch('touchStart', [{ x: ellipse.x, y: ellipse.y, id: 0 }]);
+  await touch('touchEnd', []);
+  await settle(ui);
+  expect(await picked(ui, 'Ellipse'), 'the tap under the drag picked nothing').toBe('false');
+  expect(await picked(ui, 'Select')).toBe('true');
+
+  // The pen lets go and the rail docks where its drag would; a tile is a pick
+  // again, with the pointer that presses it as the one that owns the strip.
+  await pen('mouseReleased', grip.x + 20, grip.y);
+  await settle(ui);
+  await screen.getByRole('button', { name: 'Ellipse', exact: true }).click();
+  await settle(ui);
+  expect(await picked(ui, 'Ellipse'), 'a tap picks again once the drag is over').toBe('true');
+
+  expect(await problems(ui), 'the page threw nothing').toEqual([]);
 });
 
 // ------------------------------------------------------- calling a drag off
