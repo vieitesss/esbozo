@@ -25,8 +25,16 @@ _Avoid_: label (for free-standing text)
 
 **Snap**:
 An arrow or line end attached to an Element, so it follows that Element when
-it moves and slides along its outline when dragged. Can be turned off.
+it moves and slides along its outline when dragged. Each end of the one
+selected arrow or line has its own Snap switch, in the Style note.
 _Avoid_: binding, attachment, grid snap
+
+**Snap switch**:
+The per-end on/off control in the Style note. On attaches the end to the
+Element under it, with an Anchor at the nearest outline point, or leaves it
+free over paper; off writes `"snap": false`, drops the Anchor and keeps the
+end where it draws, so no drag can attach it again until the switch is on.
+_Avoid_: detach button, toggle snap, unpin
 
 **Anchor**:
 The place on a Snap target's outline where a Snapped end sits. It moves and

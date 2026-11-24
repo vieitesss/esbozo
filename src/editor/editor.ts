@@ -4,7 +4,7 @@ import { PRIMARY_SCENE_EXTENSION, sceneFileNameFor, sceneStem } from '../paths.j
 import { isClick, replaced, selectedFrom } from './elements.js';
 import { movableCount } from './arrange.js';
 import type { ArrangeAct } from './arrange.js';
-import { deleted, detached, duplicated, nudged, pasted, rearranged, restyled } from './edits.js';
+import { deleted, duplicated, nudged, pasted, rearranged, restyled, switched } from './edits.js';
 import type { Edited, Landing } from './edits.js';
 import { actionById, actionFor } from './actions.js';
 import type { ActionHost, ActionState, ToolId } from './actions.js';
@@ -40,7 +40,7 @@ import { History } from './history.js';
 import { railArt } from './rail.js';
 import { readRailSide, writeRailSide } from './rail-preference.js';
 import { SHELL } from './shell.js';
-import { anchoredEnds, isShaft } from './snap.js';
+import { anchoredEnds, isShaft, snapOn } from './snap.js';
 import type { End } from './snap.js';
 import { Typing } from './typing.js';
 import { sceneFile } from './paint.js';
@@ -867,7 +867,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#nudgedAt = 0;
     // An undone edit may have changed a default or a Snap, so the status bar and
     // the note follow the restored Scene: a Snap the undo put back offers its
-    // Detach button again.
+    // switch on again.
     this.#showDefaultRoughness();
     this.#refresh();
     void this.#connection.save(this.#scene);
@@ -2011,10 +2011,10 @@ class EsbozoEditorElement extends HTMLElement {
       return;
     }
     const act = button.dataset['act'] ?? '';
-    if (act === 'detach-start' || act === 'detach-end') {
-      // A Snap row names the end it frees, so it is the note's own button
-      // rather than one of the registry's actions.
-      this.#detachEnd(act === 'detach-start' ? 'start' : 'end');
+    if (act === 'snap-start' || act === 'snap-end') {
+      // A Snap row names the end its switch turns, so it is the note's own
+      // control rather than one of the registry's actions.
+      this.#switchSnap(act === 'snap-start' ? 'start' : 'end');
       return;
     }
     // An arrange button is a registry action with the same name and the same
@@ -2025,9 +2025,21 @@ class EsbozoEditorElement extends HTMLElement {
     }
   };
 
-  /** Free one end of the selected arrow or line where it draws, as one step. */
-  #detachEnd(end: End): void {
-    this.#land(detached(this.#scene, this.#selectedElements(), end));
+  /** Turn one end of the selected arrow or line's Snap on or off, as one step. */
+  #switchSnap(end: End): void {
+    const elements = this.#selectedElements();
+    const element = elements[0];
+    if (element === undefined || !isShaft(element)) {
+      return;
+    }
+    // The plus note is rebuilt to say what the switch did, so a person who
+    // reached it with Tab keeps the focus they had and Space flips the same end
+    // back. The press is the note's own, so the note is where the focus sits.
+    const held = this.#menu.contains(document.activeElement);
+    this.#land(switched(this.#scene, elements, end, !snapOn(element, end)));
+    if (held) {
+      this.#menu.querySelector<HTMLButtonElement>(`[data-act="snap-${end}"]`)?.focus();
+    }
   }
 
   #onNewScene = (event: Event): void => {

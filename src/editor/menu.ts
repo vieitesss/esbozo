@@ -22,7 +22,7 @@ import { snapTargetId } from '../scene.js';
 import { ACTIONS } from './actions.js';
 import type { ActionGroup, ActionState } from './actions.js';
 import { movableCount } from './arrange.js';
-import { ENDS, endPoint } from './snap.js';
+import { ENDS, endPoint, snapOn } from './snap.js';
 import type { End } from './snap.js';
 import { controlsFor, sharedValue } from './style.js';
 import type { StyleControl } from './style.js';
@@ -67,20 +67,24 @@ export function menuSignature(elements: readonly Element[]): string {
 }
 
 /**
- * What each end of the selected arrow or line is attached to. Attaching or
- * freeing an end has to rebuild the note, because a Snap is not a style: the
- * rows it shows are not among the controls.
+ * What each end of the selected arrow or line is attached to, and whether its
+ * Snap switch is on. Attaching, freeing or switching an end has to rebuild the
+ * note, because a Snap is not a style: the rows it shows are not among the
+ * controls.
  *
  * The pair is written as JSON so a target id can never be mistaken for the
  * absence of one: an Element may be called `-`, `null` or anything else, and a
- * row for it is not the row a free end shows.
+ * row for it is not the row a free end shows. A free end's switch is part of
+ * the pair too, so turning one off over the paper leaves no stale row behind.
  */
 function snapSignature(elements: readonly Element[]): string {
   const first = elements.length === 1 ? elements[0] : undefined;
   if (first === undefined || (first.type !== 'arrow' && first.type !== 'line')) {
     return '';
   }
-  return JSON.stringify(ENDS.map((end) => snapTargetId(endPoint(first, end))));
+  return JSON.stringify(
+    ENDS.map((end) => [snapTargetId(endPoint(first, end)), snapOn(first, end)]),
+  );
 }
 
 function styleRows(elements: readonly Element[]): string {
@@ -90,9 +94,9 @@ function styleRows(elements: readonly Element[]): string {
 
 /**
  * The Snap rows: for one arrow or line, each end says what it is attached to, or
- * that it is free, and an attached end offers the button that frees it. A mixed
- * selection has no Snap rows: there is one end per Element, and the note would
- * have to say which Element each row belonged to.
+ * that it is free, and carries its own Snap switch. A mixed selection has no
+ * Snap rows: there is one end per Element, and the note would have to say which
+ * Element each row belonged to.
  */
 function snapRows(elements: readonly Element[]): string {
   const first = elements.length === 1 ? elements[0] : undefined;
@@ -103,7 +107,11 @@ function snapRows(elements: readonly Element[]): string {
   return `<div class="group">${rows.join('')}</div>`;
 }
 
-/** One end of an arrow or line: `attached to post`, or `free`, and Detach. */
+/**
+ * One end of an arrow or line: `attached to post`, or `free`, and its Snap
+ * switch, named for the end it belongs to so a row and its control read as one.
+ * The switch is a button, so Tab reaches it and Space or Enter flips it.
+ */
 function endRow(element: ArrowOrLineElement, end: End): string {
   const attached = snapTargetId(endPoint(element, end));
   const label = end === 'start' ? 'Start' : 'End';
@@ -111,13 +119,12 @@ function endRow(element: ArrowOrLineElement, end: End): string {
     attached === null
       ? '<span class="end">free</span>'
       : `<span class="end on">attached to <b>${escapeHtml(attached)}</b></span>`;
-  const detach =
-    attached === null
-      ? ''
-      : `<button type="button" data-act="detach-${end}" aria-label="Detach: ${end}">detach</button>`;
+  const toggle =
+    `<button type="button" data-act="snap-${end}" aria-pressed="${snapOn(element, end)}"` +
+    ` aria-label="${label} Snap">snap</button>`;
   return (
     `<div class="row"><span class="row-label">${label}</span>` +
-    `<div class="acts" role="group" aria-label="${label}">${state}${detach}</div></div>`
+    `<div class="acts" role="group" aria-label="${label}">${state}${toggle}</div></div>`
   );
 }
 
