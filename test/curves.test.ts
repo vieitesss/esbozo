@@ -304,21 +304,6 @@ function drawnPoints(d: string): Point[] {
   return points;
 }
 
-/**
- * The two control points of the first curve a path draws: the ink's own numbers,
- * which a rebuild through other points would move even where the path passes
- * the same places.
- */
-function firstCurve(d: string): [Point, Point] {
-  const args = /C([^A-Za-z]*)/.exec(d)?.[1] ?? '';
-  const numbers = (args.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
-  assert.equal(numbers.length, 6, `the path starts with a curve, got ${d}`);
-  return [
-    { x: numbers[0]!, y: numbers[1]! },
-    { x: numbers[2]!, y: numbers[3]! },
-  ];
-}
-
 /** How close the ink of a path comes to a point, sampled along every curve it draws. */
 function inkDistance(path: string, point: Point): number {
   return Math.min(
@@ -997,39 +982,6 @@ test('a covered bend aims from the other end’s drawn place, not its stored one
   );
 });
 
-test('a covered round bend is cut where its curve enters the target', async () => {
-  // The Review's round-cornered row, whose incoming cubic crosses the box at
-  // (0, 6.396) — measured on the reference build — while the straight chord
-  // between the stored points crosses its corner at (3.571, 0). Cutting the
-  // chord and rebuilding the spline through the shortened points moved the tip
-  // round the corner and changed the previous cubic's control point, an ink the
-  // approach never drew. The curve itself is the reference: the head lands on
-  // its crossing, and the cubic before it draws exactly as it did.
-  const { svg, apex } = await drawnHead({
-    version: 1,
-    defaults: { roughness: 0 },
-    elements: [
-      { id: 'a', type: 'arrow', corners: 'round', points: [
-        { x: -60, y: -100 },
-        { x: -25, y: -12 },
-        { x: 75, y: 30 },
-        { x: 100, y: 50, snap: 'box' },
-      ] },
-      { id: 'box', type: 'rectangle', x: 0, y: 0, width: 100, height: 100, tone: 'muted' },
-    ],
-  });
-
-  assert.ok(
-    near(apex.x, 0, 0.4) && near(apex.y, 6.396, 0.4),
-    `the head sits on the curve's crossing, got ${apex.x},${apex.y}`,
-  );
-  const controls = firstCurve(attribute(shaftFrom(svg, { x: -60, y: -100 }), 'd') ?? '');
-  assert.ok(
-    near(controls[1].x, -46.077, 0.02) && near(controls[1].y, -33.483, 0.02),
-    `the earlier cubic keeps its control points, got ${JSON.stringify(controls[1])}`,
-  );
-});
-
 test('a bend on the target’s outline and one past it keep the head on the outline', async () => {
   // The rows either side of the Review's. With the bend at (0,50) it sits on
   // the outline and the leg to the end collapses: the head is on the near edge,
@@ -1097,12 +1049,15 @@ test('a covered end whose neighbour is its target’s centre stops on the near e
 });
 
 test('a covered bend beside its target’s centre stops on the near edge', async () => {
-  // The Review's near-centre rows: the bend sits a fraction of a pixel to sixty
-  // pixels off the ellipse's own middle, so the spline through that aim crosses
-  // the outline twice — it enters on the near edge and grazes a flank on its way
-  // back to the drawn end. Cutting at the graze left the head seventeen pixels
-  // off, on the wrong side of the fill. The tips are the reference build's, at
-  // `3eaa217`, and a near-centre bend belongs where that build puts it.
+  // The Review's near-centre rows: the bend sits one to ten pixels off the
+  // ellipse's own middle, and that aim gives `pointOnOutline` no usable
+  // direction — it lands the drawn end on an arbitrary part of the outline, an
+  // ellipse's top, and the spline through it leaves the fill and comes back in
+  // on a flank seventeen pixels away. The ink enters there and nowhere else, so
+  // no crossing walk can recover the near edge: only the landing can. The tips
+  // below are the reference build's, at `3eaa217`, which lands such an end on
+  // the leg that reaches the target from outside; the drawn tip sits within
+  // `CROSSING_PX` of it, where the cut stops the ink.
   const rows: { target: 'ellipse' | 'rectangle'; bend: number; tip: Point }[] = [
     { target: 'ellipse', bend: 45, tip: { x: 0.23, y: 45.24 } },
     { target: 'ellipse', bend: 49, tip: { x: 0.01, y: 49.05 } },

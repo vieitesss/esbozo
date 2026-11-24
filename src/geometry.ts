@@ -646,13 +646,13 @@ function drawnPoints(
 /**
  * Lands a Snapped end on its target's outline and says which target still has
  * ink to cut, or null where the end already sits where the ink is drawn. An end
- * whose neighbour is the target's own middle gives the aim no direction, so
- * `pointOnOutline` falls back on a point of its own invention — an ellipse's
- * top — and the spline through that fallback curls back out across the fill.
- * Such an end is put where the build before this change put it: where the leg
- * reaching it from outside crosses the outline, with the points the walk covered
- * collapsed onto it. The ink then stops on the outline, and no cut is left to
- * make.
+ * whose neighbour is inside the target gives the aim no direction: `pointOnOutline`
+ * reads the ray from the target's middle to that neighbour, and a neighbour near
+ * the middle sends it to an arbitrary part of the outline — an ellipse's top — so
+ * the spline through that landing leaves the fill and comes back in on a flank,
+ * which is no entry at all. Such an end is put where the leg reaching it from
+ * outside crosses the outline instead, with the points the walk covered collapsed
+ * onto it; `entryAlong` then trims whatever ink the collapse leaves running on.
  */
 function landedEnd(
   drawn: Point[],
@@ -666,9 +666,6 @@ function landedEnd(
   drawn[end] = pointOnOutline(target, beside);
   if (loop || !insideOutline(target, beside)) {
     return null;
-  }
-  if (!samePoint(centreOf(target), beside)) {
-    return target;
   }
   let outside = -1;
   for (let index = end + step; index >= 0 && index < points.length; index += step) {
@@ -684,7 +681,7 @@ function landedEnd(
   for (let index = end; index !== outside; index += step) {
     drawn[index] = { x: tip.x, y: tip.y };
   }
-  return null;
+  return target;
 }
 
 /**
@@ -713,17 +710,21 @@ function entryAlong(pieces: readonly ShaftPiece[], target: Outline, side: End): 
 
 /**
  * The fraction of a piece where it crosses into `target`, answered on both
- * sides: the piece is known to be inside the target at one end and outside it
- * at the other, so the walk halves the span until the two are `CROSSING_PX`
- * apart and no ink runs on into the fill.
+ * sides: the piece is known to be inside the target at the covered end and
+ * outside it where the ink comes from, so the walk halves that span until the
+ * two are `CROSSING_PX` apart and no ink runs on into the fill. A round spline
+ * through an aim a little off the target's middle crosses the outline more than
+ * once — in on the near edge, out, and back in — and halving the whole piece
+ * settles on whichever crossing its halves disagree across, a flank graze far
+ * from the entry. So the walk finds the first place the ink is inside first,
+ * and halves only the step before it.
  */
 function entrySides(
   piece: ShaftPiece,
   target: Outline,
   side: End,
 ): { inside: number; outside: number } {
-  let inside = side === 'start' ? 0 : 1;
-  let outside = side === 'start' ? 1 : 0;
+  let { inside, outside } = entrySpan(piece, target, side);
   for (let step = 0; step < CROSSING_STEPS; step += 1) {
     const middle = (inside + outside) / 2;
     if (insideOutline(target, pointOf(piece, middle))) {
@@ -738,6 +739,44 @@ function entrySides(
     }
   }
   return { inside, outside };
+}
+
+/**
+ * The two fractions of a piece either side of the first place the ink enters
+ * `target`, read from the end the ink comes from: the piece is walked a quarter
+ * pixel at a time until a sample is inside the outline, which leaves the one
+ * before it outside. Only the spans where the piece lies within the target's own
+ * box are read — its outline is inside that box — so the walk costs what the
+ * target is worth, not what a leg a trillion pixels long is.
+ */
+function entrySpan(
+  piece: ShaftPiece,
+  target: Outline,
+  side: End,
+): { inside: number; outside: number } {
+  const inward = side === 'start' ? -1 : 1;
+  const free = side === 'start' ? 1 : 0;
+  let outside = free;
+  const spans = spansWithin(piece, target);
+  if (inward === -1) {
+    spans.reverse();
+  }
+  for (const [low, high] of spans) {
+    const from = inward === 1 ? low : high;
+    const to = inward === 1 ? high : low;
+    const start = arcAt(piece, from);
+    const end = arcAt(piece, to);
+    const steps = Math.max(1, Math.ceil(Math.abs(end - start) / CROSSING_PX));
+    for (let step = 0; step <= steps; step += 1) {
+      const u =
+        step === 0 ? from : step === steps ? to : uAt(piece, start + ((end - start) * step) / steps);
+      if (insideOutline(target, pointOf(piece, u))) {
+        return { inside: u, outside };
+      }
+      outside = u;
+    }
+  }
+  return { inside: side === 'start' ? 0 : 1, outside: free };
 }
 
 /**
@@ -1531,6 +1570,40 @@ export function cutAtGap(pieces: readonly ShaftPiece[], gap: Box): CutPath[] {
     cut.push(open);
   }
   return cut;
+}
+
+/**
+ * The fractions of a piece where it lies within `box`: the spans the entry walk
+ * reads, so a piece never crossed there costs nothing. A rectangle, a diamond
+ * and an ellipse all keep their outline inside their box, so the spans hold
+ * every place the piece can be inside the target.
+ */
+function spansWithin(piece: ShaftPiece, box: Box): [number, number][] {
+  const stops = [0, ...edgeCrossings(piece, box), 1];
+  const spans: [number, number][] = [];
+  for (let index = 0; index + 1 < stops.length; index += 1) {
+    const from = stops[index]!;
+    const to = stops[index + 1]!;
+    if (from === to || !insideBox(pointOf(piece, (from + to) / 2), box)) {
+      continue;
+    }
+    const last = spans[spans.length - 1];
+    if (last !== undefined && last[1] === from) {
+      last[1] = to;
+    } else {
+      spans.push([from, to]);
+    }
+  }
+  return spans;
+}
+
+function insideBox(point: Point, box: Box): boolean {
+  return (
+    point.x >= box.x &&
+    point.x <= box.x + box.width &&
+    point.y >= box.y &&
+    point.y <= box.y + box.height
+  );
 }
 
 function outsideSpans(piece: ShaftPiece, gap: Box): [number, number][] {
