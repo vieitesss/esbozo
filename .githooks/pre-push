@@ -1,0 +1,11 @@
+#!/bin/sh
+# Refuse pushing `main` when a merged branch head lacks a green `check` CI run.
+# Opt-in once per clone:
+#
+#   git config core.hooksPath .githooks
+#
+# The judgement is `scripts/main-ci-guard.mjs`, proved by
+# `test/main-ci-guard.test.ts`; this only hands it the remote args and stdin.
+set -e
+
+exec node "$(git rev-parse --show-toplevel)/scripts/main-ci-guard.mjs" "$@"
