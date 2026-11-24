@@ -194,6 +194,16 @@ export class Page {
   }
 
   /**
+   * Whether every drawing and mark on the page was made for the Scene in hand.
+   * A Scene edited since is a Scene the page has not drawn yet, so the overlay
+   * still carries the marks of the frame before — a handle where the Scene now
+   * bends nowhere, or one whose index the Scene gave to another point.
+   */
+  drawn(): boolean {
+    return this.#paintedScene !== null && this.#paintedScene === this.#host.scene();
+  }
+
+  /**
    * The caret, the selection or an input method's preedit moved, and nothing
    * else did: the words' own layer is drawn again, and the Scene is not asked
    * anything.
@@ -730,7 +740,8 @@ export class Page {
       }
       for (const dot of bendDots(element, path, {
         writable: this.#host.writable(),
-        clearance: DOT_CLEARANCE / this.viewport.view.zoom,
+        view: this.viewport.view,
+        clearance: DOT_CLEARANCE,
       })) {
         this.#appendDot(overlay, this.viewport.pagePoint(dot.at), dot.index, id);
       }

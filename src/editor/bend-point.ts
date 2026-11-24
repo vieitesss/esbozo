@@ -2,6 +2,8 @@ import type { ArrowOrLineElement, Corner, Point, Scene } from '../scene.js';
 import { snapTargetId } from '../scene.js';
 import { cornerOf, shaftDots } from '../geometry.js';
 import type { ShaftPath } from '../geometry.js';
+import { toScreen } from './geometry.js';
+import type { View } from './geometry.js';
 import { isShaft, withPoint } from './snap.js';
 
 /**
@@ -293,19 +295,27 @@ export interface MarkedDot {
  * only a page that can change the Scene keeps. A dot that would land on a
  * handle is left off rather than drawn where a press could never take it, so a
  * dot's middle stays `clearance` away from the ends and from every bend point.
+ *
+ * That clearance is a distance on the page — a handle's and a dot's own pixels —
+ * so the places are compared as the page projects them and never in Scene units:
+ * dividing the cutoff by the zoom is equal in real arithmetic and not in floating
+ * point, and a dot at the cutoff would come and go on an ulp.
  */
 export function bendDots(
   shaft: ArrowOrLineElement,
   ink: ShaftPath,
-  page: { readonly writable: boolean; readonly clearance: number },
+  page: { readonly writable: boolean; readonly view: View; readonly clearance: number },
 ): MarkedDot[] {
   if (!page.writable) {
     return [];
   }
-  const handles = [ink.start, ink.end, ...bendPoints(shaft).map((bend) => bend.at)];
-  return shaftDots(ink).filter((dot) =>
-    handles.every((handle) => apart(handle, dot.at) >= page.clearance),
+  const handles = [ink.start, ink.end, ...bendPoints(shaft).map((bend) => bend.at)].map((handle) =>
+    toScreen(page.view, handle),
   );
+  return shaftDots(ink).filter((dot) => {
+    const at = toScreen(page.view, dot.at);
+    return handles.every((handle) => apart(handle, at) >= page.clearance);
+  });
 }
 
 /**
@@ -317,7 +327,7 @@ export function dotAt(ink: ShaftPath, index: number): Point | null {
   return shaftDots(ink).find((dot) => dot.index === index)?.at ?? null;
 }
 
-/** How far apart two places of the Scene are. */
+/** How far apart two places of the page are, in the pixels the page draws in. */
 function apart(one: Point, other: Point): number {
   return Math.hypot(one.x - other.x, one.y - other.y);
 }

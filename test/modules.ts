@@ -2,9 +2,10 @@
  * The modules the editor loads, bundled for Node the way the editor loads them.
  *
  * Rough.js ships imports Node cannot resolve, and `opentype.js` is CommonJS, so
- * the module-seam tests (Scene, Renderer, Layout, glyph outlines, and the four
+ * the module-seam tests (Scene, Renderer, Layout, glyph outlines, and the five
  * Editor modules `scripts/check-rules.mjs` allows — history, words, geometry,
- * paint) go through one esbuild bundle instead of importing `src/` directly.
+ * paint, bend-point) go through one esbuild bundle instead of importing `src/`
+ * directly.
  * Both seams share this helper, so a change to how the modules are loaded
  * cannot make the suites disagree.
  */
@@ -32,6 +33,8 @@ export interface ProjectModules {
   renderElement: typeof import('../src/renderer.ts').renderElement;
   pageBounds: typeof import('../src/renderer.ts').pageBounds;
   elementBounds: typeof import('../src/renderer.ts').elementBounds;
+  shaftInk: typeof import('../src/renderer.ts').shaftInk;
+  bendDots: typeof import('../src/editor/bend-point.ts').bendDots;
   elementAt: typeof import('../src/editor/geometry.ts').elementAt;
   caretLine: typeof import('../src/editor/geometry.ts').caretLine;
   railFrame: typeof import('../src/editor/geometry.ts').railFrame;
@@ -60,7 +63,8 @@ export async function loadProjectModules(): Promise<ProjectModules> {
       `export { parseScene, serialiseScene, hashScene, emptyScene, serialiseFragment, parseFragment } from ${source('scene.ts')};`,
       `export { History } from ${source('editor/history.ts')};`,
       `export { wordsShift } from ${source('editor/words.ts')};`,
-      `export { renderScene, renderElement, pageBounds, elementBounds } from ${source('renderer.ts')};`,
+      `export { renderScene, renderElement, pageBounds, elementBounds, shaftInk } from ${source('renderer.ts')};`,
+      `export { bendDots } from ${source('editor/bend-point.ts')};`,
       `export { elementAt, caretLine, railFrame, clampedDock, leftDockEdge, nearestDock } from ${source('editor/geometry.ts')};`,
       `export { anchorPoint, anchorOf } from ${source('geometry.ts')};`,
       `export { PaintCache, sceneFile } from ${source('editor/paint.ts')};`,
