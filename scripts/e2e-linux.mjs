@@ -14,6 +14,12 @@
  * never a rebuild, and the host's macOS `node_modules` is masked out of the
  * mount when there is one, so it never crosses in.
  *
+ * A Docker VM that does not share the worktree's host path mounts an empty
+ * folder at `/src` instead, which used to surface minutes later as a copy of
+ * nothing. One short container asks the mount first, so a run that cannot work
+ * says so — naming the host path Docker cannot see, the likely cause and what
+ * to do — before a copy, an install or a build starts.
+ *
  * The arguments go to `e2e run`, so `tests/<file>.e2e.ts:<line>` and `--grep`
  * work as they do locally; with none it runs what `pnpm e2e` runs. The
  * container is removed on every exit path, Ctrl-C included, and the run ends
@@ -77,6 +83,7 @@ async function hostsNodeModules() {
 
 const name = `esbozo-e2e-linux-${process.pid}`;
 const maskNodeModules = await hostsNodeModules();
+await mountOrStop();
 const args = [
   'run',
   '--rm',
@@ -228,6 +235,49 @@ async function copiedSources() {
     fail('docker/e2e.Dockerfile copies no files in: the image fingerprint has no input to cover');
   }
   return [...sources].sort();
+}
+
+/**
+ * Whether the mount holds the worktree, asked in a container of its own before
+ * the run.
+ *
+ * Only a container can answer it: a Docker VM that does not share the host path
+ * mounts an empty folder at `/src`, which the host cannot see. So the container
+ * runs one command, and `test` answers it in microseconds — a bind mount with
+ * nothing under it has no `package.json` and no `.git`, and a checkout has
+ * both. It has to be its own container rather than the head of the real one:
+ * Docker cannot create the tmpfs over `/src/node_modules` in an empty mount, so
+ * the run would die on an exit 125 about the container runtime instead of the
+ * path. The start this costs, half a second of a suite that takes minutes, is
+ * the price of asking at all.
+ */
+async function mountOrStop() {
+  const check = `if [ -f "$1/package.json" ] && [ -e "$1/.git" ]; then
+  exit 0
+fi
+printf '%s\\n' \\
+  "pnpm e2e:linux: Docker cannot see $ESBOZO_HOST_WORKTREE" \\
+  "It mounted that path at $1, and $1 holds no checkout." \\
+  "A Docker VM that does not share a host path mounts an empty folder in its place;" \\
+  "on macOS, Docker Desktop shares folders such as ones under your home folder, not /tmp." \\
+  "Run this from a worktree under a shared path, such as one inside your home folder." >&2
+exit 1`;
+  const checked = await live('docker', [
+    'run',
+    '--rm',
+    '--volume',
+    `${ROOT}:/src:ro`,
+    // Last, so a `ESBOZO_HOST_WORKTREE` of this shell cannot stand in for it.
+    '--env',
+    `ESBOZO_HOST_WORKTREE=${ROOT.replace(/\/$/, '')}`,
+    image,
+    'sh',
+    '-c',
+    check,
+    'sh',
+    '/src',
+  ]);
+  if (checked !== 0) process.exit(checked);
 }
 
 /** Stop with a message a person can act on. */
