@@ -1,5 +1,5 @@
 /**
- * `scripts/main-ci-guard.mjs` on the ref updates git hands a `pre-push` hook.
+ * Script seam: `scripts/main-ci-guard.mjs` on the ref updates git hands a `pre-push` hook.
  *
  * Refuses pushing `refs/heads/main` when any merge commit in the pushed range
  * has a second parent (`M^2`, the merged branch head) without a completed,
