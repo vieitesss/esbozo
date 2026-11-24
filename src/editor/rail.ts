@@ -122,120 +122,51 @@ interface RailDrag extends MeasuredFrame {
   near: RailSide | null;
 }
 
-/** What the editor hands the Rail: its DOM, its measurements, and the two things a Rail can ask back. */
+/** What the Rail needs from its host: supplied measurements and callbacks, with no DOM required. */
 export interface RailHost {
-  readonly rail: HTMLElement;
-  readonly railArt: SVGSVGElement;
-  readonly docks: HTMLElement;
-  readonly statusCorners: () => HTMLElement[];
   readonly scene: () => Scene;
   readonly view: () => View;
   readonly layout: () => Layout;
   readonly size: () => { readonly width: number; readonly height: number };
-  readonly screenPoint: (event: PointerEvent) => Point;
   readonly statusChrome: () => Box[];
+  readonly outline: () => RailOutline;
+  readonly outlineEachWay?: () => { readonly lying: RailOutline; readonly standing: RailOutline };
   readonly setTool: (tool: ToolId) => void;
   readonly refusePointer: (pointerId: number) => void;
+  readonly readSide?: () => RailSide;
+  readonly writeSide?: (side: RailSide) => void;
+  readonly onSide?: (side: RailSide) => void;
+  readonly onDrawArt?: () => boolean;
+  readonly onHang?: (dock: RailDock, side: RailSide) => void;
+  readonly onDocks?: (docks: readonly { readonly side: RailSide; readonly box: Box }[] | null) => void;
+  readonly onNearDock?: (side: RailSide) => void;
+  readonly onDragListeners?: (active: boolean) => void;
+  readonly onCapture?: (pointerId: number | null) => void;
 }
 
 /**
  * The Rail's own state machine, dock placement, and pointer handling.
+ * Measurements come in from `RailHost`, so both the browser editor and Node tests
+ * drive the same state machine.
  */
 export class Rail {
   readonly #host: RailHost;
-  /**
-   * Where the rail hangs now, in screen pixels: the strip's own left edge and the
-   * middle of the side it is on, as the last clamp left it, or null until the page
-   * has measured a frame. This is the one answer to where the rail is; nothing
-   * measures the frame again to ask it (D5).
-   */
   #dock: RailDock | null = null;
-  /**
-   * Whether the frame itself left no room for the rail beside it, as the last
-   * measure found it (D2). A resize clears the rail from the frame's own dock
-   * without measuring the frame, so the stop the frame asked for travels with it.
-   */
   #held = false;
-  /**
-   * The side of the frame the rail is docked on: the side the page kept for its
-   * next editor, or the top when it kept none, until a palette move takes it
-   * elsewhere (D10, I8).
-   */
   #side: RailSide = 'top';
-  /**
-   * The press on the rail that may become a drag of it, from the press to the
-   * release: the one drag the rail has at a time (D6).
-   */
   #drag: RailDrag | null = null;
-  /**
-   * Whether the release just committed a drag, so the click that follows it is
-   * the drag's and picks no tool. The next press clears it.
-   */
   #dragged = false;
-  /**
-   * The pointer a called-off press left down still owes the rail the click its
-   * release sends, or null. That click lands on the tile the press landed on and
-   * picks no tool: the person called the press off. The debt is that pointer's
-   * alone, so another pointer's click, or a key's, still picks its own tool, and a
-   * fresh press by the same pointer pays it (D6, D7).
-   */
   #clickOwed: number | null = null;
-  /**
-   * The dock the frame asked for before the status corners moved the strip in, as an
-   * offset from the editor's middle: what a corner that shrinks gives back, and what a
-   * corner that grows is cleared from (O2).
-   */
   #frameOffset: Point | null = null;
-  /**
-   * Whether a status corner changed size while a press held the strip, so the
-   * placement it asks for waits for that press to end rather than moving the
-   * strip out from under the pointer (D6, O2).
-   */
   #waiting = false;
-  /**
-   * True once the strip was drawn in a box this editor had, which is the only box the
-   * frame around the diagram is measured in: an editor the page gave no box has none
-   * to measure, and nothing drawn with one (#64).
-   */
   #drawn = false;
-  /**
-   * The boxes the strip is drawn from and measured against, watched: its own, so an
-   * editor the page gave no box draws the outline as soon as it has one (D11, #64),
-   * and the status bar's corners, which are as wide and as tall as the words they
-   * hold — a Scene's name, the mode the page is in and the answer a folder gave
-   * (O2).
-   */
-  readonly #boxWatch = new ResizeObserver(() => this.#onBoxResize());
+  #placed = false;
+  #docksShown = false;
 
   constructor(host: RailHost) {
     this.#host = host;
-    // Nothing in the strip is a press or a focus until it has a dock to hang on:
-    // `inert` is what a host's rule about what is inside the strip cannot undo, so
-    // an undocked tile takes no press whatever the page says about its glyphs
-    // (#62). `#hang` lifts it with the dock.
-    this.#host.rail.inert = true;
-    // The side this origin's editor was last moved to is read once, here, before
-    // the frame is measured for the first time: the first placement is already on
-    // that side, and a move made in another tab is waited for, not followed (D10).
-    this.#side = readRailSide();
-    this.#host.rail.dataset['side'] = this.#side;
-  }
-
-  listen(): void {
-    this.#host.rail.addEventListener('pointerdown', this.#onDown);
-    this.#host.rail.addEventListener('click', this.#onClick);
-    for (const corner of this.#host.statusCorners()) {
-      this.#boxWatch.observe(corner);
-    }
-    this.#boxWatch.observe(this.#host.rail);
-    requestAnimationFrame(() => this.#drawArt());
-  }
-
-  unlisten(): void {
-    this.#host.rail.removeEventListener('pointerdown', this.#onDown);
-    this.#host.rail.removeEventListener('click', this.#onClick);
-    this.#endDrag();
-    this.#boxWatch.disconnect();
+    this.#side = host.readSide ? host.readSide() : readRailSide();
+    this.#host.onSide?.(this.#side);
   }
 
   /** No Scene in hand: drop any active drag and forget the frame the rail hung on. */
@@ -258,6 +189,27 @@ export class Rail {
     this.#redrawDocks();
   }
 
+  /** Either the strip or a status corner changed size. */
+  boxResize(): void {
+    const measured = this.#drawn;
+    this.#drawArt();
+    if (!measured) {
+      this.#place();
+      return;
+    }
+    if (this.#drag !== null) {
+      this.#waiting = true;
+      this.#redrawDocks();
+      return;
+    }
+    this.#hang();
+  }
+
+  /** Draw the strip's pencil outline once the host has a box for it. */
+  drawArt(): void {
+    this.#drawArt();
+  }
+
   /** Dock the rail on one of the frame's four sides (from the command palette). */
   dock(side: RailSide): void {
     this.#dockTo(side);
@@ -277,6 +229,11 @@ export class Rail {
     this.#callOffDrag();
   }
 
+  /** End any active drag without owing a click (e.g. element disconnected). */
+  endDrag(): void {
+    this.#endDrag();
+  }
+
   /** Whether a rail drag currently holds the pointer. */
   holding(): boolean {
     return this.#drag !== null;
@@ -284,74 +241,125 @@ export class Rail {
 
   /**
    * Where a left dock's own outline reaches, or null when the rail hangs
-   * anywhere else: read from where the rail hangs and what stopped it there,
-   * never measured again, so the view moves for the note alone (D5).
+   * anywhere else.
    */
   edge(): number | null {
     const rail = this.#dock;
-    return rail === null ? null : leftDockEdge(rail, this.#outline(), this.#side);
+    return rail === null ? null : leftDockEdge(rail, this.#host.outline(), this.#side);
   }
 
-  /** Mark the active tool's button as pressed. */
-  setTool(tool: ToolId): void {
-    for (const button of this.#host.rail.querySelectorAll('[data-tool]')) {
-      button.setAttribute('aria-pressed', String(button.getAttribute('data-tool') === tool));
+  /** The side the rail is currently docked on. */
+  side(): RailSide {
+    return this.#side;
+  }
+
+  /** A pointer press on the rail. */
+  press(pointer: number, at: Point, button = 0, isPrimary = true): void {
+    if (this.#clickOwed === pointer) {
+      this.#clickOwed = null;
+    }
+    if (this.#drag !== null || button !== 0 || !isPrimary) {
+      return;
+    }
+    this.#dragged = false;
+    const editor = this.#host.size();
+    this.#drag = {
+      pointer,
+      from: at,
+      at,
+      moved: false,
+      near: null,
+      frame: this.#dockOn(this.#side).frame,
+      editor,
+    };
+    this.#host.onDragListeners?.(true);
+  }
+
+  /** A pointer move while a press on the rail is active. */
+  move(pointer: number, at: Point): void {
+    const drag = this.#drag;
+    if (drag === null || pointer !== drag.pointer) {
+      return;
+    }
+    drag.at = at;
+    if (!drag.moved) {
+      if (isClick(drag.from, drag.at)) {
+        return;
+      }
+      drag.moved = true;
+      this.#host.onCapture?.(pointer);
+    }
+    this.#showDocks(drag);
+  }
+
+  /** A pointer release while a press on the rail is active. */
+  release(pointer: number, at: Point): void {
+    const drag = this.#drag;
+    if (drag === null || pointer !== drag.pointer) {
+      return;
+    }
+    drag.at = at;
+    this.#endDrag();
+    if (!drag.moved && isClick(drag.from, drag.at)) {
+      this.#settle();
+      return;
+    }
+    this.#dragged = true;
+    this.#dockTo(drag.near ?? nearestDock(drag.frame, drag.at), drag);
+  }
+
+  /** A pointer cancel while a press on the rail is active. */
+  cancel(pointer: number): void {
+    if (this.#drag?.pointer === pointer) {
+      this.#callOffDrag();
+      this.#settle();
     }
   }
 
-  #onBoxResize = (): void => {
-    const measured = this.#drawn;
-    this.#drawArt();
-    if (!measured) {
-      this.#place();
+  /** A click on a rail tool button. */
+  click(tool: ToolId | undefined, pointer: number | null, detail: number): void {
+    if (this.#dragged) {
+      this.#dragged = false;
       return;
     }
-    if (this.#drag !== null) {
-      this.#waiting = true;
-      this.#redrawDocks();
+    if (pointer !== null && pointer === this.#clickOwed && detail !== 0) {
+      this.#clickOwed = null;
       return;
     }
-    this.#hang();
-  };
+    const drag = this.#drag;
+    if (drag !== null && detail !== 0 && pointer !== drag.pointer) {
+      return;
+    }
+    if (tool !== undefined) {
+      this.#host.setTool(tool);
+    }
+  }
 
   #drawArt(): void {
-    const width = this.#host.rail.offsetWidth + RAIL_OUTLINE * 2;
-    const height = this.#host.rail.offsetHeight + RAIL_OUTLINE * 2;
-    if (width <= 14 || height <= 14) {
-      this.#drawn = false;
-      return;
-    }
-    this.#drawn = true;
-    this.#host.railArt.setAttribute('width', String(width));
-    this.#host.railArt.setAttribute('height', String(height));
-    this.#host.railArt.setAttribute('viewBox', `0 0 ${width} ${height}`);
-    this.#host.railArt.innerHTML = railArt(width, height);
+    this.#drawn = this.#host.onDrawArt ? this.#host.onDrawArt() : true;
   }
 
   #showDocks(drag: RailDrag): void {
     const near = nearestDock(drag.frame, drag.at);
     drag.near = near;
-    if (this.#host.docks.hidden) {
+    if (!this.#docksShown) {
       this.#drawDocks(drag);
-      this.#host.docks.hidden = false;
+      this.#docksShown = true;
     }
-    for (const side of DOCK_SIDES) {
-      const mark = this.#dockMark(side);
-      if (side === near) {
-        mark.dataset['near'] = '';
-      } else {
-        delete mark.dataset['near'];
-      }
-    }
+    this.#host.onNearDock?.(near);
   }
 
   #drawDocks(drag: RailDrag): void {
-    const outlines = this.#outlineEachWay();
+    const each = this.#host.outlineEachWay?.();
+    if (each === undefined) {
+      return;
+    }
     const chrome = this.#host.statusChrome();
     const size = this.#host.size();
+    const marks: { side: RailSide; box: Box }[] = [];
     for (const side of DOCK_SIDES) {
       const lying = side === 'top' || side === 'bottom';
-      const outline = lying ? outlines.lying : outlines.standing;
+      const outline = lying ? each.lying : each.standing;
       const frameDock = dockOnFrame(drag.frame, drag.editor, side, outline);
       const carried = this.#pointOf(this.#offsetOf(frameDock.dock, drag.editor), size);
       const placed = placedDock(
@@ -361,41 +369,22 @@ export class Rail {
         chrome,
         size,
       );
-      const box = dockBox(placed, side, outline);
-      const mark = this.#dockMark(side);
-      mark.setAttribute('width', String(box.width));
-      mark.setAttribute('height', String(box.height));
-      mark.setAttribute('viewBox', `0 0 ${box.width} ${box.height}`);
-      mark.style.left = `${box.x}px`;
-      mark.style.top = `${box.y}px`;
-      mark.innerHTML = railArt(box.width, box.height);
+      marks.push({ side, box: dockBox(placed, side, outline) });
     }
+    this.#host.onDocks?.(marks);
   }
 
   #redrawDocks(): void {
     const drag = this.#drag;
-    if (drag === null || this.#host.docks.hidden) {
+    if (drag === null || !this.#docksShown) {
       return;
     }
     this.#drawDocks(drag);
   }
 
-  #dockMark(side: RailSide): SVGSVGElement {
-    return this.#host.docks.querySelector<SVGSVGElement>(`.dock[data-side="${side}"]`)!;
-  }
-
   #hideDocks(): void {
-    this.#host.docks.hidden = true;
-  }
-
-  #outlineEachWay(): { lying: RailOutline; standing: RailOutline } {
-    const kept = this.#side;
-    const lying = kept === 'top' || kept === 'bottom';
-    const here = this.#outline();
-    this.#host.rail.dataset['side'] = lying ? 'left' : 'top';
-    const there = this.#outline();
-    this.#host.rail.dataset['side'] = kept;
-    return lying ? { lying: here, standing: there } : { lying: there, standing: here };
+    this.#docksShown = false;
+    this.#host.onDocks?.(null);
   }
 
   #place(pressed?: MeasuredFrame): void {
@@ -404,7 +393,7 @@ export class Rail {
     const frameDock =
       pressed === undefined
         ? this.#dockOn(this.#side)
-        : dockOnFrame(pressed.frame, pressed.editor, this.#side, this.#outline());
+        : dockOnFrame(pressed.frame, pressed.editor, this.#side, this.#host.outline());
     this.#held = frameDock.stopped;
     this.#frameOffset = this.#offsetOf(frameDock.dock, size);
     this.#hang();
@@ -419,7 +408,7 @@ export class Rail {
     const placed = placedDock(
       { dock: this.#pointOf(offset, size), stopped: this.#held },
       this.#side,
-      this.#outline(),
+      this.#host.outline(),
       this.#host.statusChrome(),
       size,
     );
@@ -429,14 +418,12 @@ export class Rail {
       before !== null &&
       before.dock.x === placed.dock.x &&
       before.dock.y === placed.dock.y &&
-      this.#host.rail.dataset['placed'] === ''
+      this.#placed
     ) {
       return;
     }
-    this.#host.rail.style.setProperty('--rail-left', `${placed.dock.x}px`);
-    this.#host.rail.style.setProperty('--rail-top', `${placed.dock.y}px`);
-    this.#host.rail.inert = false;
-    this.#host.rail.dataset['placed'] = '';
+    this.#placed = true;
+    this.#host.onHang?.(placed, this.#side);
   }
 
   #pointOf(offset: Point, size: { readonly width: number; readonly height: number }): Point {
@@ -453,112 +440,22 @@ export class Rail {
       this.#host.view(),
       this.#host.size(),
       side,
-      this.#outline(),
+      this.#host.outline(),
       this.#host.layout(),
     );
   }
 
   #dockTo(side: RailSide, pressed?: MeasuredFrame): void {
     this.#side = side;
-    this.#host.rail.dataset['side'] = side;
+    this.#host.onSide?.(side);
     this.#drawArt();
     this.#place(pressed);
-    writeRailSide(side);
+    if (this.#host.writeSide) {
+      this.#host.writeSide(side);
+    } else {
+      writeRailSide(side);
+    }
   }
-
-  #outline(): RailOutline {
-    return {
-      width: this.#host.rail.offsetWidth + RAIL_OUTLINE * 2,
-      height: this.#host.rail.offsetHeight + RAIL_OUTLINE * 2,
-      overhang: RAIL_OUTLINE,
-    };
-  }
-
-  #onClick = (event: MouseEvent): void => {
-    if (this.#dragged) {
-      this.#dragged = false;
-      return;
-    }
-    if (event instanceof PointerEvent && event.pointerId === this.#clickOwed && event.detail !== 0) {
-      this.#clickOwed = null;
-      return;
-    }
-    const drag = this.#drag;
-    if (
-      drag !== null &&
-      event.detail !== 0 &&
-      !(event instanceof PointerEvent && event.pointerId === drag.pointer)
-    ) {
-      return;
-    }
-    const button = (event.target as Element | null)?.closest('[data-tool]') as HTMLElement | null;
-    const tool = button?.dataset['tool'];
-    if (tool !== undefined) {
-      this.#host.setTool(tool as ToolId);
-    }
-  };
-
-  #onDown = (event: PointerEvent): void => {
-    if (this.#clickOwed === event.pointerId) {
-      this.#clickOwed = null;
-    }
-    if (this.#drag !== null || event.button !== 0 || !event.isPrimary) {
-      return;
-    }
-    this.#dragged = false;
-    const at = this.#host.screenPoint(event);
-    const editor = this.#host.size();
-    this.#drag = {
-      pointer: event.pointerId,
-      from: at,
-      at,
-      moved: false,
-      near: null,
-      frame: this.#dockOn(this.#side).frame,
-      editor,
-    };
-    window.addEventListener('pointermove', this.#onMove);
-    window.addEventListener('pointerup', this.#onUp);
-    window.addEventListener('pointercancel', this.#onCancel);
-  };
-
-  #onMove = (event: PointerEvent): void => {
-    const drag = this.#drag;
-    if (drag === null || event.pointerId !== drag.pointer) {
-      return;
-    }
-    drag.at = this.#host.screenPoint(event);
-    if (!drag.moved) {
-      if (isClick(drag.from, drag.at)) {
-        return;
-      }
-      drag.moved = true;
-      this.#host.rail.setPointerCapture(event.pointerId);
-    }
-    this.#showDocks(drag);
-  };
-
-  #onUp = (event: PointerEvent): void => {
-    const drag = this.#drag;
-    if (drag === null || event.pointerId !== drag.pointer) {
-      return;
-    }
-    drag.at = this.#host.screenPoint(event);
-    this.#endDrag();
-    if (!drag.moved && isClick(drag.from, drag.at)) {
-      this.#settle();
-      return;
-    }
-    this.#dragged = true;
-    this.#dockTo(drag.near ?? nearestDock(drag.frame, drag.at), drag);
-  };
-
-  #onCancel = (event: PointerEvent): void => {
-    if (this.#drag?.pointer === event.pointerId) {
-      this.#callOffDrag();
-      this.#settle();
-    }
-  };
 
   #callOffDrag(): void {
     const drag = this.#drag;
@@ -583,14 +480,197 @@ export class Rail {
       return;
     }
     this.#drag = null;
-    window.removeEventListener('pointermove', this.#onMove);
-    window.removeEventListener('pointerup', this.#onUp);
-    window.removeEventListener('pointercancel', this.#onCancel);
-    if (this.#host.rail.hasPointerCapture(drag.pointer)) {
-      this.#host.rail.releasePointerCapture(drag.pointer);
-    }
+    this.#host.onDragListeners?.(false);
+    this.#host.onCapture?.(null);
     this.#hideDocks();
   }
+}
+
+/** Browser DOM host for `mountRail`. */
+export interface RailDomHost {
+  readonly rail: HTMLElement;
+  readonly railArt: SVGSVGElement;
+  readonly docks: HTMLElement;
+  readonly statusCorners: () => HTMLElement[];
+  readonly scene: () => Scene;
+  readonly view: () => View;
+  readonly layout: () => Layout;
+  readonly size: () => { readonly width: number; readonly height: number };
+  readonly screenPoint: (event: PointerEvent) => Point;
+  readonly statusChrome: () => Box[];
+  readonly setTool: (tool: ToolId) => void;
+  readonly refusePointer: (pointerId: number) => void;
+}
+
+/** The browser-mounted Rail interface `editor.ts` holds. */
+export interface MountedRail {
+  listen(): void;
+  unlisten(): void;
+  forget(): void;
+  place(): void;
+  resize(): void;
+  dock(side: RailSide): void;
+  escape(): boolean;
+  interrupt(): void;
+  holding(): boolean;
+  edge(): number | null;
+  setTool(tool: ToolId): void;
+}
+
+/** Mount a `Rail` onto the editor's DOM elements, pointer listeners, and `ResizeObserver`. */
+export function mountRail(dom: RailDomHost): MountedRail {
+  dom.rail.inert = true;
+  let captured: number | null = null;
+
+  const outline = (): RailOutline => ({
+    width: dom.rail.offsetWidth + RAIL_OUTLINE * 2,
+    height: dom.rail.offsetHeight + RAIL_OUTLINE * 2,
+    overhang: RAIL_OUTLINE,
+  });
+
+  const dockMark = (side: RailSide): SVGSVGElement =>
+    dom.docks.querySelector<SVGSVGElement>(`.dock[data-side="${side}"]`)!;
+
+  const onMove = (event: PointerEvent): void => {
+    rail.move(event.pointerId, dom.screenPoint(event));
+  };
+  const onUp = (event: PointerEvent): void => {
+    rail.release(event.pointerId, dom.screenPoint(event));
+  };
+  const onCancel = (event: PointerEvent): void => {
+    rail.cancel(event.pointerId);
+  };
+  const onDown = (event: PointerEvent): void => {
+    rail.press(event.pointerId, dom.screenPoint(event), event.button, event.isPrimary);
+  };
+  const onClick = (event: MouseEvent): void => {
+    const button = (event.target as Element | null)?.closest('[data-tool]') as HTMLElement | null;
+    const tool = button?.dataset['tool'] as ToolId | undefined;
+    const pointer = event instanceof PointerEvent ? event.pointerId : null;
+    rail.click(tool, pointer, event.detail);
+  };
+
+  const rail: Rail = new Rail({
+    scene: dom.scene,
+    view: dom.view,
+    layout: dom.layout,
+    size: dom.size,
+    statusChrome: dom.statusChrome,
+    outline,
+    outlineEachWay: () => {
+      const kept = rail.side();
+      const lying = kept === 'top' || kept === 'bottom';
+      const here = outline();
+      dom.rail.dataset['side'] = lying ? 'left' : 'top';
+      const there = outline();
+      dom.rail.dataset['side'] = kept;
+      return lying ? { lying: here, standing: there } : { lying: there, standing: here };
+    },
+    setTool: dom.setTool,
+    refusePointer: dom.refusePointer,
+    onSide: (side) => {
+      dom.rail.dataset['side'] = side;
+    },
+    onDrawArt: () => {
+      const width = dom.rail.offsetWidth + RAIL_OUTLINE * 2;
+      const height = dom.rail.offsetHeight + RAIL_OUTLINE * 2;
+      if (width <= 14 || height <= 14) {
+        return false;
+      }
+      dom.railArt.setAttribute('width', String(width));
+      dom.railArt.setAttribute('height', String(height));
+      dom.railArt.setAttribute('viewBox', `0 0 ${width} ${height}`);
+      dom.railArt.innerHTML = railArt(width, height);
+      return true;
+    },
+    onHang: (placed) => {
+      dom.rail.style.setProperty('--rail-left', `${placed.dock.x}px`);
+      dom.rail.style.setProperty('--rail-top', `${placed.dock.y}px`);
+      dom.rail.inert = false;
+      dom.rail.dataset['placed'] = '';
+    },
+    onDocks: (marks) => {
+      if (marks === null) {
+        dom.docks.hidden = true;
+        return;
+      }
+      for (const { side, box } of marks) {
+        const mark = dockMark(side);
+        mark.setAttribute('width', String(box.width));
+        mark.setAttribute('height', String(box.height));
+        mark.setAttribute('viewBox', `0 0 ${box.width} ${box.height}`);
+        mark.style.left = `${box.x}px`;
+        mark.style.top = `${box.y}px`;
+        mark.innerHTML = railArt(box.width, box.height);
+      }
+      dom.docks.hidden = false;
+    },
+    onNearDock: (near) => {
+      for (const side of DOCK_SIDES) {
+        const mark = dockMark(side);
+        if (side === near) {
+          mark.dataset['near'] = '';
+        } else {
+          delete mark.dataset['near'];
+        }
+      }
+    },
+    onDragListeners: (active) => {
+      if (active) {
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', onCancel);
+      } else {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onCancel);
+      }
+    },
+    onCapture: (pointerId) => {
+      if (pointerId !== null) {
+        captured = pointerId;
+        dom.rail.setPointerCapture(pointerId);
+      } else if (captured !== null) {
+        if (dom.rail.hasPointerCapture(captured)) {
+          dom.rail.releasePointerCapture(captured);
+        }
+        captured = null;
+      }
+    },
+  });
+
+  const boxWatch = new ResizeObserver(() => rail.boxResize());
+
+  return {
+    listen() {
+      dom.rail.addEventListener('pointerdown', onDown);
+      dom.rail.addEventListener('click', onClick);
+      for (const corner of dom.statusCorners()) {
+        boxWatch.observe(corner);
+      }
+      boxWatch.observe(dom.rail);
+      requestAnimationFrame(() => rail.drawArt());
+    },
+    unlisten() {
+      dom.rail.removeEventListener('pointerdown', onDown);
+      dom.rail.removeEventListener('click', onClick);
+      rail.endDrag();
+      boxWatch.disconnect();
+    },
+    forget: () => rail.forget(),
+    place: () => rail.place(),
+    resize: () => rail.resize(),
+    dock: (side) => rail.dock(side),
+    escape: () => rail.escape(),
+    interrupt: () => rail.interrupt(),
+    holding: () => rail.holding(),
+    edge: () => rail.edge(),
+    setTool(tool) {
+      for (const button of dom.rail.querySelectorAll('[data-tool]')) {
+        button.setAttribute('aria-pressed', String(button.getAttribute('data-tool') === tool));
+      }
+    },
+  };
 }
 
 /**

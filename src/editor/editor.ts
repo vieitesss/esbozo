@@ -37,7 +37,8 @@ import { canPickFolder } from './files.js';
 import { fittedView, zoomedAt } from './geometry.js';
 import type { View } from './geometry.js';
 import { History } from './history.js';
-import { Rail } from './rail.js';
+import { mountRail } from './rail.js';
+import type { MountedRail } from './rail.js';
 import { SHELL } from './shell.js';
 import { isShaft, snapOn } from './snap.js';
 import type { End } from './snap.js';
@@ -102,7 +103,7 @@ class EsbozoEditorElement extends HTMLElement {
   #board!: HTMLElement;
   #canvas!: SVGSVGElement;
   /** The tool rail: its state, dock placement and pointer handling. */
-  #rail!: Rail;
+  #rail!: MountedRail;
   /** The words being typed: the field, the Element it grows and the step to its glyphs. */
   #typing!: Typing;
   #note!: HTMLElement;
@@ -197,7 +198,7 @@ class EsbozoEditorElement extends HTMLElement {
     const railEl = this.querySelector<HTMLElement>('.rail')!;
     const railArtEl = this.querySelector<SVGSVGElement>('.rail-art')!;
     const docksEl = this.querySelector<HTMLElement>('.docks')!;
-    this.#rail = new Rail({
+    this.#rail = mountRail({
       rail: railEl,
       railArt: railArtEl,
       docks: docksEl,

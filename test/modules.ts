@@ -42,6 +42,7 @@ export interface ProjectModules {
   anchoredEnds: typeof import('../src/editor/snap.ts').anchoredEnds;
   elementAt: typeof import('../src/editor/geometry.ts').elementAt;
   caretLine: typeof import('../src/editor/geometry.ts').caretLine;
+  Rail: typeof import('../src/editor/rail.ts').Rail;
   railFrame: typeof import('../src/editor/rail.ts').railFrame;
   clampedDock: typeof import('../src/editor/rail.ts').clampedDock;
   leftDockEdge: typeof import('../src/editor/rail.ts').leftDockEdge;
@@ -72,7 +73,7 @@ export async function loadProjectModules(): Promise<ProjectModules> {
       `export { bendDots } from ${source('editor/bend-point.ts')};`,
       `export { snapTarget, withEnd, withSnapSwitch, freedEnds, anchoredEnds } from ${source('editor/snap.ts')};`,
       `export { elementAt, caretLine } from ${source('editor/geometry.ts')};`,
-      `export { railFrame, clampedDock, leftDockEdge, nearestDock } from ${source('editor/rail.ts')};`,
+      `export { Rail, railFrame, clampedDock, leftDockEdge, nearestDock } from ${source('editor/rail.ts')};`,
       `export { anchorPoint, anchorOf } from ${source('geometry.ts')};`,
       `export { PaintCache, sceneFile } from ${source('editor/paint.ts')};`,
       `export { createLayout, parseFontFile } from ${source('layout.ts')};`,
