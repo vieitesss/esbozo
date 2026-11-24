@@ -120,7 +120,17 @@ export function pointOnOutline(outline: Outline, from: Point): Point {
 
 const OUTLINE_WALK = 72;
 
-const CROSSING_WALK = 30;
+/**
+ * How near the outline a crossing walk leaves the ink: a quarter pixel, so the
+ * ink stops outside the fill and no further from it than that. A walk counting
+ * halvings instead bounds its own parameter, and a Scene's coordinates are only
+ * required to be finite, so a long enough leg turns that into pixels by the
+ * hundred.
+ */
+const CROSSING_PX = 0.25;
+
+/** Halvings a crossing walk may take before it settles for the nearest it can measure. */
+const CROSSING_STEPS = 60;
 
 /** Angles the ellipse is walked at before the walk is narrowed. */
 const ELLIPSE_WALK = 360;
@@ -635,20 +645,26 @@ function aimEnd(
  * Where the ink between a point outside an outline and a point inside it cross
  * it. Both points are already known to be on their sides, and a rectangle, an
  * ellipse and a diamond are convex, so the ink crosses once: the walk halves
- * the span until the two sides are a millionth of a pixel apart.
+ * the span until the two sides are `CROSSING_PX` apart, and answers with the
+ * outside one so no ink runs on into the fill.
  */
 function crossingInto(target: Outline, from: Point, to: Point): Point {
   let outside = 0;
   let inside = 1;
-  for (let step = 0; step < CROSSING_WALK; step += 1) {
+  for (let step = 0; step < CROSSING_STEPS; step += 1) {
     const middle = (outside + inside) / 2;
     if (insideOutline(target, lerp(from, to, middle))) {
       inside = middle;
     } else {
       outside = middle;
     }
+    const reached = lerp(from, to, outside);
+    const nearly = lerp(from, to, inside);
+    if (Math.hypot(nearly.x - reached.x, nearly.y - reached.y) <= CROSSING_PX) {
+      break;
+    }
   }
-  return lerp(from, to, inside);
+  return lerp(from, to, outside);
 }
 
 function loopEnds(target: Outline, bend: Point): [Point, Point] {
