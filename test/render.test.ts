@@ -6,6 +6,7 @@
  * change.
  */
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -104,6 +105,46 @@ test('different Scenes give different Scene hashes', async () => {
   assert.match(first, /data-scene-hash="sha256:[0-9a-f]{64}"/);
   assert.match(second, /data-scene-hash="sha256:[0-9a-f]{64}"/);
   assert.notEqual(hashOf(first), hashOf(second));
+});
+
+test('ez render stamps data-source-hash from the exact Scene file bytes, not canonical form', async () => {
+  const folder = await tempFolder();
+  const handFormatted =
+    '{\n    "version":   1,\n    "title": "Hand formatted",\n    "elements": [\n      { "id": "a", "type": "rectangle", "x": 40, "y": 40, "width": 120, "height": 80 }\n    ]\n}\n';
+  const scenePath = join(folder, 'hand.esbozo');
+  await writeFile(scenePath, handFormatted, 'utf8');
+
+  const result = await ez(['render', 'hand.esbozo'], folder);
+  assert.equal(result.code, 0, result.stderr);
+
+  const svg = await readFile(join(folder, 'hand.svg'), 'utf8');
+  const expectedSourceHash = `sha256:${createHash('sha256').update(handFormatted, 'utf8').digest('hex')}`;
+  const stampedSourceHash = /data-source-hash="(sha256:[0-9a-f]{64})"/.exec(svg)?.[1] ?? '';
+
+  assert.equal(stampedSourceHash, expectedSourceHash);
+  assert.notEqual(stampedSourceHash, hashOf(svg), 'non-canonical source bytes differ from canonical scene hash');
+});
+
+test('editing a Scene file without re-rendering makes data-source-hash differ from the file bytes', async () => {
+  const folder = await tempFolder();
+  const original = JSON.stringify(SAMPLE_SCENE, null, 2) + '\n';
+  const scenePath = join(folder, 'edited.esbozo');
+  await writeFile(scenePath, original, 'utf8');
+
+  const result = await ez(['render', 'edited.esbozo'], folder);
+  assert.equal(result.code, 0, result.stderr);
+
+  const svg = await readFile(join(folder, 'edited.svg'), 'utf8');
+  const stampedSourceHash = /data-source-hash="(sha256:[0-9a-f]{64})"/.exec(svg)?.[1] ?? '';
+  assert.equal(
+    stampedSourceHash,
+    `sha256:${createHash('sha256').update(original, 'utf8').digest('hex')}`,
+  );
+
+  const edited = `${original}\n`;
+  await writeFile(scenePath, edited, 'utf8');
+  const currentFileHash = `sha256:${createHash('sha256').update(edited, 'utf8').digest('hex')}`;
+  assert.notEqual(stampedSourceHash, currentFileHash);
 });
 
 test('the Scene hash covers the seed the SVG is drawn with', async () => {
