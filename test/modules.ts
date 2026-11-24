@@ -42,10 +42,10 @@ export interface ProjectModules {
   anchoredEnds: typeof import('../src/editor/snap.ts').anchoredEnds;
   elementAt: typeof import('../src/editor/geometry.ts').elementAt;
   caretLine: typeof import('../src/editor/geometry.ts').caretLine;
-  railFrame: typeof import('../src/editor/geometry.ts').railFrame;
-  clampedDock: typeof import('../src/editor/geometry.ts').clampedDock;
-  leftDockEdge: typeof import('../src/editor/geometry.ts').leftDockEdge;
-  nearestDock: typeof import('../src/editor/geometry.ts').nearestDock;
+  railFrame: typeof import('../src/editor/rail.ts').railFrame;
+  clampedDock: typeof import('../src/editor/rail.ts').clampedDock;
+  leftDockEdge: typeof import('../src/editor/rail.ts').leftDockEdge;
+  nearestDock: typeof import('../src/editor/rail.ts').nearestDock;
   anchorPoint: typeof import('../src/geometry.ts').anchorPoint;
   anchorOf: typeof import('../src/geometry.ts').anchorOf;
   PaintCache: typeof import('../src/editor/paint.ts').PaintCache;
@@ -71,7 +71,8 @@ export async function loadProjectModules(): Promise<ProjectModules> {
       `export { renderScene, renderElement, drawnGeometry, pageBounds } from ${source('renderer.ts')};`,
       `export { bendDots } from ${source('editor/bend-point.ts')};`,
       `export { snapTarget, withEnd, withSnapSwitch, freedEnds, anchoredEnds } from ${source('editor/snap.ts')};`,
-      `export { elementAt, caretLine, railFrame, clampedDock, leftDockEdge, nearestDock } from ${source('editor/geometry.ts')};`,
+      `export { elementAt, caretLine } from ${source('editor/geometry.ts')};`,
+      `export { railFrame, clampedDock, leftDockEdge, nearestDock } from ${source('editor/rail.ts')};`,
       `export { anchorPoint, anchorOf } from ${source('geometry.ts')};`,
       `export { PaintCache, sceneFile } from ${source('editor/paint.ts')};`,
       `export { createLayout, parseFontFile } from ${source('layout.ts')};`,

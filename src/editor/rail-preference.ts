@@ -8,7 +8,7 @@
  * throws or holds an unknown word is no side at all: the rail starts at the top
  * and still moves for that visit.
  */
-import type { RailSide } from './geometry.js';
+import type { RailSide } from './rail.js';
 
 /** The key the side is kept under, and the four words it may hold (I8). */
 const KEY = 'esbozo.rail';
