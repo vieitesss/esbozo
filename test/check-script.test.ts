@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test, type TestContext } from 'node:test';
@@ -67,6 +67,9 @@ process.stdout.write(\`ok \${step}\\n\`);
 test('through the real pnpm check wrapper, the ok summary is still the last line', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'esbozo-check-wrapper-ok-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
+  // Suppress pnpm's environment-sensitive `[WARN] Local package.json exists,
+  // but node_modules missing` line so the summary stays last on every machine.
+  await mkdir(join(dir, 'node_modules'), { recursive: true });
   const runner = join(dir, 'runner.mjs');
   await writeFile(runner, '');
   await writeFile(
@@ -94,6 +97,8 @@ test('through the real pnpm check wrapper, the ok summary is still the last line
 test('through the real pnpm check wrapper, the FAILED summary sits within the last three lines', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'esbozo-check-wrapper-fail-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
+  // Same WARN suppression as the ok wrapper test: keep the tail deterministic.
+  await mkdir(join(dir, 'node_modules'), { recursive: true });
   const runner = join(dir, 'runner.mjs');
   await writeFile(
     runner,
@@ -120,9 +125,14 @@ test('through the real pnpm check wrapper, the FAILED summary sits within the la
   });
   assert.equal(run.status, 2);
   const lines = run.stdout.trimEnd().split('\n');
-  // pnpm appends its own ELIFECYCLE footer after a failing script, so the
-  // summary is second-to-last, not last.
-  assert.match(lines.at(-1) ?? '', /Command failed with exit code 2/);
+  // pnpm appends its own ELIFECYCLE footer after a failing script, and may
+  // emit environment-sensitive lines (e.g. a missing-node_modules WARN) after
+  // it, so neither the footer nor the summary is exactly last. Assert both
+  // sit within the last three lines.
+  assert.ok(
+    lines.slice(-3).some((line) => /Command failed with exit code 2/.test(line)),
+    lines.slice(-3).join('\n'),
+  );
   assert.ok(
     lines
       .slice(-3)
