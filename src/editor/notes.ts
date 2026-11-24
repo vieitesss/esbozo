@@ -143,8 +143,8 @@ export class Notes {
    * place — and the focus is handed back without scrolling, because a scroll
    * would move the Scene out from under the pointer that just shut it.
    */
-  shut(id: NoteId | null = this.#open.at(-1) ?? null): void {
-    this.#shut(id, true);
+  shut(id: NoteId | null = this.#open.at(-1) ?? null): boolean {
+    return this.#shut(id, true);
   }
 
   /**
@@ -159,9 +159,9 @@ export class Notes {
     }
   }
 
-  #shut(id: NoteId | null, keysBack: boolean): void {
+  #shut(id: NoteId | null, keysBack: boolean): boolean {
     if (id === null || !this.#shows(id)) {
-      return;
+      return false;
     }
     const note = this.#notes.get(id)!;
     this.#open = this.#open.filter((one) => one !== id);
@@ -180,6 +180,7 @@ export class Notes {
     if (keysBack) {
       this.#canvas.focus({ preventScroll: true });
     }
+    return true;
   }
 
   /** Start reading for a note: what the page holds now is what its answer may land on. */

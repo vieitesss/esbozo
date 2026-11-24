@@ -15,6 +15,7 @@ import type { Landing } from './edits.js';
 import { actionById, actionFor } from './actions.js';
 import type { ActionHost, ActionState, ToolId } from './actions.js';
 import type { PngExport } from './export.js';
+import { Exits } from './exits.js';
 import { Gestures } from './gestures.js';
 import { clipboardApi, copySelection, copyTo, cutSelection, pasteClipboard } from './clipboard.js';
 import type { ClipboardHost } from './clipboard.js';
@@ -95,6 +96,8 @@ class EsbozoEditorElement extends HTMLElement {
   #grid = true;
   /** The pointer's state machine: every gesture, and what an exit has to drop. */
   #gestures!: Gestures;
+  /** The exit table: every exit reports here, and the table owns what ends. */
+  #exits!: Exits;
   /** The page's frame: the view, the drawings and the overlay that marks them. */
   #page!: Page;
   /** The selection the Style menu was built for, so a rebuild only happens on a change. */
@@ -363,6 +366,46 @@ class EsbozoEditorElement extends HTMLElement {
       showPanning: () => this.#showPill(),
     });
 
+    this.#exits = new Exits({
+      notes: {
+        shutTop: () => this.#notes.shut(),
+        clearPoint: () => this.#notes.clear('point'),
+        clearAll: () => this.#notes.clear(),
+      },
+      rail: {
+        callOff: () => this.#rail.escape(),
+        endDrag: () => {},
+        forget: () => this.#rail.forget(),
+      },
+      typing: {
+        discard: () => this.#typing.end(),
+      },
+      gesture: this.#gestures.exit,
+      spacePan: {
+        end: () => {
+          this.#spaceButton = null;
+          this.#spacePanned = false;
+          this.#gestures.endSpacePan();
+        },
+      },
+      bend: {
+        letGo: () => this.#hand.letGoBend(),
+      },
+      selection: {
+        clear: () => {
+          this.#hand.select([]);
+          this.#refresh();
+        },
+      },
+      tool: {
+        disarm: () => {
+          if (this.#tool !== 'select') {
+            this.#setTool('select');
+          }
+        },
+      },
+    });
+
     // Nothing draws or asks the folder for a Scene until every module holds the
     // ones it needs: the wiring is done, and starts here.
     this.#page.viewport.showGrid(this.#grid);
@@ -402,7 +445,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#board.addEventListener('pointerdown', this.#onPaperDown);
     this.#board.addEventListener('pointermove', this.#gestures.move);
     this.#board.addEventListener('pointerup', this.#gestures.up);
-    this.#board.addEventListener('pointercancel', this.#gestures.cancel);
+    this.#board.addEventListener('pointercancel', this.#onPointerCancel);
     this.#board.addEventListener('wheel', this.#onWheel, { passive: false });
     this.#canvas.addEventListener('contextmenu', this.#onContextMenu);
     this.#rail.listen();
@@ -435,7 +478,7 @@ class EsbozoEditorElement extends HTMLElement {
     this.#board?.removeEventListener('pointerdown', this.#onPaperDown);
     this.#board?.removeEventListener('pointermove', this.#gestures.move);
     this.#board?.removeEventListener('pointerup', this.#gestures.up);
-    this.#board?.removeEventListener('pointercancel', this.#gestures.cancel);
+    this.#board?.removeEventListener('pointercancel', this.#onPointerCancel);
     this.#board?.removeEventListener('wheel', this.#onWheel);
     this.#canvas?.removeEventListener('contextmenu', this.#onContextMenu);
     document.removeEventListener('copy', this.#onCopy);
@@ -461,9 +504,7 @@ class EsbozoEditorElement extends HTMLElement {
     // A page that takes the editor away takes the words with it: the field is a
     // child that left with the element, and no gesture of this pointer survives
     // the DOM it was pressed on — the pan is the page's, and it goes too.
-    this.#endEdits();
-    this.#gestures.endSpacePan();
-    this.#gestures.drop();
+    this.#exits.run('disconnect');
     this.#wired = false;
     if (active === this) {
       active = null;
@@ -500,20 +541,10 @@ class EsbozoEditorElement extends HTMLElement {
    * half-typed words, the tool armed for it, its selection and its history.
    */
   #forget(): void {
-    this.#gestures.drop();
-    this.#endEdits();
-    // A drag of the rail measured the Scene that is leaving, so its release
-    // docks nothing: the frame it would have docked against is gone with it.
-    this.#rail.forget();
-    // No Scene to hold in the hand either: the pan and the word it named go
-    // with the Scene the page let go of.
-    this.#gestures.endSpacePan();
+    this.#exits.run('forget');
     this.#hand.load(emptyScene());
     this.#page.resetDrawings();
     this.#menu.hidden = true;
-    // The Scenes the notes named are not this page's any more: they leave with
-    // it, and the focus is nobody's to move.
-    this.#notes.clear();
     this.#whereLabel.textContent = '';
     this.#setSaved('idle');
     this.#page.paint();
@@ -562,7 +593,7 @@ class EsbozoEditorElement extends HTMLElement {
       // A Space held on the way out never sends its release here, and the host
       // page's keys are the host's again. A page that is nothing but the editor
       // keeps the pan it started until its own window loses focus.
-      this.#gestures.endSpacePan();
+      this.#exits.run('focusOut');
     }
   };
 
@@ -573,7 +604,7 @@ class EsbozoEditorElement extends HTMLElement {
     if (this.#readOnly) {
       // Write access just ended: nothing stays armed that could change a Scene
       // this page may only read.
-      this.#endEdits();
+      this.#exits.run('readOnly');
     }
     this.#showPill();
   }
@@ -587,34 +618,6 @@ class EsbozoEditorElement extends HTMLElement {
     const text = this.#gestures.panning ? 'Panning' : this.#readOnly ? 'read-only' : '';
     if (this.#modeLabel.textContent !== text) {
       this.#modeLabel.textContent = text;
-    }
-  }
-
-  /**
-   * Let go of every edit in flight: half-typed words, the Scene-editing gesture
-   * in hand, and the tool.
-   *
-   * The pan is not an edit. It changes the view and never the Scene, so it stays
-   * in the hand it was taken with until the key or the button comes up, or the
-   * page loses the Scene it is holding (see the callers below).
-   */
-  #endEdits(): void {
-    this.#typing.end();
-    // Write access can end in the middle of a gesture, as a folder that answers a
-    // queued save with a 403 does. Half a gesture is not a Scene any more: it is
-    // dropped with the preview it painted, rather than left on a page that may
-    // only read. A sweep holds the pointer as a Scene edit does, so it goes too:
-    // its band is the old page's, and a release here would settle it on the new
-    // one.
-    if (this.#gestures.holdsScene() || this.#gestures.sweeping()) {
-      this.#gestures.cancel();
-    }
-    // The point a press picked waits for the key that removes it: a page that may
-    // only read, and another Scene, hold none of it.
-    this.#hand.letGoBend();
-    this.#notes.clear('point');
-    if (this.#tool !== 'select') {
-      this.#setTool('select');
     }
   }
 
@@ -642,11 +645,7 @@ class EsbozoEditorElement extends HTMLElement {
     // one belong to that one, not this, and the note shows its defaults. A Space
     // press holds the page in the hand, and another Scene is another page, so
     // the pan goes with it, and with the word it was naming in the status bar.
-    this.#endEdits();
-    this.#gestures.endSpacePan();
-    // A Space held across the switch was pressed on the last Scene's rail: the
-    // tile it found is that Scene's tool, and the release is no activation here.
-    this.#spaceButton = null;
+    this.#exits.run('sceneSwitch');
     this.#showDefaultRoughness();
     this.#refresh();
   }
@@ -830,9 +829,7 @@ class EsbozoEditorElement extends HTMLElement {
    * pick over one point leaves the Scene as it was.
    */
   #setTool(tool: ToolId): void {
-    if (this.#gestures.placing()) {
-      this.#gestures.finishPlacing();
-    }
+    this.#gestures.finishPlacing();
     if (tool !== 'select' && !this.#connection.writable()) {
       return;
     }
@@ -934,63 +931,24 @@ class EsbozoEditorElement extends HTMLElement {
       event.preventDefault();
       return;
     }
-    const note = this.#notes.answerKey(event);
-    if (note === 'shut') {
-      // The note on top answers Escape, and the note alone: it takes nothing of
-      // the Scene with it, so what a person selected stays selected.
-      event.preventDefault();
-      this.#notes.shut();
+    if (event.key === 'Escape') {
+      if (this.#exits.run('escape')) {
+        event.preventDefault();
+      }
       return;
     }
+    const note = this.#notes.answerKey(event);
     if (note === 'hold') {
       // A key the note holds with the focus off its own field is still the
       // note's, not the Scene's.
       return;
     }
-    if (event.key === 'Escape' && this.#rail.escape()) {
-      // A drag of the rail is the page's chrome, and its Escape is the drag's
-      // alone: the strip goes back where it hung and the Scene keeps the tool
-      // and the selection it had (D7, I6). Without this the Escape below would
-      // drop the selection as well, which is the drag's to keep.
+    if (event.key === 'Enter' && this.#gestures.finishPlacing()) {
       event.preventDefault();
-      return;
-    }
-    if (event.key === 'Escape' && this.#gestures.placing()) {
-      // A shaft being placed is finished, not dropped: Escape ends the place at
-      // the last point it put down, as Enter does, and the preview segment goes
-      // with it. Half a shaft that was never a shaft — one point, or two on one
-      // spot — leaves the Scene as it was.
-      event.preventDefault();
-      this.#gestures.finishPlacing();
-      return;
-    }
-    if (event.key === 'Enter' && this.#gestures.placing()) {
-      event.preventDefault();
-      this.#gestures.finishPlacing();
-      return;
-    }
-    if (event.key === 'Escape' && (this.#gestures.holdsScene() || this.#gestures.sweeping())) {
-      // Half a Scene edit is not a Scene: Escape drops what the gesture drew back
-      // to the place the Scene holds, and the release that follows it settles
-      // nothing. It answers here, before the gesture that holds the Scene,
-      // because that guard is about edits — and an Escape is what keeps one from
-      // landing. A sweep holds the pointer and no Scene at all: Escape drops its
-      // band and leaves the selection as it is, so the release settles nothing
-      // there either. Every other drag keeps the behaviour it has: Escape is
-      // ignored while the pointer is down, and the release settles the gesture. A
-      // place is the one edit that is not a drag: Escape finishes it, above.
-      event.preventDefault();
-      this.#gestures.cancel();
       return;
     }
     if (this.#gestures.holdsScene()) {
       // Half a drag is not a Scene: an edit waits for the pointer to come up.
-      return;
-    }
-    if (event.key === 'Escape') {
-      this.#hand.select([]);
-      this.#setTool('select');
-      this.#refresh();
       return;
     }
     // Enter on a single selection edits its words, as a double-click does. A
@@ -1139,13 +1097,12 @@ class EsbozoEditorElement extends HTMLElement {
    * page's chrome, not a gesture of the board's — is called off beside it, so a
    * release that lands in another window docks nothing (D7, I6).
    */
+  #onPointerCancel = (event: PointerEvent): void => {
+    this.#exits.run('pointerCancel', { pointerId: event.pointerId });
+  };
+
   #onInterrupt = (): void => {
-    this.#gestures.release();
-    this.#rail.interrupt();
-    // A Space held when the page went out of sight never sends its release here,
-    // so the button it would have activated is let go with it.
-    this.#spaceButton = null;
-    this.#spacePanned = false;
+    this.#exits.run('interrupt');
   };
 
   #onStatusClick = (event: Event): void => {

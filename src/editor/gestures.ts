@@ -20,6 +20,7 @@ import { drawn, drawnAtClick, freshId, idsOf, isClick } from './elements.js';
 import type { ElementTool } from './elements.js';
 import { added, bent, ended, labelled, settled } from './edits.js';
 import type { Hand } from './hand.js';
+import type { ExitHolders } from './exits.js';
 import type { Page, Shown } from './page.js';
 import { endPoint, isShaft, snapTarget, withEnd } from './snap.js';
 import type { End } from './snap.js';
@@ -1108,20 +1109,43 @@ export class Gestures {
   }
 
   /** Whether a shaft is being placed by clicks, so a key may end the place it is half of. */
-  placing(): boolean {
+  #placing(): boolean {
     const drag = this.#drag;
     return drag !== null && entryOf(drag).placing?.(drag) === true;
   }
 
-  sweeping(): boolean {
+  #sweeping(): boolean {
     const drag = this.#drag;
     return drag !== null && entryOf(drag).sweeping === true;
   }
 
-  /** Whether a gesture holds the pointer, so the view makes no room for the note under it. */
-  dragging(): boolean {
-    return this.#drag !== null;
-  }
+  /** The exit-table adapter for the gesture in flight. */
+  readonly exit: ExitHolders['gesture'] = {
+    finishOrCancelEdits: () => {
+      if (this.finishPlacing()) {
+        return true;
+      }
+      if (this.holdsScene() || this.#sweeping()) {
+        this.#cancel();
+        return true;
+      }
+      return false;
+    },
+    cancelEdits: () => {
+      if (this.holdsScene() || this.#sweeping()) {
+        this.#cancel();
+      }
+    },
+    cancel: (pointerId?: number) => {
+      this.#cancel(pointerId);
+    },
+    release: () => {
+      this.#release();
+    },
+    drop: () => {
+      this.#drop();
+    },
+  };
 
   /** The Scene and the overlay marks the gesture in flight shows, or null with none. */
   preview(): Preview | null {
@@ -1182,8 +1206,8 @@ export class Gestures {
     }
   }
 
-  cancel = (event?: PointerEvent): void => {
-    if (event !== undefined && REFUSED.delete(event.pointerId)) {
+  #cancel(pointerId?: number): void {
+    if (pointerId !== undefined && REFUSED.delete(pointerId)) {
       return;
     }
     const drag = this.#drag;
@@ -1194,12 +1218,11 @@ export class Gestures {
       entryOf(drag).cancel?.(drag, this.#run);
     }
     this.#host.refresh();
-  };
+  }
 
-  release = (): void => {
-    this.endSpacePan();
+  #release(): void {
     if (this.#drag !== null) {
-      this.cancel();
+      this.#cancel();
       return;
     }
     // A press that started no drag still took the pointer — a read-only page
@@ -1208,9 +1231,9 @@ export class Gestures {
     // click nobody will make.
     this.#releasePointer();
     this.#press = null;
-  };
+  }
 
-  drop(): void {
+  #drop(): void {
     const drag = this.#drag;
     this.#drag = null;
     this.#press = null;
@@ -1718,11 +1741,13 @@ export class Gestures {
    * shaft lands as one step, selected as a drawn one is, and the tool goes back
    * to Select, so one tool draws one Element.
    */
-  finishPlacing(): void {
+  finishPlacing(): boolean {
     const drag = this.#drag;
-    if (drag !== null) {
-      entryOf(drag).finish?.(drag, this.#run);
+    if (drag === null || !this.#placing()) {
+      return false;
     }
+    entryOf(drag).finish?.(drag, this.#run);
+    return true;
   }
 
   /**
