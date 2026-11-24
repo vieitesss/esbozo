@@ -1,7 +1,7 @@
 import type { Element } from '../scene.js';
 import type { Theme } from '../css.js';
 import type { ArrangeAct } from './arrange.js';
-import type { RailSide } from './geometry.js';
+import type { RailSide } from './rail.js';
 
 /** The Element types a tool draws. */
 export type DrawableType = Element['type'];
