@@ -262,6 +262,10 @@ interface DragKind<D extends Drag> {
   hold?(drag: D, point: Point): boolean;
   /** Whether a shaft is being placed by clicks, so a key may end the place it is half of. */
   placing?(drag: D): boolean;
+  /** End the place this drag is half of, at the point it last put down. */
+  finish?(drag: D, run: DragRun): void;
+  /** A press that starts something new: the click pair this drag held is over. */
+  forgetClick?(drag: D): void;
   /** A pointer the page took away: what the kind must undo of its own. */
   cancel?(drag: D, run: DragRun): void;
 }
@@ -560,9 +564,6 @@ function finishPlace(
 ): void {
   const { host } = run;
   const { points, release, skipSnap } = placing;
-  // The gesture is over before the Scene changes: a tool that goes back to
-  // Select must find no place in hand to end.
-  run.release();
   host.setTool('select');
   const distinct = new Set(points.map((point) => `${point.x},${point.y}`));
   if (distinct.size < 2) {
@@ -900,6 +901,19 @@ const draw: DragKind<Extract<Drag, { kind: 'draw' }>> = {
   placing(drag) {
     return drag.placing !== null;
   },
+  finish(drag, run) {
+    if (drag.placing !== null) {
+      // The gesture is over before the Scene changes: a tool that goes back to
+      // Select must find no place in hand to end.
+      run.release();
+      finishPlace(run, drag, drag.placing);
+    }
+  },
+  forgetClick(drag) {
+    if (drag.placing !== null) {
+      drag.placing = { ...drag.placing, click: null };
+    }
+  },
   cancel(_drag, run) {
     // The preview drew under an id the Scene never took.
     run.host.select([]);
@@ -1164,8 +1178,8 @@ export class Gestures {
     this.#lastClick = null;
     this.#wordsClick = null;
     const drag = this.#drag;
-    if (drag !== null && drag.kind === 'draw' && drag.placing !== null) {
-      drag.placing = { ...drag.placing, click: null };
+    if (drag !== null) {
+      entryOf(drag).forgetClick?.(drag);
     }
   }
 
@@ -1737,11 +1751,9 @@ export class Gestures {
    */
   finishPlacing(): void {
     const drag = this.#drag;
-    if (drag === null || drag.kind !== 'draw' || drag.placing === null) {
-      return;
+    if (drag !== null) {
+      entryOf(drag).finish?.(drag, this.#run);
     }
-    this.#drag = null;
-    finishPlace(this.#run, drag, drag.placing);
   }
 
   /**
