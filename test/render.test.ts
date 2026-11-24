@@ -777,6 +777,94 @@ test('a start head leaves the dash phase it cut at the far end of every run', as
   }
 });
 
+test('an arrow Snapped between two overlapping filled targets keeps its layer order and outline crossings', async () => {
+  const boxA = {
+    id: 'a',
+    type: 'rectangle',
+    x: 0,
+    y: 0,
+    width: 100,
+    height: 100,
+    fill: { kind: 'solid', grey: 3 },
+  };
+  const boxB = {
+    id: 'b',
+    type: 'rectangle',
+    x: 50,
+    y: 0,
+    width: 100,
+    height: 100,
+    fill: { kind: 'solid', grey: 3 },
+  };
+  const cases = [
+    {
+      name: 'straight',
+      arrow: {
+        id: 'arr',
+        type: 'arrow',
+        points: [
+          { x: 100, y: 50, snap: 'a' },
+          { x: 50, y: 50, snap: 'b' },
+        ],
+        heads: { start: 'arrow', end: 'arrow' },
+      },
+      tips: [
+        { x: 0, y: 50 },
+        { x: 50, y: 50 },
+      ],
+    },
+    {
+      name: 'bent inside overlap',
+      arrow: {
+        id: 'arr',
+        type: 'arrow',
+        points: [
+          { x: 100, y: 50, snap: 'a' },
+          { x: 75, y: 50 },
+          { x: 50, y: 50, snap: 'b' },
+        ],
+        heads: { start: 'arrow', end: 'arrow' },
+      },
+      tips: [
+        { x: 100, y: 50 },
+        { x: 50, y: 50 },
+      ],
+    },
+  ];
+
+  for (const { name, arrow, tips } of cases) {
+    const aboveSvg = await renderOne({
+      version: 1,
+      title: `${name} above`,
+      elements: [boxA, boxB, arrow],
+    });
+    const belowSvg = await renderOne({
+      version: 1,
+      title: `${name} below`,
+      elements: [arrow, boxA, boxB],
+    });
+
+    const aboveGroups = inkGroups(aboveSvg);
+    const belowGroups = inkGroups(belowSvg);
+    assert.equal(aboveGroups.length, 3, `${name}: three groups when arrow is above`);
+    assert.equal(belowGroups.length, 3, `${name}: three groups when arrow is below`);
+
+    // Above: arrow draws after both filled targets so its heads paint over the fill.
+    // Below: arrow draws before both filled targets so the user's layering covers it.
+    const aboveArrow = aboveGroups[2]!;
+    const belowArrow = belowGroups[0]!;
+    assert.equal(belowArrow, aboveArrow, `${name}: layering does not alter the arrow’s own geometry`);
+
+    const heads = pathsOf(aboveArrow).filter((tag) => attributeIn(tag, 'fill') !== 'none');
+    assert.equal(heads.length, 2, `${name}: both arrowheads draw`);
+    for (const [index, expected] of tips.entries()) {
+      const tip = flatPoints(heads[index]!)[0]!;
+      closeTo(tip.x, expected.x);
+      closeTo(tip.y, expected.y);
+    }
+  }
+});
+
 async function renderOne(scene: unknown): Promise<string> {
   const folder = await sceneFolder(scene);
   const run = await ez(['render', 'scene.json'], folder);
