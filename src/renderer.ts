@@ -347,10 +347,10 @@ interface DrawnDot {
  *
  * This is the one question the Editor asks about an Element's geometry, so a
  * handle, a pick, a Snap and a Label's cue can never disagree with the page the
- * SVG draws. The shape of what is drawn needs no measurement; the words do, so
- * a query asked without a Layout still answers ends, bends, dots, boxes and ink
- * for an Element that carries no words, and says so loudly when it has to
- * measure some.
+ * SVG draws. Each part is worked out when it is first read: the bends need only
+ * the Element, the ink and ends need the Scene their Snaps resolve against, and
+ * the words need the Layout that measures them. A query given neither still
+ * answers the bends; one asked for what it cannot work out without them says so.
  */
 export interface DrawnGeometry {
   /** Every box the drawing covers, a Label's words included. */
