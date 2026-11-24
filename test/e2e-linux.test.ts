@@ -72,7 +72,12 @@ interface RunOptions {
 async function fakeRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'esbozo-e2e-linux-'));
   folders.push(root);
-  await Promise.all([mkdir(join(root, 'docker'), { recursive: true }), mkdir(join(root, 'scripts'), { recursive: true })]);
+  await Promise.all([
+    mkdir(join(root, 'docker'), { recursive: true }),
+    mkdir(join(root, 'scripts'), { recursive: true }),
+    // The mount check reads this to tell a checkout from an empty mount.
+    mkdir(join(root, '.git')),
+  ]);
   await Promise.all(COPIED.map((file) => cp(join(ROOT, file), join(root, file))));
   // The real path, so it is the one the script's own `fileURLToPath` resolves and
   // the one Docker would mount: `/var` is a symlink to `/private/var` on macOS.
@@ -119,6 +124,61 @@ async function run(options: RunOptions): Promise<Ended> {
   return { code, stdout, stderr, calls };
 }
 
+/** What a replayed container command printed, and the code it left. */
+interface Replay {
+  readonly code: number;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+/** A stand-in for the script inside the image: it answers with the arguments it was handed. */
+async function probeScript(): Promise<string> {
+  const folder = await mkdtemp(join(tmpdir(), 'esbozo-e2e-linux-probe-'));
+  folders.push(folder);
+  const script = join(folder, 'container.sh');
+  await writeFile(script, '#!/bin/sh\necho "$@"\n', { mode: 0o755 });
+  return script;
+}
+
+/**
+ * The command the run hands the container, replayed on this machine.
+ *
+ * A stub `docker` mounts nothing, so the check that command runs before the
+ * suite is proved by running the command itself: `mount` stands for `/src` —
+ * an empty folder when Docker cannot see the worktree — and a script of this
+ * test's own for the one the image holds.
+ */
+async function inContainer(argv: readonly string[], mount: string): Promise<Replay> {
+  const at = argv.indexOf('sh');
+  assert.deepEqual(argv.slice(at, at + 2), ['sh', '-c'], 'the run hands the container a command, so a mount check can come first');
+  const named = argumentsAfter(argv, '--env').find((entry) => entry.startsWith('ESBOZO_HOST_WORKTREE='));
+  assert.notEqual(named, undefined, 'the run names the host worktree, or the message cannot');
+  const [key, ...rest] = (named as string).split('=');
+  const script = await probeScript();
+  const swapped = argv.slice(at + 2).map((word) => {
+    if (word === '/src') return mount;
+    if (word === '/src/scripts/e2e-linux-container.sh') return script;
+    return word;
+  });
+  const child = spawn('sh', swapped, {
+    env: { ...process.env, [key as string]: rest.join('=') },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.on('data', (chunk) => {
+    stdout += chunk;
+  });
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk;
+  });
+  const code = await new Promise<number>((resolve) => {
+    child.once('error', () => resolve(-1));
+    child.once('close', (status) => resolve(status ?? -1));
+  });
+  return { code, stdout, stderr };
+}
+
 /** The one call whose first argument is `name`. */
 function call(calls: readonly (readonly string[])[], name: string): readonly string[] {
   const found = calls.filter((args) => args[0] === name);
@@ -150,15 +210,41 @@ test('forwards the e2e arguments, the read-only mount and the image', async () =
   assert.match(argumentAfter(argv, '--label'), /^esbozo-e2e-linux=1$/);
   const image = argv[argv.indexOf('sh') - 1] as string;
   assert.match(image, /^esbozo:e2e-linux-[0-9a-f]{12}$/);
-  assert.deepEqual(argv.slice(argv.indexOf('sh')), [
-    'sh',
+  assert.deepEqual(argv.slice(argv.indexOf('sh') + 3), [
     '/src/scripts/e2e-linux-container.sh',
+    '/src',
     'tests/cdp.e2e.ts:42',
     '--grep',
     'one title',
   ]);
   assert.deepEqual(call(run1.calls, 'rm'), ['rm', '--force', argumentAfter(argv, '--name')]);
   assert.equal(run1.calls.filter((args) => args[0] === 'build').length, 0, 'an image already there is reused');
+});
+
+test('stops before the run when Docker cannot see the worktree', async () => {
+  const root = await fakeRoot();
+  const argv = call((await run({ root })).calls, 'run');
+  const empty = await mkdtemp(join(tmpdir(), 'esbozo-e2e-linux-mount-'));
+  folders.push(empty);
+
+  const stopped = await inContainer(argv, empty);
+
+  assert.equal(stopped.code, 1);
+  assert.ok(stopped.stderr.includes(`Docker cannot see ${root}`), `names the host path: ${stopped.stderr}`);
+  assert.match(stopped.stderr, /Docker VM/, 'names the likely cause');
+  assert.match(stopped.stderr, /worktree under a shared path/, 'says what to do');
+  assert.equal(stopped.stdout, '', 'the container script never runs');
+});
+
+test('runs the container script once the mount holds the checkout', async () => {
+  const root = await fakeRoot();
+  const argv = call((await run({ root, args: ['tests/cdp.e2e.ts:42'] })).calls, 'run');
+
+  const started = await inContainer(argv, root);
+
+  assert.equal(started.code, 0, started.stderr);
+  assert.equal(started.stderr, '');
+  assert.equal(started.stdout.trim(), 'tests/cdp.e2e.ts:42', 'the arguments reached the container script');
 });
 
 test('masks the mount node_modules with an empty tmpfs when the worktree has one', async () => {
