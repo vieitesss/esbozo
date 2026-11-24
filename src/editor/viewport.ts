@@ -67,15 +67,13 @@ export class Viewport {
   box(): PageBox {
     const board = this.#parts.board;
     const rect = board.getBoundingClientRect();
-    const layoutWidth = board.offsetWidth;
-    const layoutHeight = board.offsetHeight;
-    const scaleX = layoutWidth > 0 && rect.width > 0 ? rect.width / layoutWidth : 1;
-    const scaleY = layoutHeight > 0 && rect.height > 0 ? rect.height / layoutHeight : 1;
+    const scaleX = scaleOf(rect.width, board.offsetWidth);
+    const scaleY = scaleOf(rect.height, board.offsetHeight);
     return {
       left: rect.left,
       top: rect.top,
-      width: layoutWidth || rect.width || window.innerWidth,
-      height: layoutHeight || rect.height || window.innerHeight,
+      width: rect.width / scaleX || window.innerWidth,
+      height: rect.height / scaleY || window.innerHeight,
       scaleX,
       scaleY,
     };
@@ -153,4 +151,15 @@ export class Viewport {
   showGrid(on: boolean): void {
     this.#parts.gridRect.style.display = on ? '' : 'none';
   }
+}
+
+/**
+ * How much a CSS `transform: scale()` or `zoom` on a host shrinks or grows the
+ * paper: its client size over its layout size. `offsetWidth` is a whole number
+ * of pixels while the client size is not, so a difference under one pixel is
+ * rounding, not scale, and reads as 1 — an unscaled page maps a pointer exactly.
+ */
+function scaleOf(client: number, layout: number): number {
+  if (client <= 0 || layout <= 0 || Math.abs(client - layout) < 1) return 1;
+  return client / layout;
 }
