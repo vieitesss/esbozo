@@ -22,7 +22,7 @@ import type { ElementTool } from './elements.js';
 import { added, bent, ended, labelled, settled } from './edits.js';
 import type { Edited } from './edits.js';
 import type { Page, Shown } from './page.js';
-import { attachedTo, endPoint, isShaft, otherTarget, snapOn, targetAt, withEnd } from './snap.js';
+import { endPoint, isShaft, snapTarget, withEnd } from './snap.js';
 import type { End } from './snap.js';
 import type { TextSession } from './text-session.js';
 import type { Typing } from './typing.js';
@@ -372,19 +372,10 @@ function attachTarget(
   point: Point,
   skipAttaching: boolean,
 ): string | null {
-  if (skipAttaching) {
-    return null;
-  }
   const elements = host.scene().elements;
   const element = elements.find((candidate) => candidate.id === id);
-  // The shaft a draw is making is not in the Scene yet, so it has no switch of
-  // its own to be off: only a shaft already landed can be one that never
-  // attaches.
-  if (element !== undefined && isShaft(element) && !snapOn(element, end)) {
-    return null;
-  }
-  const other = element !== undefined && isShaft(element) ? otherTarget(element, end) : null;
-  return targetAt(elements, point, other);
+  const shaft = element !== undefined && isShaft(element) ? element : undefined;
+  return snapTarget(elements, point, { shaft, end, skip: skipAttaching });
 }
 
 /**
@@ -607,14 +598,20 @@ function resolveEnd(
   pointer: Point,
   skipSnap: boolean,
 ): { to: Point; target: string | null } {
-  const element = host.scene().elements.find((candidate) => candidate.id === drag.id);
-  const snapped = element !== undefined && isShaft(element) ? attachedTo(element, drag.which) : null;
+  const elements = host.scene().elements;
+  const element = elements.find((candidate) => candidate.id === drag.id);
+  const shaft = element !== undefined && isShaft(element) ? element : undefined;
   return {
     to: {
       x: drag.origin.x + pointer.x - drag.from.x,
       y: drag.origin.y + pointer.y - drag.from.y,
     },
-    target: snapped ?? attachTarget(host, drag.id, drag.which, pointer, skipSnap),
+    target: snapTarget(elements, pointer, {
+      shaft,
+      end: drag.which,
+      skip: skipSnap,
+      keepCurrent: true,
+    }),
   };
 }
 

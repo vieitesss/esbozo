@@ -8,7 +8,7 @@ import { withBend } from './bend-point.js';
 import { copies, fragmentOf, idsOf, replaced, without } from './elements.js';
 import { boxOf, landingOffset, moved } from './geometry.js';
 import type { Point, View } from './geometry.js';
-import { endPoint, freedEnds, isShaft, otherTarget, snapOn, targetAt, withEnd, withEndPoint } from './snap.js';
+import { isShaft, snapOn, withEnd, withSnapSwitch } from './snap.js';
 import type { End } from './snap.js';
 import { styled } from './style.js';
 import type { StyleKey } from './style.js';
@@ -219,24 +219,9 @@ export function switched(
   if (element === undefined || !isShaft(element) || snapOn(element, end) === on) {
     return null;
   }
-  const byId = elementsById(scene.elements);
-  const drawn = endPoint(element, end);
-  let switched: ArrowOrLineElement;
-  if (on) {
-    const target = targetAt(scene.elements, drawn, otherTarget(element, end));
-    switched =
-      target === null
-        ? withEndPoint(element, end, { x: drawn.x, y: drawn.y })
-        : withEnd(element, end, drawn, target, byId);
-  } else {
-    // Freed where it draws first, so the point the `false` lands on is the one
-    // the last frame shows, and no Anchor is left behind for a Snap that is gone.
-    const freed = freedEnds(element, (which) => which === end, byId);
-    const spot = endPoint(freed, end);
-    switched = withEndPoint(freed, end, { x: spot.x, y: spot.y, snap: false });
-  }
+  const next = withSnapSwitch(scene.elements, element, end, on);
   return {
-    scene: { ...scene, elements: replaced(scene.elements, new Set([element.id]), () => switched) },
+    scene: { ...scene, elements: replaced(scene.elements, new Set([element.id]), () => next) },
     selection: null,
   };
 }
