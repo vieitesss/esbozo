@@ -514,7 +514,7 @@ export interface MountedRail {
   interrupt(): void;
   holding(): boolean;
   edge(): number | null;
-  setTool(tool: ToolId): void;
+  markTool(tool: ToolId): void;
 }
 
 /** Mount a `Rail` onto the editor's DOM elements, pointer listeners, and `ResizeObserver`. */
@@ -665,7 +665,7 @@ export function mountRail(dom: RailDomHost): MountedRail {
     interrupt: () => rail.interrupt(),
     holding: () => rail.holding(),
     edge: () => rail.edge(),
-    setTool(tool) {
+    markTool(tool) {
       for (const button of dom.rail.querySelectorAll('[data-tool]')) {
         button.setAttribute('aria-pressed', String(button.getAttribute('data-tool') === tool));
       }
@@ -820,7 +820,7 @@ function dockOnFrame(
 export function nearestDock(frame: Box, at: Point): RailSide {
   let nearest: RailSide = 'top';
   let distance = Infinity;
-  for (const side of DOCK_ORDER) {
+  for (const side of DOCK_SIDES) {
     const squared = squaredToSide(frame, side, at);
     if (squared < distance) {
       nearest = side;
@@ -829,9 +829,6 @@ export function nearestDock(frame: Box, at: Point): RailSide {
   }
   return nearest;
 }
-
-/** The four sides in the order an equally near two are settled by. */
-const DOCK_ORDER: readonly RailSide[] = ['top', 'bottom', 'left', 'right'];
 
 /** The square of the distance from a pointer to one side of the frame, as that side's own segment. */
 function squaredToSide(frame: Box, side: RailSide, at: Point): number {

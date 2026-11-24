@@ -980,7 +980,7 @@ class EsbozoEditorElement extends HTMLElement {
     }
     this.#tool = tool;
     this.#board.classList.toggle('pen', tool !== 'select' && !this.#gestures.spaceDown);
-    this.#rail.setTool(tool);
+    this.#rail.markTool(tool);
     if (tool !== 'select') {
       // Handles and a dashed selection box under the pencil only get in the way.
       this.#selectElements([]);

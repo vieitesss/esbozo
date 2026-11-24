@@ -1,5 +1,7 @@
 /**
- * Seam 3: the Rail's state machine with supplied measurements.
+ * The Rail exception to rule 4: `rail.ts` owns the Rail's dock maths and
+ * pointer state machine with supplied measurements, so Node tests can prove
+ * them directly.
  *
  * Proves the three pointer/placement rules that otherwise only a browser drag
  * reaches: the click owed after a called-off press, the click swallowed after
