@@ -6,8 +6,7 @@
  * is the Renderer's own answer to the Editor, so this seam holds it to the
  * geometry the drawing already promises — the ends a Snap lands, the points a
  * Shaft turns by, the dots halfway along its segments and the box its Label
- * paints — and to the fine-grained answers it replaces, which stay until the
- * Editor asks for nothing else.
+ * paints — and to the ink and the words the page itself paints.
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -17,13 +16,6 @@ import type { ArrowOrLineElement, Element, Scene } from '../src/scene.ts';
 const {
   parseScene,
   drawnGeometry,
-  drawnShaft,
-  shaftInk,
-  shaftLabel,
-  outlineBox,
-  strokeWidthOf,
-  wordsInkBounds,
-  elementBounds,
   renderElement,
   createLayout,
   parseFontFile,
@@ -93,7 +85,6 @@ test('a Snapped end lands where the ink puts it, Anchor and all', () => {
     { x: 400, y: 400 },
     { x: 150, y: 100 },
   ]);
-  assert.deepEqual(drawn.ends, drawnShaft(shaft, byIdOf(scene)), 'one answer, not two');
   assert.equal(drawn.path?.start.y, 400, 'the path starts at the free end');
   assert.equal(drawn.path?.end.y, 100, 'and finishes on the outline it snaps to');
 });
@@ -193,7 +184,7 @@ test('a Label’s box is the box its ink paints, glyph overhang included', () =>
   });
 });
 
-test('the query answers the ink and geometry the fine-grained answers promised', () => {
+test('every kind answers the ink the page paints and the box it occupies', () => {
   // One Scene of every kind the Renderer draws, each with the words and the
   // shape that makes its box, its ink and its ends differ from the others.
   const scene = parsed({
@@ -229,25 +220,29 @@ test('the query answers the ink and geometry the fine-grained answers promised',
     const drawn = drawnGeometry(element, byId, LAYOUT);
     const painted = renderElement(element, byId, LAYOUT);
 
-    assert.deepEqual(drawn.bounds, elementBounds(element, byId, LAYOUT), `${element.id}: bounds`);
-    assert.deepEqual(drawn.ink, painted.ink, `${element.id}: ink`);
-    assert.deepEqual(drawn.words, painted.words, `${element.id}: words`);
-    assert.equal(drawn.strokeWidth, strokeWidthOf(element), `${element.id}: stroke width`);
-    if (element.type !== 'arrow' && element.type !== 'line' && element.type !== 'text') {
-      assert.deepEqual(drawn.box, outlineBox(element), `${element.id}: own box`);
-    }
-    assert.deepEqual(
-      drawn.label,
-      drawn.words === null ? null : wordsInkBounds(drawn.words),
-      `${element.id}: label box`,
-    );
+    // The page and the query are two readers of one drawing, so they answer one
+    // ink and one set of words.
+    assert.deepEqual(drawn.ink, painted.ink, `${element.id}: the ink the page paints`);
+    assert.deepEqual(drawn.words, painted.words, `${element.id}: the words Layout placed`);
+    assert.equal(drawn.strokeWidth, 2, `${element.id}: every Element here is thin`);
 
     if (element.type === 'arrow' || element.type === 'line') {
-      assert.deepEqual(drawn.path, shaftInk(element, byId).path, `${element.id}: path`);
-      assert.deepEqual(drawn.heads, shaftInk(element, byId).heads, `${element.id}: heads`);
-      assert.deepEqual(drawn.ends, drawnShaft(element, byId), `${element.id}: ends`);
-      assert.deepEqual(drawn.words, shaftLabel(element, byId, LAYOUT), `${element.id}: label`);
+      assert.deepEqual(
+        [drawn.path?.start, drawn.path?.end],
+        drawn.ends,
+        `${element.id}: the ink starts and finishes where the ends land`,
+      );
+      continue;
     }
+    if (element.type === 'text') {
+      const words = drawn.words;
+      assert.ok(words !== null, 'a Text always has words');
+      assert.deepEqual(drawn.box, words, `${element.id}: a Text's box is the words it draws`);
+      assert.deepEqual([words.x, words.y], [element.x, element.y], `${element.id}: at its own place`);
+      continue;
+    }
+    const { x, y, width, height } = element;
+    assert.deepEqual(drawn.box, { x, y, width, height }, `${element.id}: the box it occupies`);
   }
 });
 

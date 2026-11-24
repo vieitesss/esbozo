@@ -76,13 +76,13 @@ import { fileURLToPath } from 'node:url';
 import { BUILD, BUILT_AT } from './build-id.js';
 import { anchorOf, anchorPoint, pointOnOutline } from './geometry.js';
 import { sceneStem, svgFileName } from './paths.js';
-import { isOutlined, parseScene, serialiseScene, snapTargetId } from './scene.js';
-import { drawnShaft, elementsById, renderScene } from './renderer.js';
+import { isOutlined, parseScene, serialiseScene, snapTargetId, elementsById } from './scene.js';
+import { drawnGeometry, renderScene } from './renderer.js';
 import { THEMES, renderPng } from './png.js';
 import { serve } from './serve.js';
 import type { ServeOptions } from './serve.js';
 import type { PngOptions, Theme } from './png.js';
-import type { Anchor, ArrowOrLineElement, OutlinedElement, Point, Scene } from './scene.js';
+import type { Anchor, ArrowOrLineElement, Element, OutlinedElement, Point, Scene } from './scene.js';
 import { chooseFont, layoutFor, readStylesheet } from './font.js';
 import type { Layout } from './layout.js';
 
@@ -559,7 +559,7 @@ function snapEnd(scene: Scene, request: SnapRequest): Answer<Change> {
     }
     // The same place the editor's drop takes: the outline point nearest the spot
     // the end is drawn at now, not the target's centre.
-    const [atStart, atEnd] = drawnShaft(element, elementsById(scene.elements));
+    const [atStart, atEnd] = drawnEnds(element, elementsById(scene.elements));
     const anchor = anchorOf(target, request.end === 'start' ? atStart : atEnd);
     stored = { ...drawnAt(point, target, anchor), snap: request.target };
   }
@@ -584,7 +584,7 @@ function freezeEnds(scene: Scene): Answer<Change> {
     if (element.type !== 'arrow' && element.type !== 'line') {
       return element;
     }
-    const [atStart, atEnd] = drawnShaft(element, byId);
+    const [atStart, atEnd] = drawnEnds(element, byId);
     const last = element.points.length - 1;
     let changed = false;
     const points = element.points.map((point, index) => {
@@ -609,6 +609,22 @@ function freezeEnds(scene: Scene): Answer<Change> {
     return changed ? ({ ...element, points } as ArrowOrLineElement) : element;
   });
   return { ok: true, value: { scene: { ...scene, elements }, lines } };
+}
+
+/**
+ * Both ends a Shaft draws, each Snap resolved onto its target's outline: the
+ * Renderer answers them canonically, so a Snap frozen here reads the very ends
+ * the page draws.
+ */
+function drawnEnds(
+  element: ArrowOrLineElement,
+  byId: ReadonlyMap<string, Element>,
+): readonly [Point, Point] {
+  const ends = drawnGeometry(element, byId).ends;
+  if (ends === null) {
+    throw new Error(`${element.id}: only an arrow or line draws ends`);
+  }
+  return ends;
 }
 
 /** The arrow or line an id names, or why the Scene has no such Shaft. */

@@ -19,7 +19,7 @@ import { removeTempFolders } from './temp.ts';
 
 after(removeTempFolders);
 
-const { parseScene, serialiseScene, renderScene, elementBounds, createLayout, parseFontFile, KALAM } =
+const { parseScene, serialiseScene, renderScene, drawnGeometry, createLayout, parseFontFile, KALAM } =
   await loadProjectModules();
 
 /** The drawing is measured with the bundled font, as `ez render` measures it. */
@@ -511,7 +511,7 @@ test('a sharp fillet bulges inside the box a host selects by', () => {
   const drawn = attribute(shaftFrom(svg, { x: 0, y: 0 }), 'd') ?? '';
   const reach = Math.max(...inkSamples(drawn).map((point) => point.x));
 
-  const box = elementBounds(shaft, new Map([['a', shaft]]), LAYOUT);
+  const box = drawnGeometry(shaft, new Map([['a', shaft]]), LAYOUT).bounds;
   assert.ok(reach > 9, `the fillet bulges past its ends (got ${reach})`);
   // The written ink is rounded to hundredths on its way into the SVG, so the
   // box is compared with the ink as written.
@@ -1301,7 +1301,7 @@ test('a shaft’s box and page reach the ink Rough.js draws', () => {
   const right = Math.max(...drawn.map((point) => point.x));
   assert.ok(top < -20, `the bend bulges past its ends, up to y ${top}`);
 
-  const box = elementBounds(shaft, new Map([['a', shaft]]), LAYOUT);
+  const box = drawnGeometry(shaft, new Map([['a', shaft]]), LAYOUT).bounds;
   // The written SVG keeps hundredths, so the ink as written can sit a hair
   // outside the box, which is measured in full precision.
   const written = 0.02;

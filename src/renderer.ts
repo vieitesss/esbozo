@@ -62,10 +62,6 @@ const EMPTY_PAGE = { width: 320, height: 240 };
 const GREY_INK_PERCENT = [0, 12, 24, 38, 55, 72, 100] as const;
 const GREY_LAST = GREY_INK_PERCENT.length - 1;
 
-export type { Box } from './layout.js';
-
-export { elementsById };
-
 export function renderScene(scene: Scene, layout: Layout): string {
   const canonical = canonicalScene(scene);
   const byId = elementsById(canonical.elements);
@@ -129,7 +125,11 @@ function pageOfBounds(bounds: readonly Box[]): Box {
   };
 }
 
-export function elementBounds(
+/**
+ * The box an Element covers, a Label's words included: what `pageBounds` joins
+ * into the page, and what the Editor selects and fits by.
+ */
+function elementBounds(
   element: Element,
   byId: ReadonlyMap<string, Element>,
   layout: Layout,
@@ -137,55 +137,11 @@ export function elementBounds(
   return drawnGeometry(element, byId, layout).bounds;
 }
 
-export function outlineBox(element: OutlinedElement): Box {
+function outlineBox(element: OutlinedElement): Box {
   return { x: element.x, y: element.y, width: element.width, height: element.height };
 }
 
-/**
- * The two ends an arrow or line draws, each Snapped end resolved onto its
- * target's outline and a covered bend's ink stopped where it enters: the shaft
- * the editor picks by, so a click follows the ink rather than the empty box
- * around it.
- *
- * The ends are the canonical ones the SVG is drawn from, rounded like a saved
- * Scene. A Scene in hand keeps more precision than a file writes, and a shaft's
- * Label is placed from the ends the page drew: a fraction of a pixel would tilt
- * the shaft enough to put the words on the other side of it.
- */
-export function drawnShaft(
-  element: ArrowOrLineElement,
-  byId: ReadonlyMap<string, Element>,
-): [Point, Point] {
-  const ends = drawnGeometry(element, byId).ends;
-  if (ends === null) {
-    throw new Error(`${element.id}: only an arrow or line draws ends`);
-  }
-  return [ends[0], ends[1]];
-}
-
-export interface ShaftInk {
-  readonly path: ShaftPath;
-  readonly heads: readonly HeadInk[];
-}
-
-export function shaftInk(element: ArrowOrLineElement, byId: ReadonlyMap<string, Element>): ShaftInk {
-  const drawn = drawnGeometry(element, byId);
-  if (drawn.path === null) {
-    throw new Error(`${element.id}: only an arrow or line draws a shaft`);
-  }
-  return { path: drawn.path, heads: drawn.heads };
-}
-
-export function shaftLabel(
-  element: ArrowOrLineElement,
-  byId: ReadonlyMap<string, Element>,
-  layout: Layout,
-): Block | null {
-  const drawn = drawnGeometry(element, byId, layout);
-  return drawn.path === null ? null : drawn.words;
-}
-
-export function strokeWidthOf(element: Element): number {
+function strokeWidthOf(element: Element): number {
   return STROKE_WIDTH_PX[element.stroke.width];
 }
 
@@ -198,7 +154,7 @@ export function strokeWidthOf(element: Element): number {
  */
 const GLYPH_HANG_EM = 0.25;
 
-export function wordsInkBounds(words: Block): Box {
+function wordsInkBounds(words: Block): Box {
   const hang = words.size * GLYPH_HANG_EM;
   return { x: words.x - hang, y: words.y, width: words.width + hang * 2, height: words.height };
 }

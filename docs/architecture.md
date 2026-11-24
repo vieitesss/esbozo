@@ -10,14 +10,16 @@ esbozo has four modules behind small interfaces, and three programs built from t
 
 **Renderer** (`src/renderer.ts`, with the outline maths in `src/geometry.ts`) turns a Scene and a Layout into an SVG string. It is pure: the same Scene measured with the same font file gives the same bytes. Rough.js draws the hand-made paths, each Element with its own seed. Colours and font are CSS variables (`--ink`, `--paper`, `--muted`, `--font-hand`), each written with the light theme's value as its own fallback so a saved SVG opened with no stylesheet around it still draws; the grey steps are fixed mixes of ink into paper, and the SVG carries the Scene hash and a title. It resolves each Snapped end onto its target's outline. It depends on Scene and Layout.
 
-**Editor** (`src/editor/`) is the `<esbozo-editor>` custom element. It holds the Scene in memory, paints it with the Renderer, and turns pointer and keyboard input into Scene changes. It saves the Scene and its SVG through the folder interface in `src/editor/files.ts`, which has three implementations: a picked folder, a folder served by `ez serve` (`server-folder.ts`), and the one Scene two URLs name (`scene-url.ts`, the bundle's). It depends on Scene, Layout and Renderer, and on the two shared files above; it imports nothing from the CLI.
+It answers one question about an Element's drawn place: `drawnGeometry(element, byId, layout)` returns the bounds, the ink, the Element's own box, both ends as they draw, the path, the heads, the bend points, the dots, the Label's words and box, and the stroke width. That query is the whole of the geometry the Editor reads, and the Renderer exports no finer-grained answer beside it: the outline maths in `src/geometry.ts` stays the Renderer's own, and `scripts/check-rules.mjs` fails when a module under `src/editor/` reaches for it or for the query's parts one at a time.
+
+**Editor** (`src/editor/`) is the `<esbozo-editor>` custom element. It holds the Scene in memory, paints it with the Renderer, and turns pointer and keyboard input into Scene changes. Everything it knows about where an Element draws — the box a handle sits on, the ink a press lands on, the ends a Snap resolves, the dots along a Shaft, the box a Label paints — it asks `drawnGeometry` for, so a pick, a handle and the page can never disagree; it imports no outline maths of its own. It saves the Scene and its SVG through the folder interface in `src/editor/files.ts`, which has three implementations: a picked folder, a folder served by `ez serve` (`server-folder.ts`), and the one Scene two URLs name (`scene-url.ts`, the bundle's). It depends on Scene, Layout and Renderer, and on the two shared files above; it imports nothing from the CLI.
 
 Each module depends only on the ones before it:
 
 - Scene: nothing.
 - Layout: Scene.
 - Renderer: Scene and Layout.
-- Editor: Scene, Layout and Renderer.
+- Editor: Scene, Layout and Renderer — the Renderer only through `drawnGeometry`.
 - CLI: Scene, Layout and Renderer, plus font, stylesheet, PNG and server code the editor never loads. It imports nothing from `src/editor/`.
 
 Nothing depends backwards: Scene knows nothing of rendering, Layout knows nothing of SVG, and the Renderer knows nothing of a browser or a file.
