@@ -1778,6 +1778,19 @@ class EsbozoEditorElement extends HTMLElement {
       this.#railClickOwed = null;
       return;
     }
+    // A drag of the strip is one pointer's, and another pointer's tap under it is
+    // no pick of its own (D6, D9): the tile would change the tool under the drag the
+    // first pointer is still making. A click the keys made belongs to no pointer and
+    // is the person's own answer, so it still picks. Once the drag is over, the
+    // first contact is everybody's again.
+    const drag = this.#railDrag;
+    if (
+      drag !== null &&
+      event.detail !== 0 &&
+      !(event instanceof PointerEvent && event.pointerId === drag.pointer)
+    ) {
+      return;
+    }
     const button = (event.target as Element | null)?.closest('[data-tool]') as HTMLElement | null;
     const tool = button?.dataset['tool'];
     if (tool !== undefined) {
