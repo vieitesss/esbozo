@@ -58,7 +58,7 @@ interface ExitRow {
  *
  * Adding a gesture or an exit is one change here.
  */
-export const EXIT_TABLE: Readonly<Record<Exit, ExitRow>> = {
+const EXIT_TABLE: Readonly<Record<Exit, ExitRow>> = {
   forget: {
     notes: 'clearAll',
     rail: 'forget',
