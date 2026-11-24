@@ -1,5 +1,5 @@
 /**
- * The probe helper, run as a probe writer runs it: `pnpm probe`, against the
+ * Script seam: the probe helper, run as a probe writer runs it: `pnpm probe`, against the
  * built page.
  *
  * Probes run through a real Chromium against the built editor: one reads the

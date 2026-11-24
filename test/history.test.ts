@@ -1,5 +1,5 @@
 /**
- * Seam 3: undo and redo over whole Scenes.
+ * Module seam: undo and redo over whole Scenes.
  *
  * A step is the Scene as autosave writes it, so this seam drives the history
  * with strings and checks what it keeps: 200 steps, and a total size a long

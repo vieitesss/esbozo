@@ -1,5 +1,5 @@
 /**
- * Seam 2: the command palette — every action with the key that runs it, the
+ * Browser seam: the command palette — every action with the key that runs it, the
  * rows a query keeps, the focus a palette hands back, and the actions it runs.
  * Driven by `Q`, `⌘K`, the arrows and Enter, and asserted on the Scene.
  */

@@ -1,5 +1,5 @@
 /**
- * Seam 3: the drawings an editor keeps between frames.
+ * Module seam: the drawings an editor keeps between frames.
  *
  * The editor saves what it has already drawn, out of the Element JSON and the
  * SVG fragments the page holds, instead of serialising and drawing the Scene a

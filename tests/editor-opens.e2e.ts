@@ -1,5 +1,5 @@
 /**
- * Seam 2: the Scenes note's opens — the last one a person asks for is the one
+ * Browser seam: the Scenes note's opens — the last one a person asks for is the one
  * the page holds. Two opens share one connection, so a read that answers for
  * the open before it is dropped where it lands, whatever it says: it never
  * replaces the Scene in hand, never moves the target of the next edit, and

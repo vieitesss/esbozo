@@ -1,7 +1,7 @@
 /**
  * The rules review kept finding by hand, as one script a machine runs.
  *
- * Six rules, each named by the ticket that paid for it:
+ * Seven rules, each named by the ticket that paid for it:
  *
  *   1. A browser-safe module imports no Node builtin. The editor's page, the
  *      bundle and the Scene all run in a browser, so `node:crypto` anywhere in
@@ -23,6 +23,9 @@
  *      maths, and no fine-grained drawing answer beside `drawnGeometry`: the
  *      drawn place has one answer, and a caller that works it out again is the
  *      second one that disagrees with the page.
+ *   7. Every `test/*.test.ts` and `tests/*.e2e.ts` names its seam in its
+ *      leading comment (`CLI seam`, `Browser seam`, `Module seam`, or
+ *      `Script seam`) and never uses a numbered `Seam <N>`.
  *
  * Usage: node scripts/check-rules.mjs [root]
  *
@@ -51,7 +54,7 @@ const SUITES = /^(?:test|tests)\//;
 /**
  * The `src/editor/` modules a Node test may load, as `test/modules.ts` loads
  * them today. The set is frozen on purpose: a Node test that needs another one
- * is asking the Editor for an inside, and Seam 2 is where it is proved.
+ * is asking the Editor for an inside, and the Browser seam is where it is proved.
  * `bend-point.ts` is the exception the rule allows: what it decides is one
  * arithmetic rule over a Scene and a view, and a tie in that rule is a place no
  * page is driven to on purpose. `snap.ts` is the same kind of exception: one
@@ -209,11 +212,17 @@ const MARKUP_TAGS_FOLDED = new Set([...MARKUP_TAGS].map((tag) => tag.toLowerCase
 /** The `src/` a test may not open: a path segment, whether written whole or by `join`. */
 const SRC = /(?:^|\/)src(?:\/|$)/;
 
+/** The test files whose leading comment must name their seam. */
+const NODE_TEST_FILE = /^test\/[^/]+\.test\.ts$/;
+const E2E_TEST_FILE = /^tests\/[^/]+\.e2e\.ts$/;
+const NUMBERED_SEAM = /\bSeam\s+\d+\b/;
+const NAMED_SEAM = /\b(CLI|Browser|Module|Script) seam\b/g;
+
 /** The rules, each one file: its parse tree, its text, and where to report. */
 /**
  * The rules, each one file: its parse tree, its text, and where to report.
  */
-const RULES = [nodeImports, avoidTerms, testSeams, testEditorModules, drawnGeometryOnly];
+const RULES = [nodeImports, avoidTerms, testSeams, testSeamLabels, testEditorModules, drawnGeometryOnly];
 
 /** Every finding the rules make, as `path:line: message`. */
 const findings = [];
@@ -369,6 +378,70 @@ function testSeams(file) {
       report(at, 'data-element-id reaches into the page: use a role, a name or a key');
     }
   }
+}
+
+/**
+ * Rule 7: every test file names its seam in its leading comment, using the
+ * named seams in CODING_STANDARDS.md rather than numbered seams.
+ */
+function testSeamLabels(file) {
+  const { path, text, report } = file;
+  const isNodeTest = NODE_TEST_FILE.test(path);
+  const isE2eTest = E2E_TEST_FILE.test(path);
+  if (!isNodeTest && !isE2eTest) return;
+
+  const comment = leadingComment(text);
+  const expected = isE2eTest ? 'Browser seam' : 'CLI seam, Module seam, or Script seam';
+  if (comment === undefined) {
+    report(0, `missing leading seam comment: name ${expected}`);
+    return;
+  }
+
+  const numbered = NUMBERED_SEAM.exec(comment.text);
+  if (numbered !== null) {
+    report(
+      comment.at + numbered.index,
+      `numbered seam "${numbered[0]}": use a named seam (CLI seam, Browser seam, Module seam, or Script seam)`,
+    );
+    return;
+  }
+
+  const found = [...comment.text.matchAll(NAMED_SEAM)].map((match) => match[1]);
+  if (found.length === 0) {
+    report(comment.at, `leading comment must name a seam (${expected})`);
+    return;
+  }
+
+  const allowed = isE2eTest ? new Set(['Browser']) : new Set(['CLI', 'Module', 'Script']);
+  const wrong = found.find((seam) => !allowed.has(seam));
+  if (wrong !== undefined) {
+    report(comment.at, `${isE2eTest ? 'tests/*.e2e.ts' : 'test/*.test.ts'} must use ${expected}, not ${wrong} seam`);
+  }
+}
+
+/** The leading comment of a file (block or consecutive line comments), if any. */
+function leadingComment(text) {
+  const at = text.search(/\S/);
+  if (at === -1) return undefined;
+  if (text.startsWith('/*', at)) {
+    const end = text.indexOf('*/', at + 2);
+    const stop = end === -1 ? text.length : end + 2;
+    return { at, text: text.slice(at, stop) };
+  }
+  if (text.startsWith('//', at)) {
+    let cursor = at;
+    while (cursor < text.length && text.startsWith('//', cursor)) {
+      const nl = text.indexOf('\n', cursor);
+      if (nl === -1) {
+        cursor = text.length;
+        break;
+      }
+      cursor = nl + 1;
+      while (cursor < text.length && (text[cursor] === ' ' || text[cursor] === '\t')) cursor += 1;
+    }
+    return { at, text: text.slice(at, cursor) };
+  }
+  return undefined;
 }
 
 /**

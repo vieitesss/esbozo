@@ -1,5 +1,5 @@
 /**
- * Seam 3: the one answer the Editor reads an Element's drawn geometry from.
+ * Module seam: the one answer the Editor reads an Element's drawn geometry from.
  *
  * `ez` cannot reach these cases: a file's Scene is parsed and canonical before
  * the CLI draws it, and no command picks an Element or drags a bend. The query

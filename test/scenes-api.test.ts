@@ -1,5 +1,5 @@
 /**
- * Seam 2: the listing the save API sends, as the page reads it — and the write
+ * Module seam: the listing the save API sends, as the page reads it — and the write
  * it takes back.
  *
  * The page has no other guard: a server that answers 200 with anything else has

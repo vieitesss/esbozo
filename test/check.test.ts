@@ -1,5 +1,5 @@
 /**
- * Seam 1: `ez check` on Scene files in temporary folders.
+ * CLI seam: `ez check` on Scene files in temporary folders.
  *
  * Everything here is external behaviour: the plain-text problems, the exit
  * codes and the files that are (not) written. The order of the checks is part

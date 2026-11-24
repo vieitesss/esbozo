@@ -1,5 +1,5 @@
 /**
- * Seam 2: Arrange and Spread — the layers an action steps a selection through,
+ * Browser seam: Arrange and Spread — the layers an action steps a selection through,
  * the edges and middles it lines them up on, and the gaps it evens out. The
  * answer is the saved geometry, never a path number.
  */

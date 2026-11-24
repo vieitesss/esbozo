@@ -1,5 +1,5 @@
 /**
- * Seam 1: `ez serve` runs for real, on a temporary folder.
+ * CLI seam: `ez serve` runs for real, on a temporary folder.
  *
  * Every request goes over http to a server the CLI started, and every
  * assertion reads the folder's files afterwards: nothing here reaches into the

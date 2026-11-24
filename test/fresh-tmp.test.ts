@@ -1,5 +1,5 @@
 /**
- * Seam 3: `scripts/fresh-tmp.mjs` around a command that makes temporary folders.
+ * Script seam: `scripts/fresh-tmp.mjs` around a command that makes temporary folders.
  *
  * A suite that leaves a folder behind is found today by a person looking at
  * `$TMPDIR`, one folder at a time, long after the run went green. So what is

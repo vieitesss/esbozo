@@ -1,5 +1,5 @@
 /**
- * Seam 2: a bend point, the handle the editor shows on it, the drag that moves
+ * Browser seam: a bend point, the handle the editor shows on it, the drag that moves
  * it, and the small dot halfway along each segment of a selected shaft that a
  * press pulls a new bend point out of.
  *

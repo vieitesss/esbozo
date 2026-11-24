@@ -1,5 +1,5 @@
 /**
- * Seam 1, the bundle: the built CLI needs nothing but Node and `dist/`.
+ * CLI seam, the bundle: the built CLI needs nothing but Node and `dist/`.
  *
  * The Docker image copies `dist/` alone — no `node_modules` — so this proves
  * that is enough: `render` (esbuild inlines its imports), `png` (resvg's wasm

@@ -1,5 +1,5 @@
 /**
- * Seam 2: what a press selects — a click, a box a drag sweeps, the drawn border
+ * Browser seam: what a press selects — a click, a box a drag sweeps, the drawn border
  * outside the box, the ink a glyph hangs outside its words, the halo of a lower
  * Element, and the resize handles the selection gets. The press is the browser's
  * own and the answer is the saved Scene, never the page's markup.

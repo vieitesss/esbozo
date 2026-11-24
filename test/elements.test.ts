@@ -1,5 +1,5 @@
 /**
- * Seam 1: every Element type and style value, through the built `ez` CLI.
+ * CLI seam: every Element type and style value, through the built `ez` CLI.
  *
  * The assertions are external behaviour only: the files written, exit codes,
  * stdout and stderr, plus the coordinates of the drawn paths where the ticket

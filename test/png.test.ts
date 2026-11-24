@@ -1,5 +1,5 @@
 /**
- * Seam 1: `ez png` on Scene files in temporary folders.
+ * CLI seam: `ez png` on Scene files in temporary folders.
  *
  * Everything here is external behaviour: the files written, stdout, stderr and
  * exit codes. Nothing imports src/. PNGs are read straight from the bytes: the

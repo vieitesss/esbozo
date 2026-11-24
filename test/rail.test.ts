@@ -1,5 +1,5 @@
 /**
- * The Rail exception to rule 4: `rail.ts` owns the Rail's dock maths and
+ * Module seam: the Rail exception to rule 4: `rail.ts` owns the Rail's dock maths and
  * pointer state machine with supplied measurements, so Node tests can prove
  * them directly.
  *

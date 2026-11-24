@@ -1,3 +1,6 @@
+/**
+ * Module seam: the Scene in hand (`src/editor/hand.ts`) over a supplied save callback.
+ */
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { loadProjectModules } from './modules.ts';

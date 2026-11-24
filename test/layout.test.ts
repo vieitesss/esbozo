@@ -1,5 +1,5 @@
 /**
- * Seam 3: Layout, the module the editor calls while typing.
+ * Module seam: Layout, the module the editor calls while typing.
  *
  * The CLI can report a Label that overflows, but it cannot grow an Element as
  * its words are typed, and it cannot show the box a Label occupies without

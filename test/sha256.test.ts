@@ -1,5 +1,5 @@
 /**
- * Seam 2: the portable hash behind the Scene hash and the per-Element seed.
+ * Module seam: the portable hash behind the Scene hash and the per-Element seed.
  *
  * The Renderer has to run in a browser as well as in the CLI, so the shared
  * modules cannot import `node:crypto`. Node's OpenSSL sha256 is the independent

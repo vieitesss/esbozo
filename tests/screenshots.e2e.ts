@@ -1,5 +1,5 @@
 /**
- * The screenshots a shot run writes: the editor in light and in dark, plus
+ * Browser seam: the screenshots a shot run writes: the editor in light and in dark, plus
  * the command palette over the paper.
  *
  * Skipped unless `ESBOZO_SHOTS` names a folder, so a normal run stays hermetic

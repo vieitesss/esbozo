@@ -1,5 +1,5 @@
 /**
- * Seam 1, the bundle and the package: `ez bundle` on a temp folder, and the
+ * CLI seam, the bundle and the package: `ez bundle` on a temp folder, and the
  * packed tarball run on its own.
  *
  * Nothing here publishes anything. `npm pack` writes a tarball, `npm install`

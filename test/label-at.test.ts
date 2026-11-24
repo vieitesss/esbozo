@@ -1,5 +1,5 @@
 /**
- * Seam 1: the two halves of a shaft Label's place.
+ * CLI seam: the two halves of a shaft Label's place.
  *
  * `shaftLabelAnchor` is where the drawing puts a shaft's words, and `labelAtFor`
  * is what the editor's drag reads back from the place the pointer let them go.

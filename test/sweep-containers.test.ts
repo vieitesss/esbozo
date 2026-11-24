@@ -1,5 +1,5 @@
 /**
- * Seam 3: `scripts/sweep-containers.mjs` against a docker that only records
+ * Script seam: `scripts/sweep-containers.mjs` against a docker that only records
  * what it was asked.
  *
  * Two `esbozo:test` containers outlived a killed run once, and the next run

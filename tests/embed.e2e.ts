@@ -1,5 +1,5 @@
 /**
- * Seam 2, the bundle: plain HTML pages holding only the element and its
+ * Browser seam, the bundle: plain HTML pages holding only the element and its
  * attributes.
  *
  * Nothing on these pages is esbozo's: no page script, no stylesheet request, no

@@ -1,6 +1,6 @@
 /**
  * One of the Label suites, split by what a person sees, not by module: `tests/labels-*.e2e.ts`.
- * Seam 2: the view moving under the words — a pan, a wheel zoom, the note that must not hide
+ * Browser seam: the view moving under the words — a pan, a wheel zoom, the note that must not hide
  * them — and the focus or the page taking the words away.
  */
 import { describe, test } from '@e2e-dev/web';

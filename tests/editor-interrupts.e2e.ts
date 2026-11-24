@@ -1,5 +1,5 @@
 /**
- * Seam 2: every way a gesture can end without a release, as one table.
+ * Browser seam: every way a gesture can end without a release, as one table.
  *
  * A gesture owns a lifecycle — a press, a preview, a saved Scene — and each way
  * it can be taken away is a column here: the browser cancels the pointer, the

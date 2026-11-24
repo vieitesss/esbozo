@@ -1,5 +1,5 @@
 /**
- * Seam 2: moving the selection — a drag and a nudge, the autosave that follows
+ * Browser seam: moving the selection — a drag and a nudge, the autosave that follows
  * both, the gesture the browser takes away, and the Snapped arrow ends a move
  * has to free. Asserted on the saved Scene, and on the pixels a half-finished
  * gesture leaves behind.

@@ -1,5 +1,5 @@
 /**
- * Seam 1, packaging: what `npm pack` would publish.
+ * Script seam, packaging: what `npm pack` would publish.
  *
  * The CLI embeds Kalam, so the font's OFL licence has to travel with the
  * tarball, not just sit in the repository. Packing runs `prepack`, which

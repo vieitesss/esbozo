@@ -1,5 +1,5 @@
 /**
- * Seam 1: Labels and Text through the built `ez` CLI.
+ * CLI seam: Labels and Text through the built `ez` CLI.
  *
  * Only outcomes a reader of the drawing would see are asserted here: the page
  * size, the PNG the command writes, the exit code and the plain-text problems.

@@ -1,5 +1,5 @@
 /**
- * Seam 1, the Linux runner: `scripts/e2e-linux.mjs` with a stub `docker` on
+ * Script seam, the Linux runner: `scripts/e2e-linux.mjs` with a stub `docker` on
  * `PATH`.
  *
  * A real run needs the daemon and a built image, so it is not part of `pnpm

@@ -1,5 +1,5 @@
 /**
- * Seam 3: `scripts/check-rules.mjs` on a folder of its own.
+ * Script seam: `scripts/check-rules.mjs` on a folder of its own.
  *
  * Every test here writes the files the rule is about into a temporary folder
  * and runs the script on it, so what is asserted is the script's whole
@@ -52,12 +52,27 @@ after(async () => {
 });
 
 /** A folder holding the given files, as a root the script can check. */
-async function root(files: Record<string, string>): Promise<string> {
+async function root(files: Record<string, string>, raw = false): Promise<string> {
   const folder = await mkdtemp(join(tmpdir(), 'esbozo-rules-'));
   folders.push(folder);
   await writeFile(join(folder, 'GLOSSARY.md'), GLOSSARY, 'utf8');
-  await put(folder, files);
+  await put(folder, raw ? files : withDefaultSeams(files));
   return folder;
+}
+
+/** Prepend a valid inline seam comment to synthetic test fixtures for rules 1–6. */
+function withDefaultSeams(files: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [path, contents] of Object.entries(files)) {
+    if (/^test\/[^/]+\.test\.ts$/.test(path)) {
+      out[path] = `/* CLI seam */ ${contents}`;
+    } else if (/^tests\/[^/]+\.e2e\.ts$/.test(path)) {
+      out[path] = `/* Browser seam */ ${contents}`;
+    } else {
+      out[path] = contents;
+    }
+  }
+  return out;
 }
 
 /** The files, written into a folder that already has a glossary. */
@@ -75,8 +90,8 @@ interface Run {
 }
 
 /** The script on that folder, as the lines it printed. */
-async function check(files: Record<string, string>): Promise<Run> {
-  return checkIn(await root(files));
+async function check(files: Record<string, string>, raw = false): Promise<Run> {
+  return checkIn(await root(files, raw));
 }
 
 /** The script on a folder prepared by hand. */
@@ -91,16 +106,16 @@ async function checkIn(folder: string): Promise<Run> {
 }
 
 /** The one finding a fixture produced, so the message is asserted whole. */
-async function finding(files: Record<string, string>): Promise<string> {
-  const run = await check(files);
+async function finding(files: Record<string, string>, raw = false): Promise<string> {
+  const run = await check(files, raw);
   assert.equal(run.code, 1, run.all);
   assert.equal(run.found.length, 1, run.all);
   return run.found[0]!;
 }
 
 /** A fixture that the rules must let through, with nothing printed. */
-async function quiet(files: Record<string, string>): Promise<void> {
-  const run = await check(files);
+async function quiet(files: Record<string, string>, raw = false): Promise<void> {
+  const run = await check(files, raw);
   assert.equal(run.code, 0, run.all);
   assert.deepEqual(run.found, []);
 }
@@ -829,4 +844,78 @@ test('the query, the helpers the Editor shares over a box, and the CLI are quiet
       "import { drawnGeometry } from './renderer.js';",
     ].join('\n'),
   });
+});
+
+// Rule 7: every test file names its seam in its leading comment.
+
+test('a test file without a leading seam comment is a finding', async () => {
+  const nodeLine = await finding({ 'test/render.test.ts': "import { test } from 'node:test';\n" }, true);
+  assert.match(
+    nodeLine,
+    /^test\/render\.test\.ts:1: missing leading seam comment: name CLI seam, Module seam, or Script seam$/,
+  );
+
+  const e2eLine = await finding({ 'tests/editor.e2e.ts': "import { test } from '@e2e-dev/web';\n" }, true);
+  assert.match(e2eLine, /^tests\/editor\.e2e\.ts:1: missing leading seam comment: name Browser seam$/);
+});
+
+test('a numbered seam in a test file header is a finding', async () => {
+  const line = await finding(
+    {
+      'test/render.test.ts': ['/**', ' * Seam 1: the built ez CLI.', ' */', "import { test } from 'node:test';"].join(
+        '\n',
+      ),
+    },
+    true,
+  );
+  assert.match(
+    line,
+    /^test\/render\.test\.ts:2: numbered seam "Seam 1": use a named seam \(CLI seam, Browser seam, Module seam, or Script seam\)$/,
+  );
+});
+
+test('a leading comment that names no seam is a finding', async () => {
+  const line = await finding(
+    {
+      'test/render.test.ts': ['/**', ' * Tests for rendering.', ' */', "import { test } from 'node:test';"].join('\n'),
+    },
+    true,
+  );
+  assert.match(
+    line,
+    /^test\/render\.test\.ts:1: leading comment must name a seam \(CLI seam, Module seam, or Script seam\)$/,
+  );
+});
+
+test('a test file naming a seam from the wrong directory is a finding', async () => {
+  const nodeLine = await finding(
+    {
+      'test/render.test.ts': ['/** Browser seam: wrong place. */', "import { test } from 'node:test';"].join('\n'),
+    },
+    true,
+  );
+  assert.match(
+    nodeLine,
+    /^test\/render\.test\.ts:1: test\/\*\.test\.ts must use CLI seam, Module seam, or Script seam, not Browser seam$/,
+  );
+
+  const e2eLine = await finding(
+    {
+      'tests/editor.e2e.ts': ['/** CLI seam: wrong place. */', "import { test } from '@e2e-dev/web';"].join('\n'),
+    },
+    true,
+  );
+  assert.match(e2eLine, /^tests\/editor\.e2e\.ts:1: tests\/\*\.e2e\.ts must use Browser seam, not CLI seam$/);
+});
+
+test('every valid named seam in its matching directory is quiet', async () => {
+  await quiet(
+    {
+      'test/cli.test.ts': ['/**', ' * CLI seam: runs ez.', ' */', "import { test } from 'node:test';"].join('\n'),
+      'test/mod.test.ts': ['// Module seam: exercises Layout.', "import { test } from 'node:test';"].join('\n'),
+      'test/scr.test.ts': ['/** Script seam: runs a script. */', "import { test } from 'node:test';"].join('\n'),
+      'tests/ui.e2e.ts': ['/**', ' * Browser seam: drives the editor.', ' */', "import { test } from '@e2e-dev/web';"].join('\n'),
+    },
+    true,
+  );
 });

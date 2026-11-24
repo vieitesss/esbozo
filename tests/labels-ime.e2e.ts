@@ -1,6 +1,6 @@
 /**
  * One of the Label suites, split by what a person sees, not by module: `tests/labels-*.e2e.ts`.
- * Seam 2: an input method's preedit and its commit. Chromium composes the words through
+ * Browser seam: an input method's preedit and its commit. Chromium composes the words through
  * `tests/cdp.ts`, because no dispatched event is a real composition.
  */
 import { describe, test } from '@e2e-dev/web';

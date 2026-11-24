@@ -1,6 +1,6 @@
 /**
  * One of the Label suites, split by what a person sees, not by module: `tests/labels-*.e2e.ts`.
- * Seam 2: a Label or a Text opens under a double-click or Enter, the keys type into it, and
+ * Browser seam: a Label or a Text opens under a double-click or Enter, the keys type into it, and
  * the words are written back — or refused — when the person leaves them.
  */
 import { describe, test } from '@e2e-dev/web';

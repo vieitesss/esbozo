@@ -1,5 +1,5 @@
 /**
- * Seam 3: the Scene fragment a copy carries, and the paste that reads it.
+ * Module seam: the Scene fragment a copy carries, and the paste that reads it.
  *
  * A fragment is Scene JSON text, so it is checked by the same parser a Scene
  * file is: a fragment from another schema is refused, one that names an

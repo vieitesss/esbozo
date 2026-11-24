@@ -1,5 +1,5 @@
 /**
- * Seam 2: Snap, the arrow or line end attached to an Element.
+ * Browser seam: Snap, the arrow or line end attached to an Element.
  *
  * Same rules as the editor suites (`tests/editor-*.e2e.ts`): the input is a
  * person's — the rail, the

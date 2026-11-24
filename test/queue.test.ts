@@ -1,5 +1,5 @@
 /**
- * Seam 3: `scripts/queue.mjs` around commands that must not run side by side.
+ * Script seam: `scripts/queue.mjs` around commands that must not run side by side.
  *
  * Four full e2e runs started at once from four worktrees once loaded an 8-core
  * machine to 83, and every one of them timed out. So what is asserted here is

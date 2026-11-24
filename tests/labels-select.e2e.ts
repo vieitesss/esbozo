@@ -1,6 +1,6 @@
 /**
  * One of the Label suites, split by what a person sees, not by module: `tests/labels-*.e2e.ts`.
- * Seam 2: selecting the drawn words — a drag across them, a Shift+click, a word taken by a
+ * Browser seam: selecting the drawn words — a drag across them, a Shift+click, a word taken by a
  * double-click — and the selection drawn behind the glyphs and over a fill.
  */
 import { describe, test } from '@e2e-dev/web';

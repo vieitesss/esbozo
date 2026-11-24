@@ -1,5 +1,5 @@
 /**
- * Seam 4: the step between the words a field holds and the words the page draws.
+ * Module seam: the step between the words a field holds and the words the page draws.
  *
  * A caret's offset is read from the field and drawn on glyphs the Renderer
  * placed from the words the Scene keeps. Between the two sit the blanks a trim

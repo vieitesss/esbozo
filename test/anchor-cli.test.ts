@@ -1,5 +1,5 @@
 /**
- * Seam 1: `ez anchor` and `ez snap` on Scene files in temporary folders.
+ * CLI seam: `ez anchor` and `ez snap` on Scene files in temporary folders.
  *
  * Everything here is external behaviour: the line on stdout, the exit code and
  * the Scene the command left on disk. `--all` promises the ink does not move, so
