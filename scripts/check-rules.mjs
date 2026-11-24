@@ -61,6 +61,8 @@ const SUITES = /^(?:test|tests)\//;
  * state machine with supplied measurements, so Node tests can prove them directly.
  * `hand.ts` is the exception for the Scene in hand: it owns the read-only gate,
  * landing, nudge folding, selection, and undo/redo over a supplied save callback.
+ * `exits.ts` is the exception for the exit table: it owns every exit row and
+ * held-thing column over supplied holders, so Node tests can prove the table directly.
  */
 const TEST_EDITOR_MODULES = new Set([
   'history.ts',
@@ -71,6 +73,7 @@ const TEST_EDITOR_MODULES = new Set([
   'snap.ts',
   'rail.ts',
   'hand.ts',
+  'exits.ts',
 ]);
 
 /** A path in a test that names a module under `src/editor/`: written whole, or as a loader builds it. */
