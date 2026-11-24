@@ -26,12 +26,14 @@ The package itself is not on the registry yet. `npm pack` builds the tarball —
 | Command | What it does |
 | --- | --- |
 | `ez check <scene>` | Prints each problem as `<element id>: <message>` on stderr, and nothing when the Scene is clean. Reports schema errors, Snap ends that point nowhere, and Labels that do not fit. A font note (a remote `@font-face` replaced by the bundled font) is not a problem: it prints on stderr and the exit code stays `0`. |
+| `ez anchor <scene> <element> <start\|end> <place>` | Puts one end of an arrow or line on a named place of its target's outline: `top`, `bottom`, `left`, `right`, `center`, a corner such as `bottom-left`, a pair of fractions such as `1,0.25`, or `none` to drop the Anchor and aim at the centre again. It writes the end's `x`, `y` where the Anchor draws it, prints the line it changed, and edits the Scene in place. `ez anchor <scene> --all` gives every Snapped end that has no Anchor the Anchor of where it draws today, so the SVG does not move. |
+| `ez snap <scene> <element> <start\|end> <target\|off>` | Attaches an end to an Element at the outline point nearest where it draws today, with the Anchor that keeps it there; `off` writes `"snap": false` and drops the Anchor. Prints the line it changed. |
 | `ez render <scene>` | Writes `<name>.svg` beside the Scene and prints its path. The same Scene and the same font file give the same bytes. A Scene is a `.esbozo` file, or a `.json` one that holds a Scene. |
 | `ez png <scene> --theme light\|dark` | Writes `<name>.<theme>.png` beside the Scene and prints its path. |
 | `ez serve <dir>` | Serves the editor on a folder of Scenes, and a save API for them. Runs until stopped. See [The editor](#the-editor). |
 | `ez bundle <dir>` | Writes the editor as one ES module, `<dir>/esbozo-<version>.js`, for a page of your own. An existing file of that name is replaced, so a page pins it with a one-file diff. See [Embedding the editor](#embedding-the-editor). |
 
-Flags take a separate value: `--theme dark`, never `--theme=dark`.
+Flags take a separate value: `--theme dark`, never `--theme=dark`. `ez anchor` and `ez snap` print `ez check`'s exit codes, and re-parse the Scene they built before saving it, so they never write one the schema turns down.
 
 ## The Scene
 
