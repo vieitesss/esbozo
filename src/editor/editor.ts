@@ -780,6 +780,9 @@ class EsbozoEditorElement extends HTMLElement {
     // the pan goes with it, and with the word it was naming in the status bar.
     this.#endEdits();
     this.#gestures.endSpacePan();
+    // A Space held across the switch was pressed on the last Scene's rail: the
+    // tile it found is that Scene's tool, and the release is no activation here.
+    this.#spaceButton = null;
     this.#showDefaultRoughness();
     this.#refresh();
   }
@@ -1677,8 +1680,12 @@ class EsbozoEditorElement extends HTMLElement {
       // A Space no pointer panned with is the focused button's own activation,
       // which the press above took the key from: a tile picks its tool as it does
       // with Enter. A press the pointer took to pan the page picked nothing, and
-      // a person holding Space to carry the page is not asking for a tool.
-      if (button !== null && !panned) {
+      // a person holding Space to carry the page is not asking for a tool. A
+      // button the focus left between the press and the release is no activation
+      // either: the release belongs to the control that holds the focus, as a
+      // native button's Space does, so it neither follows the focus to another
+      // tile nor clicks the one the press found.
+      if (button !== null && !panned && button.contains(event.target as Node | null)) {
         button.click();
       }
     }
