@@ -1372,6 +1372,44 @@ test('a press that moves 3 px on a tile picks that tool and leaves the rail wher
   );
 });
 
+/**
+ * Whether a tile is the tool in hand, as the page presses it: the one state a
+ * person sees on the strip, read without touching the Scene a pick changes.
+ */
+async function picked(ui: Ui, name: string): Promise<string | null> {
+  return ui.screen.getByRole('button', { name, exact: true }).getAttribute('aria-pressed');
+}
+
+test('a Space on a focused tile picks its tool, and a Space the pointer pans with picks nothing', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+
+  // Space is the activation Enter is, so the tile the focus sits on is what a
+  // keyboard person reaches: Rectangle is the tool in hand and Select is not.
+  await screen.getByRole('button', { name: 'Rectangle', exact: true }).focus();
+  await browser.keyboard.press('Space');
+  await settle(ui);
+  expect(await picked(ui, 'Rectangle'), 'the tile answered Space').toBe('true');
+  expect(await picked(ui, 'Select')).toBe('false');
+
+  // The Space a pointer took to pan the page is the page's, not the tile's: the
+  // Ellipse keeps the focus, the page moves under the pointer, and the rail keeps
+  // the Rectangle the keyboard picked in hand.
+  await screen.getByRole('button', { name: 'Ellipse', exact: true }).focus();
+  await browser.keyboard.down('Space');
+  await drag(ui, { x: 640, y: 560 }, { x: 640, y: 420 });
+  await browser.keyboard.up('Space');
+  await settle(ui);
+  expect(await picked(ui, 'Ellipse'), 'a Space that panned is no pick').toBe('false');
+  expect(await picked(ui, 'Rectangle')).toBe('true');
+
+  expect(await problems(ui), 'the page threw nothing').toEqual([]);
+});
+
 test('a mouse drag from a tile docks the rail on the nearest side and picks no tool', async ({
   app,
   browser,
