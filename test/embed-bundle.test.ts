@@ -58,6 +58,10 @@ test('ez bundle writes one versioned module, and a second run replaces it', asyn
   const parsed = await transform(bytes, { loader: 'js', format: 'esm' });
   assert.ok(parsed.code.length > 0);
   assert.ok(bytes.length > 1000, 'the bundle is the editor, not a stub');
+  assert.ok(
+    bytes.includes('data-source-hash='),
+    'the bundle stamps data-source-hash on the SVG it sends in PUT { scene, svg }',
+  );
 
   const second = await ez(['bundle', folder], ROOT);
   assert.equal(second.code, 0, second.stderr);
