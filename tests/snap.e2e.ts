@@ -28,6 +28,7 @@ import {
   allowWrites,
   cliCheckBytes,
   clickScene,
+  doubleClickScene,
   drag,
   dragBy,
   holdWrites,
@@ -1840,5 +1841,31 @@ describe('an end that carries an Anchor', () => {
       { x: 160, y: 80, snap: 'from' },
       { x: 300, y: 80, snap: 'to' },
     ]);
+  });
+
+  test('typing a Label that grows a box updates an Anchored end saved on it', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'held.json');
+
+    // Type enough words into `left` to grow its height past 80, then commit.
+    await doubleClickScene(ui, { x: 100, y: 80 }, SNAPPED);
+    await browser.keyboard.type(
+      'words that wrap and grow and keep growing past the edge of the box',
+    );
+    await browser.keyboard.press('Escape');
+
+    const scene = await savedAndChecked(ui, 'held.json');
+    const left = scene.elements[0];
+    expect(left?.height).toBeGreaterThan(80);
+    expect(scene.elements[2]?.points?.[0]).toEqual({
+      x: 160,
+      y: Math.round(40 + (left?.height ?? 0) * 0.5),
+      snap: 'left',
+      anchor: { x: 1, y: 0.5 },
+    });
   });
 });
