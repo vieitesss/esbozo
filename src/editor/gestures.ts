@@ -375,7 +375,7 @@ function attachTarget(
   const elements = host.scene().elements;
   const element = elements.find((candidate) => candidate.id === id);
   const shaft = element !== undefined && isShaft(element) ? element : undefined;
-  return snapTarget(elements, point, { shaft, end, skip: skipAttaching });
+  return snapTarget(elements, point, { shaft, end, skipAttach: skipAttaching });
 }
 
 /**
@@ -609,8 +609,8 @@ function resolveEnd(
     target: snapTarget(elements, pointer, {
       shaft,
       end: drag.which,
-      skip: skipSnap,
-      keepCurrent: true,
+      skipAttach: skipSnap,
+      keepCurrentTarget: true,
     }),
   };
 }

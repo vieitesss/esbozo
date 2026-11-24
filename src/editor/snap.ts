@@ -122,22 +122,28 @@ export function snapTarget(
   options: {
     readonly shaft?: ArrowOrLineElement | undefined;
     readonly end?: End;
-    readonly skip?: boolean;
-    readonly keepCurrent?: boolean;
-    readonly ignoreSwitch?: boolean;
+    readonly skipAttach?: boolean;
+    readonly keepCurrentTarget?: boolean;
+    readonly ignoreSnapSwitch?: boolean;
   } = {},
 ): string | null {
-  const { shaft, end = 'end', skip = false, keepCurrent = false, ignoreSwitch = false } = options;
-  if (keepCurrent && shaft !== undefined) {
+  const {
+    shaft,
+    end = 'end',
+    skipAttach = false,
+    keepCurrentTarget = false,
+    ignoreSnapSwitch = false,
+  } = options;
+  if (keepCurrentTarget && shaft !== undefined) {
     const current = attachedTo(shaft, end);
     if (current !== null) {
       return current;
     }
   }
-  if (skip) {
+  if (skipAttach) {
     return null;
   }
-  if (!ignoreSwitch && shaft !== undefined && !snapOn(shaft, end)) {
+  if (!ignoreSnapSwitch && shaft !== undefined && !snapOn(shaft, end)) {
     return null;
   }
   const other = shaft !== undefined ? otherTarget(shaft, end) : null;
@@ -158,7 +164,7 @@ export function withSnapSwitch(
   const byId = elementsById(elements);
   if (on) {
     const drawn = endPoint(element, end);
-    const target = snapTarget(elements, drawn, { shaft: element, end, ignoreSwitch: true });
+    const target = snapTarget(elements, drawn, { shaft: element, end, ignoreSnapSwitch: true });
     return target === null
       ? withEndPoint(element, end, { x: drawn.x, y: drawn.y })
       : withEnd(element, end, drawn, target, byId);

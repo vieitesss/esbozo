@@ -1,5 +1,6 @@
 /**
- * Seam 3: the four Snap rules over Scene JSON in and out.
+ * The Snap exception to rule 4 (`src/editor/snap.ts`): the four Snap rules over
+ * Scene JSON in and out.
  *
  * 1. Target choice (`snapTarget`): Snap switch, `Alt`, the other end, and
  *    staying on the current target.
@@ -53,16 +54,16 @@ const TWO_BOXES = {
   ],
 };
 
-test('snapTarget respects Alt, Snap switch, other end, and keepCurrent', () => {
+test('snapTarget respects Alt, Snap switch, other end, and keepCurrentTarget', () => {
   const scene = sceneOf(TWO_BOXES);
   const arrow = shaftOf(scene, 'arr');
 
   // Over box-b with switch on -> attaches to box-b.
   assert.equal(snapTarget(scene.elements, { x: 220, y: 50 }, { shaft: arrow, end: 'end' }), 'box-b');
 
-  // Alt held (`skip: true`) -> attaches to nothing.
+  // Alt held (`skipAttach: true`) -> attaches to nothing.
   assert.equal(
-    snapTarget(scene.elements, { x: 220, y: 50 }, { shaft: arrow, end: 'end', skip: true }),
+    snapTarget(scene.elements, { x: 220, y: 50 }, { shaft: arrow, end: 'end', skipAttach: true }),
     null,
   );
 
@@ -90,21 +91,21 @@ test('snapTarget respects Alt, Snap switch, other end, and keepCurrent', () => {
     'box-a',
   );
 
-  // An end with Snap switch off attaches to nothing unless `ignoreSwitch` is set.
+  // An end with Snap switch off attaches to nothing unless `ignoreSnapSwitch` is set.
   const offArrow = withSnapSwitch(scene.elements, arrow, 'end', false);
   assert.equal(snapTarget(scene.elements, { x: 220, y: 50 }, { shaft: offArrow, end: 'end' }), null);
   assert.equal(
-    snapTarget(scene.elements, { x: 220, y: 50 }, { shaft: offArrow, end: 'end', ignoreSwitch: true }),
+    snapTarget(scene.elements, { x: 220, y: 50 }, { shaft: offArrow, end: 'end', ignoreSnapSwitch: true }),
     'box-b',
   );
 
-  // Already-Snapped end with `keepCurrent: true` stays on box-a even over paper or with Alt.
+  // Already-Snapped end with `keepCurrentTarget: true` stays on box-a even over paper or with Alt.
   assert.equal(
     snapTarget(scene.elements, { x: 400, y: 400 }, {
       shaft: arrow,
       end: 'start',
-      skip: true,
-      keepCurrent: true,
+      skipAttach: true,
+      keepCurrentTarget: true,
     }),
     'box-a',
   );
