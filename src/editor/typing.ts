@@ -134,7 +134,13 @@ export class Typing {
       editing === null
         ? elements
         : elements.map((element) => (element.id === editing.id ? editing : element));
-    return draft === null ? words : [...words, draft];
+    // A draft whose id is already in the Scene has landed: the commit adds it to
+    // the Scene and the session only ends after that, so drawing the draft beside
+    // it would show one Text twice. The Scene's own copy is the one to draw, and
+    // the id is the whole test: a draft is made with an id the Scene was without.
+    return draft === null || elements.some((element) => element.id === draft.id)
+      ? words
+      : [...words, draft];
   }
 
   /** A Text is placed: the words are typed where the Text will sit. */
