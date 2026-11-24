@@ -1928,6 +1928,45 @@ test('a mouse a held rail drag ignored ends as ignored, so an in-flight touch dr
   expect(await keptSide(ui), 'the pen’s release docks the rail').toBe('left');
 });
 
+test('a tap picks nothing on a tile while another pointer holds a drag of the rail, and picks again after it lets go', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+  const band: Rect = { x: 400, y: 0, width: 480, height: 240 };
+  const opened = await railPlace(ui, band);
+  const { pen, touch } = await mixedPointers();
+  const grip = tileCentre(boxOfPlace(opened), 1);
+
+  // A pen presses Rectangle and carries it 20 px, past the click's 4 px slop, and
+  // stays down: the strip is that one pointer's until it lets go (D6).
+  await pen('mousePressed', grip.x, grip.y);
+  await pen('mouseMoved', grip.x + 20, grip.y);
+  await settle(ui);
+
+  // A finger taps the Ellipse tile while the pen still holds the drag. The tap is
+  // no pick of its own — a second contact under a drag picks nothing (D9) — so
+  // the drag keeps the strip and Select stays the tool in hand.
+  const ellipse = tileCentre(boxOfPlace(opened), 2);
+  await touch('touchStart', [{ x: ellipse.x, y: ellipse.y, id: 0 }]);
+  await touch('touchEnd', []);
+  await settle(ui);
+  expect(await picked(ui, 'Ellipse'), 'the tap under the drag picked nothing').toBe('false');
+  expect(await picked(ui, 'Select')).toBe('true');
+
+  // The pen lets go and the rail docks where its drag would; a tile is a pick
+  // again, with the pointer that presses it as the one that owns the strip.
+  await pen('mouseReleased', grip.x + 20, grip.y);
+  await settle(ui);
+  await screen.getByRole('button', { name: 'Ellipse', exact: true }).click();
+  await settle(ui);
+  expect(await picked(ui, 'Ellipse'), 'a tap picks again once the drag is over').toBe('true');
+
+  expect(await problems(ui), 'the page threw nothing').toEqual([]);
+});
+
 // ------------------------------------------------------- calling a drag off
 
 /** The band the empty Scene's strip hangs in: bare paper and the strip alone. */
