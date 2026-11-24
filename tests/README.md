@@ -40,7 +40,11 @@ is built from holds still. The worktree is copied into the container at run time
 without the host's `node_modules`, so a source change costs no rebuild, and the
 arguments are `e2e run`'s own — `pnpm e2e:linux tests/cdp.e2e.ts:42`,
 `pnpm e2e:linux --grep '<title>'` — with none it runs what `pnpm e2e` runs.
-Docker has to be running; `ESBOZO_*` and `OPENCODE_API_KEY` cross into the
+Docker has to be running, and it has to see the worktree: the run checks the
+mount in a container of its own first, and a Docker VM that does not share that
+folder — on macOS, one under `/tmp` unless Docker Desktop was told to share it —
+stops it at once with the host path, the likely cause and the fix, instead of a
+copy of nothing. `ESBOZO_*` and `OPENCODE_API_KEY` cross into the
 container and nothing else, the container is removed however the run ends, and
 the run exits with the suite's own code, so a failure is still a red shell. This
 is the loop for a `Meta+`-vs-`Ctrl+` or middle-click failure that only the Linux
