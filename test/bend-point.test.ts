@@ -47,9 +47,20 @@ function flat(): { line: ArrowOrLineElement; ink: ReturnType<typeof shaftInk> } 
 
 test('a dot exactly the clearance from a handle is drawn', () => {
   const { line, ink } = flat();
-  // The cutoff the page hands the rule today, in Scene units: the Scene distance
-  // is 20 and the cutoff 20.000000000000004, so the dot a person can see is lost.
-  const dots = bendDots(line, ink.path, { writable: true, clearance: CLEARANCE / VIEW.zoom });
+  // Seven pixels apart is clear of the handle, and the page's own pixels are what
+  // the rule reads: the Scene distance behind them is 20 and `seven / zoom` is
+  // 20.000000000000004, so a rule comparing Scene distances loses the dot.
+  const dots = bendDots(line, ink.path, { writable: true, view: VIEW, clearance: CLEARANCE });
 
   assert.deepEqual(dots.map((dot) => dot.index), [1]);
+});
+
+test('a dot closer to a handle than the clearance is left off', () => {
+  const { line, ink } = flat();
+  // The same ten Scene pixels either side of the dot, at a zoom that draws them
+  // six apart: closer than a handle and a dot may stand, so there is no mark.
+  const view: View = { ...VIEW, zoom: 0.3 };
+  const dots = bendDots(line, ink.path, { writable: true, view, clearance: CLEARANCE });
+
+  assert.deepEqual(dots, []);
 });

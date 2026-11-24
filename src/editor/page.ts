@@ -730,7 +730,8 @@ export class Page {
       }
       for (const dot of bendDots(element, path, {
         writable: this.#host.writable(),
-        clearance: DOT_CLEARANCE / this.viewport.view.zoom,
+        view: this.viewport.view,
+        clearance: DOT_CLEARANCE,
       })) {
         this.#appendDot(overlay, this.viewport.pagePoint(dot.at), dot.index, id);
       }
