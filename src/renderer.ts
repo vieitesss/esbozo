@@ -407,7 +407,7 @@ class Drawn implements DrawnGeometry {
   readonly #given: Element;
   /** The Element as the SVG draws it, rounded like a saved Scene. */
   readonly #element: Element;
-  readonly #byId: ReadonlyMap<string, Element>;
+  readonly #byId: ReadonlyMap<string, Element> | undefined;
   readonly #layout: Layout | undefined;
   readonly #path: () => ShaftPath | null;
   readonly #words: () => Block | null;
@@ -420,7 +420,11 @@ class Drawn implements DrawnGeometry {
   readonly #dots: () => readonly DrawnDot[];
   readonly #label: () => Box | null;
 
-  constructor(element: Element, byId: ReadonlyMap<string, Element>, layout?: Layout) {
+  constructor(
+    element: Element,
+    byId: ReadonlyMap<string, Element> | undefined,
+    layout?: Layout,
+  ) {
     // The same canonical Element `renderScene` draws: a Scene the editor mutates
     // keeps more precision than a saved one writes, and the bounds a host fits and
     // selects by have to be the bounds of the ink.
@@ -430,7 +434,7 @@ class Drawn implements DrawnGeometry {
     this.#layout = layout;
     this.#path = made(() => {
       const shaft = shaftOf(this.#element);
-      return shaft === null ? null : shaftPathOf(shaft, this.#byId);
+      return shaft === null ? null : shaftPathOf(shaft, this.#byIdOf());
     });
     this.#words = made(() => this.#wordsOf());
     this.#box = made(() => this.#boxOf());
@@ -512,6 +516,15 @@ class Drawn implements DrawnGeometry {
     }
     const { generator, fills, outlines } = this.#drawables();
     return outlinedSvg(this.#outlined(), this.#words(), generator, fills, outlines);
+  }
+
+  #byIdOf(): ReadonlyMap<string, Element> {
+    if (this.#byId === undefined) {
+      throw new Error(
+        `${this.#given.id}: resolving a Snap needs the Scene's own Elements`,
+      );
+    }
+    return this.#byId;
   }
 
   #layoutOf(): Layout {
@@ -596,12 +609,14 @@ class Drawn implements DrawnGeometry {
  * What the Renderer drew for one Element: its ink, its bounds, its ends and
  * bends where they land, its segment dots and its Label's box.
  *
- * `layout` is passed wherever the answer includes words; without one the query
- * answers the drawn shape alone and raises when it is asked to measure a Label.
+ * `byId` is the Scene the Element is drawn in, needed to resolve every Snap;
+ * `layout` is passed wherever the answer includes words. A query given neither
+ * still answers the bends it turns by, and raises when asked for an answer it
+ * cannot work out without them.
  */
 export function drawnGeometry(
   element: Element,
-  byId: ReadonlyMap<string, Element>,
+  byId?: ReadonlyMap<string, Element>,
   layout?: Layout,
 ): DrawnGeometry {
   return new Drawn(element, byId, layout);

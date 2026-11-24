@@ -280,3 +280,31 @@ test('a query without a Layout answers the ink and refuses to measure words', ()
     void labelled.bounds;
   }, /measuring words needs the Layout/);
 });
+
+test('a query without the Scene’s Elements answers the bends and nothing Snapped', () => {
+  const scene = parsed({
+    version: 1,
+    elements: [
+      {
+        id: 'a',
+        type: 'line',
+        points: [
+          { x: 0, y: 0 },
+          { x: 100, y: 100 },
+          { x: 200, y: 0 },
+        ],
+      },
+    ],
+  });
+  const shaft = shaftOf(scene, 'a');
+  const drawn = drawnGeometry(shaft);
+
+  assert.deepEqual(
+    drawn.bends.map((bend) => bend.index),
+    [1],
+    'the point it turns by needs no Scene',
+  );
+  assert.throws(() => {
+    void drawn.path;
+  }, /resolving a Snap needs the Scene's own Elements/);
+});
