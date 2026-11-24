@@ -612,7 +612,7 @@ describe('a shaft placed by clicking', () => {
     ]);
   });
 
-  test('a press on the rail finishes the place before it picks a tool', async ({
+  test('a press on the rail leaves a shaft in hand as it is, and a pick from it ends the place', async ({
     app,
     browser,
     screen,
@@ -628,17 +628,56 @@ describe('a shaft placed by clicking', () => {
     await clickScene(ui, walk[0]!);
     await clickScene(ui, walk[1]!);
 
-    // The rail is not a point of the shaft in hand: the press ends the place at
-    // its last point, and the tool it picked draws nothing by itself — a rail
-    // press is no click on the canvas.
-    await screen.getByRole('button', { name: 'Rectangle' }).click();
-    const scene = await savedScene(ui);
-    expect(scene.elements.map((element) => element.type)).toEqual([
-      'rectangle',
-      'rectangle',
-      'arrow',
+    // A press on the strip's own padding is a press on the page's chrome, and the
+    // board never hears it (D5): the shaft in hand keeps the points it has and
+    // nothing is written. Four pixels in from the strip's edge is its padding,
+    // where the tiles start eight in, and the release under the click slop picks
+    // no tool either.
+    await screen.getByRole('navigation', { name: 'Tools' }).click({ position: { x: 4, y: 30 } });
+    await settle(ui);
+    const written = await savedFiles(ui);
+    expect(Object.keys(written).sort(), 'a press on the rail writes nothing').toEqual(['scene.json']);
+    expect(
+      (JSON.parse(written['scene.json']!) as { elements: unknown[] }).elements.length,
+      'the shaft in hand is not committed',
+    ).toBe(2);
+    expect(
+      await screen.getByRole('button', { name: 'Arrow', exact: true }).getAttribute('aria-pressed'),
+      'the shaft is still in hand',
+    ).toBe('true');
+
+    // The place is where the press found it: the click after it puts its next
+    // point down, and Enter ends the shaft there.
+    await clickScene(ui, { x: 200, y: 300 });
+    await browser.keyboard.press('Enter');
+    const placed = (await savedScene(ui)).elements[2];
+    expect(placed?.type).toBe('arrow');
+    expect(placed?.points).toEqual([...walk, { x: 200, y: 300 }]);
+
+    // Picking a tool from the rail ends the place as the keys end it: the shaft
+    // lands at its last point — two points are a shaft, and no press of the rail
+    // beforehand had already saved one — and the tile is the tool in hand after.
+    await browser.keyboard.press('a');
+    await clickScene(ui, { x: 80, y: 340 });
+    await clickScene(ui, { x: 160, y: 380 });
+    await screen.getByRole('button', { name: 'Rectangle', exact: true }).click();
+    const after = await savedScene(ui);
+    expect(after.elements[3]?.points).toEqual([
+      { x: 80, y: 340 },
+      { x: 160, y: 380 },
     ]);
-    expect(scene.elements[2]?.points).toEqual(walk);
+    expect(
+      await screen.getByRole('button', { name: 'Rectangle', exact: true }).getAttribute('aria-pressed'),
+      'the pick is the tool in hand',
+    ).toBe('true');
+
+    // One point is no shaft, so a pick that ends a place there saves nothing: a
+    // half-placed shaft is never written by the tool it made room for.
+    await browser.keyboard.press('a');
+    await clickScene(ui, { x: 80, y: 400 });
+    await screen.getByRole('button', { name: 'Ellipse', exact: true }).click();
+    const half = await savedScene(ui);
+    expect(half.elements.length, 'one point is no shaft').toBe(4);
   });
 
   test('a secondary press mid-place puts down no point and finishes nothing', async ({
