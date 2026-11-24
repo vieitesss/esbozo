@@ -225,17 +225,36 @@ function sameOutline(outline: OutlinedElement, before: Element | undefined): boo
   );
 }
 
-/** One end freed where it draws now, the other end left as it is. */
-export function freedEnd(
+/**
+ * One shaft with every Snapped end matching `shouldFree` freed where it draws
+ * now, whole-pixel, with no Anchor. Both ends are read from `drawnGeometry`
+ * together while every target is still in `byId`, because a loop may hold one
+ * Element at both its ends and freeing one first would move the other.
+ */
+export function freedEnds(
   element: ArrowOrLineElement,
-  end: End,
+  shouldFree: (end: End, target: string) => boolean,
   byId: ReadonlyMap<string, Element>,
 ): ArrowOrLineElement {
-  if (!attachedTo(element, end)) {
+  const startTarget = attachedTo(element, 'start');
+  const endTarget = attachedTo(element, 'end');
+  const freeStart = startTarget !== null && shouldFree('start', startTarget);
+  const freeEnd = endTarget !== null && shouldFree('end', endTarget);
+  if (!freeStart && !freeEnd) {
     return element;
   }
-  const [start, finish] = drawnEnds(element, byId);
-  return withEnd(element, end, end === 'start' ? start : finish, null, byId);
+  const [drawnStart, drawnEnd] = drawnEnds(element, byId);
+  const last = element.points.length - 1;
+  const points = element.points.map((point, index) => {
+    if (index === 0 && freeStart) {
+      return drawnStart;
+    }
+    if (index === last && freeEnd) {
+      return drawnEnd;
+    }
+    return point;
+  });
+  return { ...element, points: points as ArrowOrLineElement['points'] };
 }
 
 /** Both ends as the Renderer draws them, Snap resolved and stored whole-pixel. */

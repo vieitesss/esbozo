@@ -8,7 +8,7 @@ import { withBend } from './bend-point.js';
 import { copies, fragmentOf, idsOf, replaced, without } from './elements.js';
 import { boxOf, landingOffset, moved } from './geometry.js';
 import type { Point, View } from './geometry.js';
-import { endPoint, freedEnd, isShaft, otherTarget, snapOn, targetAt, withEnd, withEndPoint } from './snap.js';
+import { endPoint, freedEnds, isShaft, otherTarget, snapOn, targetAt, withEnd, withEndPoint } from './snap.js';
 import type { End } from './snap.js';
 import { styled } from './style.js';
 import type { StyleKey } from './style.js';
@@ -231,7 +231,7 @@ export function switched(
   } else {
     // Freed where it draws first, so the point the `false` lands on is the one
     // the last frame shows, and no Anchor is left behind for a Snap that is gone.
-    const freed = freedEnd(element, end, byId);
+    const freed = freedEnds(element, (which) => which === end, byId);
     const spot = endPoint(freed, end);
     switched = withEndPoint(freed, end, { x: spot.x, y: spot.y, snap: false });
   }
