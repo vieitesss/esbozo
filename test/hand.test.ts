@@ -35,6 +35,32 @@ const SNAPPED_SCENE = JSON.stringify({
   ],
 });
 
+const BENT_SCENE = JSON.stringify({
+  version: 1,
+  title: 'bent-shaft',
+  elements: [
+    { id: 'box', type: 'rectangle', x: 100, y: 100, width: 120, height: 80 },
+    {
+      id: 'arr',
+      type: 'arrow',
+      points: [
+        { x: 220, y: 140 },
+        { x: 280, y: 100 },
+        { x: 340, y: 140 },
+      ],
+    },
+    {
+      id: 'loop',
+      type: 'arrow',
+      points: [
+        { x: 220, y: 120, snap: 'box', anchor: { x: 1, y: 0.25 } },
+        { x: 260, y: 140 },
+        { x: 220, y: 160, snap: 'box', anchor: { x: 1, y: 0.75 } },
+      ],
+    },
+  ],
+});
+
 describe('Hand (Scene in hand)', () => {
   it('refuses edits and undo/redo when read-only without changing state, saving, or consuming a step', () => {
     let writable = true;
@@ -157,5 +183,50 @@ describe('Hand (Scene in hand)', () => {
     assert.equal(arrow.points[0].y, 170);
     assert.equal(arrow.points[1].x, 340);
     assert.equal(arrow.points[1].y, 140);
+  });
+
+  it('switches a Bend point corner while keeping the picked Bend point, and returns false for missing shafts', () => {
+    const saved: Scene[] = [];
+    const hand = new Hand({
+      writable: () => true,
+      save: (scene) => saved.push(scene),
+    });
+    hand.load(mustParse(BENT_SCENE));
+    hand.select(['arr']);
+    hand.pickBend({ id: 'arr', index: 1 });
+
+    assert.equal(hand.switchCorner({ id: 'missing', index: 1 }, 'round'), false);
+    assert.equal(saved.length, 0);
+
+    assert.equal(hand.switchCorner({ id: 'arr', index: 1 }, 'round'), true);
+    assert.equal(saved.length, 1);
+    assert.deepEqual(hand.bend, { id: 'arr', index: 1 });
+    const arrow = hand.shaft('arr');
+    assert.ok(arrow !== null);
+    assert.equal(arrow.points[1].corner, 'round');
+  });
+
+  it('removes a Bend point and releases it, but refuses to leave a two-point self-loop', () => {
+    const saved: Scene[] = [];
+    const hand = new Hand({
+      writable: () => true,
+      save: (scene) => saved.push(scene),
+    });
+    hand.load(mustParse(BENT_SCENE));
+    hand.select(['loop']);
+    hand.pickBend({ id: 'loop', index: 1 });
+
+    // Self-loop with one bend cannot lose its last bend point.
+    assert.equal(hand.removeBend({ id: 'loop', index: 1 }), false);
+    assert.deepEqual(hand.bend, { id: 'loop', index: 1 });
+    assert.equal(saved.length, 0);
+
+    // Regular shaft removes its bend point and releases the picked bend.
+    hand.select(['arr']);
+    hand.pickBend({ id: 'arr', index: 1 });
+    assert.equal(hand.removeBend({ id: 'arr', index: 1 }), true);
+    assert.equal(hand.bend, null);
+    assert.equal(saved.length, 1);
+    assert.equal(hand.shaft('arr')?.points.length, 2);
   });
 });

@@ -7,11 +7,11 @@
  * outside, supplied as callbacks so the rules can be proved without a browser.
  */
 import { emptyScene, parseScene, serialiseScene } from '../scene.js';
-import type { Scene } from '../scene.js';
-import { PickedBend } from './bend-point.js';
+import type { ArrowOrLineElement, Corner, Element as SceneElement, Scene } from '../scene.js';
+import { PickedBend, shaftIn } from './bend-point.js';
 import type { Bend } from './bend-point.js';
-import { edited, nudged } from './edits.js';
-import type { Edited } from './edits.js';
+import { bendRemoved, cornerSwitched, deleted, edited, nudged, pasted } from './edits.js';
+import type { Edited, Landing } from './edits.js';
 import { History } from './history.js';
 import { sceneFile } from './paint.js';
 
@@ -67,6 +67,15 @@ export class Hand {
 
   get canRedo(): boolean {
     return this.#history.canRedo;
+  }
+
+  get writable(): boolean {
+    return this.#host.writable();
+  }
+
+  /** The Shaft with this id in the Scene in hand, or null when absent or not a Shaft. */
+  shaft(id: string): ArrowOrLineElement | null {
+    return shaftIn(this.#scene, id);
   }
 
   /** Replace the Scene in hand and reset selection, picked Bend point, and History. */
@@ -141,6 +150,43 @@ export class Hand {
     }
     this.land(edit, amend);
     this.#nudgedAt = this.#now();
+  }
+
+  /**
+   * Switch one Bend point to `corner`, keeping the picked Bend point. Returns
+   * false when the Shaft is missing so callers can refresh if needed.
+   */
+  switchCorner(bend: Bend, corner: Corner): boolean {
+    const edit = cornerSwitched(this.#scene, bend, corner);
+    if (edit === null) {
+      return false;
+    }
+    this.land(edit);
+    return true;
+  }
+
+  /**
+   * Remove one Bend point and release it. Returns false when the Shaft is
+   * missing or the removal would leave a two-point self-loop.
+   */
+  removeBend(bend: Bend): boolean {
+    const edit = bendRemoved(this.#scene, bend);
+    if (edit === null) {
+      return false;
+    }
+    this.#picked.letGo();
+    this.land(edit);
+    return true;
+  }
+
+  /** Delete the Elements with these ids, as one step. */
+  remove(ids: ReadonlySet<string>): void {
+    this.land(deleted(this.#scene, this.#selected, ids));
+  }
+
+  /** Paste copies of these Elements as one step, selected. */
+  insert(elements: readonly SceneElement[], landing: Landing): void {
+    this.land(pasted(this.#scene, elements, landing));
   }
 
   /** Undo one step if writable; never consumes a step when read-only. */
