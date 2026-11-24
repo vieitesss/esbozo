@@ -162,8 +162,10 @@ test('a fractional coordinate rounds to a whole pixel once, for the hash and the
   const at39point9 = await renderOne(boxAt(39.9, 40));
   const at41 = await renderOne(boxAt(41, 40));
 
-  assert.equal(at40point2, at40, 'x: 40.2 draws exactly what x: 40 draws');
-  assert.equal(at39point9, at40, 'x: 39.9 draws exactly what x: 40 draws');
+  const withoutSourceHash = (svg: string): string =>
+    svg.replace(/ data-source-hash="sha256:[0-9a-f]{64}"/, '');
+  assert.equal(withoutSourceHash(at40point2), withoutSourceHash(at40), 'x: 40.2 draws exactly what x: 40 draws');
+  assert.equal(withoutSourceHash(at39point9), withoutSourceHash(at40), 'x: 39.9 draws exactly what x: 40 draws');
   assert.equal(hashOf(at40point2), hashOf(at40));
 
   assert.match(at40, /viewBox="24 24 152 112"/);

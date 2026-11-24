@@ -273,7 +273,7 @@ test('corners on an ellipse change nothing: an ellipse has no corners', async ()
     elements: [{ ...ellipse, corners: 'sharp' }],
   });
 
-  assert.equal(round.replace(/sha256:[0-9a-f]{64}/, ''), sharp.replace(/sha256:[0-9a-f]{64}/, ''));
+  assert.equal(round.replace(/sha256:[0-9a-f]{64}/g, ''), sharp.replace(/sha256:[0-9a-f]{64}/g, ''));
 });
 
 test('a rough line still reaches the contact point of the outline it Snaps to', async () => {
@@ -865,7 +865,13 @@ test('a written labelAt draws as the position it saves as', async () => {
   );
   const saved = await renderOne(oneLine({ label: 'words', labelAt: { t: 0.1235, offset: 12 } }));
 
-  assert.equal(drafted, saved, 'finer precision draws the same Scene, hash included');
+  const withoutSourceHash = (svg: string): string =>
+    svg.replace(/ data-source-hash="sha256:[0-9a-f]{64}"/, '');
+  assert.equal(
+    withoutSourceHash(drafted),
+    withoutSourceHash(saved),
+    'finer precision draws the same Scene, hash included',
+  );
 });
 
 test('labelAt in a file must be finite, and a file is the only way to write infinity', async () => {
