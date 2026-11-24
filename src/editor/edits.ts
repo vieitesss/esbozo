@@ -1,13 +1,13 @@
 import { elementBounds, elementsById } from '../renderer.js';
 import { parseFragment } from '../scene.js';
-import type { Element as SceneElement, Scene } from '../scene.js';
+import type { ArrowOrLineElement, Element as SceneElement, Scene } from '../scene.js';
 import type { Layout } from '../layout.js';
 import { arranged } from './arrange.js';
 import type { ArrangeAct } from './arrange.js';
 import { copies, fragmentOf, idsOf, replaced, without } from './elements.js';
 import { boxOf, landingOffset, moved } from './geometry.js';
 import type { Point, View } from './geometry.js';
-import { freedEnd, isShaft } from './snap.js';
+import { endPoint, freedEnd, isShaft, otherTarget, snapOn, targetAt, withEnd, withEndPoint } from './snap.js';
 import type { End } from './snap.js';
 import { styled } from './style.js';
 import type { StyleKey } from './style.js';
@@ -109,30 +109,46 @@ export function nudged(
 }
 
 /**
- * Free one end of the selected arrow or line, where it draws now: the end stops
- * following its Element but does not move. An end that already follows nothing,
- * and a selection that holds no shaft, ask for nothing.
+ * Turn one end of the selected arrow or line on or off, where it draws now. Off
+ * writes `"snap": false` and leaves the end where the eye last saw it, with no
+ * Anchor and its `x`, `y` at that spot: it attaches to nothing until the switch
+ * is back on. On drops the `false` and attaches the end to the Element under it,
+ * with the Anchor of the outline point nearest it, or leaves it free over paper.
+ * An end already in the asked state asks for nothing.
  *
  * The caller hands over the Elements it selects as the page shows them, so an end
  * dragged along its target is read where the preview has slid it rather than
- * where the last save left it: a Detach pressed with the drag still in the hand
- * frees the end at the outline point the drag is showing.
+ * where the last save left it: a switch turned off with the drag still in the
+ * hand frees the end at the outline point the drag is showing.
  */
-export function detached(
+export function switched(
   scene: Scene,
   elements: readonly SceneElement[],
   end: End,
+  on: boolean,
 ): Edited | null {
   const element = elements[0];
-  if (element === undefined || !isShaft(element)) {
+  if (element === undefined || !isShaft(element) || snapOn(element, end) === on) {
     return null;
   }
-  const freed = freedEnd(element, end, elementsById(scene.elements));
-  if (freed === element) {
-    return null;
+  const byId = elementsById(scene.elements);
+  const drawn = endPoint(element, end);
+  let switched: ArrowOrLineElement;
+  if (on) {
+    const target = targetAt(scene.elements, drawn, otherTarget(element, end));
+    switched =
+      target === null
+        ? withEndPoint(element, end, { x: drawn.x, y: drawn.y })
+        : withEnd(element, end, drawn, target, byId);
+  } else {
+    // Freed where it draws first, so the point the `false` lands on is the one
+    // the last frame shows, and no Anchor is left behind for a Snap that is gone.
+    const freed = freedEnd(element, end, byId);
+    const spot = endPoint(freed, end);
+    switched = withEndPoint(freed, end, { x: spot.x, y: spot.y, snap: false });
   }
   return {
-    scene: { ...scene, elements: replaced(scene.elements, new Set([element.id]), () => freed) },
+    scene: { ...scene, elements: replaced(scene.elements, new Set([element.id]), () => switched) },
     selection: null,
   };
 }

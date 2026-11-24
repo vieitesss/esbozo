@@ -20,7 +20,7 @@ import type { ToolId } from './actions.js';
 import { drawn, drawnAtClick, freshId, idsOf, isClick } from './elements.js';
 import type { ElementTool } from './elements.js';
 import type { Page, Shown } from './page.js';
-import { attachedTo, endPoint, isShaft, otherEnd, targetAt, withEnd } from './snap.js';
+import { attachedTo, endPoint, isShaft, otherTarget, snapOn, targetAt, withEnd } from './snap.js';
 import type { End } from './snap.js';
 import type { TextSession } from './text-session.js';
 import type { Typing } from './typing.js';
@@ -1148,10 +1148,11 @@ export class Gestures {
 
   /**
    * The Element the end being dragged would attach to, or null when there is
-   * none. Alt held skips attaching, and a two-point shaft never takes the
-   * Element its other end is attached to: both ends of one straight arrow
-   * cannot attach to the same one. A shaft with a bend between its ends can,
-   * because that is a loop, and it comes back to the Element it left.
+   * none. Alt held skips attaching, and an end whose Snap switch is off attaches
+   * to nothing at all, whatever the drag passes over. A two-point shaft never
+   * takes the Element its other end is attached to: both ends of one straight
+   * arrow cannot attach to the same one. A shaft with a bend between its ends
+   * can, because that is a loop, and it comes back to the Element it left.
    */
   #attachTarget(id: string, end: End, point: Point, skipAttaching: boolean): string | null {
     if (skipAttaching) {
@@ -1159,10 +1160,13 @@ export class Gestures {
     }
     const elements = this.#host.scene().elements;
     const element = elements.find((candidate) => candidate.id === id);
-    const other =
-      element !== undefined && isShaft(element) && element.points.length === 2
-        ? attachedTo(element, otherEnd(end))
-        : null;
+    // The shaft a draw is making is not in the Scene yet, so it has no switch of
+    // its own to be off: only a shaft already landed can be one that never
+    // attaches.
+    if (element !== undefined && isShaft(element) && !snapOn(element, end)) {
+      return null;
+    }
+    const other = element !== undefined && isShaft(element) ? otherTarget(element, end) : null;
     return targetAt(elements, point, other);
   }
 

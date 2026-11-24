@@ -700,6 +700,7 @@ esbozo-editor .style-note .acts button {
 }
 
 esbozo-editor .style-note .acts button:hover { border-color: var(--line-strong); background: var(--line); }
+esbozo-editor .style-note .acts button[aria-pressed="true"] { border-color: var(--ink); background: var(--ink); color: var(--paper); }
 
 esbozo-editor .point-menu {
   position: absolute;

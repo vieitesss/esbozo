@@ -29,7 +29,7 @@ export function isShaft(element: Element): element is ArrowOrLineElement {
 }
 
 /** The end that is neither this one nor it. */
-export function otherEnd(end: End): End {
+function otherEnd(end: End): End {
   return end === 'start' ? 'end' : 'start';
 }
 
@@ -54,9 +54,37 @@ export function withPoint(
   return { ...element, points: points as ArrowOrLineElement['points'] };
 }
 
+/** This shaft with one end's point replaced: the other end and every bend is kept. */
+export function withEndPoint(
+  element: ArrowOrLineElement,
+  end: End,
+  point: Point,
+): ArrowOrLineElement {
+  return withPoint(element, endIndex(element, end), point);
+}
+
 /** The Element this end is attached to, or null when the end is free. */
 export function attachedTo(element: ArrowOrLineElement, end: End): string | null {
   return snapTargetId(endPoint(element, end));
+}
+
+/**
+ * Whether one end's Snap switch is on. An end attached to an Element is on, and
+ * so is a free end that writes no `snap` at all: both attach on their next drag
+ * over an Element. An end that writes `"snap": false` is off, and attaches to
+ * nothing until the switch turns it back on.
+ */
+export function snapOn(element: ArrowOrLineElement, end: End): boolean {
+  return endPoint(element, end).snap !== false;
+}
+
+/**
+ * The Element a two-point shaft's end may not attach to: the one its other end
+ * already holds. A longer shaft may hold one Element at both ends, because the
+ * bend between them is a loop.
+ */
+export function otherTarget(element: ArrowOrLineElement, end: End): string | null {
+  return element.points.length === 2 ? attachedTo(element, otherEnd(end)) : null;
 }
 
 /**
@@ -94,6 +122,9 @@ export function targetAt(
  * re-aiming at the target's centre. The stored `x`, `y` are where that Anchor
  * draws it, so the JSON reads true; `byId` is the Scene the target is found in,
  * the same one the Renderer resolves it against.
+ *
+ * A free end keeps the `"snap": false` its switch wrote: dragging an end whose
+ * Snap is off settles it where the pointer left it and attaches it to nothing.
  */
 export function withEnd(
   element: ArrowOrLineElement,
@@ -107,10 +138,14 @@ export function withEnd(
   const stored: Point = {
     x: Math.round(drawn.x),
     y: Math.round(drawn.y),
-    ...(target === null ? {} : { snap: target }),
+    ...(target === null
+      ? snapOn(element, end)
+        ? {}
+        : { snap: false }
+      : { snap: target }),
     ...(anchor === undefined ? {} : { anchor }),
   };
-  return withPoint(element, endIndex(element, end), stored);
+  return withEndPoint(element, end, stored);
 }
 
 /** The Anchor a drop on this target writes: the outline point nearest the drop, as fractions of the box. */

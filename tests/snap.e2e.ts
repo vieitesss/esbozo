@@ -299,6 +299,29 @@ const LOOSE_SCENE = {
 };
 const LOOSE_SOURCE = JSON.stringify(LOOSE_SCENE, null, 2);
 
+/**
+ * A line whose end writes `"snap": false` and draws on the paper beside `post`:
+ * the end a switch turned off over nothing, which switching on again leaves free.
+ */
+const OFF_PAPER_SCENE = {
+  version: 1,
+  title: 'Off paper',
+  defaults: { roughness: 0 },
+  elements: [
+    { id: 'post', type: 'rectangle', x: 300, y: 40, width: 120, height: 80 },
+    {
+      id: 'tie',
+      type: 'line',
+      points: [
+        { x: 60, y: 80 },
+        { x: 250, y: 80, snap: false },
+      ],
+      heads: { start: 'none', end: 'none' },
+    },
+  ],
+};
+const OFF_PAPER_SOURCE = JSON.stringify(OFF_PAPER_SCENE, null, 2);
+
 /** The view both of those Scenes land in: `post`'s bounds, at 1:1. */
 const PINNED: View = { zoom: 1, panX: 400, panY: 320 };
 
@@ -348,6 +371,7 @@ const SCENES = {
     'loop.json': LOOP_SOURCE,
     'pinned.json': PINNED_SOURCE,
     'loose.json': LOOSE_SOURCE,
+    'offpaper.json': OFF_PAPER_SOURCE,
     'held.json': HELD_SOURCE,
   },
 };
@@ -389,6 +413,19 @@ async function dragThenLetGoOfAlt(ui: Ui, from: Point, to: Point): Promise<void>
 /** Open the Snap fixture: the box `post`, and the free line `tie`. */
 async function open(ui: Ui, name = 'snap.json'): Promise<void> {
   await openEditor(ui, SCENES, name);
+}
+
+/**
+ * One end's Snap switch: on for an attached end and for a free one that attaches
+ * on its next drag, off for an end written `"snap": false`.
+ */
+function snapSwitch(ui: Ui, end: 'Start' | 'End') {
+  return control(ui, `${end} Snap`);
+}
+
+/** One end's row in the note: what it is attached to, or `free`. */
+function snapRow(ui: Ui, end: 'Start' | 'End') {
+  return ui.screen.getByRole('group', { name: end });
 }
 
 /** A point within a tolerance of where a drawn path reaches: whole-pixel ink. */
@@ -510,9 +547,11 @@ describe('an end drawn onto an Element', () => {
     await drag(ui, at(PAPER, SNAP), at(IN_POST, SNAP));
 
     // The draw settled through the one change hook, so the note the new arrow
-    // is selected under already knows what its end is attached to.
-    await expect(screen.getByRole('button', { name: 'Detach: end' })).toBeVisible();
-    await expect(screen.getByRole('button', { name: 'Detach: start' })).toBeHidden();
+    // is selected under already knows what its end is attached to, and that the
+    // free start's switch is on, ready to attach on its next drag.
+    await expect(snapRow(ui, 'End')).toContainText('attached to post');
+    await expect(snapRow(ui, 'Start')).toContainText('free');
+    await expect(snapSwitch(ui, 'Start')).toHaveAttribute('aria-pressed', 'true');
 
     // And one undo takes the whole draw back.
     await browser.keyboard.press('Meta+z');
@@ -624,14 +663,14 @@ describe('moving an end that already exists', () => {
       { x: 160, y: 80, snap: 'from' },
       { x: 300, y: 80, snap: 'to' },
     ]);
-    await expect(screen.getByRole('button', { name: 'Detach: end' })).toBeVisible();
+    await expect(snapRow(ui, 'End')).toContainText('attached to to');
   });
 
   test('Alt-clicking an attached end handle changes nothing', async ({ app, browser, screen }) => {
     const ui = { app, browser, screen };
     await open(ui, 'snapped.json');
     await clickScene(ui, { x: 230, y: 80 }, [], SNAPPED);
-    await expect(screen.getByRole('button', { name: 'Detach: end' })).toBeVisible();
+    await expect(snapRow(ui, 'End')).toContainText('attached to to');
 
     // A press and release that moved nothing is a click, not a drag: it must
     // not free the end, however Alt is held.
@@ -642,7 +681,7 @@ describe('moving an end that already exists', () => {
     await browser.mouse.up();
     await browser.keyboard.up('Alt');
 
-    await expect(screen.getByRole('button', { name: 'Detach: end' })).toBeVisible();
+    await expect(snapRow(ui, 'End')).toContainText('attached to to');
     const scene = await savedScene(ui, 'snapped.json');
     expect(scene.elements[2]?.points).toEqual([
       { x: 160, y: 80, snap: 'from' },
@@ -736,7 +775,7 @@ describe('moving an end that already exists', () => {
     ]);
   });
 
-  test('the menu names what each end is attached to, and Detach frees it as one step', async ({
+  test('the note names what each end is attached to, and its switch turns that off', async ({
     app,
     browser,
     screen,
@@ -745,24 +784,30 @@ describe('moving an end that already exists', () => {
     await open(ui, 'snapped.json');
 
     await clickScene(ui, { x: 230, y: 80 }, [], SNAPPED);
-    await expect(screen.getByRole('button', { name: 'Detach: start' })).toBeVisible();
-    await expect(screen.getByRole('button', { name: 'Detach: end' })).toBeVisible();
+    await expect(snapRow(ui, 'Start')).toContainText('attached to from');
+    await expect(snapRow(ui, 'End')).toContainText('attached to to');
+    await expect(snapSwitch(ui, 'Start')).toHaveAttribute('aria-pressed', 'true');
 
-    await screen.getByRole('button', { name: 'Detach: start' }).click();
+    await snapSwitch(ui, 'Start').click();
 
+    // The end is freed where it draws, keeps the `false` its switch wrote, and
+    // the row it belongs to says so.
     const scene = await savedScene(ui, 'snapped.json');
     expect(scene.elements[2]?.points).toEqual([
-      { x: 160, y: 80 },
+      { x: 160, y: 80, snap: false },
       { x: 300, y: 80, snap: 'to' },
     ]);
+    await expect(snapRow(ui, 'Start')).toContainText('free');
+    await expect(snapSwitch(ui, 'Start')).toHaveAttribute('aria-pressed', 'false');
 
-    // One undo takes the detach back, and nothing else with it.
+    // One undo takes the switch back, and nothing else with it.
     await browser.keyboard.press('Meta+z');
     const undone = await savedScene(ui, 'snapped.json');
     expect(undone.elements[2]?.points).toEqual([
       { x: 160, y: 80, snap: 'from' },
       { x: 300, y: 80, snap: 'to' },
     ]);
+    await expect(snapSwitch(ui, 'Start')).toHaveAttribute('aria-pressed', 'true');
   });
 });
 
@@ -910,14 +955,14 @@ describe('an attached end follows its Element', () => {
       { x: 390, y: 120, snap: 'post', anchor: { x: 0.25, y: 1 } },
     ]);
 
-    // Freed, the end is stored where it drew: the moved box's bottom edge, a
-    // quarter of the way across it.
+    // Switch the end off, and it is stored where it drew: the moved box's bottom
+    // edge, a quarter of the way across it.
     await clickScene(ui, { x: 100, y: 80 }, [], SNAP);
-    await screen.getByRole('button', { name: 'Detach: end' }).click();
+    await snapSwitch(ui, 'End').click();
     const freed = await savedScene(ui, 'snap.json');
     expect(freed.elements[1]?.points).toEqual([
       { x: 60, y: 80 },
-      { x: 390, y: 120 },
+      { x: 390, y: 120, snap: false },
     ]);
   });
 
@@ -983,11 +1028,11 @@ describe('an attached end follows its Element', () => {
     ]);
 
     await clickScene(ui, { x: 100, y: 80 }, [], SNAP);
-    await screen.getByRole('button', { name: 'Detach: end' }).click();
+    await snapSwitch(ui, 'End').click();
     const freed = await savedScene(ui, 'snap.json');
     expect(freed.elements[1]?.points).toEqual([
       { x: 60, y: 80 },
-      { x: 360, y: 120 },
+      { x: 360, y: 120, snap: false },
     ]);
   });
 
@@ -1017,21 +1062,22 @@ describe('an attached end follows its Element', () => {
 });
 
 describe('the note follows the Scene', () => {
-  test('undo puts a freed end\'s Detach button back', async ({ app, browser, screen }) => {
+  test('undo turns a switched-off end\'s Snap back on', async ({ app, browser, screen }) => {
     const ui = { app, browser, screen };
     await open(ui, 'snapped.json');
 
     await clickScene(ui, { x: 230, y: 80 }, [], SNAPPED);
-    await screen.getByRole('button', { name: 'Detach: start' }).click();
-    await expect(screen.getByRole('button', { name: 'Detach: start' })).toBeHidden();
+    await snapSwitch(ui, 'Start').click();
+    await expect(snapSwitch(ui, 'Start')).toHaveAttribute('aria-pressed', 'false');
 
-    // The history took the Snap back, so the note has to say what the Scene says.
+    // The history took the switch back, so the note has to say what the Scene says.
     await browser.keyboard.press('Meta+z');
-    await expect(screen.getByRole('button', { name: 'Detach: start' })).toBeVisible();
-    await expect(screen.getByRole('button', { name: 'Detach: end' })).toBeVisible();
+    await expect(snapSwitch(ui, 'Start')).toHaveAttribute('aria-pressed', 'true');
+    await expect(snapRow(ui, 'Start')).toContainText('attached to from');
+    await expect(snapRow(ui, 'End')).toContainText('attached to to');
   });
 
-  test('detaching an end attached to an Element named `-` updates the rows', async ({
+  test('switching off an end attached to an Element named `-` updates the rows', async ({
     app,
     browser,
     screen,
@@ -1040,18 +1086,146 @@ describe('the note follows the Scene', () => {
     await open(ui, 'hyphen.json');
 
     await clickScene(ui, { x: 230, y: 80 }, [], SNAPPED);
-    await expect(screen.getByRole('button', { name: 'Detach: start' })).toBeVisible();
-    await expect(screen.getByRole('button', { name: 'Detach: end' })).toBeVisible();
+    await expect(snapRow(ui, 'Start')).toContainText('attached to -');
+    await expect(snapRow(ui, 'End')).toContainText('attached to to');
 
     // An id is a name, `-` included: freeing that end is a different note.
-    await screen.getByRole('button', { name: 'Detach: start' }).click();
-    await expect(screen.getByRole('button', { name: 'Detach: start' })).toBeHidden();
-    await expect(screen.getByRole('button', { name: 'Detach: end' })).toBeVisible();
+    await snapSwitch(ui, 'Start').click();
+    await expect(snapRow(ui, 'Start')).toContainText('free');
+    await expect(snapRow(ui, 'End')).toContainText('attached to to');
 
     const scene = await savedScene(ui, 'hyphen.json');
     expect(scene.elements[2]?.points).toEqual([
-      { x: 160, y: 80 },
+      { x: 160, y: 80, snap: false },
       { x: 300, y: 80, snap: 'to' },
+    ]);
+  });
+});
+
+describe('the Snap switch on each end', () => {
+  test('switching an end off writes "snap": false where it draws, and on attaches it again', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'snapped.json');
+
+    await clickScene(ui, { x: 230, y: 80 }, [], SNAPPED);
+    await expect(control(ui, 'Start Snap')).toHaveAttribute('aria-pressed', 'true');
+    await control(ui, 'Start Snap').click();
+
+    // Off: the end stays where it draws, on `from`'s right edge, with no Anchor,
+    // and the file says so.
+    const off = await savedAndChecked(ui, 'snapped.json');
+    expect(off.elements[2]?.points).toEqual([
+      { x: 160, y: 80, snap: false },
+      { x: 300, y: 80, snap: 'to' },
+    ]);
+    await expect(control(ui, 'Start Snap')).toHaveAttribute('aria-pressed', 'false');
+
+    // On again over an Element: the end attaches there, at the outline point
+    // nearest the spot it drew, and the Anchor names it.
+    await control(ui, 'Start Snap').click();
+    const on = await savedAndChecked(ui, 'snapped.json');
+    expect(on.elements[2]?.points).toEqual([
+      { x: 160, y: 80, snap: 'from', anchor: { x: 1, y: 0.5 } },
+      { x: 300, y: 80, snap: 'to' },
+    ]);
+    await expect(control(ui, 'Start Snap')).toHaveAttribute('aria-pressed', 'true');
+
+    // One undo takes the switch on back off, and nothing else with it.
+    await browser.keyboard.press('Meta+z');
+    const undone = await savedScene(ui, 'snapped.json');
+    expect(undone.elements[2]?.points).toEqual([
+      { x: 160, y: 80, snap: false },
+      { x: 300, y: 80, snap: 'to' },
+    ]);
+  });
+
+  test('switched on over the paper, a free end stays free with no "snap" key', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'offpaper.json');
+
+    await clickScene(ui, { x: 180, y: 80 }, [], SNAP);
+    await expect(control(ui, 'End Snap')).toHaveAttribute('aria-pressed', 'false');
+
+    // Nothing is under the end, so on is a free end like one that never wrote a
+    // `snap`: it attaches to nothing, and no `false` is left behind.
+    await control(ui, 'End Snap').click();
+    const on = await savedScene(ui, 'offpaper.json');
+    expect(on.elements[1]?.points).toEqual([
+      { x: 60, y: 80 },
+      { x: 250, y: 80 },
+    ]);
+    await expect(control(ui, 'End Snap')).toHaveAttribute('aria-pressed', 'true');
+
+    // Off again writes the `false`, wherever the end is and whatever it holds.
+    await control(ui, 'End Snap').click();
+    const off = await savedScene(ui, 'offpaper.json');
+    expect(off.elements[1]?.points).toEqual([
+      { x: 60, y: 80 },
+      { x: 250, y: 80, snap: false },
+    ]);
+    await expect(control(ui, 'End Snap')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  test('the switch is a real control: reached by Tab, toggled with Space or Enter', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'snapped.json');
+    await clickScene(ui, { x: 230, y: 80 }, [], SNAPPED);
+
+    // One tab stop per end, in the order the ends are read.
+    await control(ui, 'Start Snap').focus();
+    await browser.keyboard.press('Tab');
+    await expect(control(ui, 'End Snap')).toBeFocused();
+
+    // Enter turns the end it holds off, and Space turns the same switch back on
+    // without another Tab: the note is rebuilt, and the focus stays on it.
+    await browser.keyboard.press('Enter');
+    const off = await savedScene(ui, 'snapped.json');
+    expect(off.elements[2]?.points).toEqual([
+      { x: 160, y: 80, snap: 'from' },
+      { x: 300, y: 80, snap: false },
+    ]);
+    await expect(control(ui, 'End Snap')).toBeFocused();
+    await expect(snapRow(ui, 'End')).toContainText('free');
+
+    await browser.keyboard.press('Space');
+    const on = await savedScene(ui, 'snapped.json');
+    expect(on.elements[2]?.points).toEqual([
+      { x: 160, y: 80, snap: 'from' },
+      { x: 300, y: 80, snap: 'to', anchor: { x: 0, y: 0.5 } },
+    ]);
+  });
+
+  test('an end whose switch is off attaches to nothing, whatever it is dragged over', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'loose.json');
+
+    await clickScene(ui, { x: 180, y: 80 }, [], SNAP);
+    await expect(control(ui, 'End Snap')).toHaveAttribute('aria-pressed', 'false');
+
+    // The end starts inside `post` and stays over it the whole drag: it goes
+    // where the pointer takes it and keeps the `false` that turned it off.
+    await dragBy(ui, { x: 320, y: 80 }, 40, 20, SNAP);
+
+    const scene = await savedAndChecked(ui, 'loose.json');
+    expect(scene.elements[1]?.points).toEqual([
+      { x: 60, y: 80 },
+      { x: 360, y: 100, snap: false },
     ]);
   });
 });
@@ -1156,8 +1330,8 @@ describe('a bent shaft keeps its bend', () => {
     await open(ui, 'bent.json');
     await clickScene(ui, BENT_ON, [], BENT);
 
-    await expect(screen.getByRole('button', { name: 'Detach: start' })).toBeVisible();
-    await expect(screen.getByRole('button', { name: 'Detach: end' })).toBeVisible();
+    await expect(snapRow(ui, 'Start')).toContainText('attached to a');
+    await expect(snapRow(ui, 'End')).toContainText('attached to b');
   });
 
   test('moving the shaft keeps both ends attached and carries the bend', async ({
@@ -1269,16 +1443,16 @@ describe('a bent shaft keeps its bend', () => {
     const ui = { app, browser, screen };
     await open(ui, 'bent.json');
     await clickScene(ui, BENT_ON, [], BENT);
-    // One Snap left: the start still follows `a`, and the freed end is a point of
-    // the shaft like the bend between them.
-    await screen.getByRole('button', { name: 'Detach: end' }).click();
+    // One Snap left: the start still follows `a`, and the switched-off end is a
+    // point of the shaft like the bend between them.
+    await snapSwitch(ui, 'End').click();
     await dragBy(ui, { x: 150, y: 130 }, 0, 60, BENT);
 
     const scene = await savedAndChecked(ui, 'bent.json');
     expect(scene.elements[2]?.points).toEqual([
       { x: 50, y: 110, snap: 'a' },
       { x: 300, y: 310, corner: 'sharp' },
-      { x: 500, y: 150 },
+      { x: 500, y: 150, snap: false },
     ]);
   });
 
@@ -1412,31 +1586,31 @@ describe('a bent shaft keeps its bend', () => {
     ]);
   });
 
-  test('Detach start frees the first point where it draws', async ({ app, browser, screen }) => {
+  test('switching Start off frees the first point where it draws', async ({ app, browser, screen }) => {
     const ui = { app, browser, screen };
     await open(ui, 'bent.json');
     await clickScene(ui, BENT_ON, [], BENT);
-    await screen.getByRole('button', { name: 'Detach: start' }).click();
+    await snapSwitch(ui, 'Start').click();
 
     const scene = await savedAndChecked(ui, 'bent.json');
     expect(scene.elements[2]?.points).toEqual([
-      { x: 100, y: 90 },
+      { x: 100, y: 90, snap: false },
       { x: 300, y: 250, corner: 'sharp' },
       { x: 550, y: 50, snap: 'b' },
     ]);
   });
 
-  test('Detach end frees the last point, not the bend', async ({ app, browser, screen }) => {
+  test('switching End off frees the last point, not the bend', async ({ app, browser, screen }) => {
     const ui = { app, browser, screen };
     await open(ui, 'bent.json');
     await clickScene(ui, BENT_ON, [], BENT);
-    await screen.getByRole('button', { name: 'Detach: end' }).click();
+    await snapSwitch(ui, 'End').click();
 
     const scene = await savedAndChecked(ui, 'bent.json');
     expect(scene.elements[2]?.points).toEqual([
       { x: 50, y: 50, snap: 'a' },
       { x: 300, y: 250, corner: 'sharp' },
-      { x: 500, y: 90 },
+      { x: 500, y: 90, snap: false },
     ]);
   });
 
@@ -1576,7 +1750,7 @@ describe('an end that carries an Anchor', () => {
     ]);
   });
 
-  test('Detach frees the end where its Anchor drew it, and drops the Anchor', async ({
+  test('switching an end off frees it where its Anchor drew it, and drops the Anchor', async ({
     app,
     browser,
     screen,
@@ -1584,12 +1758,12 @@ describe('an end that carries an Anchor', () => {
     const ui = { app, browser, screen };
     await open(ui, 'pinned.json');
     await clickScene(ui, { x: 180, y: 90 }, [], PINNED);
-    await screen.getByRole('button', { name: 'Detach: end' }).click();
+    await snapSwitch(ui, 'End').click();
 
     const scene = await savedAndChecked(ui, 'pinned.json');
     expect(scene.elements[1]?.points).toEqual([
       { x: 60, y: 80 },
-      { x: 300, y: 100 },
+      { x: 300, y: 100, snap: false },
     ]);
   });
 

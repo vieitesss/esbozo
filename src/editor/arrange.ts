@@ -23,12 +23,16 @@ export type BoundsOf = (element: Element) => Box | undefined;
 
 /**
  * Whether Arrange may move this Element: a Snapped end follows its target by
- * itself. An end written `"snap": false` follows nothing, so it is free to move
- * like an end that writes no `snap` at all.
+ * itself, so only the ends it does not follow move. A two-point shaft with a
+ * Snap on both ends has nothing to move, exactly as a body drag of it moves
+ * nothing; a shaft with one free end moves that end, as the same drag does. An
+ * end written `"snap": false` follows nothing, so it is free to move like an end
+ * that writes no `snap` at all.
  */
 function movable(element: Element): boolean {
   if (element.type === 'arrow' || element.type === 'line') {
-    return element.points.every((point) => snapTargetId(point) === null);
+    const straight = element.points.length === 2;
+    return element.points.some((point) => !straight || snapTargetId(point) === null);
   }
   return true;
 }

@@ -338,10 +338,16 @@ test('dragging an arrow Snapped at both ends moves nothing and keeps both Snaps'
     { x: 300, y: 80, snap: 'to' },
   ]);
 
-  // The arrow is still selected, and the note still names a Snap on each end:
-  // the drag did not let either go.
-  await expect(screen.getByRole('button', { name: 'Detach: start' })).toBeVisible();
-  await expect(screen.getByRole('button', { name: 'Detach: end' })).toBeVisible();
+  // The arrow is still selected, and a Snap is on at each end: the drag did not
+  // let either go.
+  await expect(screen.getByRole('button', { name: 'Start Snap' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(screen.getByRole('button', { name: 'End Snap' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
 });
 
 test('nudging an arrow Snapped at both ends moves nothing and keeps both Snaps', async ({
@@ -353,7 +359,10 @@ test('nudging an arrow Snapped at both ends moves nothing and keeps both Snaps',
   await openEditor(ui, { A: { 'snapped.json': SNAPPED_SOURCE } }, 'snapped.json');
 
   await clickScene(ui, { x: 230, y: 80 }, [], SNAPPED);
-  await expect(screen.getByRole('button', { name: 'Detach: end' })).toBeVisible();
+  await expect(screen.getByRole('button', { name: 'End Snap' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
   await ui.browser.keyboard.press('Shift+ArrowRight');
 
   // A nudge follows the drag rule for a two-point shaft: only a free end moves,
@@ -363,6 +372,12 @@ test('nudging an arrow Snapped at both ends moves nothing and keeps both Snaps',
     { x: 160, y: 80, snap: 'from' },
     { x: 300, y: 80, snap: 'to' },
   ]);
-  await expect(screen.getByRole('button', { name: 'Detach: start' })).toBeVisible();
-  await expect(screen.getByRole('button', { name: 'Detach: end' })).toBeVisible();
+  await expect(screen.getByRole('button', { name: 'Start Snap' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(screen.getByRole('button', { name: 'End Snap' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
 });

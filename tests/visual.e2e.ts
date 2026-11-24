@@ -338,10 +338,11 @@ test('the note says what each end of an arrow is attached to, and says nothing o
   const ui = { agent, app, browser, screen };
   await openEditor(ui, { A: { 'snapped.json': SNAPPED_SOURCE } }, 'snapped.json');
 
-  // The arrow alone: an attached end and the button that frees it, per end.
+  // The arrow alone: an attached end and the switch that turns its Snap off,
+  // per end.
   await clickScene(ui, { x: 230, y: 80 }, [], SNAPPED);
   await ui.agent.assert(
-    'inside the note at the right edge, one row says the arrow’s start is attached to the box named `from` and another says its end is attached to the box named `to`, and each of those two rows has a small button that would detach it',
+    'inside the note at the right edge, one row says the arrow’s start is attached to the box named `from` and another says its end is attached to the box named `to`, and each of those two rows has a switch that is on, with the name of its end on it',
     { vision: false },
   );
 
@@ -349,7 +350,7 @@ test('the note says what each end of an arrow is attached to, and says nothing o
   await clickScene(ui, { x: 100, y: 80 }, [], SNAPPED);
   await clickScene(ui, { x: 230, y: 80 }, ['Shift'], SNAPPED);
   await ui.agent.assert(
-    'the note speaks for two Elements and nowhere says that an end is attached to anything: there is no detach button in it, and no row naming a start or an end',
+    'the note speaks for two Elements and nowhere says that an end is attached to anything: there is no Snap switch in it, and no row naming a start or an end',
     { vision: false },
   );
 });
