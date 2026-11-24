@@ -61,3 +61,9 @@ corner. A bend point may write its own; one that writes none takes the Element's
 The guide drawn behind the Scene. A visual aid only: Elements move freely and
 never jump to it.
 _Avoid_: snap grid
+
+**Rail**:
+The hand-drawn strip of tools over the paper. A person drags it to dock on
+one of the editor's four sides; it hangs on that side again on the next visit.
+Moving it never changes the Scene.
+_Avoid_: toolbar
