@@ -20,6 +20,8 @@ const {
   drawnShaft,
   shaftInk,
   shaftLabel,
+  strokeWidthOf,
+  wordsInkBounds,
   elementBounds,
   renderElement,
   createLayout,
@@ -229,6 +231,12 @@ test('the query answers the ink and geometry the fine-grained answers promised',
     assert.deepEqual(drawn.bounds, elementBounds(element, byId, LAYOUT), `${element.id}: bounds`);
     assert.deepEqual(drawn.ink, painted.ink, `${element.id}: ink`);
     assert.deepEqual(drawn.words, painted.words, `${element.id}: words`);
+    assert.equal(drawn.strokeWidth, strokeWidthOf(element), `${element.id}: stroke width`);
+    assert.deepEqual(
+      drawn.label,
+      drawn.words === null ? null : wordsInkBounds(drawn.words),
+      `${element.id}: label box`,
+    );
 
     if (element.type === 'arrow' || element.type === 'line') {
       assert.deepEqual(drawn.path, shaftInk(element, byId).path, `${element.id}: path`);

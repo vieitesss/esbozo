@@ -3,16 +3,17 @@
  * caret's line and the viewport transform. Pure functions over plain values, so
  * the same code serves the pointer handlers and the tests.
  *
- * Where an Element is comes from the Renderer (`elementBounds`, `pageBounds`),
- * so the editor and a drawn page can never disagree. An arrow or line is picked
+ * Where an Element is comes from the Renderer's one drawn-geometry query, and
+ * where the page is from `pageBounds`, so the editor and a drawn page can never
+ * disagree. An arrow or line is picked
  * by how far the pointer is from the shaft it draws, not by the box around it: a
  * diagonal arrow's empty corner is bare canvas. Box-select still works on boxes,
  * because a box sweeps up only what it encloses.
  */
 import { alongSegment } from '../geometry.js';
 import type { ShaftPath } from '../geometry.js';
-import { elementBounds, wordsInkBounds, pageBounds, renderElement, shaftInk, shaftLabel, strokeWidthOf } from '../renderer.js';
-import type { HeadInk, ShaftInk } from '../renderer.js';
+import { drawnGeometry, pageBounds } from '../renderer.js';
+import type { DrawnGeometry, HeadInk } from '../renderer.js';
 import type { Layout } from '../layout.js';
 import { MIN_SIZE, isOutlined, snapTargetId, elementsById } from '../scene.js';
 import type { ArrowOrLineElement, Element, Scene } from '../scene.js';
@@ -53,7 +54,7 @@ export function boxOf(
   byId: ReadonlyMap<string, Element>,
   layout: Layout,
 ): Box | null {
-  return unionOf(elements.map((element) => elementBounds(element, byId, layout)));
+  return unionOf(elements.map((element) => drawnGeometry(element, byId, layout).bounds));
 }
 
 /** The box around every given box, or null when there is none. */
@@ -102,20 +103,18 @@ export function pickAt(
 ): Pick | null {
   const byId = elementsById(elements);
   const inkOf = (element: Element): Box =>
-    ink?.(element) ?? renderElement(element, byId, layout).ink;
+    ink?.(element) ?? drawnGeometry(element, byId, layout).ink;
   let halo: Pick | null = null;
   for (let index = elements.length - 1; index >= 0; index--) {
     const element = elements[index]!;
     if (element.type === 'arrow' || element.type === 'line') {
-      const label = shaftLabel(element, byId, layout);
-      if (label !== null) {
-        const box = wordsInkBounds(label);
-        if (holds(box, point)) {
-          return { element, label: box };
-        }
+      const drawn = drawnGeometry(element, byId, layout);
+      const label = drawn.label;
+      if (label !== null && holds(label, point)) {
+        return { element, label };
       }
-      const reach = Math.max(tolerance, strokeWidthOf(element) / 2);
-      if (holdsInk(shaftInk(element, byId), point, reach)) {
+      const reach = Math.max(tolerance, drawn.strokeWidth / 2);
+      if (holdsInk(drawn, point, reach)) {
         return { element, label: null };
       }
       continue;
@@ -189,10 +188,12 @@ const CURVE_CELL = 0.5;
  * its ends. The chord between two ends is no part of it — a bent shaft leaves
  * the space under its bend bare.
  */
-function holdsInk(ink: ShaftInk, point: Point, reach: number): boolean {
+function holdsInk(drawn: DrawnGeometry, point: Point, reach: number): boolean {
+  const path = drawn.path;
   return (
-    ink.path.pieces.some((piece) => pieceIsNear(piece, point, reach)) ||
-    ink.heads.some((head) => distanceToHead(head, point) <= reach)
+    path !== null &&
+    (path.pieces.some((piece) => pieceIsNear(piece, point, reach)) ||
+      drawn.heads.some((head) => distanceToHead(head, point) <= reach))
   );
 }
 
@@ -302,7 +303,7 @@ export function elementsInBox(
 ): Element[] {
   const byId = elementsById(elements);
   return elements.filter((element) => {
-    const other = elementBounds(element, byId, layout);
+    const other = drawnGeometry(element, byId, layout).bounds;
     return (
       other.x >= box.x &&
       other.y >= box.y &&
