@@ -116,7 +116,7 @@ These keys sit in `defaults` for the whole Scene, and on any Element, where they
 | --- | --- | --- | --- |
 | `roughness` | integer | `1` | `0` architect, `1` artist, `2` cartoonist. |
 | `stroke.width` | string | `"bold"` | `thin` (1px), `bold` (2px) or `extra` (4px). |
-| `stroke.style` | string | `"solid"` | `solid`, `dashed` or `dotted`. |
+| `stroke.style` | string | `"solid"` | `solid`, `dashed` or `dotted`. The style changes only how the stroke draws: the editor picks a dashed or dotted Shaft along its whole length, gaps included, as it picks a solid one. |
 | `fill.kind` | string | `"none"` | `none`, `solid`, `hachure` or `cross-hatch`. Nothing is filled unless the Scene asks. |
 | `fill.grey` | integer | `2` | `0` to `6`: a ladder of seven greys from paper (`0`) to ink (`6`). |
 | `tone` | string | `"ink"` | `ink` or `muted`: the colour of the stroke and the words. |
