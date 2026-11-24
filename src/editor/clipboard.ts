@@ -18,16 +18,20 @@ import { parseFragment, serialiseScene } from '../scene.js';
 import type { Element as SceneElement, Scene } from '../scene.js';
 import { fragmentOf } from './elements.js';
 import type { SaveTarget } from './connection.js';
+import type { Landing } from './edits.js';
+import type { Hand } from './hand.js';
 
 /**
- * What the commands ask of the editor: the Scene and its selection, the Scene
- * they speak for, and the one way an answer becomes an edit.
+ * What the commands ask of the editor: the Scene in hand, the selected Elements
+ * as shown, the Scene they speak for, and where pasted copies land.
  */
 export interface ClipboardHost {
-  /** The Scene in hand. */
-  scene(): Scene;
+  /** The Scene in hand: its Scene, insert, and remove. */
+  readonly hand: Hand;
   /** The selected Elements, as the page shows them. */
   selected(): readonly SceneElement[];
+  /** What a paste needs of the page to land where a person can see it. */
+  landing(): Landing;
   /** The connection this answer speaks for: one that arrives for another lands nowhere. */
   token(): number;
   /**
@@ -37,10 +41,6 @@ export interface ClipboardHost {
    * opens.
    */
   target(): SaveTarget | null;
-  /** Add the pasted copies, as one step, selected. */
-  insert(elements: readonly SceneElement[]): void;
-  /** Delete exactly these Elements, as one step. */
-  remove(ids: ReadonlySet<string>): void;
   /** The status line's word for words that will not land. */
   status(detail: string): void;
 }
@@ -87,7 +87,7 @@ export async function copySelection(host: ClipboardHost): Promise<void> {
   const connection = host.token();
   const target = host.target();
   try {
-    await clipboard.writeText(fragmentOf(host.scene(), host.selected()));
+    await clipboard.writeText(fragmentOf(host.hand.scene, host.selected()));
   } catch (error) {
     if (current(host, connection, target)) {
       host.status(`cannot copy: ${(error as Error).message}`);
@@ -109,7 +109,7 @@ export async function cutSelection(host: ClipboardHost): Promise<void> {
   const connection = host.token();
   const target = host.target();
   const copied = new Set(selected.map((element) => element.id));
-  const scene = host.scene();
+  const scene = host.hand.scene;
   const before = serialiseScene(scene);
   try {
     await clipboard.writeText(fragmentOf(scene, selected));
@@ -125,11 +125,11 @@ export async function cutSelection(host: ClipboardHost): Promise<void> {
     // nothing is said about a Scene the person did not cut from.
     return;
   }
-  if (serialiseScene(host.scene()) !== before) {
+  if (serialiseScene(host.hand.scene) !== before) {
     host.status('the Scene changed during the cut, so nothing was deleted');
     return;
   }
-  host.remove(copied);
+  host.hand.remove(copied);
 }
 
 /** Paste for a named action: the clipboard, read on the spot, landing in the Scene that asked. */
@@ -153,6 +153,6 @@ export async function pasteClipboard(host: ClipboardHost): Promise<void> {
   if (!current(host, connection, target)) {
     return;
   }
-  const scene = host.scene();
-  host.insert(parseFragment(text, scene.defaults) ?? []);
+  const scene = host.hand.scene;
+  host.hand.insert(parseFragment(text, scene.defaults) ?? [], host.landing());
 }

@@ -16,17 +16,16 @@
  * that Escape and a press beside it shut it. This module wires no listener of the
  * page's own, so nothing of it outlives the editor it is drawn in.
  *
- * The removal is `#removeBend`'s and the corner is `#switchCorner`'s: this module
- * names no change of its own, and asks the Bend point module — the one rule the
- * removal keeps, and the corner a point turns by — what each row may do, so a
- * point a self-loop must keep reads as disabled rather than failing on the press.
- * Ties to the editor are callbacks only, so the menu knows nothing about the
- * Scene and cannot change it by itself.
+ * The removal and the corner switch land through `Hand`: this module names no
+ * change of its own, and asks the Bend point module — the one rule the removal
+ * keeps, and the corner a point turns by — what each row may do, so a point a
+ * self-loop must keep reads as disabled rather than failing on the press.
  */
 import { bendFromHandle, cornerAt, mayRemove } from './bend-point.js';
-import type { Bend, ShaftOf } from './bend-point.js';
+import type { Bend } from './bend-point.js';
 import type { Corner } from '../scene.js';
 import type { Point } from './geometry.js';
+import type { Hand } from './hand.js';
 
 /** How far the panel keeps from the editor's edges: the tape above it still shows. */
 const INSET = 12;
@@ -44,20 +43,16 @@ export interface PointMenuOptions {
    * press means what it always did.
    */
   readonly canOpen: () => boolean;
-  /** The Shaft a mark names, which is what makes a press on it a bend point's. */
-  readonly shaft: ShaftOf;
+  /** The Scene in hand: its Shaft lookup, picked Bend point, corner switch and removal. */
+  readonly hand: Hand;
   /**
    * Whether the page still draws the Scene in hand: a mark the page painted for
    * another Scene names the point that Scene held, and a point's index is the
    * Scene's to give away.
    */
   readonly drawn: () => boolean;
-  /** Make the point the selection's, and paint it: the editor's own selection. */
-  readonly selectBend: (bend: Bend) => void;
-  /** Switch the point to its other corner, through the editor's one corner step. */
-  readonly switchCorner: (bend: Bend, corner: Corner) => void;
-  /** Remove the point, through the editor's one removal: a step and a write. */
-  readonly remove: (bend: Bend) => void;
+  /** Repaint the page after picking a Bend point or after a no-op menu action. */
+  readonly refresh: () => void;
   /** Shut the menu, through the stack that owns which note the page answers with. */
   readonly shut: () => void;
 }
@@ -114,7 +109,7 @@ export class PointMenu {
     // point, and a menu opened for it would act on a point no press aimed at.
     const point =
       this.#options.canvas.contains(target) && this.#options.drawn()
-        ? (bendFromHandle(target, this.#options.shaft)?.bend ?? null)
+        ? (bendFromHandle(target, (id) => this.#options.hand.shaft(id))?.bend ?? null)
         : null;
     if (point === null) {
       return false;
@@ -126,7 +121,8 @@ export class PointMenu {
     this.#at = { x: event.clientX, y: event.clientY };
     // The point is the selection's before the panel is drawn, so the handle the
     // menu opens over is painted the way the rows act on it.
-    this.#options.selectBend(point);
+    this.#options.hand.pickBend(point);
+    this.#options.refresh();
     return true;
   };
 
@@ -140,7 +136,7 @@ export class PointMenu {
     }
     // The removal's own rule, so the row is disabled on exactly the points the
     // key cannot remove.
-    const shaft = this.#options.shaft(bend.id);
+    const shaft = this.#options.hand.shaft(bend.id);
     const removal = this.#rows.get('delete')!;
     removal.disabled = shaft === null || !mayRemove(shaft);
     // The corner the point turns by today names the one its row offers: the
@@ -256,17 +252,19 @@ export class PointMenu {
     const corner = row === 'corner' ? this.#switchTo(bend) : null;
     this.#options.shut();
     if (row === 'corner') {
-      if (corner !== null) {
-        this.#options.switchCorner(bend, corner);
+      if (corner !== null && !this.#options.hand.switchCorner(bend, corner)) {
+        this.#options.refresh();
       }
       return;
     }
-    this.#options.remove(bend);
+    if (!this.#options.hand.removeBend(bend)) {
+      this.#options.refresh();
+    }
   }
 
   /** The corner the corner row switches the point to: the other one it turns by. */
   #switchTo(bend: Bend): Corner | null {
-    const shaft = this.#options.shaft(bend.id);
+    const shaft = this.#options.hand.shaft(bend.id);
     const corner = shaft === null ? null : cornerAt(shaft, bend.index);
     return corner === null ? null : other(corner);
   }

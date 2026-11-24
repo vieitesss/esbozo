@@ -11,9 +11,11 @@
  */
 import type { Layout } from '../layout.js';
 import { hasXmlInvalidChars, parseScene, serialiseScene } from '../scene.js';
-import type { Element as SceneElement, Scene, TextElement } from '../scene.js';
+import type { Element as SceneElement, TextElement } from '../scene.js';
+import { edited } from './edits.js';
 import { freshId, idsOf, newText, without } from './elements.js';
 import type { Point } from './geometry.js';
+import type { Hand } from './hand.js';
 import type { Page } from './page.js';
 import { TextSession } from './text-session.js';
 import { keptWords, withWords, wordsOf, wordsShift } from './words.js';
@@ -46,21 +48,17 @@ interface TypingHost {
    */
   page(): TypingPage;
 
-  /** The Scene in hand, and the measurement its Labels break with. */
-  scene(): Scene;
+  /** The Scene in hand: its Scene, selection, writability and landing gate. */
+  readonly hand: Hand;
   layout(): Layout;
-  /** True when this page may change the Scene at all: the one gate on opening a session. */
-  writable(): boolean;
 
   /** Disarm the drawing tool before the field opens. */
   useSelectTool(): void;
-  /** Select the Element being edited and make room for its words before focusing the field. */
-  selectElement(id: string): void;
+  /** The note follows the selection and the view makes room for it before the field takes focus. */
+  refresh(): void;
   /** The status line says why the Scene would not hold the words. */
   refused(problem: string): void;
 
-  /** A Scene change lands, as one history step and one write. */
-  applyScene(next: Scene, selected: readonly string[]): void;
   /** The words are closed, so the press that selected a word in them pairs with nothing. */
   forgetWordClick(): void;
 }
@@ -149,13 +147,13 @@ export class Typing {
     // A page that may not write has nowhere to put a Text, however the gesture
     // that placed it began: the refusal may have landed while the button was
     // still down. One gate, asked at the moment the field would open.
-    if (!host.writable()) {
+    if (!host.hand.writable) {
       return;
     }
     host.useSelectTool();
     // The Text the words will make, drawn on the page as they arrive: the page
     // shows what saving would render, and the field is only the caret and the keys.
-    const scene = host.scene();
+    const scene = host.hand.scene;
     this.#draft = newText(at, '', freshId('text', idsOf(scene.elements)), scene.defaults);
     this.#shift = wordsShift('', '');
     this.#text = new TextSession({
@@ -180,7 +178,7 @@ export class Typing {
     const host = this.#host;
     // A page with nowhere to save the words opens none, by either way in: one
     // gate, on the one question every Scene change asks.
-    if (!host.writable()) {
+    if (!host.hand.writable) {
       return;
     }
     host.useSelectTool();
@@ -191,7 +189,8 @@ export class Typing {
     this.#shift = wordsShift(words, words);
     // The note follows the selection, and the view makes room for it before the
     // field takes the focus: the words stay clear of the note under the caret.
-    host.selectElement(element.id);
+    host.hand.select([element.id]);
+    host.refresh();
     this.#text = new TextSession({
       host: host.field,
       name: element.type === 'text' ? 'Text' : 'Label',
@@ -288,7 +287,7 @@ export class Typing {
     if (words === '') {
       return true;
     }
-    const elements = [...this.#host.scene().elements, { ...draft, content: words }];
+    const elements = [...this.#host.hand.scene.elements, { ...draft, content: words }];
     return this.#land(elements, [draft.id]);
   }
 
@@ -318,7 +317,7 @@ export class Typing {
 
   /** The Scene these words would make, with this Element's words replaced. */
   #wordsScene(element: SceneElement, words: string): SceneElement[] {
-    const scene = this.#host.scene();
+    const scene = this.#host.hand.scene;
     if (words === '' && element.type === 'text') {
       return without(scene.elements, new Set([element.id]));
     }
@@ -332,7 +331,7 @@ export class Typing {
    * cannot hold the words, show its first problem without applying the edit.
    */
   #land(elements: SceneElement[], selected: readonly string[]): boolean {
-    const parsed = parseScene(serialiseScene({ ...this.#host.scene(), elements }));
+    const parsed = parseScene(serialiseScene({ ...this.#host.hand.scene, elements }));
     if (!parsed.ok) {
       const problem = parsed.problems[0];
       if (problem === undefined) {
@@ -341,7 +340,7 @@ export class Typing {
       this.#host.refused(problem.message);
       return false;
     }
-    this.#host.applyScene(parsed.scene, selected);
+    this.#host.hand.land(edited(this.#host.hand.scene, parsed.scene.elements, selected));
     return true;
   }
 }

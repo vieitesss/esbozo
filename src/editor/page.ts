@@ -33,7 +33,8 @@ import { HANDLES, boxOf, clearedView, handlePoint, unionOf } from './geometry.js
 import type { Box, Point } from './geometry.js';
 import type { Carried, Preview } from './gestures.js';
 import { bendDots, nameBendHandle, nameDot, sameBend } from './bend-point.js';
-import type { Bend, BendPoint } from './bend-point.js';
+import type { BendPoint } from './bend-point.js';
+import type { Hand } from './hand.js';
 import { PaintCache, paintedInk } from './paint.js';
 import type { Paint, SceneFiles } from './paint.js';
 import { isShaft } from './snap.js';
@@ -86,14 +87,10 @@ export interface Shown {
 /** What the page may show, and the measurement it lays everything out with. */
 interface PageHost {
   layout(): Layout;
-  /** The Scene's own Elements, in the Scene's order. */
-  scene(): Scene;
+  /** The Scene in hand, its selection, picked Bend point, and writability. */
+  readonly hand: Pick<Hand, 'scene' | 'selected' | 'bend' | 'writable'>;
   /** The Scene as the page shows it: committed Elements, the gesture and the words. */
   shown(): Shown;
-  /** The selection the overlay marks. */
-  selected(): readonly string[];
-  /** The one bend point that selection holds, and no other. */
-  bend(): Bend | null;
   /** The gesture in flight, as the drawing and the overlay read it. */
   preview(): Preview | null;
   /** Whether a gesture holds the pointer, so the view makes no room for the note. */
@@ -103,8 +100,6 @@ interface PageHost {
    * rail is held anywhere else: the room the note leaves cannot start before it.
    */
   railEdge(): number | null;
-  /** True when this page may change the Scene at all: a page that may only read marks no ink a press could pull out. */
-  writable(): boolean;
   /** The preview Element and the field whose caret the page draws. */
   readonly typing: Pick<Typing, 'editingId' | 'words'>;
 }
@@ -192,7 +187,7 @@ export class Page {
    * yet, and a press on those measures.
    */
   ink(element: SceneElement): Box | null {
-    return paintedInk(this.#painted, this.#paintedScene, this.#host.scene(), element);
+    return paintedInk(this.#painted, this.#paintedScene, this.#host.hand.scene, element);
   }
 
   /**
@@ -202,7 +197,7 @@ export class Page {
    * bends nowhere, or one whose index the Scene gave to another point.
    */
   drawn(): boolean {
-    return this.#paintedScene !== null && this.#paintedScene === this.#host.scene();
+    return this.#paintedScene !== null && this.#paintedScene === this.#host.hand.scene;
   }
 
   /**
@@ -254,7 +249,7 @@ export class Page {
       return;
     }
     const { elements: shown } = this.#host.shown();
-    const selected = new Set(this.#host.selected());
+    const selected = new Set(this.#host.hand.selected);
     const rail = this.#host.railEdge();
     this.viewport.view = clearedView(this.viewport.view, {
       selection: boxOf(
@@ -417,7 +412,7 @@ export class Page {
         // differently, so the drawings this gesture carries are made again —
         // once, here, before the transforms go back on. A move frame that
         // changed no measurement draws nothing.
-        this.#drawElements(this.#host.scene().elements);
+        this.#drawElements(this.#host.hand.scene.elements);
       }
       this.#moveGroups(carried);
       this.#followSnaps(carried);
@@ -430,7 +425,7 @@ export class Page {
       return;
     }
     const { settled, elements: shown } = this.#host.shown();
-    const scene = this.#host.scene();
+    const scene = this.#host.hand.scene;
     if (settled && this.#paintedScene === scene) {
       return;
     }
@@ -544,7 +539,7 @@ export class Page {
     if (carried.elements.size === 0) {
       return;
     }
-    const scene = this.#host.scene();
+    const scene = this.#host.hand.scene;
     const byId = new Map<string, SceneElement>();
     for (const element of scene.elements) {
       byId.set(element.id, carried.elements.get(element.id) ?? element);
@@ -598,7 +593,7 @@ export class Page {
       }
     }
     const preview = this.#host.preview();
-    const selected = this.#host.selected();
+    const selected = this.#host.hand.selected;
     const boxes: Box[] = [];
     for (const id of selected) {
       const box = this.#shownBounds(id);
@@ -627,7 +622,7 @@ export class Page {
     }
     const snapTarget = preview?.snapTarget ?? null;
     if (snapTarget !== null) {
-      const target = this.#host.scene().elements.find((element) => element.id === snapTarget);
+      const target = this.#host.hand.scene.elements.find((element) => element.id === snapTarget);
       if (target !== undefined && isOutlined(target)) {
         // The Element the dragged end would attach to, so a drop is no surprise.
         const outline = this.viewport.pageBox(drawnGeometry(target).box);
@@ -720,7 +715,7 @@ export class Page {
         handles.push({ at: handlePoint(outline, handle), kind: 'handle', name: handle });
       }
     } else if (isShaft(element)) {
-      const byId = this.#painted?.byId ?? elementsById(this.#host.scene().elements);
+      const byId = this.#painted?.byId ?? elementsById(this.#host.hand.scene.elements);
       const drawn = drawnGeometry(element, byId);
       const ends = drawn.ends;
       if (ends !== null) {
@@ -733,7 +728,7 @@ export class Page {
         handles.push({ ...bend, at: this.viewport.pagePoint(bend.at), kind: 'bend' });
       }
       for (const dot of bendDots(drawn, {
-        writable: this.#host.writable(),
+        writable: this.#host.hand.writable,
         view: this.viewport.view,
         clearance: DOT_CLEARANCE,
       })) {
@@ -770,7 +765,7 @@ export class Page {
    * picked, filled with the selection's colour and nothing else about it changed.
    */
   #isBend(id: string, index: number): boolean {
-    return sameBend(this.#host.bend(), { id, index });
+    return sameBend(this.#host.hand.bend, { id, index });
   }
 
   /**
@@ -829,7 +824,7 @@ export class Page {
     if (element === undefined || !isShaft(element)) {
       return;
     }
-    const byId = this.#painted?.byId ?? elementsById(this.#host.scene().elements);
+    const byId = this.#painted?.byId ?? elementsById(this.#host.hand.scene.elements);
     const label = drawnGeometry(element, byId, this.#host.layout()).label;
     if (label === null) {
       return;
