@@ -766,3 +766,67 @@ test('a folder whose every e2e file its one script names is quiet', async () => 
     'tests/visual.e2e.ts': 'export const seen = true;\n',
   });
 });
+
+// Rule 6: the Editor reaches the Renderer only through its drawn-geometry query.
+
+test('an Editor module that reaches into the outline maths is a finding, with its line', async () => {
+  const line = await finding({
+    'src/editor/snap.ts': [
+      "import { drawnGeometry } from '../renderer.js';",
+      "import { shaftPath } from '../geometry.js';",
+    ].join('\n'),
+  });
+
+  assert.match(
+    line,
+    /^src\/editor\/snap\.ts:2: reaches "shaftPath" in the outline maths: ask drawnGeometry for the drawn place$/,
+  );
+});
+
+test('a fine-grained drawn-geometry answer beside the query is the same finding', async () => {
+  const line = await finding({
+    'src/editor/page.ts': "import { drawnGeometry, wordsInkBounds } from '../renderer.js';\n",
+  });
+
+  assert.match(
+    line,
+    /^src\/editor\/page\.ts:1: reaches "wordsInkBounds" in the Renderer: drawnGeometry is the one answer to a drawn place$/,
+  );
+});
+
+test('an alias and a re-export are read by the name the outline maths is known by', async () => {
+  const alias = await finding({
+    'src/editor/gestures.ts': "import { shaftDots as dots } from '../geometry.js';\n",
+  });
+  assert.match(alias, /^src\/editor\/gestures\.ts:1: reaches "shaftDots" in the outline maths/);
+
+  const reexport = await finding({
+    'src/editor/paint.ts': "export { cornerOf } from '../geometry.js';\n",
+  });
+  assert.match(reexport, /^src\/editor\/paint\.ts:1: reaches "cornerOf" in the outline maths/);
+});
+
+test('the outline maths under a namespace is the same finding, because no name is left to judge', async () => {
+  const line = await finding({
+    'src/editor/bend-point.ts': "import * as maths from '../geometry.js';\n",
+  });
+
+  assert.match(
+    line,
+    /^src\/editor\/bend-point\.ts:1: reaches the outline maths whole: name the export the Editor needs, or ask drawnGeometry$/,
+  );
+});
+
+test('the query, the helpers the Editor shares over a box, and the CLI are quiet', async () => {
+  await quiet({
+    'src/editor/page.ts': [
+      "import { drawnGeometry } from '../renderer.js';",
+      "import { anchorOf, insideOutline, labelAtFor } from '../geometry.js';",
+      "import type { ShaftPath } from '../geometry.js';",
+    ].join('\n'),
+    'src/cli.ts': [
+      "import { pointOnOutline, shaftPath } from './geometry.js';",
+      "import { drawnGeometry } from './renderer.js';",
+    ].join('\n'),
+  });
+});

@@ -1,7 +1,7 @@
 /**
  * The rules review kept finding by hand, as one script a machine runs.
  *
- * Five rules, each named by the ticket that paid for it:
+ * Six rules, each named by the ticket that paid for it:
  *
  *   1. A browser-safe module imports no Node builtin. The editor's page, the
  *      bundle and the Scene all run in a browser, so `node:crypto` anywhere in
@@ -19,6 +19,10 @@
  *   5. Every `tests/*.e2e.ts` runs in exactly one of the `e2e` scripts, and a
  *      file a script names exists. A suite added without its line in
  *      package.json ran nowhere, and CI stayed green while it did.
+ *   6. A module under `src/editor/` imports none of the Renderer's outline
+ *      maths, and no fine-grained drawing answer beside `drawnGeometry`: the
+ *      drawn place has one answer, and a caller that works it out again is the
+ *      second one that disagrees with the page.
  *
  * Usage: node scripts/check-rules.mjs [root]
  *
@@ -62,6 +66,53 @@ const TEST_EDITOR_MODULES = new Set([
 
 /** A path in a test that names a module under `src/editor/`: written whole, or as a loader builds it. */
 const EDITOR_MODULE = /(?:^|\/)editor\/([\w.-]+\.ts)$/;
+
+/**
+ * The Renderer's fine-grained drawn-geometry answers, the ones the query
+ * replaced, named one export at a time: the Editor reads `drawnGeometry` and
+ * nothing beside it, and this list is what says so if one comes back.
+ */
+const FINE_GRAINED = new Set([
+  'drawnShaft',
+  'elementBounds',
+  'outlineBox',
+  'shaftInk',
+  'shaftLabel',
+  'strokeWidthOf',
+  'wordsInkBounds',
+]);
+
+/**
+ * The outline maths in `src/geometry.ts` the Editor may not reach, because
+ * `drawnGeometry` is the ink's one answer: the Shaft's path, its corners, its
+ * dots, its heads and the cut a covered bend takes. The helpers the Editor
+ * already shares over an outline — `anchorPoint`, `anchorOf`, `insideOutline`,
+ * `alongSegment`, `labelAtFor` — are not here: a Snap and a Label's place are
+ * the Editor's own arithmetic over a box the Renderer answers.
+ */
+const OUTLINE_MATHS = new Set([
+  'arrowHeadTriangle',
+  'barThrough',
+  'cornerOf',
+  'curve',
+  'cutAtGap',
+  'fillets',
+  'pathMeetsGap',
+  'pointOnOutline',
+  'quadraticRoots',
+  'shaftDots',
+  'shaftLabelAnchor',
+  'shaftPath',
+  'shaftSide',
+  'shaftTangentAt',
+  'straight',
+  'uAt',
+  'writtenFraction',
+]);
+
+/** Where those names live, and where a fine-grained answer would come back. */
+const OUTLINE_MATHS_MODULE = 'src/geometry.ts';
+const RENDERER_MODULE = 'src/renderer.ts';
 
 /** The scripts a `tests/*.e2e.ts` runs in: exactly one of them runs it. */
 const E2E_SCRIPTS = ['e2e', 'e2e:agent', 'e2e:shots'];
@@ -147,7 +198,10 @@ const MARKUP_TAGS_FOLDED = new Set([...MARKUP_TAGS].map((tag) => tag.toLowerCase
 const SRC = /(?:^|\/)src(?:\/|$)/;
 
 /** The rules, each one file: its parse tree, its text, and where to report. */
-const RULES = [nodeImports, avoidTerms, testSeams, testEditorModules];
+/**
+ * The rules, each one file: its parse tree, its text, and where to report.
+ */
+const RULES = [nodeImports, avoidTerms, testSeams, testEditorModules, drawnGeometryOnly];
 
 /** Every finding the rules make, as `path:line: message`. */
 const findings = [];
@@ -322,6 +376,37 @@ function testEditorModules(file) {
       literal.at,
       `loads "${literal.text}": node:test reaches the Editor only through the allow-list in check-rules`,
     );
+  }
+}
+
+/**
+ * Rule 6: the Editor reaches an Element's drawn place through the Renderer's
+ * query, never through its outline maths.
+ *
+ * `drawnGeometry` is the one answer to where an Element draws, so a handle, a
+ * pick, a Snap and a Label's cue cannot each work it out again. A module under
+ * `src/editor/` may not import the Shaft maths in `src/geometry.ts`, and may
+ * not import a fine-grained geometry answer beside the query. Reaching for the
+ * maths module whole is the same finding: the rule could not then see which
+ * outline maths the Editor reads.
+ */
+function drawnGeometryOnly(file) {
+  const { path, source, report } = file;
+  if (!path.startsWith('src/editor/')) return;
+
+  for (const { specifier, name, at } of namedImports(source)) {
+    const module = resolved(path, specifier);
+    if (module === OUTLINE_MATHS_MODULE) {
+      if (name === undefined) {
+        report(at, 'reaches the outline maths whole: name the export the Editor needs, or ask drawnGeometry');
+      } else if (OUTLINE_MATHS.has(name)) {
+        report(at, `reaches "${name}" in the outline maths: ask drawnGeometry for the drawn place`);
+      }
+      continue;
+    }
+    if (module === RENDERER_MODULE && name !== undefined && FINE_GRAINED.has(name)) {
+      report(at, `reaches "${name}" in the Renderer: drawnGeometry is the one answer to a drawn place`);
+    }
   }
 }
 
@@ -643,6 +728,56 @@ function methodName(expression) {
   if (ts.isPropertyAccessExpression(expression)) return expression.name.text;
   if (ts.isIdentifier(expression)) return expression.text;
   return undefined;
+}
+
+/**
+ * The names a file imports from a module, and the module itself: a named
+ * import, a re-export, or the whole module under a namespace, which names no
+ * export at all. A type-only import is named like any other, because every
+ * name the rules know is a value name.
+ */
+function namedImports(source) {
+  const found = [];
+  every(source, (node) => {
+    if (ts.isImportDeclaration(node)) {
+      const specifier = textOf(node.moduleSpecifier);
+      const bindings = node.importClause?.namedBindings;
+      if (specifier === undefined || bindings === undefined) return;
+      if (ts.isNamespaceImport(bindings)) {
+        found.push({ specifier, name: undefined, at: node.getStart(source) });
+        return;
+      }
+      for (const element of bindings.elements) {
+        const name = element.propertyName ?? element.name;
+        found.push({ specifier, name: name.text, at: name.getStart(source) });
+      }
+      return;
+    }
+    if (!ts.isExportDeclaration(node)) return;
+    const specifier = node.moduleSpecifier === undefined ? undefined : textOf(node.moduleSpecifier);
+    const clause = node.exportClause;
+    if (specifier === undefined || clause === undefined || !ts.isNamedExports(clause)) return;
+    for (const element of clause.elements) {
+      const name = element.propertyName ?? element.name;
+      found.push({ specifier, name: name.text, at: name.getStart(source) });
+    }
+  });
+  return found;
+}
+
+/** The file a relative specifier names, as the `.ts` this repository writes. */
+function resolved(from, specifier) {
+  if (!specifier.startsWith('.')) return undefined;
+  const parts = from.split('/').slice(0, -1);
+  for (const part of specifier.split('/')) {
+    if (part === '' || part === '.') continue;
+    if (part === '..') {
+      parts.pop();
+      continue;
+    }
+    parts.push(part);
+  }
+  return parts.join('/').replace(/\.js$/, '.ts');
 }
 
 /** The specifiers a file imports, exports or requires, however it writes them. */
