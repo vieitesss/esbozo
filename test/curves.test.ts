@@ -925,6 +925,52 @@ test('a bend a move puts inside its target keeps the head on the near edge', asy
   );
 });
 
+test('a covered bend aims from the other end’s drawn place, not its stored one', async () => {
+  // The Review's -425px nudge of a Shaft Snapped into two boxes, as the Scene it
+  // saves: the move leaves the middle bend at (75,50) inside the left box, and
+  // the right end stored at (-25,50) while it is drawn on its own box at
+  // (300,50). So the ink reaching the left box arrives from the right, and the
+  // head belongs on that box's right edge with its wings clear of the fill.
+  // Aiming from the right end's stored place put the head on the far edge and
+  // ran a leg across the whole fill.
+  const { svg, apex, wings } = await drawnHead({
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [
+      { id: 'left', type: 'rectangle', x: 0, y: 0, width: 100, height: 100, fill: { kind: 'solid', grey: 1 } },
+      { id: 'right', type: 'rectangle', x: 300, y: 0, width: 100, height: 100 },
+      {
+        id: 'a',
+        type: 'arrow',
+        heads: { start: 'arrow', end: 'none' },
+        points: [
+          { x: -325, y: 50, snap: 'left' },
+          { x: 75, y: 50 },
+          { x: -25, y: 50, snap: 'right' },
+        ],
+      },
+    ],
+  });
+
+  assert.ok(
+    near(apex.x, 100) && near(apex.y, 50),
+    `the head sits on the near edge, got ${apex.x},${apex.y}`,
+  );
+  assert.ok(
+    wings.every((point) => point.x > 100),
+    `its wings sit outside the fill, got ${JSON.stringify(wings)}`,
+  );
+  const drawn = drawnPoints(attribute(shaftFrom(svg, { x: 100, y: 50 }), 'd') ?? '');
+  assert.ok(
+    drawn.every((point) => point.x > 99),
+    `no ink runs across the fill, got ${JSON.stringify(drawn)}`,
+  );
+  assert.ok(
+    near(drawn[drawn.length - 1]!.x, 300) && near(drawn[drawn.length - 1]!.y, 50),
+    `the other end draws at (300,50), got ${JSON.stringify(drawn[drawn.length - 1])}`,
+  );
+});
+
 test('a bend on the target’s outline and one past it keep the head on the outline', async () => {
   // The rows either side of the Review's. With the bend at (0,50) it sits on
   // the outline and the leg to the end collapses: the head is on the near edge,
