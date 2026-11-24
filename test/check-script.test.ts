@@ -1,3 +1,12 @@
+/**
+ * Script seam: `scripts/check.mjs` behind `pnpm check`.
+ *
+ * What is asserted is the contract the wrapper keeps: the same five steps in
+ * order, fail-fast, the ok summary as the last line, the FAILED summary with
+ * the first decisive error and the failing step's exit code, and through the
+ * real pnpm wrapper the failure summary within the last three lines, where
+ * pnpm's own footer follows it.
+ */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
