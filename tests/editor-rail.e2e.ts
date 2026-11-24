@@ -1410,6 +1410,68 @@ test('a Space on a focused tile picks its tool, and a Space the pointer pans wit
   expect(await problems(ui), 'the page threw nothing').toEqual([]);
 });
 
+test('a Space whose focus moved before the release picks nothing, as a native button’s Space does not', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+  const rect = screen.getByRole('button', { name: 'Rectangle', exact: true });
+  const ellipse = screen.getByRole('button', { name: 'Ellipse', exact: true });
+
+  // A Space pressed on the Rectangle tile is the Rectangle's only while the focus
+  // stays on it. The pointer picks the Ellipse before the key comes up, and a
+  // release that lands on another tile is no activation at all: the person's own
+  // pick stands, and the stale press clicks nothing behind it.
+  await rect.focus();
+  await browser.keyboard.down('Space');
+  await ellipse.click();
+  await settle(ui);
+  expect(await picked(ui, 'Ellipse'), 'the pointer picked the Ellipse').toBe('true');
+  await browser.keyboard.up('Space');
+  await settle(ui);
+  expect(await picked(ui, 'Rectangle'), 'a release whose focus moved clicks no tile').toBe('false');
+  expect(await picked(ui, 'Ellipse'), 'the pointer’s pick stands').toBe('true');
+
+  // The keys alone say the same: the focus moved between the press and the
+  // release, so the release is nobody's activation.
+  await rect.focus();
+  await browser.keyboard.down('Space');
+  await ellipse.focus();
+  await browser.keyboard.up('Space');
+  await settle(ui);
+  expect(await picked(ui, 'Rectangle'), 'a focus that moved clicks nothing').toBe('false');
+  expect(await picked(ui, 'Ellipse')).toBe('true');
+
+  expect(await problems(ui), 'the page threw nothing').toEqual([]);
+});
+
+test('a Space held across a Scene switch picks nothing in the Scene it lands in', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'one.json': BARE_SOURCE, 'two.json': BARE_SOURCE } }, 'one.json');
+  await settle(ui);
+  const rect = screen.getByRole('button', { name: 'Rectangle', exact: true });
+
+  // A press belongs to the Scene it was made in: the focus and the tile both go
+  // with the switch, so the release in the new Scene activates nothing there.
+  await rect.focus();
+  await browser.keyboard.down('Space');
+  await screen.getByRole('button', { name: /Open folder/ }).click();
+  await screen.getByRole('button', { name: 'two.json', exact: true }).click();
+  await settle(ui);
+  await browser.keyboard.up('Space');
+  await settle(ui);
+  expect(await picked(ui, 'Rectangle'), 'a press from another Scene clicks no tile').toBe('false');
+  expect(await picked(ui, 'Select'), 'the new Scene keeps the tool it opened with').toBe('true');
+
+  expect(await problems(ui), 'the page threw nothing').toEqual([]);
+});
+
 test('a mouse drag from a tile docks the rail on the nearest side and picks no tool', async ({
   app,
   browser,
