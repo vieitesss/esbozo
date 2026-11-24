@@ -197,7 +197,19 @@ esbozo-editor .rail[data-side='right'] {
   flex-direction: column;
 }
 
+/* Before it is docked the strip is out of sight, and no rule of the host page's
+   about what is inside it brings any of it back: `visibility` is inherited, so a
+   host's `svg { visibility: visible }` was enough to paint the glyphs and the
+   pencil at the place this sheet falls back to, where they took the press of a
+   tile (D11, #62). A filter applies to the strip and everything under it at
+   once, and no descendant can lift it; `opacity` would say the same in its own
+   way, but the sheet fades the strip's opacity when it is looked at, so an
+   undocked strip would fade in at its dock instead of appearing at the ink it
+   wears. The box keeps the size the outline is measured from, which `display:
+   none` would take away, and nothing inside is a press or a focus: it is `inert`
+   until it is placed, which no style of the host's can undo (`editor.ts`). */
 esbozo-editor .rail:not([data-placed]) {
+  filter: opacity(0);
   visibility: hidden;
 }
 

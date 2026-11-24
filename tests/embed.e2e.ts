@@ -1536,6 +1536,15 @@ const KEPT_BANDS: Record<'bottom' | 'right', Rect> = {
 };
 /** Clear paper at the top of the same box, where no kept side hangs a strip. */
 const TOP_BAND: Rect = { x: 400, y: 0, width: 480, height: 240 };
+/** The top of the box's middle, where a strip on the side a page starts on hangs. */
+const TOP_CENTRE: Rect = { x: 400, y: 0, width: 480, height: 240 };
+/**
+ * Where the stylesheet falls back to with no dock to hang on: the strip standing
+ * at the top's middle, 15 px down, seven tiles tall and nothing to turn it round
+ * (D11). Its pencil outline hangs 7 px outside that, and its tilt leans a couple
+ * of pixels either way.
+ */
+const UNDOCKED: Rect = { x: 615, y: 0, width: 100, height: 160 };
 
 test('an editor that starts on a kept side never shows its strip on another', async ({
   app,
@@ -1580,6 +1589,164 @@ test('an editor that starts on a kept side never shows its strip on another', as
       expect(drawing.darkCount(KEPT_BANDS[side], 0.6), `the strip hangs on the ${side}`).toBeGreaterThan(0);
       expect(drawing.darkCount(TOP_BAND, 0.6), 'the strip lies along no other side').toBe(0);
     }
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('a host rule that shows its own glyphs cannot show the strip before it is docked', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), { a: EMPTY_SOURCE });
+  try {
+    const ui: Ui = { app, browser, screen };
+    const strip = screen.getByRole('navigation', { name: 'Tools' });
+    await app.open(`${embed.url}/embedded.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+
+    // The page keeps the right side and holds the font back, so the frame is
+    // never measured and the strip has no dock to hang on. `host-glyphs.html` is
+    // this page with two rules of the host's own, which say nothing about esbozo:
+    // `svg { visibility: visible }` reaches every glyph inside the strip and
+    // `button { visibility: visible }` every tile, and visibility is inherited, so
+    // a descendant of the strip can lift the strip's own hiding (issue #62).
+    await browser.evaluate(() => {
+      localStorage.setItem('esbozo.rail', 'right');
+      return true;
+    });
+    embed.hold(FONT_PATH);
+    const fetched = embed.requests(FONT_PATH);
+    await browser.goto(`${embed.url}/embedded.html`, { waitUntil: 'domcontentloaded' });
+    await expect.poll(() => embed.requests(FONT_PATH)).toBeGreaterThan(fetched);
+    await settle(ui);
+
+    // The same page without the host's rule is the reading there is against: the
+    // band holds the Grid's dots and nothing of the strip, because an undocked
+    // strip is not drawn at all. What the host's rule adds to that band is the strip.
+    const bare = (await shot(ui)).darkCount(UNDOCKED, 0.85);
+    expect(bare, 'the band reads the bare paper and its Grid').toBeGreaterThan(0);
+
+    const again = embed.requests(FONT_PATH);
+    await browser.goto(`${embed.url}/host-glyphs.html`, { waitUntil: 'domcontentloaded' });
+    await expect.poll(() => embed.requests(FONT_PATH)).toBeGreaterThan(again);
+    await settle(ui);
+
+    // The rule: until it has a dock the strip puts no ink on the page at all,
+    // whatever the host's rule says about what is inside it.
+    const undocked = await shot(ui);
+    expect(undocked.darkCount(UNDOCKED, 0.85), 'the host’s rule shows no ink of the strip').toBe(bare);
+    await expect(strip, 'the strip kept on the right waits for its dock').toBeHidden();
+
+    // And a press there is no dock's either: a glyph or a tile the host's rules
+    // bring back takes the press a tile takes, which starts a drag of the strip,
+    // and a release down the page docks it on the nearest side — the top — so the
+    // page would remember a side nobody asked for.
+    await browser.mouse.move(UNDOCKED.x + 48, 47);
+    await browser.mouse.down();
+    await browser.mouse.move(UNDOCKED.x + 48, 120);
+    await browser.mouse.move(UNDOCKED.x + 48, 300);
+    await browser.mouse.up();
+    await settle(ui);
+    expect(await keptSide(ui), 'the press was no dock’s').toBe('right');
+
+    // Once the font lands the strip has its dock, and its ink is on the side the
+    // page kept, with none of it left at the fallback place.
+    embed.release(FONT_PATH);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    await settle(ui);
+    await strip.getByRole('button', 'Select').focus();
+    await fullInk(ui);
+    const docked = await shot(ui);
+    expect(docked.darkCount(KEPT_BANDS.right, 0.6), 'the strip hangs on the right').toBeGreaterThan(0);
+    expect(docked.darkCount(UNDOCKED, 0.6), 'and shows nothing at the fallback place').toBe(0);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('the keys are the editor’s while the font is still on its way', async ({ app, browser, screen }) => {
+  const embed = await startEmbed(await bundleFolder(), { a: EMPTY_SOURCE });
+  try {
+    const ui: Ui = { app, browser, screen };
+    embed.hold(FONT_PATH);
+    await browser.goto(`${embed.url}/embedded.html`, { waitUntil: 'domcontentloaded' });
+    await expect.poll(() => embed.requests(FONT_PATH)).toBeGreaterThan(0);
+    await settle(ui);
+
+    // A press into the editor is what makes its keys its own on someone else's
+    // page, and no font has to be measured to know that: the keys the editor
+    // offers are its from the moment it can take a press (#63). The font is
+    // still on its way, so nothing has been measured and nothing is placed.
+    await clickScene(ui, { x: PAPER.x, y: PAPER.y }, [], EMPTY);
+    await browser.keyboard.press('Meta+k');
+    await expect(
+      screen.getByRole('dialog', 'Commands'),
+      'the Commands answer while the font is held',
+    ).toBeVisible();
+
+    // And the keys the note holds are the note's: Escape shuts it, and the note
+    // hands the keys back with nothing of the Scene touched.
+    await browser.keyboard.press('Escape');
+    await expect(screen.getByRole('dialog', 'Commands')).toBeHidden();
+    expect(embed.writes('a'), 'a key changed no Scene on the way').toBe(0);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('an editor a host reveals from display: none draws the strip’s outline at once', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), { a: EMPTY_SOURCE });
+  try {
+    const ui: Ui = { app, browser, screen };
+    const strip = screen.getByRole('navigation', { name: 'Tools' });
+
+    // A page that never hid the editor: the strip it draws is what a reveal owes,
+    // and the top five pixels of that ink, inside the outline's own 7 px overhang,
+    // are the pencil and nothing else.
+    await app.open(`${embed.url}/embedded.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    await strip.getByRole('button', 'Select').focus();
+    await fullInk(ui);
+    const drawn = (await shot(ui)).darkBounds(TOP_CENTRE, 0.6);
+    if (drawn === null) {
+      throw new Error('the strip that was never hidden draws no ink');
+    }
+    const outline: Rect = { x: drawn.x + 12, y: drawn.y, width: drawn.width - 24, height: 5 };
+    expect(
+      (await shot(ui)).darkCount(outline, 0.6),
+      'the strip that was never hidden wears its outline',
+    ).toBeGreaterThan(0);
+
+    // The host's page starts its editor off the page, so the Scene and the font
+    // arrive while the strip has no box to be measured from: the outline is drawn
+    // from a measure of nothing, and a measure that is nothing draws nothing.
+    await app.open(`${embed.url}/hidden.html`);
+    await expect.poll(() => embed.requests('/api/a'), { timeout: 5000 }).toBeGreaterThan(0);
+    await settle(ui);
+    await settle(ui);
+
+    // The host shows its editor. Nothing about the window changed, so no resize
+    // reaches the strip: what came back is the editor's own box, and a reveal is
+    // the whole of it — a person is not asked to resize a window to see the rail.
+    const shown = await browser.evaluate(() => {
+      const element = document.querySelector('esbozo-editor');
+      if (!(element instanceof HTMLElement)) {
+        return false;
+      }
+      element.style.display = 'block';
+      return true;
+    });
+    expect(shown, 'the page shows its editor').toBe(true);
+    await strip.getByRole('button', 'Select').focus();
+    await fullInk(ui);
+    const revealed = (await shot(ui)).darkBounds(TOP_CENTRE, 0.6);
+    expect(revealed, 'the reveal draws the strip where the page that never hid it does').toEqual(drawn);
   } finally {
     await embed.stop();
   }
@@ -1949,6 +2116,19 @@ async function writeBundle(): Promise<string> {
       `<esbozo-editor scene="api/a" save="api/a" font="${FONT}"></esbozo-editor>
 <p class="after">words after the editor</p>
 <div class="tall"></div>`,
+      bundle,
+    ),
+    // The host's own rule about its own glyphs, which reaches into the strip:
+    // nothing here names esbozo (issue #62).
+    'host-glyphs.html': page(
+      `${FULL} svg { visibility: visible } button { visibility: visible }`,
+      `<esbozo-editor scene="api/a" save="api/a" font="${FONT}"></esbozo-editor>`,
+      bundle,
+    ),
+    // The host keeps its editor off the page until it shows it (issue #64).
+    'hidden.html': page(
+      'body { margin: 0 } esbozo-editor { height: 100vh; display: none }',
+      `<esbozo-editor scene="api/a" save="api/a" font="${FONT}"></esbozo-editor>`,
       bundle,
     ),
     'label-kalam.html': page(FULL, `<esbozo-editor scene="api/l" save="api/l" font="${FONT}"></esbozo-editor>`, bundle),

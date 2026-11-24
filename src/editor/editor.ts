@@ -148,11 +148,19 @@ class EsbozoEditorElement extends HTMLElement {
    */
   #railWaiting = false;
   /**
-   * The status bar's corners, watched for the size the rail has to clear: a
-   * corner is as wide and as tall as the words it holds, and those change with a
-   * Scene's name, the mode the page is in and the answer a folder gave (O2).
+   * True once the strip was drawn in a box this editor had, which is the only box the
+   * frame around the diagram is measured in: an editor the page gave no box has none
+   * to measure, and nothing drawn with one (#64).
    */
-  readonly #cornerWatch = new ResizeObserver(() => this.#onCornerResize());
+  #drawn = false;
+  /**
+   * The boxes the strip is drawn from and measured against, watched: its own, so an
+   * editor the page gave no box draws the outline as soon as it has one (D11, #64),
+   * and the status bar's corners, which are as wide and as tall as the words they
+   * hold — a Scene's name, the mode the page is in and the answer a folder gave
+   * (O2).
+   */
+  readonly #boxWatch = new ResizeObserver(() => this.#onBoxResize());
   /** True once the editor's listeners are on the page. */
   #wired = false;
   /**
@@ -266,9 +274,8 @@ class EsbozoEditorElement extends HTMLElement {
     if (this.#canvas !== undefined) {
       // Back on the page: the listeners left with it the last time, and an
       // editor that never got as far as drawing tries its connection again.
-      if (this.#connection.ready) {
-        this.#listen();
-      } else {
+      this.#listen();
+      if (!this.#connection.ready) {
         void this.#connection.connect();
       }
       return;
@@ -279,6 +286,11 @@ class EsbozoEditorElement extends HTMLElement {
     const gridRect = this.querySelector<SVGRectElement>('.grid-rect')!;
     const pattern = this.querySelector<SVGPatternElement>('.canvas pattern')!;
     this.#rail = this.querySelector('.rail')!;
+    // Nothing in the strip is a press or a focus until it has a dock to hang on:
+    // `inert` is what a host's rule about what is inside the strip cannot undo, so
+    // an undocked tile takes no press whatever the page says about its glyphs
+    // (#62). `#hangRail` lifts it with the dock.
+    this.#rail.inert = true;
     this.#railArt = this.querySelector('.rail-art')!;
     this.#docks = this.querySelector('.docks')!;
     // The side this origin's editor was last moved to is read once, here, before
@@ -456,8 +468,8 @@ class EsbozoEditorElement extends HTMLElement {
       showPanning: () => this.#showPill(),
     });
 
-    // Nothing draws, takes the keys or asks the folder for a Scene until every
-    // module holds the ones it needs: the wiring is done, and starts here.
+    // Nothing draws or asks the folder for a Scene until every module holds the
+    // ones it needs: the wiring is done, and starts here.
     this.#page.viewport.showGrid(this.#grid);
 
     if (this.#ownsKeysWhenFocused) {
@@ -470,6 +482,12 @@ class EsbozoEditorElement extends HTMLElement {
       // must first take focus.
       active ??= this;
     }
+
+    // A press is the editor's and the keys it offers are its own from the moment
+    // it is on the page: the wiring is done here, before a font is asked for, so
+    // a measurement still on its way leaves nobody pressing into an editor that
+    // answers nothing (#63).
+    this.#listen();
 
     // Nothing can be placed without the font's measurement, so the editor waits
     // for it and says so in the status line when the page has none to give.
@@ -496,8 +514,9 @@ class EsbozoEditorElement extends HTMLElement {
     this.#rail.addEventListener('click', this.#onRailClick);
     this.querySelector('.status')!.addEventListener('click', this.#onStatusClick);
     for (const corner of this.#statusCorners()) {
-      this.#cornerWatch.observe(corner);
+      this.#boxWatch.observe(corner);
     }
+    this.#boxWatch.observe(this.#rail);
     document.addEventListener('copy', this.#onCopy);
     document.addEventListener('cut', this.#onCut);
     document.addEventListener('paste', this.#onPaste);
@@ -557,7 +576,7 @@ class EsbozoEditorElement extends HTMLElement {
     // the DOM it was pressed on — the pan is the page's, and it goes too.
     this.#endEdits();
     this.#endRailDrag();
-    this.#cornerWatch.disconnect();
+    this.#boxWatch.disconnect();
     this.#gestures.endSpacePan();
     this.#gestures.drop();
     this.#wired = false;
@@ -1160,6 +1179,12 @@ class EsbozoEditorElement extends HTMLElement {
   }
 
   /**
+   * A box the strip is drawn from, or measured clear of, changed size. The strip's
+   * own box is the drawing's: an editor the page gave no box — a host that starts it
+   * off the page and shows it later (#64) — has nothing to measure an outline
+   * against, and the box it comes back with is drawn here at once, with no resize of
+   * the window to ask for it.
+   *
    * A status corner changed size: the rail was measured against it as it was then,
    * and one that grows over the strip takes the press of the nearest tile (O2). The
    * strip is measured again on its own side — a dragged strip too, which keeps its
@@ -1168,7 +1193,18 @@ class EsbozoEditorElement extends HTMLElement {
    * A press on the strip keeps it under the pointer, and asks for the placement when
    * that press ends (D6, O2).
    */
-  #onCornerResize = (): void => {
+  #onBoxResize = (): void => {
+    // Whether the strip had a box to be drawn from before this: an editor the page
+    // gave no box draws nothing, so the first box it is given is the first measure of
+    // the frame the strip hangs from, and that measure is taken here — a reveal is no
+    // resize of an editor in use, and nobody is asked to resize a window to see the
+    // rail (#64).
+    const measured = this.#drawn;
+    this.#drawRailArt();
+    if (!measured) {
+      this.#placeRail();
+      return;
+    }
     if (this.#railDrag !== null) {
       this.#railWaiting = true;
       // A corner changes the place a dock is drawn in clear of it, so a mark a
@@ -1183,8 +1219,12 @@ class EsbozoEditorElement extends HTMLElement {
     const width = this.#rail.offsetWidth + RAIL_OUTLINE * 2;
     const height = this.#rail.offsetHeight + RAIL_OUTLINE * 2;
     if (width <= 14 || height <= 14) {
+      // No box to draw from: nothing of this editor is measured, so the place the
+      // strip asks for is measured again in the first box it is given (#64).
+      this.#drawn = false;
       return;
     }
+    this.#drawn = true;
     this.#railArt.setAttribute('width', String(width));
     this.#railArt.setAttribute('height', String(height));
     this.#railArt.setAttribute('viewBox', `0 0 ${width} ${height}`);
@@ -1357,6 +1397,7 @@ class EsbozoEditorElement extends HTMLElement {
     // Measured and placed, so the strip has a side to hang on and the page may
     // show it: an unplaced one stays out of sight rather than wait at the place
     // the stylesheet falls back to, which is no side it was docked on (D11).
+    this.#rail.inert = false;
     this.#rail.dataset['placed'] = '';
   }
 
