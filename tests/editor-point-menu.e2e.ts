@@ -1,5 +1,5 @@
 /**
- * Seam 2: the point menu — the note a right-click on a bend point opens, its two
+ * Browser seam: the point menu — the note a right-click on a bend point opens, its two
  * rows, and every way it closes.
  *
  * The input is a person's: a click that selects the shaft, the secondary press on

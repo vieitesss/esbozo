@@ -1,5 +1,5 @@
 /**
- * Seam 2: the frame the tool rail hangs on.
+ * Browser seam: the frame the tool rail hangs on.
  *
  * A Scene opens with the rail docked on the frame around its diagram: the
  * diagram's box on screen, at least 960×600 about its centre and cut to the

@@ -1,5 +1,5 @@
 /**
- * Seam 2: copy, cut, paste and duplicate — a page that has no clipboard API,
+ * Browser seam: copy, cut, paste and duplicate — a page that has no clipboard API,
  * the browser's own clipboard keys, a cut whose paste must not land in another
  * Scene, and a duplicate, which is a copy pasted in place. A clipboard answer
  * belongs to the Scene it was asked in: the note can open another under the

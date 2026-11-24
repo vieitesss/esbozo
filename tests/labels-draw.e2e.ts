@@ -1,6 +1,6 @@
 /**
  * One of the Label suites, split by what a person sees, not by module: `tests/labels-*.e2e.ts`.
- * Seam 2: how the words are drawn — the fill they let show between them, the Align and
+ * Browser seam: how the words are drawn — the fill they let show between them, the Align and
  * Size the Style menu gives them, and the box they grow into and are trimmed out of as
  * they are typed.
  */

@@ -1,5 +1,5 @@
 /**
- * Seam 2: the editor's visible outcomes, judged by the model.
+ * Browser seam: the editor's visible outcomes, judged by the model.
  *
  * `tests/editor-*.e2e.ts` prove the same outcomes exactly, from the Scene the
  * editor saves and from its pixels. These tests prove what a person would look

@@ -1,5 +1,5 @@
 /**
- * Seam 4: `scripts/check-steps.mjs` against a fixture repository whose four
+ * Script seam: `scripts/check-steps.mjs` against a fixture repository whose four
  * static checks are one cheap script.
  *
  * A reviewer found a commit that was only green once the next one landed, so

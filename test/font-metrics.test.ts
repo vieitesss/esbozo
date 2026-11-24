@@ -1,5 +1,5 @@
 /**
- * The font reader the bundle measures with, held against the one the CLI does.
+ * Module seam: the font reader the bundle measures with, held against the one the CLI does.
  *
  * The browser bundle cannot afford a full OpenType parser: `opentype.js` alone
  * is bigger than the whole size budget. So the bundle reads the few tables

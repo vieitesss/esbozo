@@ -1,5 +1,5 @@
 /**
- * Seam 3: the Scene module the editor calls.
+ * Module seam: the Scene module the editor calls.
  *
  * The CLI parses a Scene before it uses it, but the editor holds one in memory
  * and mutates it: it assigns `x = 40.2` when a rectangle is dragged. Saving,

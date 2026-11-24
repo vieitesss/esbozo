@@ -1,3 +1,6 @@
+/**
+ * Module seam: the exit table (`src/editor/exits.ts`) over supplied holders.
+ */
 import assert from 'node:assert/strict';
 import { before, describe, it } from 'node:test';
 import type { ExitHolders } from '../src/editor/exits.ts';

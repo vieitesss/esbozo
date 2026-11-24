@@ -1,6 +1,6 @@
 /**
  * One of the Label suites, split by what a person sees, not by module: `tests/labels-*.e2e.ts`.
- * Seam 2: a shaft's Label — the words placed on an arrow — dragged along the shaft or off it,
+ * Browser seam: a shaft's Label — the words placed on an arrow — dragged along the shaft or off it,
  * and the press that finds the shaft, the head or the words under the pointer.
  */
 import { describe, test } from '@e2e-dev/web';

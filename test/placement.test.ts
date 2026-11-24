@@ -1,5 +1,5 @@
 /**
- * Seam 3: the Renderer and Editor geometry the editor calls.
+ * Module seam: the Renderer and Editor geometry the editor calls.
  *
  * `ez` cannot reach these cases: a file's Scene is parsed and canonical before
  * the CLI draws it, and no command picks an Element. The editor holds a Scene

@@ -1,5 +1,5 @@
 /**
- * Seam 2: drawing, shortcuts, undo, duplicate and copy/paste in the editor.
+ * Browser seam: drawing, shortcuts, undo, duplicate and copy/paste in the editor.
  *
  * Same rules as the editor suites (`tests/editor-*.e2e.ts`): a person's input
  * only — the rail, the

@@ -1,5 +1,5 @@
 /**
- * Seam 2: the editor served by `ez serve`, over a real folder.
+ * Browser seam: the editor served by `ez serve`, over a real folder.
  *
  * The page is opened from a server this test starts, so there is no stubbed
  * file system anywhere: the Scenes are real files, and every assertion reads

@@ -1,5 +1,5 @@
 /**
- * Seam 2: the editor's files — opening a Scene, the folder a person picks, the
+ * Browser seam: the editor's files — opening a Scene, the folder a person picks, the
  * name a new Scene is saved under, and the save status that follows the bytes
  * that are on disk. Driven the way a person drives it, the folder button and
  * the file name, and asserted on the files the editor wrote.

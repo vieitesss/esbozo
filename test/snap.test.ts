@@ -1,5 +1,5 @@
 /**
- * The Snap exception to rule 4 (`src/editor/snap.ts`): the four Snap rules over
+ * Module seam: the Snap exception to rule 4 (`src/editor/snap.ts`): the four Snap rules over
  * Scene JSON in and out.
  *
  * 1. Target choice (`snapTarget`): Snap switch, `Alt`, the other end, and

@@ -1,5 +1,5 @@
 /**
- * Seam 2: the Style menu — the controls a selection can use, the value a pick
+ * Browser seam: the Style menu — the controls a selection can use, the value a pick
  * writes to every selected Element, the one undo step a pick is, and the Scene
  * default roughness the status bar sets. Asserted on the saved Scene.
  */

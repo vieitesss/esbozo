@@ -1,5 +1,5 @@
 /**
- * Seam 2, one level down: the browser contract that events a test dispatches by
+ * Browser seam, one level down: the browser contract that events a test dispatches by
  * hand cannot reach.
  *
  * `tests/cdp.ts` holds the helper and says how it reaches the page. This file

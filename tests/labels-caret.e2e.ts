@@ -1,6 +1,6 @@
 /**
  * One of the Label suites, split by what a person sees, not by module: `tests/labels-*.e2e.ts`.
- * Seam 2: where the caret is drawn and where a press puts it, in words that read either way,
+ * Browser seam: where the caret is drawn and where a press puts it, in words that read either way,
  * and how Up, Home and End walk the lines the words are drawn on rather than the field's rows.
  */
 import { describe, test } from '@e2e-dev/web';

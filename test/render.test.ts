@@ -1,5 +1,5 @@
 /**
- * Seam 1: the built `ez` CLI on Scene files in temporary folders.
+ * CLI seam: the built `ez` CLI on Scene files in temporary folders.
  *
  * Everything here is external behaviour: the files written, stdout, stderr and
  * exit codes. Nothing imports src/, so the modules behind the CLI stay free to

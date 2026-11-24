@@ -1,5 +1,5 @@
 /**
- * The static harness, `scripts/serve.mjs`, run the way the e2e suite runs it: a
+ * Script seam: the static harness, `scripts/serve.mjs`, run the way the e2e suite runs it: a
  * folder of built page files on an ephemeral port.
  *
  * What is asserted is what its callers see — the answer for one file, and the

@@ -1,5 +1,5 @@
 /**
- * Seam 2: the status line and the mode pill — the Scene and the view a person
+ * Browser seam: the status line and the mode pill — the Scene and the view a person
  * reads back, the panning word and the hand it names, and the Shortcuts sheet
  * behind `?`. Asserted on what the page shows and on the Scene a pan leaves
  * alone.

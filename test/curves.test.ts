@@ -1,5 +1,5 @@
 /**
- * Seam 1: multi-point and curved `arrow` and `line` Elements.
+ * CLI seam: multi-point and curved `arrow` and `line` Elements.
  *
  * The schema half runs the built `ez` CLI on Scene files in temporary folders
  * and asserts on exit codes and plain-text problems; the saving half drives the

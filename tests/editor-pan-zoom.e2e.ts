@@ -1,5 +1,5 @@
 /**
- * Seam 2: the view — Space and the wheel, a middle drag, the dot Grid, the tool
+ * Browser seam: the view — Space and the wheel, a middle drag, the dot Grid, the tool
  * rail the page hangs the view's own chrome on, and the docked note the view has
  * to pan and zoom clear of. Asserted on where the ink lands and on the Scene,
  * which a pan must leave alone.

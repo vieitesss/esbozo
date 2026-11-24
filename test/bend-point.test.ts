@@ -1,5 +1,5 @@
 /**
- * Seam 3: the dot a lone Shaft shows halfway along a segment, and the one rule
+ * Module seam: the dot a lone Shaft shows halfway along a segment, and the one rule
  * that leaves it off where it would land on a handle.
  *
  * The clearance is a distance on the page — a handle's eight pixels and a dot's

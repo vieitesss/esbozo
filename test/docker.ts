@@ -1,5 +1,5 @@
 /**
- * Seam 1, the image: the container `ez serve`s a mounted folder.
+ * CLI seam, the image: the container `ez serve`s a mounted folder.
  *
  * Not part of `pnpm test`, because a first run builds the image: `pnpm
  * test:docker`. Everything here is external behaviour — the container's HTTP

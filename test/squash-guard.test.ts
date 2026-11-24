@@ -1,5 +1,5 @@
 /**
- * Seam 3: `scripts/squash-guard.mjs` on the pairs git hands a `post-rewrite`
+ * Script seam: `scripts/squash-guard.mjs` on the pairs git hands a `post-rewrite`
  * hook.
  *
  * A rebase failed this way once already: the whole branch arrived as one commit,

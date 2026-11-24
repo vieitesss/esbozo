@@ -1,5 +1,5 @@
 /**
- * Seam 2: exporting a Scene — the PNG the page downloads against the one
+ * Browser seam: exporting a Scene — the PNG the page downloads against the one
  * `ez png` draws for the same Scene, and the name a Scene too big for one
  * canvas is given. Asserted on the downloaded bytes and the command named.
  */

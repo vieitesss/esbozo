@@ -1,5 +1,5 @@
 /**
- * Seam 2: a saved `.svg` opened with nothing around it, in a browser.
+ * Browser seam: a saved `.svg` opened with nothing around it, in a browser.
  *
  * `ez render` writes the file a person opens by double-clicking it, drops into
  * an `<img>` or commits beside a README. Nothing around that file declares a
