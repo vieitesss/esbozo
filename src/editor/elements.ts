@@ -1,8 +1,9 @@
 import { MIN_SIZE, seedForId, snapTargetId } from '../scene.js';
-import { unwrittenTextAlign } from '../scene.js';
-import type { Element, ElementStyle, Point, SceneStyle, TextElement } from '../scene.js';
+import { serialiseFragment, unwrittenTextAlign } from '../scene.js';
+import type { Element, ElementStyle, Point, Scene, SceneStyle, TextElement } from '../scene.js';
 import { drawnShaft, elementsById } from '../renderer.js';
 import { boxBetween } from './geometry.js';
+import { isShaft } from './snap.js';
 import type { DrawableType, ToolId } from './actions.js';
 
 /** The box a plain click draws with a box tool, in Scene units. */
@@ -194,6 +195,63 @@ function movedPoint(point: Point, renamed: ReadonlyMap<string, string>, offset: 
     ...anchor,
     ...(point.corner === undefined ? {} : { corner: point.corner }),
   };
+}
+
+/**
+ * The Scene fragment a copy of these Elements carries, as Copy writes it and
+ * Paste and Duplicate read it: an end Snapped to an Element the copy does not
+ * carry holds the point it draws now, so the copy looks like the original and
+ * moves only by its own landing, while a Snap to an Element the copy does carry
+ * is kept and follows that Element's copy.
+ */
+export function fragmentOf(scene: Scene, elements: readonly Element[]): string {
+  return serialiseFragment(scene, freedOutside(scene, elements));
+}
+
+/**
+ * These Elements with every end Snapped outside them freed where it draws now,
+ * the way letting one go does. The whole Scene resolves the targets a copy
+ * leaves behind, and the Elements being copied win over it, so an end read from
+ * a drag in flight is freed where the page is drawing it.
+ */
+function freedOutside(scene: Scene, elements: readonly Element[]): Element[] {
+  const carried = new Set(elements.map((element) => element.id));
+  const byId = elementsById(scene.elements);
+  for (const element of elements) {
+    byId.set(element.id, element);
+  }
+  return elements.map((element) => freedEnds(element, carried, byId));
+}
+
+/** One Element, its ends Snapped outside the copy stored where they draw now. */
+function freedEnds(
+  element: Element,
+  carried: ReadonlySet<string>,
+  byId: ReadonlyMap<string, Element>,
+): Element {
+  if (!isShaft(element)) {
+    return element;
+  }
+  const points = element.points;
+  const last = points.length - 1;
+  const drops = (index: number): boolean => {
+    const target = snapTargetId(points[index]!);
+    return target !== null && !carried.has(target);
+  };
+  if (!drops(0) && !drops(last)) {
+    return element;
+  }
+  // Both ends at once, with every target still in hand: a shaft may hold one
+  // Element at both its ends, and freeing one first would move the other.
+  const [drawnStart, drawnEnd] = drawnShaft(element, byId);
+  const freed = points.map((point, index) => {
+    if ((index !== 0 && index !== last) || !drops(index)) {
+      return point;
+    }
+    const drawn = index === 0 ? drawnStart : drawnEnd;
+    return { x: Math.round(drawn.x), y: Math.round(drawn.y) };
+  });
+  return { ...element, points: freed as [Point, Point, ...Point[]] };
 }
 
 /**
