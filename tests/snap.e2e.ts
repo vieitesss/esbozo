@@ -25,10 +25,12 @@ import {
   SNAPPED,
   SNAPPED_SCENE,
   at,
+  allowWrites,
   cliCheckBytes,
   clickScene,
   drag,
   dragBy,
+  holdWrites,
   openEditor,
   savedFiles,
   savedScene,
@@ -1795,6 +1797,48 @@ describe('an end that carries an Anchor', () => {
     expect(copied.elements[2]?.points).toEqual([
       { x: 76, y: 96 },
       { x: 336, y: 96, snap: false },
+    ]);
+  });
+
+  test('a click on an end handle writes nothing and records no step', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'snapped.json');
+    await clickScene(ui, { x: 230, y: 80 }, [], SNAPPED);
+
+    // A real drag of the end along its target's outline, so the history holds
+    // one step of its own to give back.
+    await drag(ui, at({ x: 300, y: 80 }, SNAPPED), at({ x: 300, y: 40 }, SNAPPED));
+    const dragged = await savedScene(ui, 'snapped.json');
+    expect(dragged.elements[2]?.points).toEqual([
+      { x: 160, y: 80, snap: 'from' },
+      { x: 300, y: 40, snap: 'to', anchor: { x: 0, y: 0 } },
+    ]);
+    const files = await savedFiles(ui);
+
+    // A press and release on the handle the drag left, carrying nothing and
+    // holding no Alt: a click on the handle, which is no drag of the end. The
+    // disk is held shut, so a settle that asked for a write would leave the
+    // status on `saving…`: it asks for none, and the file is the file.
+    await holdWrites(ui, 'snapped.json');
+    const handle = at({ x: 300, y: 40 }, SNAPPED);
+    await browser.mouse.move(handle.x, handle.y);
+    await browser.mouse.down();
+    await browser.mouse.up();
+    await settle(ui);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    await allowWrites(ui);
+    expect(await savedFiles(ui)).toEqual(files);
+
+    // The first undo gives the drag back, so the click recorded no step.
+    await browser.keyboard.press('Meta+z');
+    const undone = await savedScene(ui, 'snapped.json');
+    expect(undone.elements[2]?.points).toEqual([
+      { x: 160, y: 80, snap: 'from' },
+      { x: 300, y: 80, snap: 'to' },
     ]);
   });
 });

@@ -1,5 +1,5 @@
 import { drawnGeometry } from '../renderer.js';
-import { canonicalElement, isOutlined, elementsById } from '../scene.js';
+import { isOutlined, elementsById } from '../scene.js';
 import type { ArrowOrLineElement, Element as SceneElement, Scene } from '../scene.js';
 import type { Layout } from '../layout.js';
 import { labelAtFor } from '../geometry.js';
@@ -19,6 +19,8 @@ import type { Bend, ShaftOf } from './bend-point.js';
 import type { ToolId } from './actions.js';
 import { drawn, drawnAtClick, freshId, idsOf, isClick } from './elements.js';
 import type { ElementTool } from './elements.js';
+import { added, bent, ended, labelled, settled } from './edits.js';
+import type { Edited } from './edits.js';
 import type { Page, Shown } from './page.js';
 import { attachedTo, endPoint, isShaft, otherTarget, snapOn, targetAt, withEnd } from './snap.js';
 import type { End } from './snap.js';
@@ -208,15 +210,23 @@ function strokeOf(element: SceneElement): ArrowOrLineElement {
 type ShownDrag = Extract<Drag, { kind: 'move' | 'resize' | 'end' | 'bend' | 'label' }>;
 
 /**
+ * The Elements a swap-of-Elements gesture hands the Scene in place of its own:
+ * the groups a move carries, or the one Element a resize, a dragged end, a bend
+ * or a Label swaps. The frame the drag draws and the edit its release lands read
+ * this one map, so a gesture cannot show one thing and save another.
+ */
+function swapOf(drag: ShownDrag): ReadonlyMap<string, SceneElement> {
+  return drag.kind === 'move' ? drag.shown : new Map([[drag.id, drag.shown]]);
+}
+
+/**
  * The Scene's Elements as the gesture in flight shows them. The ink the pointer
  * leaves and the Scene the release settles are this one projection, so a drag
  * can never show one thing and save another.
  */
 function shownElements(elements: SceneElement[], drag: ShownDrag): SceneElement[] {
-  if (drag.kind === 'move') {
-    return elements.map((element) => drag.shown.get(element.id) ?? element);
-  }
-  return elements.map((element) => (element.id === drag.id ? drag.shown : element));
+  const shown = swapOf(drag);
+  return elements.map((element) => shown.get(element.id) ?? element);
 }
 
 /**
@@ -319,8 +329,8 @@ interface GestureHost {
   /** Open the field, or read and move its selection while it is open. */
   readonly typing: Pick<Typing, 'text' | 'typedOffset' | 'openWords' | 'openTextInput'>;
 
-  /** A Scene change lands, as one history step and one write. */
-  applyScene(next: Scene, options?: { amend?: boolean; select?: readonly string[] }): void;
+  /** A Scene edit lands, as one history step and one write, with the selection it names. */
+  land(edit: Edited | null): void;
   /** The note follows the selection, the view makes room for it, the page repaints. */
   refresh(): void;
   /** Refresh the status bar after the held Space or pan drag changes. */
@@ -495,7 +505,7 @@ function finishDrawing(
     host.refresh();
     return null;
   }
-  const settled = isShaft(placed)
+  const element = isShaft(placed)
     ? withEnd(
         placed,
         'end',
@@ -504,10 +514,7 @@ function finishDrawing(
         elementsById(host.scene().elements),
       )
     : placed;
-  host.applyScene(
-    { ...host.scene(), elements: [...host.scene().elements, settled] },
-    { select: [drag.id] },
-  );
+  host.land(added(host.scene(), element));
   return null;
 }
 
@@ -572,17 +579,14 @@ function finishPlace(
     return;
   }
   const end = points[points.length - 1]!;
-  const settled = withEnd(
+  const element = withEnd(
     pathOf(host, drag.tool, points, drag.id),
     'end',
     end,
     attachTarget(host, drag.id, 'end', release, skipSnap),
     elementsById(host.scene().elements),
   );
-  host.applyScene(
-    { ...host.scene(), elements: [...host.scene().elements, settled] },
-    { select: [drag.id] },
-  );
+  host.land(added(host.scene(), element));
 }
 
 /**
@@ -637,14 +641,7 @@ function settleEnd(
     return null;
   }
   const { to, target } = resolveEnd(host, drag, at, skipSnap);
-  host.applyScene({
-    ...host.scene(),
-    elements: host.scene().elements.map((candidate) =>
-      candidate.id === drag.id
-        ? withEnd(element, drag.which, to, target, elementsById(host.scene().elements))
-        : candidate,
-    ),
-  });
+  host.land(ended(host.scene(), element, drag.which, to, target));
   return null;
 }
 
@@ -686,48 +683,32 @@ function settleBend(
   }
   const to = { x: drag.origin.x + at.x - drag.from.x, y: drag.origin.y + at.y - drag.from.y };
   host.selectBend(picked);
-  host.applyScene({
-    ...host.scene(),
-    elements: host.scene().elements.map((candidate) =>
-      candidate.id === drag.id ? withBend(base, drag.index, to) : candidate,
-    ),
-  });
+  host.land(bent(host.scene(), base, drag.index, to));
   return null;
 }
 
 /**
  * A released Label settles one step, and only the place: the words were the
- * gesture's to move, and the ends the shaft was drawn by are not. The place is
- * rounded where the Scene rounds every number, so the place the ink showed is
- * the place the file holds. A press that carried nothing leaves the Scene as it
- * was, and records no step.
+ * gesture's to move, and the ends the shaft was drawn by are not. A press that
+ * carried nothing leaves the Scene as it was, and records no step.
  */
 function settleLabel(host: GestureHost, drag: Extract<Drag, { kind: 'label' }>): null {
-  const placed = canonicalElement(drag.shown);
-  const labelAt = isShaft(placed) ? placed.labelAt : undefined;
-  host.applyScene({
-    ...host.scene(),
-    elements: host.scene().elements.map((element) =>
-      element.id === drag.id && isShaft(element) && labelAt !== undefined
-        ? { ...element, labelAt }
-        : element,
-    ),
-  });
+  host.land(labelled(host.scene(), drag.shown));
   return null;
 }
 
 /**
  * The Scene a swap-of-Elements gesture settles: what the page showed becomes the
- * Scene, as one step. The frame and the release both read `shownElements`, so a
+ * Scene, as one step. The frame and the release both read one projection, so a
  * drag cannot show one thing and save another.
  */
 function settleShown(host: GestureHost, drag: ShownDrag): null {
-  host.applyScene({ ...host.scene(), elements: shownElements(host.scene().elements, drag) });
+  host.land(settled(host.scene(), swapOf(drag)));
   return null;
 }
 
 /** A gesture that shows the Scene it holds: nothing of it is a preview yet. */
-function settled(scene: Scene): Preview {
+function still(scene: Scene): Preview {
   return {
     settled: true,
     elements: scene.elements,
@@ -977,7 +958,7 @@ const label: DragKind<Extract<Drag, { kind: 'label' }>> = {
   holdsScene: true,
   preview(drag, scene) {
     // A Label the pointer has not carried stands where the Scene holds it.
-    return drag.moved ? swapped(scene, drag) : settled(scene);
+    return drag.moved ? swapped(scene, drag) : still(scene);
   },
   follow(drag, event, run) {
     const { host } = run;
@@ -1012,7 +993,7 @@ const label: DragKind<Extract<Drag, { kind: 'label' }>> = {
 /** A Text tool's press: the field opens on the release, not on the press. */
 const text: DragKind<Extract<Drag, { kind: 'text' }>> = {
   holdsScene: false,
-  preview: (_drag, scene) => settled(scene),
+  preview: (_drag, scene) => still(scene),
   follow: () => {},
   settle(drag, _event, run) {
     run.host.typing.openTextInput(drag.at);
@@ -1061,7 +1042,7 @@ const box: DragKind<Extract<Drag, { kind: 'box' }>> = {
   holdsScene: false,
   sweeping: true,
   preview(drag, scene) {
-    return { ...settled(scene), sweep: boxBetween(drag.from, drag.to) };
+    return { ...still(scene), sweep: boxBetween(drag.from, drag.to) };
   },
   follow(drag, event, run) {
     drag.to = run.host.page.viewport.scenePoint(event);
