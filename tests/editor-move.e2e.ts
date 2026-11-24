@@ -15,6 +15,8 @@ import {
   drag,
   dragBy,
   expectSvgMatchesCli,
+  holdWrites,
+  allowWrites,
   settle,
   openEditor,
   savedFiles,
@@ -380,4 +382,73 @@ test('nudging an arrow Snapped at both ends moves nothing and keeps both Snaps',
     'aria-pressed',
     'true',
   );
+});
+
+test('a click on a selected Element writes nothing and records no step', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'block.json': BLOCK_SOURCE } }, 'block.json');
+
+  // A real move first, so the history holds one step of its own to give back.
+  await clickScene(ui, { x: 100, y: 80 }, [], BLOCK);
+  await dragBy(ui, { x: 100, y: 80 }, 37, 23, BLOCK);
+  const moved = await savedScene(ui, 'block.json');
+  expect({ x: moved.elements[0]?.x, y: moved.elements[0]?.y }).toEqual({ x: 77, y: 63 });
+  const files = await savedFiles(ui);
+
+  // The disk is held shut, so a settle that asks for a write leaves the status
+  // on `saving…` instead of `saved`: a press and release on what the drag left
+  // selected, carrying nothing, is a click and asks for neither.
+  await holdWrites(ui, 'block.json');
+  await clickScene(ui, { x: 120, y: 100 }, [], BLOCK);
+  await settle(ui);
+  await expect(screen.getByRole('status')).toHaveText('saved');
+  await allowWrites(ui);
+  expect(await savedFiles(ui)).toEqual(files);
+
+  // The first undo gives the move back, so the click recorded nothing.
+  await browser.keyboard.press('Meta+z');
+  const undone = await savedScene(ui, 'block.json');
+  expect({ x: undone.elements[0]?.x, y: undone.elements[0]?.y }).toEqual({ x: 40, y: 40 });
+});
+
+test('a click on a resize handle writes nothing and records no step', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openEditor(ui, { A: { 'block.json': BLOCK_SOURCE } }, 'block.json');
+
+  // A real resize from the box's corner, so the history holds one step again.
+  await clickScene(ui, { x: 100, y: 80 }, [], BLOCK);
+  await dragBy(ui, { x: 160, y: 120 }, 40, 20, BLOCK);
+  const resized = await savedScene(ui, 'block.json');
+  expect({ width: resized.elements[0]?.width, height: resized.elements[0]?.height }).toEqual({
+    width: 160,
+    height: 100,
+  });
+  const files = await savedFiles(ui);
+
+  // A press and release on the corner the resize left, and not a pixel of
+  // carry: a click on the handle, which asks for no write either.
+  await holdWrites(ui, 'block.json');
+  const corner = at({ x: 200, y: 140 }, BLOCK);
+  await browser.mouse.move(corner.x, corner.y);
+  await browser.mouse.down();
+  await browser.mouse.up();
+  await settle(ui);
+  await expect(screen.getByRole('status')).toHaveText('saved');
+  await allowWrites(ui);
+  expect(await savedFiles(ui)).toEqual(files);
+
+  await browser.keyboard.press('Meta+z');
+  const undone = await savedScene(ui, 'block.json');
+  expect({ width: undone.elements[0]?.width, height: undone.elements[0]?.height }).toEqual({
+    width: 120,
+    height: 80,
+  });
 });
