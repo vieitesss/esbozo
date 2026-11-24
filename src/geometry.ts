@@ -622,20 +622,58 @@ function drawnPoints(
   if (anchoredStart !== null) {
     drawn[0] = anchoredStart;
   } else if (startTarget !== undefined) {
-    drawn[0] = pointOnOutline(startTarget.outline, points[1]);
-    if (!loop && insideOutline(startTarget.outline, points[1])) {
-      covered.start = startTarget.outline;
-    }
+    covered.start = landedEnd(drawn, points, 0, startTarget.outline, loop);
   }
   if (anchoredEnd !== null) {
     drawn[last] = anchoredEnd;
   } else if (endTarget !== undefined) {
-    drawn[last] = pointOnOutline(endTarget.outline, points[last - 1]!);
-    if (!loop && insideOutline(endTarget.outline, points[last - 1]!)) {
-      covered.end = endTarget.outline;
-    }
+    covered.end = landedEnd(drawn, points, last, endTarget.outline, loop);
   }
   return { drawn, covered };
+}
+
+/**
+ * Lands a Snapped end on its target's outline and says which target still has
+ * ink to cut, or null where the end already sits where the ink is drawn. An end
+ * whose neighbour is the target's own middle gives the aim no direction, so
+ * `pointOnOutline` falls back on a point of its own invention — an ellipse's
+ * top — and the spline through that fallback curls back out across the fill.
+ * Such an end is put where the build before this change put it: where the leg
+ * reaching it from outside crosses the outline, with the points the walk covered
+ * collapsed onto it. The ink then stops on the outline, and no cut is left to
+ * make.
+ */
+function landedEnd(
+  drawn: Point[],
+  points: readonly [Point, Point, ...Point[]],
+  end: number,
+  target: Outline,
+  loop: boolean,
+): Outline | null {
+  const step = end === 0 ? 1 : -1;
+  const beside = points[end + step]!;
+  drawn[end] = pointOnOutline(target, beside);
+  if (loop || !insideOutline(target, beside)) {
+    return null;
+  }
+  if (!samePoint(centreOf(target), beside)) {
+    return target;
+  }
+  let outside = -1;
+  for (let index = end + step; index >= 0 && index < points.length; index += step) {
+    if (!insideOutline(target, points[index]!)) {
+      outside = index;
+      break;
+    }
+  }
+  if (outside === -1) {
+    return null;
+  }
+  const tip = crossingInto(target, points[outside]!, points[outside - step]!);
+  for (let index = end; index !== outside; index += step) {
+    drawn[index] = { x: tip.x, y: tip.y };
+  }
+  return null;
 }
 
 /**
@@ -656,19 +694,23 @@ function entryAlong(pieces: readonly ShaftPiece[], target: Outline, side: End): 
     const piece = pieces[index]!;
     const beyond = side === 'start' ? piece.to : piece.from;
     if (!insideOutline(target, beyond)) {
-      return starts[index]! + arcAt(piece, entryFraction(piece, target, side));
+      return starts[index]! + arcAt(piece, entrySides(piece, target, side).outside);
     }
   }
   return null;
 }
 
 /**
- * The fraction of a piece where it crosses into `target`, answered on the side
- * that is outside: the piece is known to be inside the target at one end and
- * outside it at the other, so the walk halves the span until the two sides are
- * `CROSSING_PX` apart and no ink runs on into the fill.
+ * The fraction of a piece where it crosses into `target`, answered on both
+ * sides: the piece is known to be inside the target at one end and outside it
+ * at the other, so the walk halves the span until the two are `CROSSING_PX`
+ * apart and no ink runs on into the fill.
  */
-function entryFraction(piece: ShaftPiece, target: Outline, side: End): number {
+function entrySides(
+  piece: ShaftPiece,
+  target: Outline,
+  side: End,
+): { inside: number; outside: number } {
   let inside = side === 'start' ? 0 : 1;
   let outside = side === 'start' ? 1 : 0;
   for (let step = 0; step < CROSSING_STEPS; step += 1) {
@@ -684,7 +726,17 @@ function entryFraction(piece: ShaftPiece, target: Outline, side: End): number {
       break;
     }
   }
-  return outside;
+  return { inside, outside };
+}
+
+/**
+ * Where the leg between a point outside an outline and one inside it crosses the
+ * outline: read on a straight piece, so the same quarter pixel that stops a cut
+ * stops this walk, and answered on the inside, where the ink ends.
+ */
+function crossingInto(target: Outline, outside: Point, inside: Point): Point {
+  const leg = straight(outside, inside);
+  return pointOf(leg, entrySides(leg, target, 'end').inside);
 }
 
 /**
