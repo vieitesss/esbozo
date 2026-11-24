@@ -365,6 +365,7 @@ class EsbozoEditorElement extends HTMLElement {
       canvas: this.#canvas,
       canOpen: () => this.#connection.writable() && this.#typing.text() === null,
       shaft: (id) => shaftIn(this.#scene, id),
+      drawn: () => this.#page.drawn(),
       selectBend: (bend) => {
         this.#picked.pick(bend);
         this.#refresh();

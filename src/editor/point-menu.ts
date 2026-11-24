@@ -46,6 +46,12 @@ export interface PointMenuOptions {
   readonly canOpen: () => boolean;
   /** The Shaft a mark names, which is what makes a press on it a bend point's. */
   readonly shaft: ShaftOf;
+  /**
+   * Whether the page still draws the Scene in hand: a mark the page painted for
+   * another Scene names the point that Scene held, and a point's index is the
+   * Scene's to give away.
+   */
+  readonly drawn: () => boolean;
   /** Make the point the selection's, and paint it: the editor's own selection. */
   readonly selectBend: (bend: Bend) => void;
   /** Switch the point to its other corner, through the editor's one corner step. */
@@ -103,10 +109,13 @@ export class PointMenu {
       return false;
     }
     // A handle is the mark a point draws, so a dot — a press pulling a new point
-    // out of the ink — leaves the menu shut.
-    const point = this.#options.canvas.contains(target)
-      ? (bendFromHandle(target, this.#options.shaft)?.bend ?? null)
-      : null;
+    // out of the ink — leaves the menu shut. A mark left over from the frame
+    // before is no handle either: the Scene may have given that index to another
+    // point, and a menu opened for it would act on a point no press aimed at.
+    const point =
+      this.#options.canvas.contains(target) && this.#options.drawn()
+        ? (bendFromHandle(target, this.#options.shaft)?.bend ?? null)
+        : null;
     if (point === null) {
       return false;
     }
