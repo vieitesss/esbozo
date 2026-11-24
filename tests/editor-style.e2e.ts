@@ -5,7 +5,15 @@
  */
 import { test } from '@e2e-dev/web';
 import { afterAll, expect } from 'e2e';
-import { MIXED, clickScene, expectSvgMatchesCli, openEditor, savedScene } from './helpers.ts';
+import {
+  EMPTY,
+  MIXED,
+  clickScene,
+  expectSvgMatchesCli,
+  openEditor,
+  openNewScene,
+  savedScene,
+} from './helpers.ts';
 import type { Ui, View } from './helpers.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
@@ -32,6 +40,23 @@ test('the Style menu is open only while something is selected', async ({ app, br
 
   await ui.browser.keyboard.press('Escape');
   await expect(ui.screen.getByRole('dialog', 'Style')).toBeHidden();
+});
+
+test('the note names the one Text a new Scene holds, once it is placed', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  await openNewScene(ui, { A: {} }, 'fresh.json');
+
+  await browser.keyboard.press('t');
+  await clickScene(ui, { x: 100, y: 80 }, [], EMPTY);
+  const field = screen.getByRole('textbox', { name: 'Text' });
+  await field.pressSequentially('hi');
+  await field.press('Escape');
+
+  // One Text, placed: the note that is open on it names that one Text, and does
+  // not count the Text it was typed into beside the one it made.
+  const note = screen.getByRole('dialog', 'Style');
+  await expect(note).toContainText('Text');
+  await expect(note).not.toContainText('Elements');
 });
 
 test('every style control changes the selected Element in the saved Scene', async ({ app, browser, screen }) => {
