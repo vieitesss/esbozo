@@ -1096,6 +1096,51 @@ test('a covered end whose neighbour is its target’s centre stops on the near e
   }
 });
 
+test('a round covered shaft a trillion pixels long still renders', async () => {
+  // The issue's own scale, at the ends the Review tried beside the ellipse: the
+  // round spline over a leg that long puts its control points further off its
+  // chord than a page can show. Rough.js flattens the ink it is handed at a
+  // point a pixel, so `pointsOnPath` recurses until the stack gives out and
+  // `ez render` writes no SVG at all — one the build before this change draws.
+  for (const type of ['ellipse', 'rectangle'] as const) {
+    for (const bend of [50, 60]) {
+      const svg = renderScene(
+        parsed({
+          version: 1,
+          defaults: { roughness: 0 },
+          elements: [
+            { id: 'a', type: 'arrow', corners: 'round', points: [
+              { x: -1e12, y: 50 },
+              { x: bend, y: bend },
+              { x: 75, y: 50, snap: 'target' },
+            ] },
+            {
+              id: 'target',
+              type,
+              x: 0,
+              y: 0,
+              width: 100,
+              height: 100,
+              tone: 'muted',
+              fill: { kind: 'solid', grey: 1 },
+            },
+          ],
+        }),
+        LAYOUT,
+      );
+
+      const heads = tags(svg, 'path').filter((tag) => attribute(tag, 'fill') === INK);
+      assert.equal(heads.length, 1, `a ${type} target with the bend at ${bend} draws one head`);
+      const tip = drawnPoints(attribute(heads[0]!, 'd') ?? '')[0]!;
+      assert.ok(
+        Math.hypot(tip.x - 50, tip.y - 50) < 70,
+        `the head sits on the target, got ${tip.x},${tip.y}`,
+      );
+      assert.doesNotMatch(svg, /NaN/, 'the ink is drawn from numbers');
+    }
+  }
+});
+
 test('a shaft with every point inside its target keeps the aim its bend gives it', async () => {
   // Nothing of this shaft is outside the box — the start included — so there is
   // no outside ink to aim from: the end keeps landing where the ray through the
