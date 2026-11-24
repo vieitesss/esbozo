@@ -25,7 +25,7 @@
  * the editor's to say, through `PageHost`. Nothing here reads the Scene's own
  * state or decides what an edit is.
  */
-import { drawnGeometry, outlineBox, shaftLabel, wordsInkBounds } from '../renderer.js';
+import { drawnGeometry } from '../renderer.js';
 import { isOutlined, snapTargetId, elementsById } from '../scene.js';
 import type { Corner, Element as SceneElement, Scene } from '../scene.js';
 import type { Block, Layout, LineGlyphs } from '../layout.js';
@@ -636,7 +636,7 @@ export class Page {
       const target = this.#host.scene().elements.find((element) => element.id === drag.target);
       if (target !== undefined && isOutlined(target)) {
         // The Element the dragged end would attach to, so a drop is no surprise.
-        const outline = this.viewport.pageBox(outlineBox(target));
+        const outline = this.viewport.pageBox(drawnGeometry(target).box);
         this.#appendRect(overlay, {
           x: outline.x - SNAP_GROW,
           y: outline.y - SNAP_GROW,
@@ -724,7 +724,7 @@ export class Page {
     }
     const handles: HandleMark[] = [];
     if (isOutlined(element)) {
-      const outline = this.viewport.pageBox(outlineBox(element));
+      const outline = this.viewport.pageBox(drawnGeometry(element).box);
       for (const handle of HANDLES) {
         handles.push({ at: handlePoint(outline, handle), kind: 'handle', name: handle });
       }
@@ -839,11 +839,11 @@ export class Page {
       return;
     }
     const byId = this.#painted?.byId ?? elementsById(this.#host.scene().elements);
-    const words = shaftLabel(element, byId, this.#host.layout());
-    if (words === null) {
+    const label = drawnGeometry(element, byId, this.#host.layout()).label;
+    if (label === null) {
       return;
     }
-    const box = this.viewport.pageBox(wordsInkBounds(words));
+    const box = this.viewport.pageBox(label);
     // The dashes stand a little outside the words and are the selection's: no
     // press lands on them. The box the words paint is what a press takes, so it
     // is the one that says what a press there does.
