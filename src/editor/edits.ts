@@ -1,16 +1,17 @@
 import { drawnGeometry } from '../renderer.js';
 import { canonicalElement, parseFragment, elementsById } from '../scene.js';
-import type { ArrowOrLineElement, Element as SceneElement, Scene } from '../scene.js';
+import type { ArrowOrLineElement, Corner, Element as SceneElement, Scene } from '../scene.js';
 import type { Layout } from '../layout.js';
 import { arranged } from './arrange.js';
 import type { ArrangeAct } from './arrange.js';
-import { withBend } from './bend-point.js';
+import { mayRemove, withBend, withCorner, withoutBend } from './bend-point.js';
+import type { Bend } from './bend-point.js';
 import { copies, fragmentOf, idsOf, replaced, without } from './elements.js';
 import { boxOf, landingOffset, moved } from './geometry.js';
 import type { Point, View } from './geometry.js';
 import { anchoredEnds, isShaft, snapOn, withEnd, withSnapSwitch } from './snap.js';
 import type { End } from './snap.js';
-import { styled } from './style.js';
+import { nextRoughness, styled } from './style.js';
 import type { StyleKey } from './style.js';
 
 /** How far a copy, a pasted Element or a duplicate lands from what it copies, in Scene units. */
@@ -280,4 +281,40 @@ export function duplicated(
 ): Edited | null {
   const fragment = parseFragment(fragmentOf(scene, elements), scene.defaults);
   return pasted(scene, fragment ?? [], landing);
+}
+
+/**
+ * Switch one bend point to `corner`: the point's own corner, written where it
+ * differs from the Element's own and left out where it is the same. The
+ * selection stays as it was, keeping the picked bend point.
+ */
+export function cornerSwitched(scene: Scene, bend: Bend, corner: Corner): Edited | null {
+  const element = scene.elements.find((candidate) => candidate.id === bend.id);
+  if (element === undefined || !isShaft(element)) {
+    return null;
+  }
+  const next = withCorner(element, bend.index, corner);
+  return edited(scene, replaced(scene.elements, new Set([bend.id]), () => next));
+}
+
+/**
+ * Remove one bend point if the shaft allows it; returns null when the shaft is
+ * missing or the removal would leave a two-point self-loop.
+ */
+export function bendRemoved(scene: Scene, bend: Bend): Edited | null {
+  const element = scene.elements.find((candidate) => candidate.id === bend.id);
+  if (element === undefined || !isShaft(element) || !mayRemove(element)) {
+    return null;
+  }
+  const next = withoutBend(element, bend.index);
+  return edited(scene, replaced(scene.elements, new Set([bend.id]), () => next));
+}
+
+/** Step the Scene-wide default roughness to the next level. */
+export function defaultRoughnessStepped(scene: Scene): Edited {
+  const roughness = nextRoughness(scene.defaults.roughness);
+  return {
+    scene: { ...scene, defaults: { ...scene.defaults, roughness } },
+    selection: null,
+  };
 }

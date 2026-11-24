@@ -1,25 +1,27 @@
-import { emptyScene, parseFragment, parseScene, serialiseScene } from '../scene.js';
+import { emptyScene, parseFragment } from '../scene.js';
 import type { Corner, Element as SceneElement, Scene } from '../scene.js';
 import { PRIMARY_SCENE_EXTENSION, sceneFileNameFor, sceneStem } from '../paths.js';
-import { replaced, selectedFrom } from './elements.js';
+import { selectedFrom } from './elements.js';
 import { movableCount } from './arrange.js';
 import type { ArrangeAct } from './arrange.js';
 import {
+  bendRemoved,
+  cornerSwitched,
+  defaultRoughnessStepped,
   deleted,
   duplicated,
   edited,
-  nudged,
   pasted,
   rearranged,
   restyled,
   switched,
 } from './edits.js';
-import type { Edited, Landing } from './edits.js';
+import type { Landing } from './edits.js';
 import { actionById, actionFor } from './actions.js';
 import type { ActionHost, ActionState, ToolId } from './actions.js';
 import type { PngExport } from './export.js';
 import { Gestures } from './gestures.js';
-import { mayRemove, PickedBend, shaftIn, withCorner, withoutBend } from './bend-point.js';
+import { shaftIn } from './bend-point.js';
 import type { Bend } from './bend-point.js';
 import { clipboardApi, copySelection, copyTo, cutSelection, pasteClipboard } from './clipboard.js';
 import type { ClipboardHost } from './clipboard.js';
@@ -31,25 +33,22 @@ import { Notes } from './notes.js';
 import { CommandPalette } from './palette.js';
 import { PointMenu } from './point-menu.js';
 import { menuSignature, styleNote } from './menu.js';
-import { nextRoughness, roughnessLabel } from './style.js';
+import { roughnessLabel } from './style.js';
 import type { StyleKey } from './style.js';
 import { canPickFolder } from './files.js';
 import { fittedView, zoomedAt } from './geometry.js';
 import type { View } from './geometry.js';
-import { History } from './history.js';
+import { Hand } from './hand.js';
 import { mountRail } from './rail.js';
 import type { MountedRail } from './rail.js';
 import { SHELL } from './shell.js';
 import { isShaft, snapOn } from './snap.js';
 import type { End } from './snap.js';
 import { Typing } from './typing.js';
-import { sceneFile } from './paint.js';
 
 const NUDGE = 1;
 const NUDGE_WITH_SHIFT = 10;
 const ZOOM_STEP = 1.2;
-/** Nudges closer together than this are one undo step: a held arrow key is one gesture. */
-const NUDGE_BURST_MS = 800;
 
 /**
  * The instance the keys and the clipboard belong to: the last one a person
@@ -85,14 +84,21 @@ class EsbozoEditorElement extends HTMLElement {
   #ownsKeysWhenFocused = false;
   /** Whether this page can export a PNG: a PNG is the page's, and the bundle has none. */
   #pngExport: ((request: PngExport) => Promise<void>) | undefined;
-  #scene: Scene = emptyScene();
-  #selected: string[] = [];
-  /** The one bend point the selection holds, and the presses that take it. */
-  #picked = new PickedBend();
+  /** The Scene in hand: current Scene, selection, picked Bend point, and History. */
+  readonly #hand = new Hand({
+    writable: () => this.#connection.writable(),
+    save: (scene) => {
+      void this.#connection.save(scene);
+    },
+    onChange: () => {
+      this.#showDefaultRoughness();
+      this.#refresh();
+    },
+    onSelect: () => {
+      this.#notes.shut('point');
+    },
+  });
   #tool: ToolId = 'select';
-  #history = new History(serialiseScene(this.#scene));
-  /** When the last nudge landed, so a burst of them folds into one undo step. */
-  #nudgedAt = 0;
   #grid = true;
   /** The pointer's state machine: every gesture, and what an exit has to drop. */
   #gestures!: Gestures;
@@ -126,7 +132,7 @@ class EsbozoEditorElement extends HTMLElement {
    * the Scene their answer speaks for, and the one way it becomes an edit.
    */
   readonly #clipboard: ClipboardHost = {
-    scene: () => this.#scene,
+    scene: () => this.#hand.scene,
     selected: () => this.#selectedElements(),
     token: () => this.#connection.token,
     target: () => this.#connection.target,
@@ -146,8 +152,8 @@ class EsbozoEditorElement extends HTMLElement {
     copySelection: () => copySelection(this.#clipboard),
     cutSelection: () => cutSelection(this.#clipboard),
     paste: () => pasteClipboard(this.#clipboard),
-    undo: () => this.#restore(() => this.#history.undo()),
-    redo: () => this.#restore(() => this.#history.redo()),
+    undo: () => this.#hand.undo(),
+    redo: () => this.#hand.redo(),
     arrange: (act) => this.#arrangeSelection(act),
     toggleGrid: () => this.#toggleGrid(),
     toggleTheme: () => this.#toggleTheme(),
@@ -203,7 +209,7 @@ class EsbozoEditorElement extends HTMLElement {
       railArt: railArtEl,
       docks: docksEl,
       statusCorners: () => [...this.querySelectorAll<HTMLElement>('.status > div')],
-      scene: () => this.#scene,
+      scene: () => this.#hand.scene,
       view: () => this.#page.viewport.view,
       layout: () => this.#connection.layout,
       size: () => this.#page.viewport.size(),
@@ -273,10 +279,10 @@ class EsbozoEditorElement extends HTMLElement {
       inside: this,
       canvas: this.#canvas,
       canOpen: () => this.#connection.writable() && this.#typing.text() === null,
-      shaft: (id) => shaftIn(this.#scene, id),
+      shaft: (id) => shaftIn(this.#hand.scene, id),
       drawn: () => this.#page.drawn(),
       selectBend: (bend) => {
-        this.#picked.pick(bend);
+        this.#hand.pickBend(bend);
         this.#refresh();
       },
       switchCorner: (bend, corner) => this.#switchCorner(bend, corner),
@@ -304,16 +310,16 @@ class EsbozoEditorElement extends HTMLElement {
     this.#typing = new Typing({
       field: this,
       page: () => this.#page,
-      scene: () => this.#scene,
+      scene: () => this.#hand.scene,
       layout: () => this.#connection.layout,
       writable: () => this.#connection.writable(),
       useSelectTool: () => this.#setTool('select'),
       selectElement: (id) => {
-        this.#selectElements([id]);
+        this.#hand.select([id]);
         this.#refresh();
       },
       refused: (problem) => this.#setSaved('failed', problem),
-      applyScene: (next, select) => this.#land(edited(this.#scene, next.elements, select)),
+      applyScene: (next, select) => this.#hand.land(edited(this.#hand.scene, next.elements, select)),
       forgetWordClick: () => this.#gestures.forgetWordClick(),
     });
 
@@ -332,10 +338,10 @@ class EsbozoEditorElement extends HTMLElement {
       },
       {
         layout: () => this.#connection.layout,
-        scene: () => this.#scene,
+        scene: () => this.#hand.scene,
         shown: () => this.#shown(),
-        selected: () => this.#selected,
-        bend: () => this.#picked.bend,
+        selected: () => this.#hand.selected,
+        bend: () => this.#hand.bend,
         preview: () => this.#gestures.preview(),
         dragging: () => this.#gestures.drag !== null,
         railEdge: () => this.#rail.edge(),
@@ -368,22 +374,22 @@ class EsbozoEditorElement extends HTMLElement {
       canvas: this.#canvas,
       menu: this.#menu,
       rail: railEl,
-      scene: () => this.#scene,
+      scene: () => this.#hand.scene,
       layout: () => this.#connection.layout,
       page: this.#page,
-      selected: () => this.#selected,
+      selected: () => this.#hand.selected,
       select: (ids) => {
-        this.#selectElements(ids);
+        this.#hand.select(ids);
       },
       selectBend: (bend) => {
-        this.#picked.pick(bend);
+        this.#hand.pickBend(bend);
       },
       removeBend: (bend) => this.#removeBend(bend),
       tool: () => this.#tool,
       setTool: (tool) => this.#setTool(tool),
       writable: () => this.#connection.writable(),
       typing: this.#typing,
-      land: (edit) => this.#land(edit),
+      land: (edit) => this.#hand.land(edit),
       refresh: () => this.#refresh(),
       showPanning: () => this.#showPill(),
     });
@@ -533,9 +539,8 @@ class EsbozoEditorElement extends HTMLElement {
     // No Scene to hold in the hand either: the pan and the word it named go
     // with the Scene the page let go of.
     this.#gestures.endSpacePan();
-    this.#replaceScene(emptyScene());
-    this.#selectElements([]);
-    this.#history.reset(serialiseScene(this.#scene));
+    this.#hand.load(emptyScene());
+    this.#page.resetDrawings();
     this.#menu.hidden = true;
     // The Scenes the notes named are not this page's any more: they leave with
     // it, and the focus is nobody's to move.
@@ -549,7 +554,7 @@ class EsbozoEditorElement extends HTMLElement {
   #start(): void {
     this.#showDefaultRoughness();
     this.#page.viewport.view = fittedView(
-      this.#scene,
+      this.#hand.scene,
       this.#page.viewport.size(),
       this.#connection.layout,
     );
@@ -637,7 +642,7 @@ class EsbozoEditorElement extends HTMLElement {
     }
     // The point a press picked waits for the key that removes it: a page that may
     // only read, and another Scene, hold none of it.
-    this.#picked.letGo();
+    this.#hand.letGoBend();
     this.#notes.clear('point');
     if (this.#tool !== 'select') {
       this.#setTool('select');
@@ -652,16 +657,9 @@ class EsbozoEditorElement extends HTMLElement {
     this.#page.paint();
   }
 
-  /** A Scene switch or reset starts the new Scene with an empty drawing cache. */
-  #replaceScene(scene: Scene): void {
-    this.#scene = scene;
-    this.#page.resetDrawings();
-  }
-
   #load(scene: Scene, target: SaveTarget, status: SavedState): void {
-    this.#replaceScene(scene);
-    this.#selectElements([]);
-    this.#history.reset(serialiseScene(scene));
+    this.#hand.load(scene);
+    this.#page.resetDrawings();
     this.#menuFor = null;
     this.#page.viewport.view = fittedView(scene, this.#page.viewport.size(), this.#connection.layout);
     // The name and the status this open leaves are set before the frame is
@@ -685,20 +683,7 @@ class EsbozoEditorElement extends HTMLElement {
   }
 
   #selectedElements(): SceneElement[] {
-    return selectedFrom(this.#shown().elements, this.#selected);
-  }
-
-  /**
-   * The one owner of the selection: the Elements it holds, and the bend point it
-   * may hold with one of them. A change of the selection lets the point go, so a
-   * point outlives no selection and its index outlives no point.
-   */
-  #selectElements(ids: readonly string[]): void {
-    this.#selected = [...ids];
-    this.#picked.letGo();
-    // The menu was opened for the selection the press found: another one is
-    // another point, or none at all.
-    this.#notes.shut('point');
+    return selectedFrom(this.#shown().elements, this.#hand.selected);
   }
 
   /**
@@ -718,55 +703,10 @@ class EsbozoEditorElement extends HTMLElement {
     }
     // A page with a session open draws the words it holds half-written, so it is
     // not settled even when the Scene's Elements are the ones it shows.
-    const words = this.#typing.preview(this.#scene.elements);
+    const words = this.#typing.preview(this.#hand.scene.elements);
     return words === null
-      ? { settled: true, elements: this.#scene.elements }
+      ? { settled: true, elements: this.#hand.scene.elements }
       : { settled: false, elements: words };
-  }
-
-  /**
-   * One history step, with the autosave every change gets. A change that left
-   * the Scene as it was records nothing and writes nothing, so a plain click on
-   * an Element never touches the disk.
-   */
-  #record(amend = false, after = sceneFile(this.#scene)): void {
-    const changed = amend ? this.#history.amend(after) : this.#history.record(after);
-    if (!amend) {
-      this.#nudgedAt = 0;
-    }
-    if (changed) {
-      void this.#connection.save(this.#scene);
-    }
-  }
-
-  /**
-   * A Scene taken back from the history is the Scene to save, so undo autosaves
-   * too. The read-only gate comes before the step is taken, so a page that may
-   * only read never consumes a step it cannot show.
-   */
-  #restore(step: () => string | null): void {
-    if (!this.#connection.writable()) {
-      return;
-    }
-    const source = step();
-    if (source === null) {
-      return;
-    }
-    const parsed = parseScene(source);
-    if (!parsed.ok) {
-      return;
-    }
-    this.#scene = parsed.scene;
-    this.#selectElements(
-      this.#selected.filter((id) => this.#scene.elements.some((element) => element.id === id)),
-    );
-    this.#nudgedAt = 0;
-    // An undone edit may have changed a default or a Snap, so the status bar and
-    // the note follow the restored Scene: a Snap the undo put back offers its
-    // switch on again.
-    this.#showDefaultRoughness();
-    this.#refresh();
-    void this.#connection.save(this.#scene);
   }
 
   /**
@@ -774,12 +714,12 @@ class EsbozoEditorElement extends HTMLElement {
    * selected Elements, as one step. A Snap to a deleted target is dropped.
    */
   #deleteSelected(): void {
-    const bend = this.#picked.spend();
+    const bend = this.#hand.spendBend();
     if (bend !== null) {
       this.#removeBend(bend);
       return;
     }
-    this.#remove(new Set(this.#selected));
+    this.#remove(new Set(this.#hand.selected));
   }
 
   /**
@@ -790,14 +730,12 @@ class EsbozoEditorElement extends HTMLElement {
    * it draws is already the shape the switch made.
    */
   #switchCorner(bend: Bend, corner: Corner): void {
-    const scene = this.#scene;
-    const element = scene.elements.find((candidate) => candidate.id === bend.id);
-    if (element === undefined || !isShaft(element)) {
+    const edit = cornerSwitched(this.#hand.scene, bend, corner);
+    if (edit === null) {
       this.#refresh();
       return;
     }
-    const switched = withCorner(element, bend.index, corner);
-    this.#applyScene({ ...scene, elements: replaced(scene.elements, new Set([bend.id]), () => switched) });
+    this.#hand.land(edit);
   }
 
   /**
@@ -808,17 +746,13 @@ class EsbozoEditorElement extends HTMLElement {
    * shaft keeps the selection; the point does not.
    */
   #removeBend(bend: Bend): void {
-    const scene = this.#scene;
-    const element = scene.elements.find((candidate) => candidate.id === bend.id);
-    // The one removal rule, asked here as the point menu asks it: a point the
-    // menu shows as disabled is exactly a point this cannot remove.
-    if (element === undefined || !isShaft(element) || !mayRemove(element)) {
+    const edit = bendRemoved(this.#hand.scene, bend);
+    if (edit === null) {
       this.#refresh();
       return;
     }
-    this.#picked.letGo();
-    const removed = withoutBend(element, bend.index);
-    this.#applyScene({ ...scene, elements: replaced(scene.elements, new Set([bend.id]), () => removed) });
+    this.#hand.letGoBend();
+    this.#hand.land(edit);
   }
 
   /**
@@ -827,12 +761,12 @@ class EsbozoEditorElement extends HTMLElement {
    * has become while the clipboard took the copy.
    */
   #remove(ids: ReadonlySet<string>): void {
-    this.#land(deleted(this.#scene, this.#selected, ids));
+    this.#hand.land(deleted(this.#hand.scene, this.#hand.selected, ids));
   }
 
   /** Duplicate the selected Elements: Paste of what Copy would write. */
   #duplicate(): void {
-    this.#land(duplicated(this.#scene, this.#selectedElements(), this.#landing()));
+    this.#hand.land(duplicated(this.#hand.scene, this.#selectedElements(), this.#landing()));
   }
 
   /**
@@ -844,7 +778,7 @@ class EsbozoEditorElement extends HTMLElement {
     if (active !== this || !this.#takesClipboard(event.target) || this.#gestures.holdsScene()) {
       return;
     }
-    if (copyTo(event.clipboardData, this.#scene, this.#selectedElements())) {
+    if (copyTo(event.clipboardData, this.#hand.scene, this.#selectedElements())) {
       event.preventDefault();
     }
   };
@@ -855,7 +789,7 @@ class EsbozoEditorElement extends HTMLElement {
       return;
     }
     const text = event.clipboardData?.getData('text/plain') ?? '';
-    this.#insertCopies(parseFragment(text, this.#scene.defaults) ?? []);
+    this.#insertCopies(parseFragment(text, this.#hand.scene.defaults) ?? []);
     event.preventDefault();
   };
 
@@ -884,7 +818,7 @@ class EsbozoEditorElement extends HTMLElement {
       return;
     }
     const selected = this.#selectedElements();
-    if (copyTo(event.clipboardData, this.#scene, selected)) {
+    if (copyTo(event.clipboardData, this.#hand.scene, selected)) {
       event.preventDefault();
       // Cut removes exactly what it copied: the point a press holds is a place on
       // the shaft, never an Element the clipboard carries off.
@@ -908,14 +842,14 @@ class EsbozoEditorElement extends HTMLElement {
     }
     // The file name the Scene saves under, and the one a too-large page tells a
     // person to hand to the CLI.
-    const file = this.#connection.target?.name ?? `${this.#scene.title}${PRIMARY_SCENE_EXTENSION}`;
+    const file = this.#connection.target?.name ?? `${this.#hand.scene.title}${PRIMARY_SCENE_EXTENSION}`;
     try {
       await exportPng({
-        scene: this.#scene,
+        scene: this.#hand.scene,
         theme,
         layout: this.#connection.layout,
         family: this.#connection.family,
-        name: sceneStem(file) || this.#scene.title,
+        name: sceneStem(file) || this.#hand.scene.title,
         file,
       });
     } catch (error) {
@@ -929,8 +863,8 @@ class EsbozoEditorElement extends HTMLElement {
     return {
       selected: selected.length,
       movable: movableCount(selected),
-      canUndo: this.#history.canUndo,
-      canRedo: this.#history.canRedo,
+      canUndo: this.#hand.canUndo,
+      canRedo: this.#hand.canRedo,
       clipboard: clipboardApi() !== null,
       png: this.#pngExport !== undefined,
       folder: this.#connection.served || canPickFolder(),
@@ -948,7 +882,7 @@ class EsbozoEditorElement extends HTMLElement {
 
   /** Adds copies of the given Elements as one step, selected, so a paste can be moved at once. */
   #insertCopies(elements: readonly SceneElement[]): void {
-    this.#land(pasted(this.#scene, elements, this.#landing()));
+    this.#hand.land(pasted(this.#hand.scene, elements, this.#landing()));
   }
 
   /** What a paste or a duplicate needs of the page to land where a person can see it. */
@@ -983,67 +917,14 @@ class EsbozoEditorElement extends HTMLElement {
     this.#rail.markTool(tool);
     if (tool !== 'select') {
       // Handles and a dashed selection box under the pencil only get in the way.
-      this.#selectElements([]);
+      this.#hand.select([]);
     }
     this.#page.paint();
   }
 
-  /**
-   * The one way a Scene change lands: the changed Scene replaces the current
-   * one, the page repaints and the edit autosaves as a single write and a
-   * single history step. A change that leaves the Scene as it was writes
-   * nothing, but the page still follows, so a gesture that ends where it began
-   * leaves no preview or highlight behind.
-   *
-   * Read-only refuses here, before the Scene is touched, so no tool has to
-   * remember the rule: every edit in this file — a draw, a drag, a nudge, a
-   * paste, a style pick, an Arrange move, a Snap end — arrives through this
-   * call, and none of them can change a page that may only read.
-   */
-  #applyScene(
-    next: Scene,
-    options: { amend?: boolean; select?: readonly string[] } = {},
-  ): void {
-    if (!this.#connection.writable()) {
-      return;
-    }
-    const after = sceneFile(next);
-    const changed = after !== sceneFile(this.#scene);
-    const { select } = options;
-    if (changed) {
-      this.#scene = next;
-    }
-    if (select !== undefined) {
-      this.#selectElements(select);
-    }
-    // The note follows the Scene, room and all: a Snap row that ended where it
-    // began is not left behind, and a change that moved the selection wakes the
-    // view that keeps the note off it. A drag in flight is left alone by
-    // `Page.clearOfNote`, so nothing moves under the pointer.
-    this.#refresh();
-    if (changed) {
-      this.#record(options.amend === true, after);
-    }
-  }
-
-  /**
-   * Land one Scene edit the edits module made: the Scene it returns and the
-   * selection that comes with it, so no caller filters or extends a selection
-   * itself. An edit that asked for nothing lands nothing, and one whose
-   * selection is `null` leaves the selection — and the bend point a press may
-   * hold — exactly where it is.
-   */
-  #land(edit: Edited | null, amend = false): void {
-    if (edit === null) {
-      return;
-    }
-    const { selection } = edit;
-    this.#applyScene(edit.scene, selection === null ? { amend } : { amend, select: selection });
-  }
-
   /** Change the selected Elements' style, every pick arriving here. */
   #styleSelection(key: StyleKey, value: string): void {
-    this.#land(restyled(this.#scene, this.#selected, key, value));
+    this.#hand.land(restyled(this.#hand.scene, this.#hand.selected, key, value));
   }
 
   /**
@@ -1051,7 +932,7 @@ class EsbozoEditorElement extends HTMLElement {
    * measures belong to the edit.
    */
   #arrangeSelection(act: ArrangeAct): void {
-    this.#land(rearranged(this.#scene, this.#selected, act, this.#connection.layout));
+    this.#hand.land(rearranged(this.#hand.scene, this.#hand.selected, act, this.#connection.layout));
   }
 
   // ------------------------------------------------------------------ painting
@@ -1183,7 +1064,7 @@ class EsbozoEditorElement extends HTMLElement {
       return;
     }
     if (event.key === 'Escape') {
-      this.#selectElements([]);
+      this.#hand.select([]);
       this.#setTool('select');
       this.#refresh();
       return;
@@ -1212,7 +1093,7 @@ class EsbozoEditorElement extends HTMLElement {
       event.preventDefault();
       // A held delete key whose press already spent its point runs nothing: only
       // a new press frees the shaft.
-      if (action.id === 'delete' && !this.#picked.pressDelete(event.repeat)) {
+      if (action.id === 'delete' && !this.#hand.pressDelete(event.repeat)) {
         return;
       }
       void action.run(this.#host);
@@ -1272,15 +1153,7 @@ class EsbozoEditorElement extends HTMLElement {
   };
 
   #nudge(dx: number, dy: number): void {
-    // A nudge that cannot move what is selected records and saves nothing, and
-    // a burst of them is one step: the same undo takes the whole nudge back.
-    const amend = Date.now() - this.#nudgedAt < NUDGE_BURST_MS;
-    const edit = nudged(this.#scene, this.#selected, dx, dy);
-    if (edit === null) {
-      return;
-    }
-    this.#land(edit, amend);
-    this.#nudgedAt = Date.now();
+    this.#hand.nudge(dx, dy);
   }
 
   #zoomBy(factor: number): void {
@@ -1290,7 +1163,7 @@ class EsbozoEditorElement extends HTMLElement {
 
   /** Fit the page the Renderer draws into the window, the view an open Scene starts in. */
   #zoomToFit(): void {
-    const view = fittedView(this.#scene, this.#page.viewport.size(), this.#connection.layout);
+    const view = fittedView(this.#hand.scene, this.#page.viewport.size(), this.#connection.layout);
     // A fit draws the page one way only, whatever view it replaces, so this is
     // where the rail's frame is measured again (D3, criterion 5). The fitted view
     // is the one it is measured from, and it is set before the note's clearance
@@ -1373,13 +1246,11 @@ class EsbozoEditorElement extends HTMLElement {
    * is one autosaved edit, like every other Scene change.
    */
   #stepDefaultRoughness(): void {
-    const roughness = nextRoughness(this.#scene.defaults.roughness);
-    this.#applyScene({ ...this.#scene, defaults: { ...this.#scene.defaults, roughness } });
-    this.#showDefaultRoughness();
+    this.#hand.land(defaultRoughnessStepped(this.#hand.scene));
   }
 
   #showDefaultRoughness(): void {
-    const value = roughnessLabel(this.#scene.defaults.roughness);
+    const value = roughnessLabel(this.#hand.scene.defaults.roughness);
     this.#roughButton.innerHTML = `rough <b>${value}</b>`;
   }
 
@@ -1419,7 +1290,7 @@ class EsbozoEditorElement extends HTMLElement {
     // reached it with Tab keeps the focus they had and Space flips the same end
     // back. The press is the note's own, so the note is where the focus sits.
     const held = this.#menu.contains(document.activeElement);
-    this.#land(switched(this.#scene, elements, end, !snapOn(element, end)));
+    this.#hand.land(switched(this.#hand.scene, elements, end, !snapOn(element, end)));
     if (held) {
       this.#menu.querySelector<HTMLButtonElement>(`[data-act="snap-${end}"]`)?.focus();
     }
