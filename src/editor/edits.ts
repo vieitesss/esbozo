@@ -1,5 +1,5 @@
-import { elementBounds, elementsById } from '../renderer.js';
-import { parseFragment } from '../scene.js';
+import { drawnGeometry } from '../renderer.js';
+import { parseFragment, elementsById } from '../scene.js';
 import type { ArrowOrLineElement, Element as SceneElement, Scene } from '../scene.js';
 import type { Layout } from '../layout.js';
 import { arranged } from './arrange.js';
@@ -75,7 +75,7 @@ export function rearranged(
       ...scene,
       elements: arranged(elements, selection, act, (element) => {
         byId ??= elementsById(elements);
-        return elementBounds(element, byId, layout);
+        return drawnGeometry(element, byId, layout).bounds;
       }),
     },
     selection: null,

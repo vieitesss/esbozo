@@ -336,6 +336,15 @@ const UNWRITTEN_TEXT_ALIGN: Readonly<Record<'label' | 'text', TextAlign>> = {
   text: 'left',
 };
 
+/**
+ * Every Element of a Scene by its id: the one index the Renderer and the Editor
+ * both read, so a Snap, a pick and a handle all resolve an id to the same
+ * Element. A Scene keeps its ids unique, so no Element is lost to a later one.
+ */
+export function elementsById(elements: readonly Element[]): Map<string, Element> {
+  return new Map(elements.map((element) => [element.id, element]));
+}
+
 const DEFAULT_TITLE = 'Scene';
 
 /** The smallest width or height an Element can have: one pixel of ink. */

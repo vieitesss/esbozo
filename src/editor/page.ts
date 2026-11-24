@@ -25,14 +25,14 @@
  * the editor's to say, through `PageHost`. Nothing here reads the Scene's own
  * state or decides what an edit is.
  */
-import { elementsById, outlineBox, shaftInk, shaftLabel, wordsInkBounds } from '../renderer.js';
-import { isOutlined, snapTargetId } from '../scene.js';
+import { drawnGeometry } from '../renderer.js';
+import { isOutlined, snapTargetId, elementsById } from '../scene.js';
 import type { Corner, Element as SceneElement, Scene } from '../scene.js';
 import type { Block, Layout, LineGlyphs } from '../layout.js';
 import { HANDLES, boxBetween, boxOf, clearedView, handlePoint, unionOf } from './geometry.js';
 import type { Box, Point } from './geometry.js';
 import type { Drag } from './gestures.js';
-import { bendDots, bendPoints, nameBendHandle, nameDot, sameBend } from './bend-point.js';
+import { bendDots, nameBendHandle, nameDot, sameBend } from './bend-point.js';
 import type { Bend, BendPoint } from './bend-point.js';
 import { PaintCache, paintedInk } from './paint.js';
 import type { Paint, SceneFiles } from './paint.js';
@@ -636,7 +636,7 @@ export class Page {
       const target = this.#host.scene().elements.find((element) => element.id === drag.target);
       if (target !== undefined && isOutlined(target)) {
         // The Element the dragged end would attach to, so a drop is no surprise.
-        const outline = this.viewport.pageBox(outlineBox(target));
+        const outline = this.viewport.pageBox(drawnGeometry(target).box);
         this.#appendRect(overlay, {
           x: outline.x - SNAP_GROW,
           y: outline.y - SNAP_GROW,
@@ -724,21 +724,24 @@ export class Page {
     }
     const handles: HandleMark[] = [];
     if (isOutlined(element)) {
-      const outline = this.viewport.pageBox(outlineBox(element));
+      const outline = this.viewport.pageBox(drawnGeometry(element).box);
       for (const handle of HANDLES) {
         handles.push({ at: handlePoint(outline, handle), kind: 'handle', name: handle });
       }
     } else if (isShaft(element)) {
       const byId = this.#painted?.byId ?? elementsById(this.#host.scene().elements);
-      const path = shaftInk(element, byId).path;
-      handles.push(
-        { at: this.viewport.pagePoint(path.start), kind: 'handle', name: 'start' },
-        { at: this.viewport.pagePoint(path.end), kind: 'handle', name: 'end' },
-      );
-      for (const bend of bendPoints(element)) {
+      const drawn = drawnGeometry(element, byId);
+      const ends = drawn.ends;
+      if (ends !== null) {
+        handles.push(
+          { at: this.viewport.pagePoint(ends[0]), kind: 'handle', name: 'start' },
+          { at: this.viewport.pagePoint(ends[1]), kind: 'handle', name: 'end' },
+        );
+      }
+      for (const bend of drawn.bends) {
         handles.push({ ...bend, at: this.viewport.pagePoint(bend.at), kind: 'bend' });
       }
-      for (const dot of bendDots(element, path, {
+      for (const dot of bendDots(drawn, {
         writable: this.#host.writable(),
         view: this.viewport.view,
         clearance: DOT_CLEARANCE,
@@ -836,11 +839,11 @@ export class Page {
       return;
     }
     const byId = this.#painted?.byId ?? elementsById(this.#host.scene().elements);
-    const words = shaftLabel(element, byId, this.#host.layout());
-    if (words === null) {
+    const label = drawnGeometry(element, byId, this.#host.layout()).label;
+    if (label === null) {
       return;
     }
-    const box = this.viewport.pageBox(wordsInkBounds(words));
+    const box = this.viewport.pageBox(label);
     // The dashes stand a little outside the words and are the selection's: no
     // press lands on them. The box the words paint is what a press takes, so it
     // is the one that says what a press there does.

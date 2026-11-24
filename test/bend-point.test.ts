@@ -15,7 +15,7 @@ import { loadProjectModules } from './modules.ts';
 import type { ArrowOrLineElement } from '../src/scene.ts';
 import type { View } from '../src/editor/geometry.ts';
 
-const { parseScene, shaftInk, bendDots } = await loadProjectModules();
+const { parseScene, drawnGeometry, bendDots } = await loadProjectModules();
 
 /** A flat line through two points, so its one segment's dot is exactly halfway. */
 const FLAT_SCENE = {
@@ -34,33 +34,33 @@ const CLEARANCE = 7;
  */
 const VIEW: View = { zoom: 0.3499999999999999, panX: 633, panY: 80 };
 
-/** The fixture's line, and the ink the Renderer draws for it. */
-function flat(): { line: ArrowOrLineElement; ink: ReturnType<typeof shaftInk> } {
+/** The fixture's line, and the geometry the Renderer draws for it. */
+function flat(): { line: ArrowOrLineElement; drawn: ReturnType<typeof drawnGeometry> } {
   const result = parseScene(JSON.stringify(FLAT_SCENE));
   assert.ok(result.ok);
   const element = result.scene.elements[0];
   if (element === undefined || (element.type !== 'line' && element.type !== 'arrow')) {
     throw new Error('the fixture holds no arrow or line');
   }
-  return { line: element, ink: shaftInk(element, new Map()) };
+  return { line: element, drawn: drawnGeometry(element, new Map()) };
 }
 
 test('a dot exactly the clearance from a handle is drawn', () => {
-  const { line, ink } = flat();
+  const { drawn } = flat();
   // Seven pixels apart is clear of the handle, and the page's own pixels are what
   // the rule reads: the Scene distance behind them is 20 and `seven / zoom` is
   // 20.000000000000004, so a rule comparing Scene distances loses the dot.
-  const dots = bendDots(line, ink.path, { writable: true, view: VIEW, clearance: CLEARANCE });
+  const dots = bendDots(drawn, { writable: true, view: VIEW, clearance: CLEARANCE });
 
   assert.deepEqual(dots.map((dot) => dot.index), [1]);
 });
 
 test('a dot closer to a handle than the clearance is left off', () => {
-  const { line, ink } = flat();
+  const { drawn } = flat();
   // The same ten Scene pixels either side of the dot, at a zoom that draws them
   // six apart: closer than a handle and a dot may stand, so there is no mark.
   const view: View = { ...VIEW, zoom: 0.3 };
-  const dots = bendDots(line, ink.path, { writable: true, view, clearance: CLEARANCE });
+  const dots = bendDots(drawn, { writable: true, view, clearance: CLEARANCE });
 
   assert.deepEqual(dots, []);
 });

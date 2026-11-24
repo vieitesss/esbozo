@@ -3,9 +3,9 @@
  *
  * A Snap is stored on the end itself (`points[i].snap`, an Element id) and the
  * Renderer resolves it onto the target's outline when it draws, so this module
- * never works out where an outline is: `drawnShaft` is where an end lands, and
- * a freed end is stored exactly there. That keeps one copy of the outline
- * geometry, the one the Renderer and `geometry.ts` already share.
+ * never works out where an outline is: the ends `drawnGeometry` answers are where
+ * an end lands, and a freed end is stored exactly there. That keeps one copy of
+ * the outline geometry, the one the Renderer and `geometry.ts` already share.
  *
  * The rules are the Scene's own: only a rectangle, ellipse or diamond has an
  * outline to land on, and a shaft of two points cannot attach both its ends to
@@ -15,9 +15,9 @@
  * ends where they draw: only a free end moves.
  */
 import { anchorOf, anchorPoint, insideOutline } from '../geometry.js';
-import { drawnShaft, elementsById } from '../renderer.js';
+import { drawnGeometry } from '../renderer.js';
 import type { Anchor, ArrowOrLineElement, Element, OutlinedElement, Point } from '../scene.js';
-import { isOutlined, snapTargetId } from '../scene.js';
+import { isOutlined, snapTargetId, elementsById } from '../scene.js';
 
 /** Which end of an arrow or line: the first point, or the last. */
 export const ENDS = ['start', 'end'] as const;
@@ -243,8 +243,11 @@ function drawnEnds(
   element: ArrowOrLineElement,
   byId: ReadonlyMap<string, Element>,
 ): [Point, Point] {
-  const [start, end] = drawnShaft(element, byId);
-  return [whole(start), whole(end)];
+  const ends = drawnGeometry(element, byId).ends;
+  if (ends === null) {
+    throw new Error(`${element.id}: only an arrow or line draws ends`);
+  }
+  return [whole(ends[0]), whole(ends[1])];
 }
 
 function whole(point: Point): Point {
