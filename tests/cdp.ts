@@ -261,6 +261,19 @@ export async function touchCarry(from: Spot, to: Spot, moves: number): Promise<v
 }
 
 /**
+ * A finger tapping `spot`: the press and the release a touch click is made of,
+ * with no move between them, as a person placing a point by finger makes one.
+ */
+export async function touchTap(spot: Spot): Promise<void> {
+  const cdp = await session();
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x: spot.x, y: spot.y, id: TOUCH }],
+  });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+}
+
+/**
  * The browser cancelling the touch press `touchCarry` left down, as it does when
  * it takes the gesture over for a scroll: the page gets a `pointercancel` the
  * browser made, with the pointer it really had.

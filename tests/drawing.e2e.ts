@@ -33,7 +33,7 @@ import {
 } from './helpers.ts';
 import type { Folders, Ui, View } from './helpers.ts';
 import type { Point } from './helpers.ts';
-import { livePage } from './cdp.ts';
+import { livePage, touchTap } from './cdp.ts';
 import { shot } from './pixels.ts';
 import type { Rect } from './pixels.ts';
 
@@ -891,6 +891,36 @@ describe('Text typed in place', () => {
     // The tool is back on Select: a drag on `a` moves it.
     await dragBy(ui, { x: 100, y: 80 }, 5, 5);
     expect((await saved(ui)).get('a')?.x).toBe(45);
+  });
+
+  test('a finger tap with the Text tool places a Text that keeps the focus and saves', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui);
+
+    // A finger, unlike the mouse, also makes the browser's own mouse press —
+    // after the release the field opens on, which is the one that takes the
+    // focus back off it.
+    await browser.keyboard.press('t');
+    await touchTap(at({ x: 420, y: 300 }));
+
+    const field = screen.getByRole('textbox', { name: 'Text' });
+    await expect(field).toBeFocused();
+    await field.pressSequentially('by finger');
+    await field.press('Escape');
+
+    const scene = await savedScene(ui);
+    expect(scene.elements.length).toBe(3);
+    const text = scene.elements[2];
+    expect({ type: text?.type, x: text?.x, y: text?.y, content: text?.content }).toEqual({
+      type: 'text',
+      x: 420,
+      y: 300,
+      content: 'by finger',
+    });
   });
 
   test('Enter on an empty line commits, and an empty Text leaves nothing behind', async ({
