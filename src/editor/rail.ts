@@ -215,18 +215,13 @@ export class Rail {
     this.#dockTo(side);
   }
 
-  /** Escape during a rail drag calls it off and keeps the Scene's tool and selection. */
+  /** Escape or interrupt during a rail drag calls it off and keeps the Scene's tool and selection. */
   escape(): boolean {
     if (this.#drag === null) {
       return false;
     }
     this.#callOffDrag();
     return true;
-  }
-
-  /** Window blur or hidden tab: call off any active rail drag. */
-  interrupt(): void {
-    this.#callOffDrag();
   }
 
   /** End any active drag without owing a click (e.g. element disconnected). */
@@ -511,7 +506,6 @@ export interface MountedRail {
   resize(): void;
   dock(side: RailSide): void;
   escape(): boolean;
-  interrupt(): void;
   endDrag(): void;
   holding(): boolean;
   edge(): number | null;
@@ -662,7 +656,6 @@ export function mountRail(dom: RailDomHost): MountedRail {
     resize: () => rail.resize(),
     dock: (side) => rail.dock(side),
     escape: () => rail.escape(),
-    interrupt: () => rail.interrupt(),
     endDrag: () => rail.endDrag(),
     holding: () => rail.holding(),
     edge: () => rail.edge(),
