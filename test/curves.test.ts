@@ -304,6 +304,21 @@ function drawnPoints(d: string): Point[] {
   return points;
 }
 
+/**
+ * The two control points of the first curve a path draws: the ink's own numbers,
+ * which a rebuild through other points would move even where the path passes
+ * the same places.
+ */
+function firstCurve(d: string): [Point, Point] {
+  const args = /C([^A-Za-z]*)/.exec(d)?.[1] ?? '';
+  const numbers = (args.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
+  assert.equal(numbers.length, 6, `the path starts with a curve, got ${d}`);
+  return [
+    { x: numbers[0]!, y: numbers[1]! },
+    { x: numbers[2]!, y: numbers[3]! },
+  ];
+}
+
 /** How close the ink of a path comes to a point, sampled along every curve it draws. */
 function inkDistance(path: string, point: Point): number {
   return Math.min(
@@ -979,6 +994,39 @@ test('a covered bend aims from the other end’s drawn place, not its stored one
   assert.ok(
     near(Math.max(...shaft.map((point) => point.x)), 300),
     `the ink ends on the other box, got ${Math.max(...shaft.map((point) => point.x))}`,
+  );
+});
+
+test('a covered round bend is cut where its curve enters the target', async () => {
+  // The Review's round-cornered row, whose incoming cubic crosses the box at
+  // (0, 6.396) — measured on the reference build — while the straight chord
+  // between the stored points crosses its corner at (3.571, 0). Cutting the
+  // chord and rebuilding the spline through the shortened points moved the tip
+  // round the corner and changed the previous cubic's control point, an ink the
+  // approach never drew. The curve itself is the reference: the head lands on
+  // its crossing, and the cubic before it draws exactly as it did.
+  const { svg, apex } = await drawnHead({
+    version: 1,
+    defaults: { roughness: 0 },
+    elements: [
+      { id: 'a', type: 'arrow', corners: 'round', points: [
+        { x: -60, y: -100 },
+        { x: -25, y: -12 },
+        { x: 75, y: 30 },
+        { x: 100, y: 50, snap: 'box' },
+      ] },
+      { id: 'box', type: 'rectangle', x: 0, y: 0, width: 100, height: 100, tone: 'muted' },
+    ],
+  });
+
+  assert.ok(
+    near(apex.x, 0, 0.4) && near(apex.y, 6.396, 0.4),
+    `the head sits on the curve's crossing, got ${apex.x},${apex.y}`,
+  );
+  const controls = firstCurve(attribute(shaftFrom(svg, { x: -60, y: -100 }), 'd') ?? '');
+  assert.ok(
+    near(controls[1].x, -46.077, 0.02) && near(controls[1].y, -33.483, 0.02),
+    `the earlier cubic keeps its control points, got ${JSON.stringify(controls[1])}`,
   );
 });
 
