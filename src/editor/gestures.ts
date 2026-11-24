@@ -1,4 +1,4 @@
-import { elementsById, drawnShaft, outlineBox, shaftInk } from '../renderer.js';
+import { drawnGeometry, elementsById, drawnShaft, outlineBox, shaftInk } from '../renderer.js';
 import { canonicalElement, isOutlined } from '../scene.js';
 import type { ArrowOrLineElement, Element as SceneElement, Scene } from '../scene.js';
 import type { Layout } from '../layout.js';
@@ -1079,7 +1079,7 @@ export class Gestures {
       return false;
     }
     const byId = elementsById(this.#host.scene().elements);
-    const origin = dotAt(shaftInk(pressed.shaft, byId).path, pressed.bend.index);
+    const origin = dotAt(drawnGeometry(pressed.shaft, byId), pressed.bend.index);
     if (origin === null) {
       return false;
     }

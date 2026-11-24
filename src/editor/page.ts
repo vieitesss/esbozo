@@ -25,14 +25,14 @@
  * the editor's to say, through `PageHost`. Nothing here reads the Scene's own
  * state or decides what an edit is.
  */
-import { elementsById, outlineBox, shaftInk, shaftLabel, wordsInkBounds } from '../renderer.js';
+import { drawnGeometry, elementsById, outlineBox, shaftLabel, wordsInkBounds } from '../renderer.js';
 import { isOutlined, snapTargetId } from '../scene.js';
 import type { Corner, Element as SceneElement, Scene } from '../scene.js';
 import type { Block, Layout, LineGlyphs } from '../layout.js';
 import { HANDLES, boxBetween, boxOf, clearedView, handlePoint, unionOf } from './geometry.js';
 import type { Box, Point } from './geometry.js';
 import type { Drag } from './gestures.js';
-import { bendDots, bendPoints, nameBendHandle, nameDot, sameBend } from './bend-point.js';
+import { bendDots, nameBendHandle, nameDot, sameBend } from './bend-point.js';
 import type { Bend, BendPoint } from './bend-point.js';
 import { PaintCache, paintedInk } from './paint.js';
 import type { Paint, SceneFiles } from './paint.js';
@@ -730,15 +730,18 @@ export class Page {
       }
     } else if (isShaft(element)) {
       const byId = this.#painted?.byId ?? elementsById(this.#host.scene().elements);
-      const path = shaftInk(element, byId).path;
-      handles.push(
-        { at: this.viewport.pagePoint(path.start), kind: 'handle', name: 'start' },
-        { at: this.viewport.pagePoint(path.end), kind: 'handle', name: 'end' },
-      );
-      for (const bend of bendPoints(element)) {
+      const drawn = drawnGeometry(element, byId);
+      const ends = drawn.ends;
+      if (ends !== null) {
+        handles.push(
+          { at: this.viewport.pagePoint(ends[0]), kind: 'handle', name: 'start' },
+          { at: this.viewport.pagePoint(ends[1]), kind: 'handle', name: 'end' },
+        );
+      }
+      for (const bend of drawn.bends) {
         handles.push({ ...bend, at: this.viewport.pagePoint(bend.at), kind: 'bend' });
       }
-      for (const dot of bendDots(element, path, {
+      for (const dot of bendDots(drawn, {
         writable: this.#host.writable(),
         view: this.viewport.view,
         clearance: DOT_CLEARANCE,

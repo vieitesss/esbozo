@@ -1,7 +1,7 @@
 import type { ArrowOrLineElement, Corner, Point, Scene } from '../scene.js';
 import { snapTargetId } from '../scene.js';
-import { cornerOf, shaftDots } from '../geometry.js';
-import type { ShaftPath } from '../geometry.js';
+import { drawnGeometry } from '../renderer.js';
+import type { DrawnGeometry } from '../renderer.js';
 import { toScreen } from './geometry.js';
 import type { View } from './geometry.js';
 import { isShaft, withPoint } from './snap.js';
@@ -179,9 +179,7 @@ export function withoutBend(element: ArrowOrLineElement, index: number): ArrowOr
  * caller holding a stale point has no corner to offer either way.
  */
 export function cornerAt(shaft: ArrowOrLineElement, index: number): Corner | null {
-  return isBendPoint(shaft.points.length, index)
-    ? cornerOf(shaft.points[index], shaft.corners)
-    : null;
+  return bendPoints(shaft).find((bend) => bend.index === index)?.corner ?? null;
 }
 
 /**
@@ -256,13 +254,12 @@ function isBendPoint(count: number, index: number): boolean {
 
 /**
  * The bend points a lone Shaft shows a handle for, in drawing order: every point
- * it turns by between its ends, and never an end.
+ * it turns by between its ends, and never an end. The Renderer answers which
+ * points those are and how each turns, so a handle can never name a point the
+ * ink does not bend at.
  */
-export function bendPoints(shaft: ArrowOrLineElement): BendPoint[] {
-  const count = shaft.points.length;
-  return shaft.points.flatMap((at, index) =>
-    isBendPoint(count, index) ? [{ index, at, corner: cornerOf(at, shaft.corners) }] : [],
-  );
+function bendPoints(shaft: ArrowOrLineElement): readonly BendPoint[] {
+  return drawnGeometry(shaft).bends;
 }
 
 /**
@@ -302,17 +299,17 @@ export interface MarkedDot {
  * point, and a dot at the cutoff would come and go on an ulp.
  */
 export function bendDots(
-  shaft: ArrowOrLineElement,
-  ink: ShaftPath,
+  drawn: DrawnGeometry,
   page: { readonly writable: boolean; readonly view: View; readonly clearance: number },
 ): MarkedDot[] {
-  if (!page.writable) {
+  const ends = drawn.ends;
+  if (!page.writable || ends === null) {
     return [];
   }
-  const handles = [ink.start, ink.end, ...bendPoints(shaft).map((bend) => bend.at)].map((handle) =>
+  const handles = [ends[0], ends[1], ...drawn.bends.map((bend) => bend.at)].map((handle) =>
     toScreen(page.view, handle),
   );
-  return shaftDots(ink).filter((dot) => {
+  return drawn.dots.filter((dot) => {
     const at = toScreen(page.view, dot.at);
     return handles.every((handle) => apart(handle, at) >= page.clearance);
   });
@@ -323,8 +320,8 @@ export function bendDots(
  * of the segment the pull splits, which is where the point it pulls out starts.
  * Null where the ink draws no such segment.
  */
-export function dotAt(ink: ShaftPath, index: number): Point | null {
-  return shaftDots(ink).find((dot) => dot.index === index)?.at ?? null;
+export function dotAt(drawn: DrawnGeometry, index: number): Point | null {
+  return drawn.dots.find((dot) => dot.index === index)?.at ?? null;
 }
 
 /** How far apart two places of the page are, in the pixels the page draws in. */
