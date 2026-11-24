@@ -21,7 +21,7 @@ const {
   renderScene,
   renderElement,
   pageBounds,
-  elementBounds,
+  drawnGeometry,
   elementAt,
   caretLine,
   railFrame,
@@ -102,7 +102,7 @@ test('a Snap target is resolved where it is drawn, so bounds and picking keep th
   const line = scene.elements[1]!;
   const held = new Map(scene.elements.map((element) => [element.id, element]));
 
-  assert.ok(inside(elementBounds(line, held, LAYOUT), painted), 'the bounds cover the painted Label');
+  assert.ok(inside(drawnGeometry(line, held, LAYOUT).bounds, painted), 'the bounds cover the painted Label');
   assert.equal(pick(scene, painted), 'a', 'a press on the painted Label finds the shaft');
   // The mirrored point is the side the stored tilt alone would pick: 60px right
   // of the shaft, on bare paper.
@@ -199,7 +199,7 @@ test('a press on the ink an Element paints finds it outside its own box', () => 
   });
   const element = scene.elements[0]!;
   const byId = new Map([['a', element]]);
-  const box = elementBounds(element, byId, LAYOUT);
+  const box = drawnGeometry(element, byId, LAYOUT).bounds;
   const ink = renderElement(element, byId, LAYOUT).ink;
   const press = { x: ink.x + 1, y: ink.y + ink.height / 2 };
 
