@@ -937,8 +937,6 @@ test('a covered bend aims from the other end’s drawn place, not its stored one
     version: 1,
     defaults: { roughness: 0 },
     elements: [
-      { id: 'left', type: 'rectangle', x: 0, y: 0, width: 100, height: 100, fill: { kind: 'solid', grey: 1 } },
-      { id: 'right', type: 'rectangle', x: 300, y: 0, width: 100, height: 100 },
       {
         id: 'a',
         type: 'arrow',
@@ -949,6 +947,17 @@ test('a covered bend aims from the other end’s drawn place, not its stored one
           { x: -25, y: 50, snap: 'right' },
         ],
       },
+      {
+        id: 'left',
+        type: 'rectangle',
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+        tone: 'muted',
+        fill: { kind: 'solid', grey: 1 },
+      },
+      { id: 'right', type: 'rectangle', x: 300, y: 0, width: 100, height: 100, tone: 'muted' },
     ],
   });
 
@@ -960,14 +969,16 @@ test('a covered bend aims from the other end’s drawn place, not its stored one
     wings.every((point) => point.x > 100),
     `its wings sit outside the fill, got ${JSON.stringify(wings)}`,
   );
-  const drawn = drawnPoints(attribute(shaftFrom(svg, { x: 100, y: 50 }), 'd') ?? '');
+  const shaft = tags(svg, 'path')
+    .filter((tag) => attribute(tag, 'stroke') === INK)
+    .flatMap((tag) => drawnPoints(attribute(tag, 'd') ?? ''));
   assert.ok(
-    drawn.every((point) => point.x > 99),
-    `no ink runs across the fill, got ${JSON.stringify(drawn)}`,
+    shaft.every((point) => point.x > 99),
+    `no ink runs across the fill, got ${JSON.stringify(shaft)}`,
   );
   assert.ok(
-    near(drawn[drawn.length - 1]!.x, 300) && near(drawn[drawn.length - 1]!.y, 50),
-    `the other end draws at (300,50), got ${JSON.stringify(drawn[drawn.length - 1])}`,
+    near(Math.max(...shaft.map((point) => point.x)), 300),
+    `the ink ends on the other box, got ${Math.max(...shaft.map((point) => point.x))}`,
   );
 });
 

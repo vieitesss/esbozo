@@ -599,35 +599,44 @@ function drawnPoints(
     [drawn[0], drawn[last]] = loopEnds(startTarget.outline, points[1]);
     return drawn;
   }
+  // Both ends land on their outlines before either is cut back, so the ink a
+  // covered end is cut along runs from where the other end draws, not from the
+  // place the Scene still stores for it.
   if (anchoredStart !== null) {
     drawn[0] = anchoredStart;
   } else if (startTarget !== undefined) {
-    aimEnd(drawn, points, 0, startTarget.outline, loop);
+    drawn[0] = pointOnOutline(startTarget.outline, points[1]);
   }
   if (anchoredEnd !== null) {
     drawn[last] = anchoredEnd;
   } else if (endTarget !== undefined) {
-    aimEnd(drawn, points, last, endTarget.outline, loop);
+    drawn[last] = pointOnOutline(endTarget.outline, points[last - 1]!);
+  }
+  if (!loop) {
+    if (anchoredStart === null && startTarget !== undefined) {
+      cutBack(drawn, 0, startTarget.outline);
+    }
+    if (anchoredEnd === null && endTarget !== undefined) {
+      cutBack(drawn, last, endTarget.outline);
+    }
   }
   return drawn;
 }
 
-function aimEnd(
-  drawn: Point[],
-  points: readonly [Point, Point, ...Point[]],
-  end: number,
-  target: Outline,
-  loop: boolean,
-): void {
+/**
+ * Cuts the ink back to where it enters a target, for an end whose neighbouring
+ * point sits inside it: every drawn point between the end and the first one
+ * outside the target collapses onto that entry, so the ink stops at the outline
+ * instead of running on under the fill.
+ */
+function cutBack(drawn: Point[], end: number, target: Outline): void {
   const step = end === 0 ? 1 : -1;
-  const beside = points[end + step]!;
-  drawn[end] = pointOnOutline(target, beside);
-  if (loop || !insideOutline(target, beside)) {
+  if (!insideOutline(target, drawn[end + step]!)) {
     return;
   }
   let outside = -1;
-  for (let index = end + step; index >= 0 && index < points.length; index += step) {
-    if (!insideOutline(target, points[index]!)) {
+  for (let index = end + step; index >= 0 && index < drawn.length; index += step) {
+    if (!insideOutline(target, drawn[index]!)) {
       outside = index;
       break;
     }
@@ -635,7 +644,7 @@ function aimEnd(
   if (outside === -1) {
     return;
   }
-  const tip = crossingInto(target, points[outside]!, points[outside - step]!);
+  const tip = crossingInto(target, drawn[outside]!, drawn[outside - step]!);
   for (let index = end; index !== outside; index += step) {
     drawn[index] = { x: tip.x, y: tip.y };
   }
