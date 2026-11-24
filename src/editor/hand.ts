@@ -10,12 +10,10 @@ import { emptyScene, parseScene, serialiseScene } from '../scene.js';
 import type { ArrowOrLineElement, Corner, Element as SceneElement, Scene } from '../scene.js';
 import { PickedBend, shaftIn } from './bend-point.js';
 import type { Bend } from './bend-point.js';
-import { bendRemoved, cornerSwitched, deleted, edited, nudged, pasted } from './edits.js';
+import { bendRemoved, cornerSwitched, deleted, nudged, pasted } from './edits.js';
 import type { Edited, Landing } from './edits.js';
 import { History } from './history.js';
 import { sceneFile } from './paint.js';
-
-export { edited };
 
 /** Nudges closer together than this are one undo step: a held arrow key is one gesture. */
 const NUDGE_BURST_MS = 800;

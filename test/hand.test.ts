@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { loadProjectModules } from './modules.ts';
 import type { ArrowOrLineElement, RectangleElement, Scene } from '../src/scene.ts';
 
-const { Hand, edited, parseScene, serialiseScene } = await loadProjectModules();
+const { Hand, parseScene, serialiseScene } = await loadProjectModules();
 
 function mustParse(source: string): Scene {
   const parsed = parseScene(source);
@@ -106,7 +106,7 @@ describe('Hand (Scene in hand)', () => {
     hand.load(mustParse(BOX_SCENE));
     hand.select(['box']);
 
-    hand.land(edited(hand.scene, hand.scene.elements));
+    hand.land({ scene: hand.scene, selection: null });
 
     assert.equal(hand.canUndo, false);
     assert.equal(saved.length, 0);
@@ -158,7 +158,10 @@ describe('Hand (Scene in hand)', () => {
       id: 'extra',
       x: 300,
     };
-    hand.land(edited(hand.scene, [...hand.scene.elements, added], ['box', 'extra']));
+    hand.land({
+      scene: { ...hand.scene, elements: [...hand.scene.elements, added] },
+      selection: ['box', 'extra'],
+    });
     assert.deepEqual(hand.selected, ['box', 'extra']);
 
     // Undo removes 'extra'; selection must keep only 'box'.
@@ -228,5 +231,32 @@ describe('Hand (Scene in hand)', () => {
     assert.equal(hand.bend, null);
     assert.equal(saved.length, 1);
     assert.equal(hand.shaft('arr')?.points.length, 2);
+  });
+
+  it('leaves selection and picked Bend point unchanged when landing an edit with null selection', () => {
+    const saved: Scene[] = [];
+    const hand = new Hand({
+      writable: () => true,
+      save: (scene) => saved.push(scene),
+    });
+    hand.load(mustParse(BENT_SCENE));
+    hand.select(['arr']);
+    hand.pickBend({ id: 'arr', index: 1 });
+
+    const movedBox: RectangleElement = {
+      ...(hand.scene.elements[0] as RectangleElement),
+      x: 150,
+    };
+    hand.land({
+      scene: {
+        ...hand.scene,
+        elements: [movedBox, ...hand.scene.elements.slice(1)],
+      },
+      selection: null,
+    });
+
+    assert.equal(saved.length, 1);
+    assert.deepEqual(hand.selected, ['arr']);
+    assert.deepEqual(hand.bend, { id: 'arr', index: 1 });
   });
 });

@@ -48,7 +48,6 @@ export interface ProjectModules {
   leftDockEdge: typeof import('../src/editor/rail.ts').leftDockEdge;
   nearestDock: typeof import('../src/editor/rail.ts').nearestDock;
   Hand: typeof import('../src/editor/hand.ts').Hand;
-  edited: typeof import('../src/editor/hand.ts').edited;
   anchorPoint: typeof import('../src/geometry.ts').anchorPoint;
   anchorOf: typeof import('../src/geometry.ts').anchorOf;
   PaintCache: typeof import('../src/editor/paint.ts').PaintCache;
@@ -76,7 +75,7 @@ export async function loadProjectModules(): Promise<ProjectModules> {
       `export { snapTarget, withEnd, withSnapSwitch, freedEnds, anchoredEnds } from ${source('editor/snap.ts')};`,
       `export { elementAt, caretLine } from ${source('editor/geometry.ts')};`,
       `export { Rail, railFrame, clampedDock, leftDockEdge, nearestDock } from ${source('editor/rail.ts')};`,
-      `export { Hand, edited } from ${source('editor/hand.ts')};`,
+      `export { Hand } from ${source('editor/hand.ts')};`,
       `export { anchorPoint, anchorOf } from ${source('geometry.ts')};`,
       `export { PaintCache, sceneFile } from ${source('editor/paint.ts')};`,
       `export { createLayout, parseFontFile } from ${source('layout.ts')};`,
