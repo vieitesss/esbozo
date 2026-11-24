@@ -14,9 +14,8 @@
  * A page without the API — a non-secure origin has none — says so in the status
  * line instead of offering a command that cannot run.
  */
-import { parseFragment, serialiseScene } from '../scene.js';
+import { parseFragment, serialiseFragment, serialiseScene } from '../scene.js';
 import type { Element as SceneElement, Scene } from '../scene.js';
-import { fragmentOf } from './elements.js';
 import type { SaveTarget } from './connection.js';
 
 /**
@@ -73,7 +72,7 @@ export function copyTo(
   if (selected.length === 0 || data === null) {
     return false;
   }
-  data.setData('text/plain', fragmentOf(scene, selected));
+  data.setData('text/plain', serialiseFragment(scene, selected));
   return true;
 }
 
@@ -87,7 +86,7 @@ export async function copySelection(host: ClipboardHost): Promise<void> {
   const connection = host.token();
   const target = host.target();
   try {
-    await clipboard.writeText(fragmentOf(host.scene(), host.selected()));
+    await clipboard.writeText(serialiseFragment(host.scene(), host.selected()));
   } catch (error) {
     if (current(host, connection, target)) {
       host.status(`cannot copy: ${(error as Error).message}`);
@@ -112,7 +111,7 @@ export async function cutSelection(host: ClipboardHost): Promise<void> {
   const scene = host.scene();
   const before = serialiseScene(scene);
   try {
-    await clipboard.writeText(fragmentOf(scene, selected));
+    await clipboard.writeText(serialiseFragment(scene, selected));
   } catch (error) {
     if (current(host, connection, target)) {
       host.status(`cannot cut: ${(error as Error).message}`);

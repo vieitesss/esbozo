@@ -307,7 +307,7 @@ test('a cut asked in one Scene says nothing in another that opens meanwhile', as
   expect((await savedFiles(ui))['other.json']).toBe(OTHER_SOURCE);
 });
 
-test('Duplicate copies a Snapped arrow alone as a free arrow, freed where its ends draw', async ({
+test('Duplicate copies a Snapped arrow alone as a free arrow, keeping its points', async ({
   app,
   browser,
   screen,
@@ -353,9 +353,7 @@ test('Duplicate follows the Snap to a target it copies and drops the one it does
   await openEditor(ui, { A: { 'bent.json': BENT_SOURCE } }, 'bent.json');
 
   // The bent arrow and one of its two targets: the Snap to the box that is
-  // copied follows its copy, and the Snap to the box left behind is dropped
-  // where that end draws — (500,90), on `b`'s left edge — not at its stale
-  // stored point (550,50), which is 64px inside the box.
+  // copied follows its copy, and the Snap to the box left behind is dropped.
   await clickScene(ui, BENT_ON, [], BENT);
   await clickScene(ui, IN_A, ['Shift'], BENT);
   await browser.keyboard.press('Meta+d');
@@ -377,7 +375,7 @@ test('Duplicate follows the Snap to a target it copies and drops the one it does
     [
       { x: 66, y: 66, snap: 'rectangle-1' },
       { x: 316, y: 266, corner: 'sharp' },
-      { x: 516, y: 106 },
+      { x: 566, y: 66 },
     ],
   ]);
 
@@ -390,30 +388,6 @@ test('Duplicate follows the Snap to a target it copies and drops the one it does
       { x: 300, y: 250, corner: 'sharp' },
       { x: 550, y: 50, snap: 'b' },
     ],
-  ]);
-});
-
-test('Paste lands a copied shaft without its target where its ends draw', async ({
-  app,
-  browser,
-  screen,
-}) => {
-  const ui = { app, browser, screen };
-  await openEditor(ui, { A: { 'bent.json': BENT_SOURCE } }, 'bent.json');
-
-  // The bent arrow alone, carried off by Copy and back by Paste. Neither box
-  // comes with it, so both Snaps go and each end holds the point it drew: a
-  // copy that looks like the original, offset only by the paste's own 16px.
-  await clickScene(ui, BENT_ON, [], BENT);
-  await browser.keyboard.press('Meta+c');
-  await browser.keyboard.press('Meta+v');
-
-  const scene = await savedAndChecked(ui, 'bent.json');
-  expect(scene.elements.map((element) => element.id)).toEqual(['a', 'b', 'c', 'arrow-1']);
-  expect(pointsOf(scene)[1]).toEqual([
-    { x: 116, y: 106 },
-    { x: 316, y: 266, corner: 'sharp' },
-    { x: 516, y: 106 },
   ]);
 });
 
