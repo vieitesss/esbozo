@@ -485,6 +485,15 @@ export class Gestures {
       REFUSED.add(event.pointerId);
       return;
     }
+    // A finger's press is followed by the browser's own mouse press, made after
+    // the release: the board never asks for it, and its default action moves the
+    // focus to the board — off the field a Text session opened on that release,
+    // and off the words a double tap opened. Preventing the touch press is what
+    // stops those compatibility events; the gesture is read from the pointer's
+    // own, so nothing of it is lost.
+    if (event.pointerType === 'touch') {
+      event.preventDefault();
+    }
     const text = this.#host.typing.text();
     if (text !== null && event.button === 0) {
       // A press inside the words being typed moves their caret: it is the
