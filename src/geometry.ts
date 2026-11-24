@@ -669,10 +669,6 @@ export function shaftEnds(
   return [drawn[0]!, drawn[drawn.length - 1]!];
 }
 
-export function carriesSnaps(points: readonly Point[]): boolean {
-  return points.length > 2;
-}
-
 export function shaftPath(
   points: readonly [Point, Point, ...Point[]],
   corners: Corner,

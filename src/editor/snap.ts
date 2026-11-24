@@ -10,12 +10,11 @@
  * The rules are the Scene's own: only a rectangle, ellipse or diamond has an
  * outline to land on, and a shaft of two points cannot attach both its ends to
  * the same Element, though one with a bend between its ends can: a loop leaves
- * an Element and comes back to it. A Snap is per end, so moving a straight arrow
- * frees the ends it had (`released`), rather than turning the drag into a no-op;
- * a shaft with a bend between its ends carries them, because there a drag has
- * bends of its own to move.
+ * an Element and comes back to it. A Snap is per end, so dragging an end slides
+ * it along the target it holds, and a move of a two-point shaft leaves its Snapped
+ * ends where they draw: only a free end moves.
  */
-import { anchorOf, anchorPoint, carriesSnaps, insideOutline } from '../geometry.js';
+import { anchorOf, anchorPoint, insideOutline } from '../geometry.js';
 import { drawnShaft, elementsById } from '../renderer.js';
 import type { Anchor, ArrowOrLineElement, Element, OutlinedElement, Point } from '../scene.js';
 import { isOutlined, snapTargetId } from '../scene.js';
@@ -58,11 +57,6 @@ export function withPoint(
 /** The Element this end is attached to, or null when the end is free. */
 export function attachedTo(element: ArrowOrLineElement, end: End): string | null {
   return snapTargetId(endPoint(element, end));
-}
-
-/** Whether either end of this Element is attached to an Element. */
-function attached(element: Element): boolean {
-  return isShaft(element) && element.points.some((point) => snapTargetId(point) !== null);
 }
 
 /**
@@ -194,35 +188,6 @@ function sameOutline(outline: OutlinedElement, before: Element | undefined): boo
     before.height === outline.height &&
     before.corners === outline.corners
   );
-}
-
-/**
- * The arrow or line with its attached ends freed where they draw now, and every
- * bend between them where the Scene put it. An attached end is stored on its
- * target's outline rather than where it was when it attached, so freeing it does
- * not move it.
- *
- * Only a straight shaft is freed: two points have no bend of their own, so a
- * drag that kept both Snaps would move nothing, while a shaft with a bend
- * between its ends keeps them and moves its bends instead (`carriesSnaps`).
- */
-export function released(
-  element: Element,
-  byId: ReadonlyMap<string, Element>,
-): Element {
-  if (!attached(element) || !isShaft(element) || carriesSnaps(element.points)) {
-    return element;
-  }
-  const [start, end] = drawnEnds(element, byId);
-  let freed = element;
-  if (attachedTo(freed, 'start') !== null) {
-    freed = withPoint(freed, 0, start);
-  }
-  const last = freed.points.length - 1;
-  if (attachedTo(freed, 'end') !== null) {
-    freed = withPoint(freed, last, end);
-  }
-  return freed;
 }
 
 /** One end freed where it draws now, the other end left as it is. */

@@ -20,7 +20,7 @@ import type { ToolId } from './actions.js';
 import { drawn, drawnAtClick, freshId, idsOf, isClick } from './elements.js';
 import type { ElementTool } from './elements.js';
 import type { Page, Shown } from './page.js';
-import { attachedTo, endPoint, isShaft, otherEnd, released, targetAt, withEnd } from './snap.js';
+import { attachedTo, endPoint, isShaft, otherEnd, targetAt, withEnd } from './snap.js';
 import type { End } from './snap.js';
 import type { TextSession } from './text-session.js';
 import type { Typing } from './typing.js';
@@ -666,12 +666,11 @@ export class Gestures {
           shown: pick.element,
         };
       } else {
-        // A move frees a straight shaft's ends where they draw now, so an arrow
-        // that followed its Elements is carried rather than pinned; a bent one
-        // keeps its Snaps and moves its bends.
-        const byId = elementsById(this.#host.scene().elements);
+        // A move carries what follows nothing: a free end, a bend, and the box
+        // an Element sits on. A Snapped end stays on its target's outline, so a
+        // two-point shaft Snapped at both ends moves nothing at all.
         const origins = new Map(
-          this.#selectedElements().map((element) => [element.id, released(element, byId)]),
+          this.#selectedElements().map((element) => [element.id, element]),
         );
         this.#drag = { kind: 'move', from: point, origins, shown: new Map(), by: { x: 0, y: 0 } };
       }
@@ -1353,32 +1352,41 @@ export class Gestures {
 
   /**
    * Where an end being dragged goes, from one pointer sample: the pointer itself
-   * picks the Element the end attaches to, so a drop inside a box attaches even
-   * when the hand grabbed the handle off its centre, and the grab offset carries
-   * only the endpoint. The preview and the release both come through here, so
-   * the line that is shown is the line that is saved.
+   * picks the Element a free end attaches to, so a drop inside a box attaches
+   * even when the hand grabbed the handle off its centre, and the grab offset
+   * carries only the endpoint. The preview and the release both come through
+   * here, so the line that is shown is the line that is saved.
+   *
+   * A Snapped end keeps the target it already has, whatever the pointer is over:
+   * it slides along that target's outline, and no drop frees it or moves it to
+   * another Element. Alt skips attaching for a free end and changes nothing for
+   * one that is already Snapped.
    */
   #resolveEnd(
     drag: Extract<Drag, { kind: 'end' }>,
     pointer: Point,
     skipSnap: boolean,
   ): { to: Point; target: string | null } {
+    const element = this.#host.scene().elements.find((candidate) => candidate.id === drag.id);
+    const snapped =
+      element !== undefined && isShaft(element) ? attachedTo(element, drag.which) : null;
     return {
       to: {
         x: drag.origin.x + pointer.x - drag.from.x,
         y: drag.origin.y + pointer.y - drag.from.y,
       },
-      target: this.#attachTarget(drag.id, drag.which, pointer, skipSnap),
+      target: snapped ?? this.#attachTarget(drag.id, drag.which, pointer, skipSnap),
     };
   }
 
   /**
-   * A released end handle settles where the release put it: attached to the
-   * Element under that pointer, or free when Alt is held at the release. What
-   * settles it is whether the handle moved during the gesture, not whether the
-   * release landed elsewhere: a drag that comes back to its start is still a
-   * drag, while a press and release in one place is a click on the handle and
-   * changes nothing.
+   * A released end handle settles where the release put it: on a Snapped end's
+   * own target, slid to the outline point nearest the release, or attached to the
+   * Element under that pointer for a free end, or free when Alt is held at the
+   * release. What settles it is whether the handle moved during the gesture, not
+   * whether the release landed elsewhere: a drag that comes back to its start is
+   * still a drag, while a press and release in one place is a click on the handle
+   * and changes nothing.
    */
   #settleEnd(drag: Extract<Drag, { kind: 'end' }>, at: Point, skipSnap: boolean): void {
     const element = this.#host.scene().elements.find((candidate) => candidate.id === drag.id);

@@ -15,7 +15,6 @@ import { after, test } from 'node:test';
 import { ez, sceneFolder } from './cli.ts';
 import { loadProjectModules } from './modules.ts';
 import type { Scene } from '../src/scene.ts';
-import { carriesSnaps } from '../src/geometry.ts';
 import { removeTempFolders } from './temp.ts';
 
 after(removeTempFolders);
@@ -125,23 +124,6 @@ test('both ends Snap to one Element once a bend point lies between them', async 
   );
   assert.equal(straight.code, 3);
   assert.match(straight.stderr, /^a: both ends Snap to box$/m);
-});
-
-test('a shaft with a bend carries its Snaps, and a straight one lets them go', () => {
-  // The editor reads this rule where a move asks what to do with a Snap: two
-  // points have no bend to move instead, so a straight shaft that kept both ends
-  // attached would not move at all.
-  assert.equal(carriesSnaps([{ x: 0, y: 0 }, { x: 200, y: 0 }]), false);
-  assert.equal(carriesSnaps([{ x: 0, y: 0 }, { x: 100, y: 80 }, { x: 200, y: 0 }]), true);
-  assert.equal(
-    carriesSnaps([
-      { x: 0, y: 0 },
-      { x: 60, y: 80 },
-      { x: 140, y: 80 },
-      { x: 200, y: 0 },
-    ]),
-    true,
-  );
 });
 
 test('a two-point shaft saves as it always has, and a bend point saves its corner', () => {

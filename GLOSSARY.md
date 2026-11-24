@@ -25,7 +25,7 @@ _Avoid_: label (for free-standing text)
 
 **Snap**:
 An arrow or line end attached to an Element, so it follows that Element when
-it moves. Can be turned off.
+it moves and slides along its outline when dragged. Can be turned off.
 _Avoid_: binding, attachment, grid snap
 
 **Anchor**:

@@ -7,7 +7,7 @@ import type { ArrangeAct } from './arrange.js';
 import { copies, idsOf, replaced, without } from './elements.js';
 import { boxOf, landingOffset, moved } from './geometry.js';
 import type { Point, View } from './geometry.js';
-import { freedEnd, isShaft, released } from './snap.js';
+import { freedEnd, isShaft } from './snap.js';
 import type { End } from './snap.js';
 import { styled } from './style.js';
 import type { StyleKey } from './style.js';
@@ -83,11 +83,10 @@ export function rearranged(
 }
 
 /**
- * Move the selected Elements by a step: a straight shaft's Snapped ends are let
- * go where they draw first, so a nudge moves the whole Element rather than only
- * the ends that were already free, and a shaft with a bend between its ends
- * keeps them and moves its bends instead. A nudge with nothing selected asks for
- * nothing.
+ * Move the selected Elements by a step: a Snapped end of a two-point shaft stays
+ * on its target's outline, so the step moves that shaft's free end, its bends,
+ * and nothing of the end that follows an Element. A nudge with nothing selected
+ * asks for nothing.
  */
 export function nudged(
   scene: Scene,
@@ -98,12 +97,11 @@ export function nudged(
   if (selection.length === 0) {
     return null;
   }
-  const byId = elementsById(scene.elements);
   return {
     scene: {
       ...scene,
       elements: replaced(scene.elements, new Set(selection), (element) =>
-        moved(released(element, byId), dx, dy),
+        moved(element, dx, dy),
       ),
     },
     selection: null,
@@ -116,9 +114,9 @@ export function nudged(
  * and a selection that holds no shaft, ask for nothing.
  *
  * The caller hands over the Elements it selects as the page shows them, so an end
- * dragged out of its box is read where it draws rather than where the last save
- * left it: a Detach pressed with the drag still in the hand frees nothing while
- * the preview already holds that end free.
+ * dragged along its target is read where the preview has slid it rather than
+ * where the last save left it: a Detach pressed with the drag still in the hand
+ * frees the end at the outline point the drag is showing.
  */
 export function detached(
   scene: Scene,

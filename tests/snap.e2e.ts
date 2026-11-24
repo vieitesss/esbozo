@@ -302,6 +302,31 @@ const LOOSE_SOURCE = JSON.stringify(LOOSE_SCENE, null, 2);
 /** The view both of those Scenes land in: `post`'s bounds, at 1:1. */
 const PINNED: View = { zoom: 1, panX: 400, panY: 320 };
 
+/**
+ * `SNAPPED_SCENE` with both ends written the Anchor of the side they sit on: a
+ * two-point shaft whose two Snaps have nowhere to move, so a body drag of it is
+ * the control for a move that carries no end.
+ */
+const HELD_SCENE = {
+  version: 1,
+  title: 'Held',
+  defaults: { roughness: 1 },
+  elements: [
+    { id: 'left', type: 'rectangle', x: 40, y: 40, width: 120, height: 80 },
+    { id: 'right', type: 'rectangle', x: 300, y: 40, width: 120, height: 80 },
+    {
+      id: 'link',
+      type: 'line',
+      points: [
+        { x: 160, y: 80, snap: 'left', anchor: { x: 1, y: 0.5 } },
+        { x: 300, y: 80, snap: 'right', anchor: { x: 0, y: 0.5 } },
+      ],
+      heads: { start: 'none', end: 'none' },
+    },
+  ],
+};
+const HELD_SOURCE = JSON.stringify(HELD_SCENE, null, 2);
+
 /** Inside `post`, off its middle: where a press selects the box alone. */
 const IN_PINNED_BOX = { x: 360, y: 100 };
 
@@ -323,6 +348,7 @@ const SCENES = {
     'loop.json': LOOP_SOURCE,
     'pinned.json': PINNED_SOURCE,
     'loose.json': LOOSE_SOURCE,
+    'held.json': HELD_SOURCE,
   },
 };
 
@@ -572,27 +598,7 @@ describe('moving an end that already exists', () => {
     expect(inked(dropped, at({ x: 200, y: 89 }, SNAP))).toBe(0);
   });
 
-  test('dragging an attached end off its box frees it where it was dropped', async ({
-    app,
-    browser,
-    screen,
-  }) => {
-    const ui = { app, browser, screen };
-    await open(ui, 'snapped.json');
-
-    // `link` is attached at both ends; its end handle sits where it draws, on
-    // the right-hand box's outline.
-    await clickScene(ui, { x: 230, y: 80 }, [], SNAPPED);
-    await drag(ui, at({ x: 300, y: 80 }, SNAPPED), at({ x: 280, y: 140 }, SNAPPED));
-
-    const scene = await savedScene(ui, 'snapped.json');
-    expect(scene.elements[2]?.points).toEqual([
-      { x: 160, y: 80, snap: 'from' },
-      { x: 280, y: 140 },
-    ]);
-  });
-
-  test('Detach pressed while that end is dragged away writes nothing', async ({
+  test('Escape drops a drag of a Snapped end and writes nothing', async ({
     app,
     browser,
     screen,
@@ -601,21 +607,18 @@ describe('moving an end that already exists', () => {
     await open(ui, 'snapped.json');
     await clickScene(ui, { x: 230, y: 80 }, [], SNAPPED);
 
-    // The end is dragged out onto empty paper, so the preview already holds the
-    // end free while the pointer is still down. Enter on the focused Detach
-    // button is the note's own button, not the drag's keys, and the Escape that
-    // follows drops the drag: nothing was detached, so nothing is written.
+    // The end slides along `to` while the pointer is down, and the Escape that
+    // follows drops the drag before the release reaches it: the preview is
+    // discarded, so neither the Anchor nor the place it slid to is written.
     const handle = at({ x: 300, y: 80 }, SNAPPED);
     const away = at({ x: 260, y: 140 }, SNAPPED);
     await browser.mouse.move(handle.x, handle.y);
     await browser.mouse.down();
     await browser.mouse.move(away.x, away.y);
-    await screen.getByRole('button', { name: 'Detach: end' }).focus();
-    await browser.keyboard.press('Enter');
     await browser.keyboard.press('Escape');
     await browser.mouse.up();
 
-    // The drag is gone, the end is still attached, and the note still says so.
+    // The end is still attached where it was, and the note still says so.
     const scene = await savedScene(ui, 'snapped.json');
     expect(scene.elements[2]?.points).toEqual([
       { x: 160, y: 80, snap: 'from' },
@@ -670,7 +673,7 @@ describe('moving an end that already exists', () => {
     ]);
   });
 
-  test('a drag that comes back to its start still settles, and Alt frees the end', async ({
+  test('a drag that comes back to its start still settles, and Alt changes nothing', async ({
     app,
     browser,
     screen,
@@ -680,7 +683,8 @@ describe('moving an end that already exists', () => {
     await clickScene(ui, { x: 230, y: 80 }, [], SNAPPED);
 
     // Away onto the paper and back again: the release moved nothing, but the
-    // gesture did, so it is a drag and Alt at the release frees the end.
+    // gesture did, so it is a drag and it settles. Alt is for a free end only,
+    // so a Snapped end keeps `to` and gains the Anchor of the spot it holds.
     const handle = at({ x: 300, y: 80 }, SNAPPED);
     const away = at({ x: 260, y: 140 }, SNAPPED);
     await browser.mouse.move(handle.x, handle.y);
@@ -694,7 +698,7 @@ describe('moving an end that already exists', () => {
     const scene = await savedScene(ui, 'snapped.json');
     expect(scene.elements[2]?.points).toEqual([
       { x: 160, y: 80, snap: 'from' },
-      { x: 300, y: 80 },
+      { x: 300, y: 80, snap: 'to', anchor: { x: 0, y: 0.5 } },
     ]);
   });
 
@@ -760,6 +764,129 @@ describe('moving an end that already exists', () => {
       { x: 300, y: 80, snap: 'to' },
     ]);
   });
+});
+
+describe('dragging a Snapped end slides it', () => {
+  test('a drag along the box slides the end and writes the Anchor of its new place', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'snapped.json');
+    await clickScene(ui, { x: 230, y: 80 }, [], SNAPPED);
+
+    // The end is on the left side of `to`, halfway down it. Thirty pixels down
+    // that side is seven-eighths of the box: the end keeps its target, slides to
+    // the place under the pointer, and the Anchor names it.
+    await dragBy(ui, { x: 300, y: 80 }, 0, 30, SNAPPED);
+
+    const scene = await savedScene(ui, 'snapped.json');
+    expect(scene.elements[2]?.points).toEqual([
+      { x: 160, y: 80, snap: 'from' },
+      { x: 300, y: 110, snap: 'to', anchor: { x: 0, y: 0.875 } },
+    ]);
+  });
+
+  test('dragged far from its target, the end stays on the outline', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'snapped.json');
+    await clickScene(ui, { x: 230, y: 80 }, [], SNAPPED);
+
+    // The pointer leaves `to` for the paper below its bottom left corner. The
+    // end does not follow it off the outline: it stops at the corner nearest the
+    // pointer, still attached.
+    await dragBy(ui, { x: 300, y: 80 }, -20, 60, SNAPPED);
+
+    const scene = await savedScene(ui, 'snapped.json');
+    expect(scene.elements[2]?.points).toEqual([
+      { x: 160, y: 80, snap: 'from' },
+      { x: 300, y: 120, snap: 'to', anchor: { x: 0, y: 1 } },
+    ]);
+  });
+
+  test('a drop over another box keeps the target it had', async ({ app, browser, screen }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'snapped.json');
+    await clickScene(ui, { x: 230, y: 80 }, [], SNAPPED);
+
+    // The pointer comes up inside `from`, the box the other end is on. A free
+    // end would attach there or nowhere; a Snapped one has one target and keeps
+    // it, sliding back to the point of `to` nearest the pointer.
+    await dragBy(ui, { x: 300, y: 80 }, -200, 0, SNAPPED);
+
+    const scene = await savedScene(ui, 'snapped.json');
+    expect(scene.elements[2]?.points).toEqual([
+      { x: 160, y: 80, snap: 'from' },
+      { x: 300, y: 80, snap: 'to', anchor: { x: 0, y: 0.5 } },
+    ]);
+  });
+});
+
+describe('a two-point shaft keeps its Snaps when it moves', () => {
+  test('a body drag of a shaft Snapped at both ends moves nothing', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'snapped.json');
+
+    // Two points have no bend to move in their ends' place, so a drag of the
+    // body has nothing it may carry: both Snaps hold their places and the file
+    // is the one it was opened with.
+    await dragBy(ui, { x: 230, y: 80 }, 10, 20, SNAPPED);
+
+    const scene = await savedAndChecked(ui, 'snapped.json');
+    expect(scene.elements[2]?.points).toEqual([
+      { x: 160, y: 80, snap: 'from' },
+      { x: 300, y: 80, snap: 'to' },
+    ]);
+  });
+
+  test('a straight shaft keeps both Snaps and Anchors when its body moves', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'held.json');
+
+    // Both ends follow an Element, so there is nothing of the shaft a body drag
+    // may take with it: it keeps both Snaps, both Anchors and both stored points.
+    await dragBy(ui, { x: 230, y: 80 }, 10, 20, SNAPPED);
+
+    const scene = await savedAndChecked(ui, 'held.json');
+    expect(scene.elements[2]?.points).toEqual([
+      { x: 160, y: 80, snap: 'left', anchor: { x: 1, y: 0.5 } },
+      { x: 300, y: 80, snap: 'right', anchor: { x: 0, y: 0.5 } },
+    ]);
+  });
+
+  test('a straight shaft Snapped at one end moves only its free end', async ({
+    app,
+    browser,
+    screen,
+  }) => {
+    const ui = { app, browser, screen };
+    await open(ui, 'pinned.json');
+    await clickScene(ui, { x: 120, y: 85 }, [], PINNED);
+
+    // The start follows nothing, so the drag carries it; the end still holds
+    // `post` at its Anchor and stays where that Anchor draws it.
+    await dragBy(ui, { x: 120, y: 85 }, 10, 20, PINNED);
+
+    const scene = await savedAndChecked(ui, 'pinned.json');
+    expect(scene.elements[1]?.points).toEqual([
+      { x: 70, y: 100 },
+      { x: 300, y: 80, snap: 'post', anchor: { x: 0, y: 0.75 } },
+    ]);
+  });
+
 });
 
 describe('an attached end follows its Element', () => {
@@ -1104,21 +1231,6 @@ describe('a bent shaft keeps its bend', () => {
     ]);
   });
 
-  test('a straight shaft still frees both ends and moves them', async ({ app, browser, screen }) => {
-    const ui = { app, browser, screen };
-    await open(ui, 'snapped.json');
-
-    // The control: two points have no bend to carry the Snaps with, so the drag
-    // lets both ends go where they draw first and moves them from there.
-    await dragBy(ui, { x: 230, y: 80 }, 10, 20, SNAPPED);
-
-    const scene = await savedAndChecked(ui, 'snapped.json');
-    expect(scene.elements[2]?.points).toEqual([
-      { x: 170, y: 100 },
-      { x: 310, y: 100 },
-    ]);
-  });
-
   test('moving a box with its bent shaft keeps both ends attached', async ({ app, browser, screen }) => {
     const ui = { app, browser, screen };
     await open(ui, 'bent.json');
@@ -1192,7 +1304,7 @@ describe('a bent shaft keeps its bend', () => {
     ]);
   });
 
-  test('a drag of a bent shaft and a straight one gives each its own rule', async ({
+  test('a drag of a bent shaft and a straight one moves only what follows nothing', async ({
     app,
     browser,
     screen,
@@ -1200,9 +1312,10 @@ describe('a bent shaft keeps its bend', () => {
     const ui = { app, browser, screen };
     await open(ui, 'mixed.json');
 
-    // One gesture, both shafts: `c` has a bend to carry its Snaps with, and `d`
-    // has two points, so it lets its one Snap go where it drew first. A box sweeps
-    // up both shafts and nothing else.
+    // One gesture, both shafts: `c` has a bend to carry its Snaps with, so both
+    // its ends move with the drag, while `d` has two points and its Snapped start
+    // holds its place — only its free end moves. A box sweeps up both shafts and
+    // nothing else.
     await drag(
       ui,
       at({ x: 620, y: 470 }, MIXED_SNAPPED),
@@ -1217,7 +1330,7 @@ describe('a bent shaft keeps its bend', () => {
       { x: 550, y: 30, snap: 'b' },
     ]);
     expect(scene.elements[4]?.points).toEqual([
-      { x: 100, y: 380 },
+      { x: 150, y: 400, snap: 'e' },
       { x: 450, y: 380 },
     ]);
   });
@@ -1273,8 +1386,11 @@ describe('a bent shaft keeps its bend', () => {
     await dragBy(ui, BENT_START, -30, 40, BENT);
 
     const scene = await savedAndChecked(ui, 'bent.json');
+    // The start stays on `a` and slides to the outline point nearest the
+    // pointer, which is `a`'s bottom edge: the bend and the other end keep their
+    // places, and the Anchor is written for the spot the start holds.
     expect(scene.elements[2]?.points).toEqual([
-      { x: 70, y: 130 },
+      { x: 70, y: 100, snap: 'a', anchor: { x: 0.7, y: 1 } },
       { x: 300, y: 250, corner: 'sharp' },
       { x: 550, y: 50, snap: 'b' },
     ]);
@@ -1287,10 +1403,12 @@ describe('a bent shaft keeps its bend', () => {
     await dragBy(ui, BENT_END, 20, 40, BENT);
 
     const scene = await savedAndChecked(ui, 'bent.json');
+    // The end stays on `b` and slides to the outline point nearest the pointer,
+    // which is `b`'s bottom edge: the bend and the other end keep their places.
     expect(scene.elements[2]?.points).toEqual([
       { x: 50, y: 50, snap: 'a' },
       { x: 300, y: 250, corner: 'sharp' },
-      { x: 520, y: 130 },
+      { x: 520, y: 100, snap: 'b', anchor: { x: 0.2, y: 1 } },
     ]);
   });
 
