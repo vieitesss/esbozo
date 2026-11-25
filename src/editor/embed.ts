@@ -128,6 +128,15 @@ function attributeOf(element: Element, name: string): string | null {
  * shows in its status line.
  */
 async function pageFont(element: HTMLElement): Promise<PageFont> {
+  if (attributeOf(element, 'scene') === null && !mounts.has(element)) {
+    // An attribute-free element parsed before an inline `<script>mount(…)</script>`
+    // connects synchronously on upgrade; yield one microtask so `mount()` can
+    // supersede this request before fetching the default font twice.
+    await Promise.resolve();
+    if (mounts.has(element) || attributeOf(element, 'scene') !== null) {
+      return { ok: false, problem: '' };
+    }
+  }
   const named = attributeOf(element, 'font') ?? mounts.get(element)?.font?.url ?? null;
   const label = named ?? new URL('./Kalam-Regular.ttf', import.meta.url).href;
   try {
@@ -177,7 +186,7 @@ function asError(reason: unknown): Error {
 
 function functionFolder(element: HTMLElement, options: MountOptions): SceneFolder {
   return {
-    name: '',
+    name: location.host || 'page',
     readOnly: options.save === undefined,
     async listScenes(): Promise<string[]> {
       return [DEFAULT_SCENE_FILE_NAME];
