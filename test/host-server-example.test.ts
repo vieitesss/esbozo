@@ -7,15 +7,18 @@
  */
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import { request as httpRequest } from 'node:http';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { removeTempFolders, tempFolder } from './temp.ts';
 
 const SERVER_SCRIPT = fileURLToPath(
   new URL('../examples/host-server/server.mjs', import.meta.url),
+);
+const CLI_SCRIPT = fileURLToPath(
+  new URL('../dist/cli.js', import.meta.url),
 );
 
 const SCENE = {
@@ -37,11 +40,15 @@ after(async () => {
   await removeTempFolders();
 });
 
-async function startHostServer(root: string, extraArgs: readonly string[] = []): Promise<RunningHost> {
+async function startHostServer(
+  root: string,
+  extraArgs: readonly string[] = [],
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<RunningHost> {
   const child = spawn(
     process.execPath,
     [SERVER_SCRIPT, root, '--port', '0', ...extraArgs],
-    { stdio: ['ignore', 'pipe', 'pipe'] },
+    { stdio: ['ignore', 'pipe', 'pipe'], env },
   );
 
   const url = await new Promise<string>((resolve, reject) => {
@@ -154,4 +161,34 @@ test('refuses parent traversal and symlink escapes outside the root', async () =
   assert.equal(escaped.status, 403);
   const body = (await escaped.json()) as { error?: string };
   assert.match(body.error ?? '', /leaves the folder/);
+});
+
+test('--render rejects an invalid Scene with 400 and leaves previous files untouched', async () => {
+  const root = await tempFolder('esbozo-host-');
+  const binDir = await tempFolder('esbozo-bin-');
+  const ezShim = join(binDir, 'ez');
+  await writeFile(
+    ezShim,
+    `#!/bin/sh\nexec "${process.execPath}" "${CLI_SCRIPT}" "$@"\n`,
+    'utf8',
+  );
+  await chmod(ezShim, 0o755);
+
+  await writeFile(join(root, 'flow.esbozo'), SCENE_SOURCE, 'utf8');
+  await writeFile(join(root, 'flow.svg'), SVG, 'utf8');
+
+  const env = { ...process.env, PATH: `${binDir}${delimiter}${process.env.PATH ?? ''}` };
+  const server = await startHostServer(root, ['--render'], env);
+
+  const bad = await fetch(`${server.url}/flow.esbozo`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ scene: '{not valid json', svg: '<svg/>' }),
+  });
+  assert.equal(bad.status, 400);
+  const body = (await bad.json()) as { error?: string };
+  assert.match(body.error ?? '', /^the Scene is invalid: /);
+
+  assert.equal(await readFile(join(root, 'flow.esbozo'), 'utf8'), SCENE_SOURCE);
+  assert.equal(await readFile(join(root, 'flow.svg'), 'utf8'), SVG);
 });
