@@ -36,10 +36,6 @@ export interface ProjectModules {
   elementAt: typeof import('../src/editor/geometry.ts').elementAt;
   caretLine: typeof import('../src/editor/geometry.ts').caretLine;
   Rail: typeof import('../src/editor/rail.ts').Rail;
-  railFrame: typeof import('../src/editor/rail.ts').railFrame;
-  clampedDock: typeof import('../src/editor/rail.ts').clampedDock;
-  leftDockEdge: typeof import('../src/editor/rail.ts').leftDockEdge;
-  nearestDock: typeof import('../src/editor/rail.ts').nearestDock;
   railOrientation: typeof import('../src/editor/rail.ts').railOrientation;
   placeRail: typeof import('../src/editor/rail.ts').placeRail;
   railEdgeMiddle: typeof import('../src/editor/rail.ts').railEdgeMiddle;
@@ -73,7 +69,7 @@ export async function loadProjectModules(): Promise<ProjectModules> {
       `export { bendDots } from ${source('editor/bend-point.ts')};`,
       `export { snapTarget, withEnd, withSnapSwitch, freedEnds, anchoredEnds } from ${source('editor/snap.ts')};`,
       `export { elementAt, caretLine } from ${source('editor/geometry.ts')};`,
-      `export { Rail, railFrame, clampedDock, leftDockEdge, nearestDock, railOrientation, placeRail, railEdgeMiddle, readRailPlace, writeRailPlace } from ${source('editor/rail.ts')};`,
+      `export { Rail, railOrientation, placeRail, railEdgeMiddle, readRailPlace, writeRailPlace } from ${source('editor/rail.ts')};`,
       `export { Hand } from ${source('editor/hand.ts')};`,
       `export { Exits } from ${source('editor/exits.ts')};`,
       `export { anchorPoint, anchorOf } from ${source('geometry.ts')};`,

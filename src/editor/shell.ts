@@ -1,6 +1,6 @@
 /**
  * The element's own markup: the paper, the painted Scene's layer, the overlay,
- * the tool rail and the four docks a drag of it draws, the status line and the
+ * the tool rail, the status line and the
  * notes the editor opens over the page.
  *
  * It is one string, set once when the element connects, and every node the
@@ -54,12 +54,6 @@ export const SHELL = `
 </div>
 </div>
 <nav class="rail" aria-label="Tools"><svg class="rail-art" aria-hidden="true"></svg>${railMarkup()}</nav>
-<div class="docks" aria-hidden="true" hidden>
-  <svg class="dock" data-side="top"></svg>
-  <svg class="dock" data-side="bottom"></svg>
-  <svg class="dock" data-side="left"></svg>
-  <svg class="dock" data-side="right"></svg>
-</div>
 <footer class="status">
   <div class="corner-id">
     <button type="button" data-act="open">Open folder…</button>

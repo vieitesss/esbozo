@@ -198,15 +198,10 @@ class EsbozoEditorElement extends HTMLElement {
     const pattern = this.querySelector<SVGPatternElement>('.canvas pattern')!;
     const railEl = this.querySelector<HTMLElement>('.rail')!;
     const railArtEl = this.querySelector<SVGSVGElement>('.rail-art')!;
-    const docksEl = this.querySelector<HTMLElement>('.docks')!;
     this.#rail = mountRail({
       rail: railEl,
       railArt: railArtEl,
-      docks: docksEl,
       statusCorners: () => [...this.querySelectorAll<HTMLElement>('.status > div')],
-      scene: () => this.#hand.scene,
-      view: () => this.#page.viewport.view,
-      layout: () => this.#connection.layout,
       size: () => this.#page.viewport.size(),
       screenPoint: (event) => this.#page.viewport.screenPoint(event),
       statusChrome: () =>
