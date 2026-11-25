@@ -63,7 +63,8 @@ never jump to it.
 _Avoid_: snap grid
 
 **Rail**:
-The hand-drawn strip of tools over the paper. A person drags it to dock on
-one of the editor's four sides; it hangs on that side again on the next visit.
-Moving it never changes the Scene.
+The hand-drawn strip of tools over the paper. A person drags it anywhere in
+the editor, whatever the Scene holds; it rests there again on the next visit.
+Where it rests sets whether it lies or stands. Moving it never changes the
+Scene.
 _Avoid_: toolbar

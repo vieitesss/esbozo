@@ -196,7 +196,7 @@ test('a CSS-scaled host maps rail drags, slop, and Scene gestures in layout pixe
     };
     for (const key of ['scaled-transform', 'scaled-zoom'] as const) {
       const file = `${key}.html`;
-      // 1. Rail release at layout (180, 140) — (90, 70) in rendered pixels — docks left.
+      // 1. Rail release at layout (180, 140) — (90, 70) in rendered pixels — lands standing in the left space.
       await app.open(`${embed.url}/${file}`);
       await expect(screen.getByRole('status')).toHaveText('saved');
       await browser.evaluate(() => {
@@ -209,10 +209,20 @@ test('a CSS-scaled host maps rail drags, slop, and Scene gestures in layout pixe
       const grip = await rectangleGrip(file);
       await drag(ui, grip, { x: 90, y: 70 });
       await settle(ui);
-      const docked = await browser.evaluate(() => localStorage.getItem('esbozo.rail'));
-      expect(docked, `${file}: rail release at layout (180,140) docks left`).toBe('left');
+      const dropped = JSON.parse((await browser.evaluate(() => localStorage.getItem('esbozo.rail'))) ?? 'null') as {
+        x: number;
+        y: number;
+        orientation: string;
+      } | null;
+      expect(dropped?.orientation, `${file}: rail release at layout (180,140) stands in the left space`).toBe(
+        'standing',
+      );
+      expect(dropped?.x, `${file}: rail centre x is in the left space`).toBeGreaterThan(0.05);
+      expect(dropped?.x, `${file}: rail centre x is in the left space`).toBeLessThan(0.25);
+      expect(dropped?.y, `${file}: rail centre y is in the left space`).toBeGreaterThan(0.15);
+      expect(dropped?.y, `${file}: rail centre y is in the left space`).toBeLessThan(0.45);
 
-      // 2. A 4-layout-px release-only drag (2 rendered px) behaves as unscaled: commits top, does not pick tool.
+      // 2. A 4-layout-px release-only drag (2 rendered px) behaves as unscaled: commits lying near top-middle, does not pick tool.
       await browser.evaluate(() => {
         localStorage.removeItem('esbozo.rail');
         return true;
@@ -244,8 +254,15 @@ test('a CSS-scaled host maps rail drags, slop, and Scene gestures in layout pixe
         await cdp.detach();
       }
       await settle(ui);
-      const slopSide = await browser.evaluate(() => localStorage.getItem('esbozo.rail'));
-      expect(slopSide, `${file}: 4-layout-px release-only drag commits top`).toBe('top');
+      const slopDrop = JSON.parse((await browser.evaluate(() => localStorage.getItem('esbozo.rail'))) ?? 'null') as {
+        x: number;
+        y: number;
+        orientation: string;
+      } | null;
+      expect(slopDrop?.orientation, `${file}: 4-layout-px release-only drag commits lying`).toBe('lying');
+      expect(slopDrop?.x, `${file}: 4-layout-px release-only drag stays near centre`).toBeGreaterThan(0.4);
+      expect(slopDrop?.x, `${file}: 4-layout-px release-only drag stays near centre`).toBeLessThan(0.6);
+      expect(slopDrop?.y, `${file}: 4-layout-px release-only drag stays near top`).toBeLessThan(0.15);
       await expect(tile).toHaveAttribute('aria-pressed', 'false');
 
       // 3. A draw from layout (200, 200) to (400, 320) lands at the matching Scene coordinates
@@ -1645,12 +1662,12 @@ const TOP_BAND: Rect = { x: 400, y: 0, width: 480, height: 240 };
 /** The top of the box's middle, where a strip on the side a page starts on hangs. */
 const TOP_CENTRE: Rect = { x: 400, y: 0, width: 480, height: 240 };
 /**
- * Where the stylesheet falls back to with no dock to hang on: the strip standing
- * at the top's middle, 15 px down, seven tiles tall and nothing to turn it round
- * (D11). Its pencil outline hangs 7 px outside that, and its tilt leans a couple
+ * Where the stylesheet falls back to before placement: the strip standing
+ * at the top's middle, 15 px down, seven tiles tall and nothing to turn it round.
+ * Its pencil outline hangs 7 px outside that, and its tilt leans a couple
  * of pixels either way.
  */
-const UNDOCKED: Rect = { x: 615, y: 0, width: 100, height: 160 };
+const UNPLACED: Rect = { x: 615, y: 0, width: 100, height: 160 };
 
 test('an editor that starts on a kept side never shows its strip on another', async ({
   app,
@@ -1665,9 +1682,8 @@ test('an editor that starts on a kept side never shows its strip on another', as
     await expect(screen.getByRole('status')).toHaveText('saved');
 
     for (const side of ['bottom', 'right'] as const) {
-      // The page keeps the side, and the font is held: the Scene's frame is not
-      // measured, so the strip has no dock to hang on yet and this is the paint
-      // a person would see before it has one.
+      // The page keeps the side, and the font is held: the strip has not been
+      // placed yet and this is the paint a person would see before it is.
       await browser.evaluate((kept) => {
         localStorage.setItem('esbozo.rail', kept);
         return true;
@@ -1678,16 +1694,16 @@ test('an editor that starts on a kept side never shows its strip on another', as
       await expect.poll(() => embed.requests(FONT_PATH)).toBeGreaterThan(fetched);
       await settle(ui);
 
-      // The rule: the strip is never seen on a side it is not docked on. With no
-      // dock yet it keeps out of sight, rather than wait at the place the
-      // stylesheet falls back to and jump from there (D11).
-      await expect(strip, `the strip kept on the ${side} waits for its dock`).toBeHidden();
+      // The rule: the strip is never seen on a side it is not placed on. Before
+      // placement it keeps out of sight, rather than wait at the place the
+      // stylesheet falls back to and jump from there.
+      await expect(strip, `the strip kept on the ${side} waits to be placed`).toBeHidden();
 
       embed.release(FONT_PATH);
       await expect(screen.getByRole('status')).toHaveText('saved');
       await settle(ui);
 
-      // And once it is docked, the strip's ink is on the side the page kept, with
+      // And once it is placed, the strip's ink is on the side the page kept, with
       // none of it left along the top.
       await strip.getByRole('button', 'Select').focus();
       await fullInk(ui);
@@ -1700,7 +1716,7 @@ test('an editor that starts on a kept side never shows its strip on another', as
   }
 });
 
-test('a host rule that shows its own glyphs cannot show the strip before it is docked', async ({
+test('a host rule that shows its own glyphs cannot show the strip before it is placed', async ({
   app,
   browser,
   screen,
@@ -1712,8 +1728,8 @@ test('a host rule that shows its own glyphs cannot show the strip before it is d
     await app.open(`${embed.url}/embedded.html`);
     await expect(screen.getByRole('status')).toHaveText('saved');
 
-    // The page keeps the right side and holds the font back, so the frame is
-    // never measured and the strip has no dock to hang on. `host-glyphs.html` is
+    // The page keeps the right side and holds the font back, so the strip has
+    // not been placed yet. `host-glyphs.html` is
     // this page with two rules of the host's own, which say nothing about esbozo:
     // `svg { visibility: visible }` reaches every glyph inside the strip and
     // `button { visibility: visible }` every tile, and visibility is inherited, so
@@ -1729,9 +1745,9 @@ test('a host rule that shows its own glyphs cannot show the strip before it is d
     await settle(ui);
 
     // The same page without the host's rule is the reading there is against: the
-    // band holds the Grid's dots and nothing of the strip, because an undocked
+    // band holds the Grid's dots and nothing of the strip, because an unplaced
     // strip is not drawn at all. What the host's rule adds to that band is the strip.
-    const bare = (await shot(ui)).darkCount(UNDOCKED, 0.85);
+    const bare = (await shot(ui)).darkCount(UNPLACED, 0.85);
     expect(bare, 'the band reads the bare paper and its Grid').toBeGreaterThan(0);
 
     const again = embed.requests(FONT_PATH);
@@ -1739,34 +1755,36 @@ test('a host rule that shows its own glyphs cannot show the strip before it is d
     await expect.poll(() => embed.requests(FONT_PATH)).toBeGreaterThan(again);
     await settle(ui);
 
-    // The rule: until it has a dock the strip puts no ink on the page at all,
+    // The rule: until it is placed the strip puts no ink on the page at all,
     // whatever the host's rule says about what is inside it.
-    const undocked = await shot(ui);
-    expect(undocked.darkCount(UNDOCKED, 0.85), 'the host’s rule shows no ink of the strip').toBe(bare);
-    await expect(strip, 'the strip kept on the right waits for its dock').toBeHidden();
+    const unplaced = await shot(ui);
+    expect(unplaced.darkCount(UNPLACED, 0.85), 'the host’s rule shows no ink of the strip').toBe(bare);
+    await expect(strip, 'the strip kept on the right waits to be placed').toBeHidden();
 
-    // And a press there is no dock's either: a glyph or a tile the host's rules
-    // bring back takes the press a tile takes, which starts a drag of the strip,
-    // and a release down the page docks it on the nearest side — the top — so the
-    // page would remember a side nobody asked for.
-    await browser.mouse.move(UNDOCKED.x + 48, 47);
+    // And a press there moves nothing either: a glyph or a tile the host's rules
+    // bring back would otherwise take the press a tile takes, starting a drag
+    // whose release would overwrite the stored rail nobody asked to move.
+    await browser.mouse.move(UNPLACED.x + 48, 47);
     await browser.mouse.down();
-    await browser.mouse.move(UNDOCKED.x + 48, 120);
-    await browser.mouse.move(UNDOCKED.x + 48, 300);
+    await browser.mouse.move(UNPLACED.x + 48, 120);
+    await browser.mouse.move(UNPLACED.x + 48, 300);
     await browser.mouse.up();
     await settle(ui);
-    expect(await keptSide(ui), 'the press was no dock’s').toBe('right');
+    expect(
+      await browser.evaluate(() => localStorage.getItem('esbozo.rail')),
+      'the press did not overwrite the stored rail',
+    ).toBe('right');
 
-    // Once the font lands the strip has its dock, and its ink is on the side the
+    // Once the font lands the strip is placed, and its ink is on the side the
     // page kept, with none of it left at the fallback place.
     embed.release(FONT_PATH);
     await expect(screen.getByRole('status')).toHaveText('saved');
     await settle(ui);
     await strip.getByRole('button', 'Select').focus();
     await fullInk(ui);
-    const docked = await shot(ui);
-    expect(docked.darkCount(KEPT_BANDS.right, 0.6), 'the strip hangs on the right').toBeGreaterThan(0);
-    expect(docked.darkCount(UNDOCKED, 0.6), 'and shows nothing at the fallback place').toBe(0);
+    const placed = await shot(ui);
+    expect(placed.darkCount(KEPT_BANDS.right, 0.6), 'the strip hangs on the right').toBeGreaterThan(0);
+    expect(placed.darkCount(UNPLACED, 0.6), 'and shows nothing at the fallback place').toBe(0);
   } finally {
     await embed.stop();
   }
@@ -1875,17 +1893,17 @@ const FIRST_TOP: Rect = { x: 400, y: 0, width: 480, height: 120 };
 const SECOND_TOP: Rect = { x: 400, y: 401, width: 480, height: 120 };
 
 /**
- * The bands each editor draws its left, right and bottom docks in, in its own box
- * and clear of its status chrome (O2): the first box holds nothing else there,
+ * The bands each editor draws its left, right and bottom rail in, in its own box
+ * and clear of its status chrome: the first box holds nothing else there,
  * and the second's bands start past the one mark in its box that is not paper,
  * the Scene name under its top-left corner.
  */
-const FIRST_DOCKS: Record<'left' | 'right' | 'bottom', Rect> = {
+const FIRST_BANDS: Record<'left' | 'right' | 'bottom', Rect> = {
   left: { x: 60, y: 55, width: 100, height: 290 },
   right: { x: 1120, y: 55, width: 100, height: 290 },
   bottom: { x: 400, y: 320, width: 480, height: 80 },
 };
-const SECOND_DOCKS: Record<'left' | 'right' | 'bottom', Rect> = {
+const SECOND_BANDS: Record<'left' | 'right' | 'bottom', Rect> = {
   left: { x: 96, y: 400, width: 100, height: 320 },
   right: { x: 1120, y: 400, width: 100, height: 320 },
   bottom: { x: 400, y: 640, width: 480, height: 80 },
@@ -1896,9 +1914,13 @@ function secondTile(strip: Rect): { x: number; y: number } {
   return { x: strip.x + 7 + 8 + 31 + 15, y: strip.y + 7 + 9 + 16 };
 }
 
-/** The side the page keeps for the next start, as the browser holds it, or null (I8). */
-async function keptSide(ui: Ui): Promise<string | null> {
-  return ui.browser.evaluate(() => localStorage.getItem('esbozo.rail'));
+/** The stored rail placement parsed from `esbozo.rail`, or null. */
+async function keptPlacement(ui: Ui): Promise<{ x: number; y: number; orientation: 'lying' | 'standing' } | null> {
+  const raw = await ui.browser.evaluate(() => localStorage.getItem('esbozo.rail'));
+  if (raw === null) {
+    return null;
+  }
+  return JSON.parse(raw) as { x: number; y: number; orientation: 'lying' | 'standing' };
 }
 
 /**
@@ -1966,68 +1988,62 @@ test('two editors on one page measure and move their rails independently, each i
       expect(Math.abs(ink.x + ink.width / 2 - 640), `${name} strip is centred on its own box`).toBeLessThan(4);
     }
 
-    // A drag from the first editor's second tile toward its own bottom side: the
-    // four places it may end in are drawn in the first box and nowhere else, and
-    // the release docks the first strip there (D6, criterion 12). The top mark is
-    // the strip's own place, so its own outline is what says it.
-    const before = await shot(ui);
-    await drag(ui, secondTile(first), { x: 640, y: 280 }, 'left', async () => {
-      await settle(ui);
-      const shown = await shot(ui);
-      for (const [side, band] of Object.entries(FIRST_DOCKS) as Array<['left' | 'right' | 'bottom', Rect]>) {
-        const drawn = Math.abs(shown.meanLuminance(band) - before.meanLuminance(band));
-        expect(drawn, `the ${side} dock is drawn in the box the drag is in`).toBeGreaterThan(0.02);
-      }
-      for (const [side, band] of Object.entries(SECOND_DOCKS) as Array<['left' | 'right' | 'bottom', Rect]>) {
-        const drawn = Math.abs(shown.meanLuminance(band) - before.meanLuminance(band));
-        expect(drawn, `the second editor draws no ${side} dock from the drag above it`).toBeLessThan(0.01);
-      }
-    });
+    // A drag from the first editor's second tile into its own bottom diagonal
+    // space moves the first strip there and leaves the second editor untouched.
+    await drag(ui, secondTile(first), { x: 640, y: 280 });
     await settle(ui);
 
-    expect(await keptSide(ui), 'the first editor’s drag is the page’s one kept word').toBe('bottom');
-    const docked = await stripIn(ui, 0, FIRST_DOCKS.bottom);
-    expect(docked.width, 'the first strip hangs along its own bottom').toBeGreaterThan(docked.height * 2);
-    expect(docked.y + docked.height, 'the first strip is inside its own box').toBeLessThanOrEqual(
+    const firstDrop = await keptPlacement(ui);
+    expect(firstDrop?.orientation, 'the first editor’s drag lands lying in its bottom space').toBe('lying');
+    expect(firstDrop?.y, 'the first editor’s drag stores a lower-half y fraction').toBeGreaterThan(0.5);
+    const placedFirst = await stripIn(ui, 0, { x: 400, y: 200, width: 480, height: 200 });
+    expect(placedFirst.width, 'the first strip lies in its bottom space').toBeGreaterThan(placedFirst.height * 2);
+    expect(placedFirst.y + placedFirst.height, 'the first strip is inside its own box').toBeLessThanOrEqual(
       FIRST_BOX.y + FIRST_BOX.height,
     );
 
-    // The editor below did not move: it reads the kept word once, when it starts,
-    // so a move above it is the next start's side and not its own (D10, criterion 11).
+    // The editor below did not move: it reads the stored placement once, when it
+    // starts, so a move above it is the next start's placement and not its own.
     const held = await stripIn(ui, 1, SECOND_TOP);
     expect(Math.abs(held.y - second.y), 'the second strip has not moved').toBeLessThan(3);
     expect(Math.abs(held.x - second.x), 'the second strip has not moved').toBeLessThan(3);
 
-    // And the second editor moves on its own: a drag from its own tile to its own
-    // right side docks it there, and leaves the first where it hung.
+    // And the second editor moves on its own: a drag from its own tile into its
+    // own right diagonal space stands it there, and leaves the first where it was.
     await drag(ui, secondTile(held), { x: 1180, y: 560 });
     await settle(ui);
-    expect(await keptSide(ui), 'the second editor’s move is the last that wins').toBe('right');
-    const right = await stripIn(ui, 1, SECOND_DOCKS.right);
-    expect(right.height, 'the second strip stands up its own right side').toBeGreaterThan(right.width * 2);
+    const secondDrop = await keptPlacement(ui);
+    expect(secondDrop?.orientation, 'the second editor’s move lands standing in its right space').toBe('standing');
+    expect(secondDrop?.x, 'the second editor’s move stores a right-space x fraction').toBeGreaterThan(0.75);
+    const right = await stripIn(ui, 1, SECOND_BANDS.right);
+    expect(right.height, 'the second strip stands in its own right space').toBeGreaterThan(right.width * 2);
     expect(right.y, 'the second strip is inside its own box').toBeGreaterThanOrEqual(SECOND_BOX.y);
-    const unmoved = await stripIn(ui, 0, FIRST_DOCKS.bottom);
-    expect(Math.abs(unmoved.y - docked.y), 'the first strip has not moved').toBeLessThan(3);
-    expect(Math.abs(unmoved.height - docked.height), 'the first strip has not moved').toBeLessThan(3);
+    const unmoved = await stripIn(ui, 0, { x: 400, y: 200, width: 480, height: 200 });
+    expect(Math.abs(unmoved.y - placedFirst.y), 'the first strip has not moved').toBeLessThan(3);
+    expect(Math.abs(unmoved.height - placedFirst.height), 'the first strip has not moved').toBeLessThan(3);
 
-    // Both editors write no Scene: a rail is the page's chrome, not the Scene (D9).
+    // Both editors write no Scene: a rail is the page's chrome, not the Scene.
     expect(embed.writes('a'), 'a rail move writes no Scene').toBe(0);
     expect(embed.writes('b'), 'a rail move writes no Scene').toBe(0);
     expect(await embed.saved('a')).toBe(EMPTY_SOURCE);
     expect(await embed.saved('b')).toBe(EMPTY_SOURCE);
 
-    // A new start reads that one word once per editor, so both hang on the side
-    // the last move kept, each on a frame of its own (D10, I8).
+    // A new start reads that one placement once per editor, so both start
+    // standing in the right space of their own box.
     await browser.goto(`${embed.url}/two-sizes.html`, { waitUntil: 'domcontentloaded' });
     for (const which of [0, 1]) {
       await expect(screen.getByRole('status').nth(which)).toHaveText('saved');
     }
-    const keptFirst = await stripIn(ui, 0, FIRST_DOCKS.right);
-    const keptSecond = await stripIn(ui, 1, SECOND_DOCKS.right);
-    expect(keptFirst.height, 'the first editor starts on the kept side').toBeGreaterThan(keptFirst.width * 2);
-    expect(keptSecond.height, 'the second editor starts on the kept side').toBeGreaterThan(keptSecond.width * 2);
-    expect(keptFirst.y, 'the first editor’s dock is its own box’s').toBeLessThan(FIRST_BOX.y + FIRST_BOX.height);
-    expect(keptSecond.y, 'the second editor’s dock is its own box’s').toBeGreaterThanOrEqual(SECOND_BOX.y);
+    const keptFirst = await stripIn(ui, 0, FIRST_BANDS.right);
+    const keptSecond = await stripIn(ui, 1, SECOND_BANDS.right);
+    expect(keptFirst.height, 'the first editor starts standing from the kept placement').toBeGreaterThan(
+      keptFirst.width * 2,
+    );
+    expect(keptSecond.height, 'the second editor starts standing from the kept placement').toBeGreaterThan(
+      keptSecond.width * 2,
+    );
+    expect(keptFirst.y, 'the first editor’s rail is inside its own box').toBeLessThan(FIRST_BOX.y + FIRST_BOX.height);
+    expect(keptSecond.y, 'the second editor’s rail is inside its own box').toBeGreaterThanOrEqual(SECOND_BOX.y);
   } finally {
     await embed.stop();
   }
@@ -2043,15 +2059,17 @@ test('a read-only embed moves its rail too, and the move writes no Scene', async
     await settle(ui);
 
     // The page may only read its Scene, and the rail is the page's chrome: a drag
-    // from a tile carries it to the nearest side and keeps that side, without
-    // writing the Scene, marking it unsaved or adding a step (D9).
+    // from a tile carries it into the left space and keeps that placement, without
+    // writing the Scene, marking it unsaved or adding a step.
     const opened = await stripIn(ui, 0, TOP_BAND);
     await drag(ui, secondTile(opened), { x: 200, y: 400 });
     await settle(ui);
-    expect(await keptSide(ui), 'a read-only page keeps the side all the same').toBe('left');
+    const moved = await keptPlacement(ui);
+    expect(moved?.orientation, 'a read-only page keeps the standing placement').toBe('standing');
+    expect(moved?.x, 'a read-only page keeps the left-space x fraction').toBeLessThan(0.3);
 
-    const stood = await stripIn(ui, 0, { x: 0, y: 200, width: 200, height: 400 });
-    expect(stood.height, 'the strip stands up the left dock').toBeGreaterThan(stood.width * 2);
+    const stood = await stripIn(ui, 0, { x: 0, y: 200, width: 300, height: 400 });
+    expect(stood.height, 'the strip stands where dropped in the left space').toBeGreaterThan(stood.width * 2);
     expect(await screen.getByText('read-only').isVisible(), 'the page is read-only still').toBe(true);
     expect(embed.writes('a'), 'a read-only move writes no Scene').toBe(0);
     expect(await embed.saved('a'), 'the Scene’s file is the one it opened').toBe(SCENE_SOURCE);

@@ -95,11 +95,6 @@ interface PageHost {
   preview(): Preview | null;
   /** Whether a gesture holds the pointer, so the view makes no room for the note. */
   dragging(): boolean;
-  /**
-   * Where a left dock's own outline reaches, in screen units, or null when the
-   * rail is held anywhere else: the room the note leaves cannot start before it.
-   */
-  railEdge(): number | null;
   /** The preview Element and the field whose caret the page draws. */
   readonly typing: Pick<Typing, 'editingId' | 'words'>;
 }
@@ -250,7 +245,6 @@ export class Page {
     }
     const { elements: shown } = this.#host.shown();
     const selected = new Set(this.#host.hand.selected);
-    const rail = this.#host.railEdge();
     this.viewport.view = clearedView(this.viewport.view, {
       selection: boxOf(
         shown.filter((element) => selected.has(element.id)),
@@ -258,10 +252,9 @@ export class Page {
         this.#host.layout(),
       ),
       note: box,
-      // The rail is a limit only when a left dock is held inside the editor's own
-      // left edge: a rail floating beside the frame, and every other dock, leaves
-      // that edge as the leftmost the selection may sit at (O1).
-      left: rail === null ? MENU_GAP : rail + MENU_GAP,
+      // The Rail floats over the editor and may cover the Style note, so the
+      // note's left limit is always the editor's own left edge plus MENU_GAP.
+      left: MENU_GAP,
       gap: MENU_GAP,
     });
   }

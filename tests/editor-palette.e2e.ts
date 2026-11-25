@@ -457,7 +457,7 @@ const BIG_SOURCE = JSON.stringify(
   2,
 );
 
-test('the four Tool rail rows name their dock, carry no key, and move a read-only Scene', async ({
+test('the four Tool rail rows name their edge, carry no key, and move a read-only Scene', async ({
   app,
   browser,
   screen,
@@ -467,7 +467,7 @@ test('the four Tool rail rows name their dock, carry no key, and move a read-onl
   await openEditor(ui, { A: { 'big.json': BIG_SOURCE } }, 'big.json');
   await settle(ui);
 
-  // One row per dock, offered with the others: the name is the whole row, so no
+  // One row per edge, offered with the others: the name is the whole row, so no
   // key follows it and the row says nothing about a shortcut to learn (D8).
   await palette(ui);
   await browser.keyboard.type('tool rail');
@@ -489,8 +489,8 @@ test('the four Tool rail rows name their dock, carry no key, and move a read-onl
   await settle(ui);
   const files = await savedFiles(ui);
 
-  // The row still runs, because a dock is the page's chrome and not an edit
-  // (D9): the rail stands to the right of the diagram's own box.
+  // The row still runs, because the rail is the page's chrome and not an edit
+  // (D9): the rail stands at the middle of the right edge, 16px in.
   await palette(ui);
   await browser.keyboard.type('tool rail right');
   await expect(command(ui, 'Tool rail: right')).not.toBeDisabled();
@@ -508,11 +508,11 @@ test('the four Tool rail rows name their dock, carry no key, and move a read-onl
       { timeout: 5000 },
     )
     .toBe(1);
-  const strip = (await shot(ui)).darkBounds({ x: 2232, y: 380, width: 400, height: 680 }, 0.6);
+  const strip = (await shot(ui)).darkBounds({ x: 3360, y: 520, width: 80, height: 400 }, 0.6);
   if (strip === null) {
-    throw new Error('no rail ink right of the diagram');
+    throw new Error('no rail ink at the right edge');
   }
-  expect(strip.height, 'the right dock stands the strip up').toBeGreaterThan(strip.width * 2);
+  expect(strip.height, 'the right edge stands the strip up').toBeGreaterThan(strip.width * 2);
 
   // A move in a read-only Scene writes nothing at all.
   expect(await savedFiles(ui), 'a move writes nothing').toEqual(files);

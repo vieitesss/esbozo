@@ -60,7 +60,7 @@ const SUITES = /^(?:test|tests)\//;
  * page is driven to on purpose. `snap.ts` is the same kind of exception: one
  * set of pure Scene-to-Scene Snap rules over target choice, settling, freeing,
  * and Anchored ends.
- * `rail.ts` is the exception for the Rail: it owns the dock maths and pointer
+ * `rail.ts` is the exception for the Rail: it owns the floating-placement maths and pointer
  * state machine with supplied measurements, so Node tests can prove them directly.
  * `hand.ts` is the exception for the Scene in hand: it owns the read-only gate,
  * landing, nudge folding, selection, and undo/redo over a supplied save callback.

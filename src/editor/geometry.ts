@@ -563,8 +563,7 @@ export interface Clearance {
   note: Box;
   /**
    * The leftmost the selection may sit on the page, in screen units: the editor's
-   * own left edge with its gap, or the rail's own edge with the same gap where a
-   * left dock is held inside it.
+   * own left edge with its gap.
    */
   left: number;
   /** Breathing room between the selection and the note. */

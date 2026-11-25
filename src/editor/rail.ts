@@ -1,23 +1,20 @@
 /**
- * The tool rail: the hand-drawn strip along the editor's top edge with the tools
- * on it.
+ * The tool rail: the hand-drawn strip of tools floating over the paper.
  *
  * One static list, in rail order, from `actions.ts`, so a button, the key that
  * picks it and the palette's row for it can never disagree. Each button names
  * every key that picks it in its tooltip and wears its letter on the tile,
- * because the left hand is what picks a tool. The
- * outline is drawn by Rough.js, twice, so the strip reads as two pencil passes.
+ * because the left hand is what picks a tool. The outline is drawn by Rough.js,
+ * twice, so the strip reads as two pencil passes.
  */
 import { RoughGenerator } from 'roughjs/bin/generator.js';
-import type { Layout } from '../layout.js';
-import { elementsById } from '../scene.js';
-import type { Scene } from '../scene.js';
 import { TOOLS } from './actions.js';
 import type { ToolId } from './actions.js';
 import { isClick } from './elements.js';
-import { boxOf, overlaps, toScreen } from './geometry.js';
-import type { Box, Point, View } from './geometry.js';
-import { readRailSide, writeRailSide } from './rail-preference.js';
+import { overlaps } from './geometry.js';
+import type { Box, Point } from './geometry.js';
+import { readRailPlace, writeRailPlace } from './rail-preference.js';
+import type { RailPlace, StoredPlace } from './rail-preference.js';
 
 /** One icon per tool. Typed by tool id, so a tool without an icon cannot be added. */
 const ICONS: Record<ToolId, string> = {
@@ -95,98 +92,80 @@ function roundRectPath(x: number, y: number, width: number, height: number, radi
  */
 const RAIL_OUTLINE = 7;
 
-/** The frame's four sides: each dock a drag draws is one of them. */
-const DOCK_SIDES: readonly RailSide[] = ['top', 'bottom', 'left', 'right'];
-
-/**
- * The frame a rail hangs on, measured when it was pressed: the diagram's frame in
- * the editor's own pixels, and the room the editor had when it was measured.
- */
-interface MeasuredFrame {
-  readonly frame: Box;
-  readonly editor: { readonly width: number; readonly height: number };
-}
-
-/**
- * A press on the rail that may still become a drag of it: the pointer the press
- * belongs to, where it landed and where it is now, and the frame measured when it
- * landed (D3), which is what a release docks against.
- */
-interface RailDrag extends MeasuredFrame {
+/** A press on the rail that may still become a live drag of it. */
+interface RailDrag {
   readonly pointer: number;
   readonly from: Point;
   at: Point;
   /** Whether the pointer has left the click's slop: past it, the press is a drag. */
   moved: boolean;
-  /** The side whose dock the drag is showing, or null until it has shown one (D6). */
-  near: RailSide | null;
+  /** Grab fraction along the strip's length (0..1), preserved when turning. */
+  readonly along: number;
+  /** Grab fraction across the strip's thickness (0..1). */
+  readonly across: number;
+  /** Current orientation during the drag, fed to `railOrientation` for the hold band. */
+  orientation: RailOrientation;
+  /** The resting place before the drag started, restored if the drag is called off. */
+  readonly before: StoredPlace | null;
 }
 
 /** What the Rail needs from its host: supplied measurements and callbacks, with no DOM required. */
 export interface RailHost {
-  readonly scene: () => Scene;
-  readonly view: () => View;
-  readonly layout: () => Layout;
   readonly size: () => { readonly width: number; readonly height: number };
   readonly statusChrome: () => Box[];
-  readonly outline: () => RailOutline;
-  readonly outlineEachWay?: () => { readonly lying: RailOutline; readonly standing: RailOutline };
+  readonly outlines: () => RailOutlines;
   readonly setTool: (tool: ToolId) => void;
   readonly refusePointer: (pointerId: number) => void;
-  readonly readSide?: () => RailSide;
-  readonly writeSide?: (side: RailSide) => void;
-  readonly onSide?: (side: RailSide) => void;
+  readonly readPlace?: () => RailPlace;
+  readonly writePlace?: (place: StoredPlace) => void;
+  readonly onOrientation?: (orientation: RailOrientation) => void;
   readonly onDrawArt?: () => boolean;
-  readonly onHang?: (dock: RailDock, side: RailSide) => void;
-  readonly onDocks?: (docks: readonly { readonly side: RailSide; readonly box: Box }[] | null) => void;
-  readonly onNearDock?: (side: RailSide) => void;
+  readonly onPlace?: (placed: PlacedRail) => void;
   readonly onDragListeners?: (active: boolean) => void;
   readonly onCapture?: (pointerId: number | null) => void;
 }
 
 /**
- * The Rail's own state machine, dock placement, and pointer handling.
+ * The Rail's own state machine, screen placement, and pointer handling.
  * Measurements come in from `RailHost`, so both the browser editor and Node tests
  * drive the same state machine.
  */
 export class Rail {
   readonly #host: RailHost;
-  #dock: RailDock | null = null;
-  #held = false;
-  #side: RailSide = 'top';
+  readonly #initial: RailPlace;
+  #rest: StoredPlace | null = null;
+  #placed: PlacedRail | null = null;
+  #orientation: RailOrientation;
   #drag: RailDrag | null = null;
   #dragged = false;
   #clickOwed: number | null = null;
-  #frameOffset: Point | null = null;
   #waiting = false;
   #drawn = false;
-  #placed = false;
-  #docksShown = false;
 
   constructor(host: RailHost) {
     this.#host = host;
-    this.#side = host.readSide ? host.readSide() : readRailSide();
-    this.#host.onSide?.(this.#side);
+    this.#initial = host.readPlace ? host.readPlace() : readRailPlace();
+    this.#orientation =
+      this.#initial.kind === 'at'
+        ? this.#initial.orientation
+        : orientationOfEdge(this.#initial.side);
+    this.#host.onOrientation?.(this.#orientation);
   }
 
-  /** No Scene in hand: drop any active drag and forget the frame the rail hung on. */
+  /** Drop any active drag; the rail's screen position stays put. */
   forget(): void {
     this.#endDrag();
-    this.#frameOffset = null;
-    this.#dock = null;
-    this.#held = false;
   }
 
-  /** Measure the frame around the diagram and hang the rail on it (Scene open or view fit). */
+  /** Place the rail at its stored screen position (resolving an initial edge once). */
   place(): void {
     this.#place();
   }
 
-  /** The editor window resized: carry the rail along and move a held drag's marks with it. */
+  /** The editor window resized: keep fractions and orientation, then clamp again. */
   resize(): void {
     this.#drawArt();
-    this.#hang();
-    this.#redrawDocks();
+    this.#reposition();
   }
 
   /** Either the strip or a status corner changed size. */
@@ -199,10 +178,9 @@ export class Rail {
     }
     if (this.#drag !== null) {
       this.#waiting = true;
-      this.#redrawDocks();
       return;
     }
-    this.#hang();
+    this.#reposition();
   }
 
   /** Draw the strip's pencil outline once the host has a box for it. */
@@ -210,9 +188,14 @@ export class Rail {
     this.#drawArt();
   }
 
-  /** Dock the rail on one of the frame's four sides (from the command palette). */
-  dock(side: RailSide): void {
-    this.#dockTo(side);
+  /** Put the rail at the middle of one of the editor's four edges (from the command palette). */
+  placeAtEdge(side: RailSide): void {
+    const editor = this.#host.size();
+    const outlines = this.#host.outlines();
+    const { centre, orientation } = railEdgeMiddle(side, outlines, editor);
+    const placed = placeRail(centre, orientation, outlines, editor, this.#host.statusChrome());
+    this.#apply(placed);
+    this.#save(placed, editor);
   }
 
   /** Escape or interrupt during a rail drag calls it off and keeps the Scene's tool and selection. */
@@ -234,18 +217,9 @@ export class Rail {
     return this.#drag !== null;
   }
 
-  /**
-   * Where a left dock's own outline reaches, or null when the rail hangs
-   * anywhere else.
-   */
-  edge(): number | null {
-    const rail = this.#dock;
-    return rail === null ? null : leftDockEdge(rail, this.#host.outline(), this.#side);
-  }
-
-  /** The side the rail is currently docked on. */
-  side(): RailSide {
-    return this.#side;
+  /** The orientation the rail currently rests in. */
+  orientation(): RailOrientation {
+    return this.#orientation;
   }
 
   /** A pointer press on the rail. */
@@ -257,15 +231,37 @@ export class Rail {
       return;
     }
     this.#dragged = false;
-    const editor = this.#host.size();
+    if (this.#placed === null) {
+      this.#place();
+    }
+    const placed = this.#placed!;
+    const outline = this.#host.outlines()[placed.orientation];
+    const sw = outline.width - outline.overhang * 2;
+    const sh = outline.height - outline.overhang * 2;
+    const lying = placed.orientation === 'lying';
+    const along = lying
+      ? sw > 0
+        ? (at.x - placed.x) / sw
+        : 0.5
+      : sh > 0
+        ? (at.y - placed.y) / sh
+        : 0.5;
+    const across = lying
+      ? sh > 0
+        ? (at.y - placed.y) / sh
+        : 0.5
+      : sw > 0
+        ? (at.x - placed.x) / sw
+        : 0.5;
     this.#drag = {
       pointer,
       from: at,
       at,
       moved: false,
-      near: null,
-      frame: this.#dockOn(this.#side).frame,
-      editor,
+      along,
+      across,
+      orientation: placed.orientation,
+      before: this.#rest,
     };
     this.#host.onDragListeners?.(true);
   }
@@ -284,7 +280,7 @@ export class Rail {
       drag.moved = true;
       this.#host.onCapture?.(pointer);
     }
-    this.#showDocks(drag);
+    this.#dragTo(drag, at);
   }
 
   /** A pointer release while a press on the rail is active. */
@@ -294,13 +290,15 @@ export class Rail {
       return;
     }
     drag.at = at;
+    const moved = drag.moved || !isClick(drag.from, drag.at);
     this.#endDrag();
-    if (!drag.moved && isClick(drag.from, drag.at)) {
+    if (!moved) {
       this.#settle();
       return;
     }
     this.#dragged = true;
-    this.#dockTo(drag.near ?? nearestDock(drag.frame, drag.at), drag);
+    const placed = this.#dragTo(drag, at);
+    this.#save(placed, this.#host.size());
   }
 
   /** A pointer cancel while a press on the rail is active. */
@@ -334,121 +332,96 @@ export class Rail {
     this.#drawn = this.#host.onDrawArt ? this.#host.onDrawArt() : true;
   }
 
-  #showDocks(drag: RailDrag): void {
-    const near = nearestDock(drag.frame, drag.at);
-    drag.near = near;
-    if (!this.#docksShown) {
-      this.#drawDocks(drag);
-      this.#docksShown = true;
-    }
-    this.#host.onNearDock?.(near);
-  }
-
-  #drawDocks(drag: RailDrag): void {
-    const each = this.#host.outlineEachWay?.();
-    if (each === undefined) {
-      return;
-    }
-    const chrome = this.#host.statusChrome();
-    const size = this.#host.size();
-    const marks: { side: RailSide; box: Box }[] = [];
-    for (const side of DOCK_SIDES) {
-      const lying = side === 'top' || side === 'bottom';
-      const outline = lying ? each.lying : each.standing;
-      const frameDock = dockOnFrame(drag.frame, drag.editor, side, outline);
-      const carried = this.#pointOf(this.#offsetOf(frameDock.dock, drag.editor), size);
-      const placed = placedDock(
-        { dock: carried, stopped: frameDock.stopped },
-        side,
-        outline,
-        chrome,
-        size,
-      );
-      marks.push({ side, box: dockBox(placed, side, outline) });
-    }
-    this.#host.onDocks?.(marks);
-  }
-
-  #redrawDocks(): void {
-    const drag = this.#drag;
-    if (drag === null || !this.#docksShown) {
-      return;
-    }
-    this.#drawDocks(drag);
-  }
-
-  #hideDocks(): void {
-    this.#docksShown = false;
-    this.#host.onDocks?.(null);
-  }
-
-  #place(pressed?: MeasuredFrame): void {
+  #place(): void {
     this.#waiting = false;
-    const size = pressed?.editor ?? this.#host.size();
-    const frameDock =
-      pressed === undefined
-        ? this.#dockOn(this.#side)
-        : dockOnFrame(pressed.frame, pressed.editor, this.#side, this.#host.outline());
-    this.#held = frameDock.stopped;
-    this.#frameOffset = this.#offsetOf(frameDock.dock, size);
-    this.#hang();
+    if (this.#rest === null) {
+      if (this.#initial.kind === 'at') {
+        this.#rest = {
+          x: this.#initial.x,
+          y: this.#initial.y,
+          orientation: this.#initial.orientation,
+        };
+      } else {
+        const editor = this.#host.size();
+        const outlines = this.#host.outlines();
+        const { centre, orientation } = railEdgeMiddle(this.#initial.side, outlines, editor);
+        const placed = placeRail(centre, orientation, outlines, editor, this.#host.statusChrome());
+        this.#rest = this.#fractionsOf(placed, editor);
+        this.#apply(placed);
+        return;
+      }
+    }
+    this.#reposition();
   }
 
-  #hang(): void {
-    const offset = this.#frameOffset;
-    if (offset === null) {
+  #reposition(): void {
+    const rest = this.#rest;
+    if (rest === null) {
       return;
     }
-    const size = this.#host.size();
-    const placed = placedDock(
-      { dock: this.#pointOf(offset, size), stopped: this.#held },
-      this.#side,
-      this.#host.outline(),
+    const editor = this.#host.size();
+    const placed = placeRail(
+      { x: rest.x * editor.width, y: rest.y * editor.height },
+      rest.orientation,
+      this.#host.outlines(),
+      editor,
       this.#host.statusChrome(),
-      size,
     );
-    const before = this.#dock;
-    this.#dock = placed;
+    this.#apply(placed);
+  }
+
+  #dragTo(drag: RailDrag, at: Point): PlacedRail {
+    const editor = this.#host.size();
+    const outlines = this.#host.outlines();
+    const nextOrientation = railOrientation(at, editor, drag.orientation);
+    const outline = outlines[nextOrientation];
+    const sw = outline.width - outline.overhang * 2;
+    const sh = outline.height - outline.overhang * 2;
+    const requestedCentre: Point =
+      nextOrientation === 'lying'
+        ? { x: at.x + (0.5 - drag.along) * sw, y: at.y + (0.5 - drag.across) * sh }
+        : { x: at.x + (0.5 - drag.across) * sw, y: at.y + (0.5 - drag.along) * sh };
+    const placed = placeRail(requestedCentre, nextOrientation, outlines, editor, this.#host.statusChrome());
+    drag.orientation = placed.orientation;
+    this.#apply(placed);
+    return placed;
+  }
+
+  #apply(placed: PlacedRail): void {
+    const orientationChanged = placed.orientation !== this.#orientation;
+    if (orientationChanged) {
+      this.#orientation = placed.orientation;
+      this.#host.onOrientation?.(placed.orientation);
+      this.#drawArt();
+    }
+    const before = this.#placed;
+    this.#placed = placed;
     if (
       before !== null &&
-      before.dock.x === placed.dock.x &&
-      before.dock.y === placed.dock.y &&
-      this.#placed
+      before.x === placed.x &&
+      before.y === placed.y &&
+      before.orientation === placed.orientation
     ) {
       return;
     }
-    this.#placed = true;
-    this.#host.onHang?.(placed, this.#side);
+    this.#host.onPlace?.(placed);
   }
 
-  #pointOf(offset: Point, size: { readonly width: number; readonly height: number }): Point {
-    return { x: size.width / 2 + offset.x, y: size.height / 2 + offset.y };
+  #fractionsOf(placed: PlacedRail, editor: { readonly width: number; readonly height: number }): StoredPlace {
+    const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
+    return {
+      x: editor.width > 0 ? clamp01(placed.centre.x / editor.width) : 0.5,
+      y: editor.height > 0 ? clamp01(placed.centre.y / editor.height) : 0.5,
+      orientation: placed.orientation,
+    };
   }
 
-  #offsetOf(at: Point, size: { readonly width: number; readonly height: number }): Point {
-    return { x: at.x - size.width / 2, y: at.y - size.height / 2 };
-  }
-
-  #dockOn(side: RailSide): RailFrame {
-    return railFrame(
-      this.#host.scene(),
-      this.#host.view(),
-      this.#host.size(),
-      side,
-      this.#host.outline(),
-      this.#host.layout(),
-    );
-  }
-
-  #dockTo(side: RailSide, pressed?: MeasuredFrame): void {
-    this.#side = side;
-    this.#host.onSide?.(side);
-    this.#drawArt();
-    this.#place(pressed);
-    if (this.#host.writeSide) {
-      this.#host.writeSide(side);
+  #save(placed: PlacedRail, editor: { readonly width: number; readonly height: number }): void {
+    this.#rest = this.#fractionsOf(placed, editor);
+    if (this.#host.writePlace) {
+      this.#host.writePlace(this.#rest);
     } else {
-      writeRailSide(side);
+      writeRailPlace(this.#rest);
     }
   }
 
@@ -457,15 +430,17 @@ export class Rail {
     if (drag === null) {
       return;
     }
+    this.#rest = drag.before;
     this.#endDrag();
     this.#host.refusePointer(drag.pointer);
     this.#clickOwed = drag.pointer;
-    this.#hang();
+    this.#reposition();
   }
 
   #settle(): void {
     if (this.#waiting) {
-      this.#hang();
+      this.#waiting = false;
+      this.#reposition();
     }
   }
 
@@ -477,7 +452,6 @@ export class Rail {
     this.#drag = null;
     this.#host.onDragListeners?.(false);
     this.#host.onCapture?.(null);
-    this.#hideDocks();
   }
 }
 
@@ -485,11 +459,7 @@ export class Rail {
 export interface RailDomHost {
   readonly rail: HTMLElement;
   readonly railArt: SVGSVGElement;
-  readonly docks: HTMLElement;
   readonly statusCorners: () => HTMLElement[];
-  readonly scene: () => Scene;
-  readonly view: () => View;
-  readonly layout: () => Layout;
   readonly size: () => { readonly width: number; readonly height: number };
   readonly screenPoint: (event: PointerEvent) => Point;
   readonly statusChrome: () => Box[];
@@ -504,11 +474,10 @@ export interface MountedRail {
   forget(): void;
   place(): void;
   resize(): void;
-  dock(side: RailSide): void;
+  placeAtEdge(side: RailSide): void;
   escape(): boolean;
   endDrag(): void;
   holding(): boolean;
-  edge(): number | null;
   markTool(tool: ToolId): void;
 }
 
@@ -516,6 +485,7 @@ export interface MountedRail {
 export function mountRail(dom: RailDomHost): MountedRail {
   dom.rail.inert = true;
   let captured: number | null = null;
+  let cachedOutlines: RailOutlines | null = null;
 
   const outline = (): RailOutline => ({
     width: dom.rail.offsetWidth + RAIL_OUTLINE * 2,
@@ -523,8 +493,26 @@ export function mountRail(dom: RailDomHost): MountedRail {
     overhang: RAIL_OUTLINE,
   });
 
-  const dockMark = (side: RailSide): SVGSVGElement =>
-    dom.docks.querySelector<SVGSVGElement>(`.dock[data-side="${side}"]`)!;
+  const outlines = (): RailOutlines => {
+    if (cachedOutlines !== null) {
+      return cachedOutlines;
+    }
+    const kept = dom.rail.dataset['orientation'] as RailOrientation | undefined;
+    const lying = kept !== 'standing';
+    const here = outline();
+    dom.rail.dataset['orientation'] = lying ? 'standing' : 'lying';
+    const there = outline();
+    if (kept === undefined) {
+      delete dom.rail.dataset['orientation'];
+    } else {
+      dom.rail.dataset['orientation'] = kept;
+    }
+    const result = lying ? { lying: here, standing: there } : { lying: there, standing: here };
+    if (result.lying.width > 14 && result.standing.height > 14) {
+      cachedOutlines = result;
+    }
+    return result;
+  };
 
   const onMove = (event: PointerEvent): void => {
     rail.move(event.pointerId, dom.screenPoint(event));
@@ -546,25 +534,13 @@ export function mountRail(dom: RailDomHost): MountedRail {
   };
 
   const rail: Rail = new Rail({
-    scene: dom.scene,
-    view: dom.view,
-    layout: dom.layout,
     size: dom.size,
     statusChrome: dom.statusChrome,
-    outline,
-    outlineEachWay: () => {
-      const kept = rail.side();
-      const lying = kept === 'top' || kept === 'bottom';
-      const here = outline();
-      dom.rail.dataset['side'] = lying ? 'left' : 'top';
-      const there = outline();
-      dom.rail.dataset['side'] = kept;
-      return lying ? { lying: here, standing: there } : { lying: there, standing: here };
-    },
+    outlines,
     setTool: dom.setTool,
     refusePointer: dom.refusePointer,
-    onSide: (side) => {
-      dom.rail.dataset['side'] = side;
+    onOrientation: (orientation) => {
+      dom.rail.dataset['orientation'] = orientation;
     },
     onDrawArt: () => {
       const width = dom.rail.offsetWidth + RAIL_OUTLINE * 2;
@@ -578,37 +554,11 @@ export function mountRail(dom: RailDomHost): MountedRail {
       dom.railArt.innerHTML = railArt(width, height);
       return true;
     },
-    onHang: (placed) => {
-      dom.rail.style.setProperty('--rail-left', `${placed.dock.x}px`);
-      dom.rail.style.setProperty('--rail-top', `${placed.dock.y}px`);
+    onPlace: (placed) => {
+      dom.rail.style.setProperty('--rail-left', `${placed.x}px`);
+      dom.rail.style.setProperty('--rail-top', `${placed.y}px`);
       dom.rail.inert = false;
       dom.rail.dataset['placed'] = '';
-    },
-    onDocks: (marks) => {
-      if (marks === null) {
-        dom.docks.hidden = true;
-        return;
-      }
-      for (const { side, box } of marks) {
-        const mark = dockMark(side);
-        mark.setAttribute('width', String(box.width));
-        mark.setAttribute('height', String(box.height));
-        mark.setAttribute('viewBox', `0 0 ${box.width} ${box.height}`);
-        mark.style.left = `${box.x}px`;
-        mark.style.top = `${box.y}px`;
-        mark.innerHTML = railArt(box.width, box.height);
-      }
-      dom.docks.hidden = false;
-    },
-    onNearDock: (near) => {
-      for (const side of DOCK_SIDES) {
-        const mark = dockMark(side);
-        if (side === near) {
-          mark.dataset['near'] = '';
-        } else {
-          delete mark.dataset['near'];
-        }
-      }
     },
     onDragListeners: (active) => {
       if (active) {
@@ -634,7 +584,12 @@ export function mountRail(dom: RailDomHost): MountedRail {
     },
   });
 
-  const boxWatch = new ResizeObserver(() => rail.boxResize());
+  const boxWatch = new ResizeObserver(() => {
+    if (!rail.holding()) {
+      cachedOutlines = null;
+    }
+    rail.boxResize();
+  });
 
   return {
     listen() {
@@ -654,11 +609,10 @@ export function mountRail(dom: RailDomHost): MountedRail {
     forget: () => rail.forget(),
     place: () => rail.place(),
     resize: () => rail.resize(),
-    dock: (side) => rail.dock(side),
+    placeAtEdge: (side) => rail.placeAtEdge(side),
     escape: () => rail.escape(),
     endDrag: () => rail.endDrag(),
     holding: () => rail.holding(),
-    edge: () => rail.edge(),
     markTool(tool) {
       for (const button of dom.rail.querySelectorAll('[data-tool]')) {
         button.setAttribute('aria-pressed', String(button.getAttribute('data-tool') === tool));
@@ -667,35 +621,11 @@ export function mountRail(dom: RailDomHost): MountedRail {
   };
 }
 
-/**
- * The frame a tool rail hangs on: the diagram on screen, grown to at least the
- * minimum size, cut to the editor's box, and the dock one side of it asks for.
- */
-interface RailFrame extends RailDock {
-  /** The diagram's frame on screen: what a dock sits outside of. */
-  readonly frame: Box;
-}
-
-/** A dock the sheet hangs the strip by, and whether the editor's inset is what stopped it there. */
-interface RailDock {
-  /**
-   * The dock, as the sheet hangs the strip there: the middle of the side the
-   * strip turns about, and its own near edge. The pencil outline that hangs
-   * outside the strip clears the frame by the gap.
-   */
-  readonly dock: Point;
-  /**
-   * An inset of the editor stopped the strip on the axis its side stands across
-   * — the edge it is held against — because the place it was asked for had no
-   * room for its outline (D2, D3). A dock that reaches that inset with room
-   * either side was stopped by nothing, and the note's clearance reads the
-   * editor's edge past it (O1).
-   */
-  readonly stopped: boolean;
-}
-
-/** The side of the frame the rail docks on: top and bottom lie along it, left and right stand up it (D1). */
+/** The four editor edges the palette can place the rail on (and legacy saved words). */
 export type RailSide = 'top' | 'bottom' | 'left' | 'right';
+
+/** The orientation the floating rail rests in: horizontal or vertical. */
+export type RailOrientation = 'lying' | 'standing';
 
 /**
  * The pencil outline the rail wears, as the rail box cannot measure it: the
@@ -710,217 +640,29 @@ interface RailOutline {
   readonly overhang: number;
 }
 
-/** The smallest frame a diagram gets on screen (D2). */
-const FRAME_MIN_WIDTH = 960;
-const FRAME_MIN_HEIGHT = 600;
-
-/** The gap between a frame's side and the rail's pencil outline: the note's own (I2). */
-const RAIL_GAP = 16;
-
-/**
- * How far inside the editor's edges the rail stops: inside the edge the frame
- * leaves no room at (D2), and inside an edge a resize has carried it past (D3).
- */
-const RAIL_INSET = 15;
-
-/**
- * The frame around a Scene's diagram, and where that side's dock sits on it.
- */
-export function railFrame(
-  scene: Scene,
-  view: View,
-  viewport: { width: number; height: number },
-  side: RailSide,
-  outline: RailOutline,
-  layout: Layout,
-): RailFrame {
-  const editor: Box = { x: 0, y: 0, width: viewport.width, height: viewport.height };
-  const diagram = boxOf(scene.elements, elementsById(scene.elements), layout);
-  const shown = diagram === null ? null : grown(onScreen(diagram, view));
-  const frame = (shown === null ? null : cutTo(shown, editor)) ?? emptyFrame(editor);
-  return { frame, ...dockOnFrame(frame, editor, side, outline) };
+/** The lying and standing pencil outlines of the rail. */
+export interface RailOutlines {
+  readonly lying: RailOutline;
+  readonly standing: RailOutline;
 }
 
-/**
- * The dock a release takes on one side, as the editor stands now: the dock the frame
- * asked for, moved in clear of the page's status chrome (O2) and clamped inside the
- * editor's own edges (D2, D3).
- */
-function placedDock(
-  frameDock: RailDock,
-  side: RailSide,
-  outline: RailOutline,
-  chrome: readonly Box[],
-  viewport: { width: number; height: number },
-): RailDock {
-  const cleared = clearOfStatus(frameDock, side, outline, chrome, viewport);
-  const strip = { width: outline.width - outline.overhang * 2, height: outline.height - outline.overhang * 2 };
-  const clamped = clampedDock(cleared.dock, { ...strip, overhang: outline.overhang }, viewport, side);
-  return { dock: clamped.dock, stopped: clamped.stopped || cleared.stopped };
+/** Where a floating rail rests in the editor's box. */
+export interface PlacedRail {
+  /** The strip's own box left edge (excluding overhang), in screen pixels. */
+  readonly x: number;
+  /** The strip's own box top edge (excluding overhang), in screen pixels. */
+  readonly y: number;
+  /** The strip's centre, in screen pixels. */
+  readonly centre: Point;
+  /** The orientation the strip rests in after fit fallback. */
+  readonly orientation: RailOrientation;
 }
 
-/**
- * The dock on one side of the frame: the strip's outline one gap outside it,
- * centred on that side, or the strip just inside the editor's edge where the
- * frame leaves no room for the gap (D1, D2).
- */
-function dockOnFrame(
-  frame: Box,
-  editor: { width: number; height: number },
-  side: RailSide,
-  outline: RailOutline,
-): RailDock {
-  const strip = { width: outline.width - outline.overhang * 2, height: outline.height - outline.overhang * 2 };
-  const middleX = frame.x + frame.width / 2;
-  const middleY = frame.y + frame.height / 2;
-  switch (side) {
-    case 'top': {
-      const outlineTop = frame.y - RAIL_GAP - outline.height;
-      return {
-        dock: { x: middleX, y: outlineTop < 0 ? RAIL_INSET : outlineTop + outline.overhang },
-        stopped: outlineTop < 0,
-      };
-    }
-    case 'bottom': {
-      const outlineTop = frame.y + frame.height + RAIL_GAP;
-      const stopped = outlineTop + outline.height > editor.height;
-      return {
-        dock: { x: middleX, y: stopped ? editor.height - RAIL_INSET - strip.height : outlineTop + outline.overhang },
-        stopped,
-      };
-    }
-    case 'left': {
-      const outlineLeft = frame.x - RAIL_GAP - outline.width;
-      const stopped = outlineLeft < 0;
-      return {
-        dock: { x: stopped ? RAIL_INSET : outlineLeft + outline.overhang, y: middleY },
-        stopped,
-      };
-    }
-    case 'right': {
-      const outlineLeft = frame.x + frame.width + RAIL_GAP;
-      const stopped = outlineLeft + outline.width > editor.width;
-      return {
-        dock: { x: stopped ? editor.width - RAIL_INSET - strip.width : outlineLeft + outline.overhang, y: middleY },
-        stopped,
-      };
-    }
-  }
-}
+/** How far inside the editor's edges the rail stops. */
+const RAIL_INSET = 16;
 
-/**
- * Which of the frame's four docks a drag of the rail was released nearest.
- */
-export function nearestDock(frame: Box, at: Point): RailSide {
-  let nearest: RailSide = 'top';
-  let distance = Infinity;
-  for (const side of DOCK_SIDES) {
-    const squared = squaredToSide(frame, side, at);
-    if (squared < distance) {
-      nearest = side;
-      distance = squared;
-    }
-  }
-  return nearest;
-}
-
-/** The square of the distance from a pointer to one side of the frame, as that side's own segment. */
-function squaredToSide(frame: Box, side: RailSide, at: Point): number {
-  const lying = side === 'top' || side === 'bottom';
-  const across = lying
-    ? at.y - (side === 'top' ? frame.y : frame.y + frame.height)
-    : at.x - (side === 'left' ? frame.x : frame.x + frame.width);
-  const along = lying
-    ? outside(at.x, frame.x, frame.width)
-    : outside(at.y, frame.y, frame.height);
-  return across * across + along * along;
-}
-
-/** How far past one axis of a box a value lies, and nothing between that axis's two ends. */
-function outside(at: number, start: number, size: number): number {
-  return Math.max(0, start - at, at - (start + size));
-}
-
-/**
- * A dock moved inward just far enough to clear the page's status chrome (O2).
- */
-function clearOfStatus(
-  rail: RailDock,
-  side: RailSide,
-  outline: RailOutline,
-  chrome: readonly Box[],
-  viewport: { width: number; height: number },
-): RailDock {
-  const strip = { width: outline.width - outline.overhang * 2, height: outline.height - outline.overhang * 2 };
-  const start = stripBox(rail.dock, strip, side);
-  const wornAt = (travel: number): Box => {
-    const box = movedInland(start, side, travel);
-    return {
-      x: box.x - outline.overhang,
-      y: box.y - outline.overhang,
-      width: outline.width,
-      height: outline.height,
-    };
-  };
-  const held = wornAt(0);
-  if (chrome.every((corner) => !overlaps(held, corner))) {
-    return rail;
-  }
-  const limit = inlandRoom(held, side, viewport);
-  const asks = chrome.map((corner) => clearOfCorner(held, corner, side));
-  const travels = [...new Set([0, ...asks.map((ask) => Math.max(0, Math.min(ask, limit)))])].sort(
-    (one, other) => one - other,
-  );
-  const clear = travels.find((travel) => chrome.every((corner) => !overlaps(wornAt(travel), corner)));
-  const travel =
-    clear ??
-    travels.reduce((best, one) =>
-      covered(wornAt(one), chrome) < covered(wornAt(best), chrome) ? one : best,
-    );
-  return { dock: dockOf(movedInland(start, side, travel), strip, side), stopped: rail.stopped };
-}
-
-/** A strip box moved `travel` toward the editor's middle, across the side it hangs on. */
-function movedInland(box: Point, side: RailSide, travel: number): Point {
-  switch (side) {
-    case 'top':
-      return { x: box.x, y: box.y + travel };
-    case 'bottom':
-      return { x: box.x, y: box.y - travel };
-    case 'left':
-      return { x: box.x + travel, y: box.y };
-    case 'right':
-      return { x: box.x - travel, y: box.y };
-  }
-}
-
-/** How far inward a strip box must move to come out from under one corner. */
-function clearOfCorner(worn: Box, corner: Box, side: RailSide): number {
-  switch (side) {
-    case 'top':
-      return corner.y + corner.height - worn.y;
-    case 'bottom':
-      return worn.y + worn.height - corner.y;
-    case 'left':
-      return corner.x + corner.width - worn.x;
-    case 'right':
-      return worn.x + worn.width - corner.x;
-  }
-}
-
-/** How far inward a strip box can move before its far end leaves the editor. */
-function inlandRoom(worn: Box, side: RailSide, viewport: { width: number; height: number }): number {
-  switch (side) {
-    case 'top':
-      return viewport.height - RAIL_INSET - worn.height - worn.y;
-    case 'bottom':
-      return worn.y - RAIL_INSET;
-    case 'left':
-      return viewport.width - RAIL_INSET - worn.width - worn.x;
-    case 'right':
-      return worn.x - RAIL_INSET;
-  }
-}
+/** Perpendicular distance from a diagonal within which the current orientation holds. */
+const RAIL_HOLD_BAND = 16;
 
 /** How much of the chrome's boxes a strip box covers, in square pixels. */
 function covered(worn: Box, chrome: readonly Box[]): number {
@@ -936,128 +678,159 @@ function covered(worn: Box, chrome: readonly Box[]): number {
 }
 
 /**
- * Where a left dock reaches, in screen units, or null when the rail is held
- * anywhere else.
+ * Orientation of a point in the editor's box: the two corner-to-corner diagonals
+ * split the box into four spaces; top and bottom lie, left and right stand.
+ * When a current orientation is given, it holds while the point is within 16px
+ * (perpendicular distance) of either diagonal.
  */
-export function leftDockEdge(rail: RailDock, outline: RailOutline, side: RailSide): number | null {
-  if (side !== 'left' || !rail.stopped || rail.dock.x !== RAIL_INSET) {
-    return null;
+export function railOrientation(
+  at: Point,
+  editor: { width: number; height: number },
+  current?: RailOrientation,
+): RailOrientation {
+  const diagonal = Math.hypot(editor.width, editor.height);
+  if (diagonal === 0) {
+    return current ?? 'lying';
   }
-  return rail.dock.x + outline.width - outline.overhang;
+  const dx = at.x - editor.width / 2;
+  const dy = at.y - editor.height / 2;
+  if (current !== undefined) {
+    const d1 = Math.abs(editor.height * dx - editor.width * dy) / diagonal;
+    const d2 = Math.abs(editor.height * dx + editor.width * dy) / diagonal;
+    if (Math.min(d1, d2) <= RAIL_HOLD_BAND) {
+      return current;
+    }
+  }
+  return editor.width * Math.abs(dy) >= editor.height * Math.abs(dx) ? 'lying' : 'standing';
+}
+
+/** Whether an outline fits inside the editor with `RAIL_INSET` on every side. */
+function outlineFits(outline: RailOutline, editor: { width: number; height: number }): boolean {
+  return (
+    outline.width + RAIL_INSET * 2 <= editor.width &&
+    outline.height + RAIL_INSET * 2 <= editor.height
+  );
+}
+
+/** Clamp a coordinate to `[min, max]`, or centre it when `max < min`. */
+function clampCoord(value: number, min: number, max: number, centred: number): number {
+  if (max < min) {
+    return centred;
+  }
+  return Math.max(min, Math.min(value, max));
 }
 
 /**
- * A dock pulled inside the editor's box: one whose pencilled outline already
- * fits is left exactly where the frame measured it, and one carried out of the
- * box is pulled to the top edge's own inset.
+ * Where a floating rail rests: fits the orientation (falling back to the other,
+ * or lying if neither fits), keeps the pencil outline inside the editor with
+ * `RAIL_INSET` from each edge, and moves it off every status chrome box.
  */
-export function clampedDock(
-  dock: Point,
-  strip: { width: number; height: number; overhang: number },
-  viewport: { width: number; height: number },
+export function placeRail(
+  requestedCentre: Point,
+  requestedOrientation: RailOrientation,
+  outlines: RailOutlines,
+  editor: { width: number; height: number },
+  chrome: readonly Box[],
+): PlacedRail {
+  const other: RailOrientation = requestedOrientation === 'lying' ? 'standing' : 'lying';
+  const orientation: RailOrientation = outlineFits(outlines[requestedOrientation], editor)
+    ? requestedOrientation
+    : outlineFits(outlines[other], editor)
+      ? other
+      : 'lying';
+  const outline = outlines[orientation];
+  const minX = RAIL_INSET;
+  const maxX = editor.width - RAIL_INSET - outline.width;
+  const minY = RAIL_INSET;
+  const maxY = editor.height - RAIL_INSET - outline.height;
+  const centreX = (editor.width - outline.width) / 2;
+  const centreY = (editor.height - outline.height) / 2;
+
+  const baseX = clampCoord(requestedCentre.x - outline.width / 2, minX, maxX, centreX);
+  const baseY = clampCoord(requestedCentre.y - outline.height / 2, minY, maxY, centreY);
+  const baseBox: Box = { x: baseX, y: baseY, width: outline.width, height: outline.height };
+
+  let bestX = baseX;
+  let bestY = baseY;
+
+  if (chrome.some((box) => overlaps(baseBox, box))) {
+    const xs = new Set<number>([baseX]);
+    const ys = new Set<number>([baseY]);
+    for (const box of chrome) {
+      xs.add(clampCoord(box.x - outline.width, minX, maxX, centreX));
+      xs.add(clampCoord(box.x + box.width, minX, maxX, centreX));
+      ys.add(clampCoord(box.y - outline.height, minY, maxY, centreY));
+      ys.add(clampCoord(box.y + box.height, minY, maxY, centreY));
+    }
+
+    let bestClearDist = Infinity;
+    let bestOverlapArea = Infinity;
+    let bestOverlapDist = Infinity;
+
+    for (const x of xs) {
+      for (const y of ys) {
+        const candidate: Box = { x, y, width: outline.width, height: outline.height };
+        const dist = (x - baseX) * (x - baseX) + (y - baseY) * (y - baseY);
+        if (chrome.every((box) => !overlaps(candidate, box))) {
+          if (dist < bestClearDist) {
+            bestClearDist = dist;
+            bestX = x;
+            bestY = y;
+          }
+        } else if (bestClearDist === Infinity) {
+          const area = covered(candidate, chrome);
+          if (area < bestOverlapArea || (area === bestOverlapArea && dist < bestOverlapDist)) {
+            bestOverlapArea = area;
+            bestOverlapDist = dist;
+            bestX = x;
+            bestY = y;
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    x: bestX + outline.overhang,
+    y: bestY + outline.overhang,
+    centre: { x: bestX + outline.width / 2, y: bestY + outline.height / 2 },
+    orientation,
+  };
+}
+
+/** Top and bottom edges lie; left and right edges stand. */
+function orientationOfEdge(side: RailSide): RailOrientation {
+  return side === 'top' || side === 'bottom' ? 'lying' : 'standing';
+}
+
+/**
+ * The centre and orientation that put the rail at the middle of an editor edge,
+ * `RAIL_INSET` in (top and bottom lie, left and right stand).
+ */
+export function railEdgeMiddle(
   side: RailSide,
-): RailDock {
-  const box = stripBox(dock, strip, side);
-  const held = {
-    x: placed(box.x, viewport.width, strip.width, strip.overhang),
-    y: placed(box.y, viewport.height, strip.height, strip.overhang),
-  };
-  const across = side === 'top' || side === 'bottom' ? held.y : held.x;
-  return {
-    dock: dockOf({ x: held.x.at, y: held.y.at }, strip, side),
-    stopped: across.stopped,
-  };
-}
-
-/** A dock as the strip's own box: its left and top, whatever side it is on. */
-function stripBox(dock: Point, strip: { width: number; height: number }, side: RailSide): Point {
-  return side === 'top' || side === 'bottom'
-    ? { x: dock.x - strip.width / 2, y: dock.y }
-    : { x: dock.x, y: dock.y - strip.height / 2 };
-}
-
-/** A strip box back as the dock the sheet hangs: the side's own edge and the middle of the other. */
-function dockOf(box: Point, strip: { width: number; height: number }, side: RailSide): Point {
-  return side === 'top' || side === 'bottom'
-    ? { x: box.x + strip.width / 2, y: box.y }
-    : { x: box.x, y: box.y + strip.height / 2 };
-}
-
-/**
- * The box a dock's pencil outline covers in the editor's own pixels: the strip's
- * own box, grown by the overhang the outline hangs outside it on every side.
- */
-function dockBox(dock: RailDock, side: RailSide, outline: RailOutline): Box {
-  const strip = { width: outline.width - outline.overhang * 2, height: outline.height - outline.overhang * 2 };
-  const box = stripBox(dock.dock, strip, side);
-  return {
-    x: box.x - outline.overhang,
-    y: box.y - outline.overhang,
-    width: outline.width,
-    height: outline.height,
-  };
-}
-
-/** One axis of a dock: where the strip sits on it, and whether an inset stopped it there. */
-interface Placed {
-  readonly at: number;
-  readonly stopped: boolean;
-}
-
-/**
- * One side of the rail: where the frame measured it while its outline fits the
- * editor, or inside the edge the carried place crossed.
- */
-function placed(start: number, extent: number, size: number, overhang: number): Placed {
-  if (start - overhang >= 0 && start + size + overhang <= extent) {
-    return { at: start, stopped: false };
+  outlines: RailOutlines,
+  editor: { width: number; height: number },
+): { centre: Point; orientation: RailOrientation } {
+  const orientation = orientationOfEdge(side);
+  const outline = outlines[orientation];
+  switch (side) {
+    case 'top':
+      return { centre: { x: editor.width / 2, y: RAIL_INSET + outline.height / 2 }, orientation };
+    case 'bottom':
+      return {
+        centre: { x: editor.width / 2, y: editor.height - RAIL_INSET - outline.height / 2 },
+        orientation,
+      };
+    case 'left':
+      return { centre: { x: RAIL_INSET + outline.width / 2, y: editor.height / 2 }, orientation };
+    case 'right':
+      return {
+        centre: { x: editor.width - RAIL_INSET - outline.width / 2, y: editor.height / 2 },
+        orientation,
+      };
   }
-  const pulled = Math.max(RAIL_INSET, Math.min(start, extent - RAIL_INSET - size));
-  const held = pulled - overhang >= 0 && pulled + size + overhang <= extent;
-  if (!held && size + overhang * 2 <= extent) {
-    return { at: (extent - size) / 2, stopped: false };
-  }
-  const stopped = pulled === RAIL_INSET || pulled === extent - RAIL_INSET - size;
-  return { at: pulled, stopped };
 }
 
-/** A box grown about its own centre to at least the frame's minimum size. */
-function grown(box: Box): Box {
-  const width = Math.max(box.width, FRAME_MIN_WIDTH);
-  const height = Math.max(box.height, FRAME_MIN_HEIGHT);
-  return {
-    x: box.x - (width - box.width) / 2,
-    y: box.y - (height - box.height) / 2,
-    width,
-    height,
-  };
-}
-
-/** A Scene box, in the pixels the page draws in. */
-function onScreen(box: Box, view: View): Box {
-  return { ...toScreen(view, box), width: box.width * view.zoom, height: box.height * view.zoom };
-}
-
-/** What of a box the editor's own box leaves, or null when it leaves nothing. */
-function cutTo(box: Box, editor: Box): Box | null {
-  const left = Math.max(box.x, editor.x);
-  const top = Math.max(box.y, editor.y);
-  const right = Math.min(box.x + box.width, editor.x + editor.width);
-  const bottom = Math.min(box.y + box.height, editor.y + editor.height);
-  if (right <= left || bottom <= top) {
-    return null;
-  }
-  return { x: left, y: top, width: right - left, height: bottom - top };
-}
-
-/** The empty Scene's frame: the minimum size about the editor's middle, inside its box. */
-function emptyFrame(editor: Box): Box {
-  const width = Math.min(FRAME_MIN_WIDTH, editor.width);
-  const height = Math.min(FRAME_MIN_HEIGHT, editor.height);
-  return {
-    x: editor.x + (editor.width - width) / 2,
-    y: editor.y + (editor.height - height) / 2,
-    width,
-    height,
-  };
-}
+export { readRailPlace, writeRailPlace } from './rail-preference.js';
+export type { RailPlace } from './rail-preference.js';
