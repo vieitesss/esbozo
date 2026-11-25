@@ -104,7 +104,7 @@ class EsbozoEditorElement extends HTMLElement {
   #menuFor: string | null = null;
   #board!: HTMLElement;
   #canvas!: SVGSVGElement;
-  /** The tool rail: its state, dock placement and pointer handling. */
+  /** The tool rail: its state, floating placement and pointer handling. */
   #rail!: MountedRail;
   /** The words being typed: the field, the Element it grows and the step to its glyphs. */
   #typing!: Typing;
@@ -159,7 +159,7 @@ class EsbozoEditorElement extends HTMLElement {
     zoomOut: () => this.#zoomBy(1 / ZOOM_STEP),
     zoomToFit: () => this.#zoomToFit(),
     resetZoom: () => this.#resetZoom(),
-    dockRail: (side) => this.#rail.dock(side),
+    placeRailAtEdge: (side) => this.#rail.placeAtEdge(side),
     openFolder: () => void (this.#connection.served ? this.#showNote() : this.#connection.pick()),
   };
 
@@ -628,9 +628,9 @@ class EsbozoEditorElement extends HTMLElement {
     this.#page.resetDrawings();
     this.#menuFor = null;
     this.#page.viewport.view = fittedView(scene, this.#page.viewport.size(), this.#connection.layout);
-    // The name and the status this open leaves are set before the frame is
-    // measured: a narrow editor's top dock is moved in clear of this corner, and
-    // the corner is as wide and as tall as these words (O2).
+    // The name and the status this open leaves are set before the rail is
+    // placed: status chrome is as wide and as tall as these words, and
+    // placement clears it.
     this.#whereLabel.textContent = `${target.folder.name} / ${target.name}`;
     this.#notes.clear('scenes');
     this.#setSaved(status);
@@ -1040,10 +1040,8 @@ class EsbozoEditorElement extends HTMLElement {
   /** Fit the page the Renderer draws into the window, the view an open Scene starts in. */
   #zoomToFit(): void {
     const view = fittedView(this.#hand.scene, this.#page.viewport.size(), this.#connection.layout);
-    // A fit draws the page one way only, whatever view it replaces, so this is
-    // where the rail's frame is measured again (D3, criterion 5). The fitted view
-    // is the one it is measured from, and it is set before the note's clearance
-    // reads the dock, so the fit's own view never depends on where the rail was.
+    // Fit sets the view before re-placing the rail so the fit never depends on
+    // where the rail sat.
     this.#page.viewport.view = view;
     this.#rail.place();
     this.#changedView(view);
@@ -1089,7 +1087,7 @@ class EsbozoEditorElement extends HTMLElement {
    * The page lost the focus, or went out of sight: no pointer of this editor will
    * ever come up here. Every hold of the board ends, and a drag of the rail — the
    * page's chrome, not a gesture of the board's — is called off beside it, so a
-   * release that lands in another window docks nothing (D7, I6).
+   * release that lands in another window places nothing.
    */
   #onPointerCancel = (event: PointerEvent): void => {
     this.#exits.run('pointerCancel', { pointerId: event.pointerId });

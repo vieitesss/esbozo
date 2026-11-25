@@ -18,6 +18,9 @@ export type RailPlace =
   | { readonly kind: 'at'; readonly x: number; readonly y: number; readonly orientation: RailOrientation }
   | { readonly kind: 'edge'; readonly side: RailSide };
 
+/** Stored centre fractions and orientation of a floating rail. */
+export type StoredPlace = Omit<Extract<RailPlace, { readonly kind: 'at' }>, 'kind'>;
+
 /**
  * The page's own storage, or null when the browser will not even hand it over: a
  * blocked origin throws as the property is read, before any call on it.
@@ -70,7 +73,7 @@ export function readRailPlace(from: Storage | null = pageStorage()): RailPlace {
 
 /** Keep a committed drop's centre fractions and orientation for the next start. */
 export function writeRailPlace(
-  place: { readonly x: number; readonly y: number; readonly orientation: RailOrientation },
+  place: StoredPlace,
   into: Storage | null = pageStorage(),
 ): void {
   try {

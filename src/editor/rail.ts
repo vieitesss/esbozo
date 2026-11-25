@@ -14,7 +14,7 @@ import { isClick } from './elements.js';
 import { overlaps } from './geometry.js';
 import type { Box, Point } from './geometry.js';
 import { readRailPlace, writeRailPlace } from './rail-preference.js';
-import type { RailPlace } from './rail-preference.js';
+import type { RailPlace, StoredPlace } from './rail-preference.js';
 
 /** One icon per tool. Typed by tool id, so a tool without an icon cannot be added. */
 const ICONS: Record<ToolId, string> = {
@@ -92,13 +92,6 @@ function roundRectPath(x: number, y: number, width: number, height: number, radi
  */
 const RAIL_OUTLINE = 7;
 
-/** Stored centre fractions and orientation of a floating rail. */
-interface StoredPlace {
-  readonly x: number;
-  readonly y: number;
-  readonly orientation: RailOrientation;
-}
-
 /** A press on the rail that may still become a live drag of it. */
 interface RailDrag {
   readonly pointer: number;
@@ -155,9 +148,7 @@ export class Rail {
     this.#orientation =
       this.#initial.kind === 'at'
         ? this.#initial.orientation
-        : this.#initial.side === 'top' || this.#initial.side === 'bottom'
-          ? 'lying'
-          : 'standing';
+        : orientationOfEdge(this.#initial.side);
     this.#host.onOrientation?.(this.#orientation);
   }
 
@@ -198,7 +189,7 @@ export class Rail {
   }
 
   /** Put the rail at the middle of one of the editor's four edges (from the command palette). */
-  dock(side: RailSide): void {
+  placeAtEdge(side: RailSide): void {
     const editor = this.#host.size();
     const outlines = this.#host.outlines();
     const { centre, orientation } = railEdgeMiddle(side, outlines, editor);
@@ -483,7 +474,7 @@ export interface MountedRail {
   forget(): void;
   place(): void;
   resize(): void;
-  dock(side: RailSide): void;
+  placeAtEdge(side: RailSide): void;
   escape(): boolean;
   endDrag(): void;
   holding(): boolean;
@@ -618,7 +609,7 @@ export function mountRail(dom: RailDomHost): MountedRail {
     forget: () => rail.forget(),
     place: () => rail.place(),
     resize: () => rail.resize(),
-    dock: (side) => rail.dock(side),
+    placeAtEdge: (side) => rail.placeAtEdge(side),
     escape: () => rail.escape(),
     endDrag: () => rail.endDrag(),
     holding: () => rail.holding(),
@@ -807,6 +798,11 @@ export function placeRail(
   };
 }
 
+/** Top and bottom edges lie; left and right edges stand. */
+function orientationOfEdge(side: RailSide): RailOrientation {
+  return side === 'top' || side === 'bottom' ? 'lying' : 'standing';
+}
+
 /**
  * The centre and orientation that put the rail at the middle of an editor edge,
  * `RAIL_INSET` in (top and bottom lie, left and right stand).
@@ -816,7 +812,7 @@ export function railEdgeMiddle(
   outlines: RailOutlines,
   editor: { width: number; height: number },
 ): { centre: Point; orientation: RailOrientation } {
-  const orientation: RailOrientation = side === 'top' || side === 'bottom' ? 'lying' : 'standing';
+  const orientation = orientationOfEdge(side);
   const outline = outlines[orientation];
   switch (side) {
     case 'top':

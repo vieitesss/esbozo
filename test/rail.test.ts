@@ -216,25 +216,25 @@ test('starting from an old saved side word places the rail at that edge middle',
   assert.deepEqual(placed.centre, { x: 16 + OUTLINES.standing.width / 2, y: 400 });
 });
 
-test('palette dock puts the rail at each edge middle and stores fractions and orientation', () => {
+test('palette edge command puts the rail at each edge middle and stores fractions and orientation', () => {
   const { rail, placements, written } = makeRail();
   rail.place();
 
-  rail.dock('bottom');
+  rail.placeAtEdge('bottom');
   assert.equal(placements.at(-1)!.orientation, 'lying');
   assert.deepEqual(placements.at(-1)!.centre, { x: 640, y: 800 - 16 - OUTLINES.lying.height / 2 });
   assert.equal(written.at(-1)!.orientation, 'lying');
 
-  rail.dock('right');
+  rail.placeAtEdge('right');
   assert.equal(placements.at(-1)!.orientation, 'standing');
   assert.deepEqual(placements.at(-1)!.centre, { x: 1280 - 16 - OUTLINES.standing.width / 2, y: 400 });
   assert.equal(written.at(-1)!.orientation, 'standing');
 
-  rail.dock('left');
+  rail.placeAtEdge('left');
   assert.equal(placements.at(-1)!.orientation, 'standing');
   assert.deepEqual(placements.at(-1)!.centre, { x: 16 + OUTLINES.standing.width / 2, y: 400 });
 
-  rail.dock('top');
+  rail.placeAtEdge('top');
   assert.equal(placements.at(-1)!.orientation, 'lying');
   assert.deepEqual(placements.at(-1)!.centre, { x: 640, y: 16 + OUTLINES.lying.height / 2 });
 });

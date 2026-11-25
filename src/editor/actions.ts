@@ -56,8 +56,8 @@ export interface ActionHost {
   zoomOut(): void;
   zoomToFit(): void;
   resetZoom(): void;
-  /** Dock the rail on one of the frame's four sides, measuring the frame as it does. */
-  dockRail(side: RailSide): void;
+  /** Put the rail at the middle of one of the editor's four edges. */
+  placeRailAtEdge(side: RailSide): void;
   openFolder(): void;
 }
 
@@ -212,21 +212,20 @@ function arrange(
 }
 
 /**
- * One dock of the tool rail: the palette's row for it, and the move it asks the
- * editor for. There is no key, button or grip for a dock: the palette is where
- * a move is named (D8).
+ * One edge placement of the tool rail: the palette's row for it, and the move
+ * it asks the editor for.
  */
-function dock(side: RailSide): ActionSpec {
+function railEdge(side: RailSide): ActionSpec {
   return {
     id: `rail-${side}`,
     name: `Tool rail: ${side}`,
     group: 'View',
     bindings: [],
     minSelected: 0,
-    // A dock is the page's chrome, not the Scene's: it is offered in a read-only
-    // Scene as it is anywhere (D9), and needs nothing selected.
+    // Rail placement is the page's chrome, not the Scene's: it is offered in a
+    // read-only Scene as it is anywhere, and needs nothing selected.
     reason: always,
-    run: (host) => host.dockRail(side),
+    run: (host) => host.placeRailAtEdge(side),
   };
 }
 
@@ -378,10 +377,10 @@ const OTHER_ACTIONS: readonly ActionSpec[] = [
     reason: always,
     run: (host) => host.toggleTheme(),
   },
-  dock('top'),
-  dock('bottom'),
-  dock('left'),
-  dock('right'),
+  railEdge('top'),
+  railEdge('bottom'),
+  railEdge('left'),
+  railEdge('right'),
   {
     id: 'roughness',
     name: 'Default roughness',
