@@ -2613,6 +2613,30 @@ test('mount() reports a rejected save in the status line and esbozo:save event',
   }
 });
 
+test('mount() reports a non-Error save rejection in the status line and esbozo:save event', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), {});
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/mounted-fail-string.html`);
+    await expect(screen.getByRole('status')).toHaveText('new Scene');
+
+    await screen.getByRole('button', { name: 'Rectangle', exact: true }).click();
+    await drag(ui, at({ x: 120, y: 120 }, EMPTY), at({ x: 320, y: 240 }, EMPTY));
+    await expect(screen.getByRole('status')).toContainText('quota exceeded');
+
+    const events = await browser.evaluate(
+      () => (window as unknown as { __saveEvents: { state: string; detail: string }[] }).__saveEvents,
+    );
+    expect(events.some((e) => e.state === 'failed' && e.detail === 'quota exceeded')).toBe(true);
+  } finally {
+    await embed.stop();
+  }
+});
+
 test('two mounted elements on one page call only their own save function', async ({
   app,
   browser,
@@ -2835,6 +2859,22 @@ async function writeBundle(): Promise<string> {
     font: { url: '${FONT}' },
     load: () => null,
     save: () => Promise.reject(new Error('quota exceeded')),
+  });
+</script>`,
+      null,
+    ),
+    'mounted-fail-string.html': page(
+      FULL,
+      `<esbozo-editor></esbozo-editor>
+<script type="module">
+  import { mount } from './${bundle}';
+  const el = document.querySelector('esbozo-editor');
+  window.__saveEvents = [];
+  el.addEventListener('esbozo:save', (e) => window.__saveEvents.push(e.detail));
+  mount(el, {
+    font: { url: '${FONT}' },
+    load: () => null,
+    save: () => Promise.reject('quota exceeded'),
   });
 </script>`,
       null,
