@@ -95,17 +95,23 @@ It fires only when `state` or `detail` differs from the last dispatched pair. Be
 
 ## The tool rail
 
-The rail floats over the paper at the top of the element. Drag it — from a tile or from the padding around them — and it docks on the nearest of four sides: top, bottom, left or right, lying along the top and bottom and standing up the left and right. A press that moves less than a few pixels is still a click, and picks that tool. A longer press docks the rail and picks none. <kbd>Escape</kbd>, losing the window's focus or a cancelled pointer puts the rail back where it hung. None of this touches the Scene: the rail moves in a read-only embed too, and a move writes no file and adds no undo step.
+The Rail floats anywhere inside the editor's box, fixed to the screen regardless of pan, zoom, or Scene content. By default it starts at the middle of the top edge, `16px` in. Drag it from a tool tile or the padding around the tiles to move it. The editor box's two corner-to-corner diagonals divide the box into four spaces. The Rail lies horizontally in the top and bottom spaces and stands vertically in the left and right spaces. Orientation follows the pointer live during a drag and holds until the pointer crosses `16px` past a diagonal.
 
-The page keeps the side the last move took in `localStorage`, under `esbozo.rail`, as one of `top`, `bottom`, `left` and `right`. That key belongs to the page, not to the element or the Scene, so every editor on the page starts on the side the last move kept. An editor that is already open does not follow it: each reads the key once, when it starts, and a reload is what picks a new side up. A browser that blocks storage, or holds a word that is not one of the four, starts the rail at the top and still moves it for that visit.
+A press that moves only a few pixels still counts as a click and picks that tool. A longer drag moves the Rail and picks no tool. Pressing <kbd>Escape</kbd>, losing window focus, or cancelling the pointer returns the Rail to its previous place. Moving the Rail never changes the Scene. It works in read-only mode, writes no file, and adds no undo step.
 
-The command palette's four `Tool rail:` rows move it too, and no key does. In a window too small for the rail, the rail is clipped rather than shrunk, wrapped or turned: the keys <kbd>V</kbd> <kbd>R</kbd> <kbd>E</kbd> <kbd>D</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>T</kbd> and <kbd>1</kbd>–<kbd>7</kbd>, and the palette, still reach every tool and every dock from there.
+Each drop stores the Rail's centre as fractions of the editor's box and its orientation in `localStorage` under `esbozo.rail` as JSON:
 
-The rail used to hang at the element's left edge. A host page that takes a new bundle sees it at the top, with the behaviour above, and needs no change of its own: no attribute sets, locks or reports the dock, and there is no new attribute to add.
+```json
+{"x": 0.5, "y": 0.06, "orientation": "lying"}
+```
+
+The older bare side words `top`, `bottom`, `left`, and `right` still map to the middle of each edge, `16px` in. That key belongs to the origin, not to an element or Scene. Each editor reads `esbozo.rail` once at startup. Open editors do not follow each other live, and the last drop wins on the next load. When storage is blocked or holds an invalid value, the Rail starts at the middle of the top edge and still moves for that visit.
+
+The command palette's four `Tool rail:` rows place the Rail at the middle of each edge, `16px` in, with no keyboard shortcut. When a standing Rail does not fit in a short editor, it lies. When a lying Rail does not fit in a narrow editor, it stands. If neither fits, it lies and clips at the box edge. The keys <kbd>V</kbd>, <kbd>R</kbd>, <kbd>E</kbd>, <kbd>D</kbd>, <kbd>A</kbd>, <kbd>S</kbd>, <kbd>T</kbd>, and <kbd>1</kbd> to <kbd>7</kbd>, plus the command palette, still reach every tool.
 
 ## Two elements on one page
 
-Each element is an editor of its own: its own Scene, its own font, its own save URL and its own dot Grid — the Grid is a pattern of its own, so two editors never fill their dots from each other. The keyboard and the clipboard go to the element the focus is inside, so a nudge in one is never a save in the other, and a page nobody has clicked into keeps its own keys. Each rail measures its own element's box and moves inside it, so two editors of two sizes hang and dock their rails apart.
+Each element is an editor of its own: its own Scene, its own font, its own save URL and its own dot Grid — the Grid is a pattern of its own, so two editors never fill their dots from each other. The keyboard and the clipboard go to the element the focus is inside, so a nudge in one is never a save in the other, and a page nobody has clicked into keeps its own keys. Each Rail measures its own element's box and floats inside it, so two editors of different sizes position and orient their Rails independently.
 
 ## What it is, and what it is not
 
