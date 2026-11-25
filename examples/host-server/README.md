@@ -14,7 +14,7 @@ Flags:
 
 - `--host <address>` sets the listen address. The default is `127.0.0.1`.
 - `--port <N>` sets the listen port. The default is `4321`. Pass `0` to let the operating system pick a free port.
-- `--render` re-renders the SVG on the server by calling `ez render` instead of writing the `svg` field from the request body.
+- `--render` renders the SVG on the server by calling `ez render` instead of writing the `svg` field from the request body. The request body must still include a string `svg` field.
 
 ## Endpoints
 
@@ -27,7 +27,11 @@ All error responses return JSON in the shape `{ "error": "<message>" }`, and all
 
 ## Static assets
 
-This server handles only Scene reads and saves. Serve the embed bundle (`esbozo-embed.js`) and the font file (`Kalam-Regular.ttf`) from your host application's static file handler.
+This server handles only Scene reads and saves. Run `ez bundle <dir>` to produce `esbozo-<version>.js`, and serve it from your host application's static file handler. Serve `Kalam-Regular.ttf` from the same folder so the bundle can load it when the element has no `font` attribute.
+
+## Scene validation
+
+Without `--render`, this server stores any string sent in the `scene` field without parsing it. By contrast, `ez serve` parses the Scene and refuses an invalid one with `400` and `the Scene is invalid: <problems>`. To enforce the same rule in a host application, run `ez check` on the Scene text before writing, or start this server with `--render`. With `--render`, an invalid Scene returns `400` with `{ "error": "the Scene is invalid: <message>" }` and leaves the previous files untouched.
 
 ## Safety rules
 
