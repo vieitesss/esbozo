@@ -2433,6 +2433,108 @@ test('focused embedded editor isolates keydown and keyup from host bubble listen
   }
 });
 
+test('esbozo:save fires saving then saved on autosave, failed on refusal, and idle on rebuild', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), { a: SCENE_SOURCE, b: SECOND_SOURCE });
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/embedded.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+
+    await browser.evaluate(() => {
+      const el = document.querySelector('esbozo-editor');
+      if (el === null) {
+        throw new Error('missing esbozo-editor');
+      }
+      const events: {
+        state: string;
+        detail: string;
+        bubbles: boolean;
+        composed: boolean;
+        cancelable: boolean;
+      }[] = [];
+      (window as unknown as { __saveEvents: typeof events }).__saveEvents = events;
+      el.addEventListener('esbozo:save', (event) => {
+        const custom = event as CustomEvent<{ state: string; detail: string }>;
+        events.push({
+          state: custom.detail.state,
+          detail: custom.detail.detail,
+          bubbles: custom.bubbles,
+          composed: custom.composed,
+          cancelable: custom.cancelable,
+        });
+      });
+      return null;
+    });
+
+    const readEvents = () =>
+      browser.evaluate(() => {
+        const events = (
+          window as unknown as {
+            __saveEvents: {
+              state: string;
+              detail: string;
+              bubbles: boolean;
+              composed: boolean;
+              cancelable: boolean;
+            }[];
+          }
+        ).__saveEvents;
+        return [...events];
+      });
+
+    const clearEvents = () =>
+      browser.evaluate(() => {
+        const events = (window as unknown as { __saveEvents: unknown[] }).__saveEvents;
+        events.length = 0;
+        return null;
+      });
+
+    // 1. Autosave: host sees saving then saved, non-bubbling, non-composed, non-cancelable.
+    await clickScene(ui, { x: 100, y: 80 }, [], VIEW);
+    await browser.keyboard.press('Shift+ArrowRight');
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    expect(await readEvents()).toEqual([
+      { state: 'saving', detail: '', bubbles: false, composed: false, cancelable: false },
+      { state: 'saved', detail: '', bubbles: false, composed: false, cancelable: false },
+    ]);
+
+    // 2. Refused write: host sees saving then failed with the server's message.
+    await clearEvents();
+    embed.refuseSave('a', 500, 'the folder is unreadable');
+    await browser.keyboard.press('Shift+ArrowRight');
+    await expect(screen.getByRole('status')).toContainText('the folder is unreadable');
+    expect(await readEvents()).toEqual([
+      { state: 'saving', detail: '', bubbles: false, composed: false, cancelable: false },
+      {
+        state: 'failed',
+        detail: 'the folder is unreadable',
+        bubbles: false,
+        composed: false,
+        cancelable: false,
+      },
+    ]);
+
+    // 3. Attribute-driven rebuild: changing scene resets to idle, then saved once loaded.
+    await clearEvents();
+    await browser.evaluate(() => {
+      const el = document.querySelector('esbozo-editor');
+      el?.setAttribute('scene', '/api/b');
+      return null;
+    });
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    expect(await readEvents()).toEqual([
+      { state: 'idle', detail: '', bubbles: false, composed: false, cancelable: false },
+      { state: 'saved', detail: '', bubbles: false, composed: false, cancelable: false },
+    ]);
+  } finally {
+    await embed.stop();
+  }
+});
+
 /**
  * The bundle, the fonts and the pages, in one folder a server can hand out.
  * `ez bundle` builds nothing: it copies the editor `pnpm build` made, so this

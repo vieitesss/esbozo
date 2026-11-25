@@ -34,6 +34,19 @@ The focus is the page's until a person clicks into the editor. The element is fo
 
 A load, a save or a font that fails is the server's or the browser's own words in the status line; the editor stays on screen.
 
+## Events
+
+`<esbozo-editor>` dispatches a `CustomEvent` named `esbozo:save` on the element whenever its saved state changes (both the bundle and the served page dispatch it; the status line is unchanged). It does not bubble (`bubbles: false`, `composed: false`) and is not cancelable, so attach listeners directly on the element:
+
+```js
+editor.addEventListener('esbozo:save', ({ detail: { state, detail } }) => {
+  // state: 'idle' | 'saving' | 'saved' | 'new' | 'failed'
+  // detail: failure message when state === 'failed', '' otherwise
+});
+```
+
+It fires only when `state` or `detail` differs from the last dispatched pair. An attribute-driven rebuild (such as changing `scene` or `save`) resets from `saved`, `failed`, or `new` back to `idle` and therefore fires `idle` before the new Scene loads.
+
 ## The tool rail
 
 The rail floats over the paper at the top of the element. Drag it — from a tile or from the padding around them — and it docks on the nearest of four sides: top, bottom, left or right, lying along the top and bottom and standing up the left and right. A press that moves less than a few pixels is still a click, and picks that tool. A longer press docks the rail and picks none. <kbd>Escape</kbd>, losing the window's focus or a cancelled pointer puts the rail back where it hung. None of this touches the Scene: the rail moves in a read-only embed too, and a move writes no file and adds no undo step.

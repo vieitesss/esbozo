@@ -78,6 +78,9 @@ class EsbozoEditorElement extends HTMLElement {
   #ownsKeysWhenFocused = false;
   /** Whether this page can export a PNG: a PNG is the page's, and the bundle has none. */
   #pngExport: ((request: PngExport) => Promise<void>) | undefined;
+  /** Last dispatched `esbozo:save` state and detail, so identical calls do not re-fire. */
+  #lastSavedState: SavedState = 'idle';
+  #lastSavedDetail = '';
   /** The Scene in hand: current Scene, selection, picked Bend point, and History. */
   readonly #hand = new Hand({
     writable: () => this.#connection.writable(),
@@ -1264,6 +1267,12 @@ class EsbozoEditorElement extends HTMLElement {
             : state === 'new'
               ? 'new Scene'
               : '';
+    if (state === this.#lastSavedState && detail === this.#lastSavedDetail) {
+      return;
+    }
+    this.#lastSavedState = state;
+    this.#lastSavedDetail = detail;
+    this.dispatchEvent(new CustomEvent('esbozo:save', { detail: { state, detail } }));
   }
 }
 
