@@ -48,6 +48,7 @@ import { defineEditorElement, rebuildEditorElement } from './editor.js';
 import type { PageFont } from './editor.js';
 import type { SceneFolder } from './files.js';
 import { enqueueWrite, sceneFolder } from './scene-url.js';
+import { systemDarkRules } from './theme-css.js';
 import STYLES from './editor.css';
 
 /**
@@ -232,22 +233,6 @@ function useFace(element: HTMLElement, face: FontFace): void {
 }
 
 /**
- * Mirror every `[data-theme="dark"]` rule in `STYLES` under
- * `@media (prefers-color-scheme: dark)` for hosts that leave `data-theme` off
- * `<html>`, so the dark palette has one source of truth (`editor.css`).
- */
-function systemDarkRules(): string {
-  const rules: string[] = [];
-  for (const match of STYLES.matchAll(/\[data-theme=["']?dark["']?\]([^{]+\{[^}]+\})/g)) {
-    const rule = match[1];
-    if (rule !== undefined) {
-      rules.push(`html:not([data-theme])${rule}`);
-    }
-  }
-  return rules.length > 0 ? `@media (prefers-color-scheme: dark){${rules.join('')}}` : '';
-}
-
-/**
  * The editor's own look, first in the head so a host's own rules win, with the
  * two handles a page with a single Scene has no use for hidden: there is no
  * folder to browse and no second Scene to make.
@@ -256,6 +241,6 @@ function addStylesheet(): void {
   const single = `esbozo-editor .status [data-act="open"],
 esbozo-editor .note { display: none; }`;
   const style = document.createElement('style');
-  style.textContent = `${STYLES}\n${systemDarkRules()}\n${single}`;
+  style.textContent = `${STYLES}\n${systemDarkRules(STYLES)}\n${single}`;
   document.head.prepend(style);
 }

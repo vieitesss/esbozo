@@ -49,6 +49,9 @@ export interface ProjectModules {
   sceneFile: typeof import('../src/editor/paint.ts').sceneFile;
   createLayout: typeof import('../src/layout.ts').createLayout;
   parseFontFile: typeof import('../src/layout.ts').parseFontFile;
+  systemDarkRules: typeof import('../src/editor/theme-css.ts').systemDarkRules;
+  /** The editor stylesheet, so the dark-theme mirror test runs over the real CSS. */
+  EDITOR_CSS: string;
   /** Kalam's bytes, so a test measures with the font the CLI measures with. */
   KALAM: Uint8Array;
 }
@@ -75,6 +78,8 @@ export async function loadProjectModules(): Promise<ProjectModules> {
       `export { anchorPoint, anchorOf } from ${source('geometry.ts')};`,
       `export { PaintCache, sceneFile } from ${source('editor/paint.ts')};`,
       `export { createLayout, parseFontFile } from ${source('layout.ts')};`,
+      `export { systemDarkRules } from ${source('editor/theme-css.ts')};`,
+      `export { default as EDITOR_CSS } from ${source('editor/editor.css')};`,
       `export { default as KALAM } from ${JSON.stringify(
         fileURLToPath(new URL('../fonts/Kalam-Regular.ttf', import.meta.url)),
       )};`,
@@ -89,7 +94,7 @@ export async function loadProjectModules(): Promise<ProjectModules> {
     bundle: true,
     platform: 'node',
     format: 'esm',
-    loader: { '.ttf': 'binary' },
+    loader: { '.ttf': 'binary', '.css': 'text' },
     logLevel: 'silent',
   });
   return (await import(pathToFileURL(outfile).href)) as ProjectModules;
