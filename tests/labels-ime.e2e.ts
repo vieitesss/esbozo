@@ -67,7 +67,7 @@ describe('labels ime', () => {
     expect(await savedFiles(ui)).toEqual(before);
   });
 
-  test('a drag of the rail docks it and finishes the words, as any outside press does', async ({
+  test('a drag of the rail moves it and finishes the words, as any outside press does', async ({
     app,
     browser,
     screen,
@@ -77,8 +77,8 @@ describe('labels ime', () => {
     const before = await savedFiles(ui);
 
     // Where the strip hangs, read before the words open: focusing a tile finishes
-    // a composition the moment one starts. This Scene's diagram is far smaller
-    // than the frame's 960×600 minimum, so the strip lies across the top.
+    // a composition the moment one starts. By default the strip lies across the
+    // top edge.
     await screen.getByRole('navigation', { name: 'Tools' }).getByRole('button', 'Select').focus();
     const band: Rect = { x: 300, y: 0, width: 680, height: 200 };
     await expect
@@ -88,8 +88,8 @@ describe('labels ime', () => {
     const grip = { x: strip.x + strip.width / 2, y: strip.y + 31 };
 
     // A press on the strip takes the focus off the field as any outside press
-    // does, and the drag carries the rail 340 px left of the frame: it docks on
-    // the left and picks no tool.
+    // does, and the drag carries the rail into the left space: it stands where
+    // dropped and picks no tool.
     await doubleClickScene(ui, { x: 100, y: 80 });
     await imeCompose('にほん');
     await drag(ui, grip, { x: 300, y: 400 });
@@ -99,9 +99,12 @@ describe('labels ime', () => {
     await expect(screen.getByRole('textbox', { name: 'Label' })).toHaveCount(0);
     expect(await savedFiles(ui)).toEqual(before);
 
-    // The press was the rail's and not the paper's: the side it docked on is the
-    // one it kept for the next start, which only a move of the rail writes.
-    expect(await browser.evaluate(() => localStorage.getItem('esbozo.rail'))).toBe('left');
+    // The press was the rail's and not the paper's: the place it landed on is
+    // kept for the next start, which only a move of the rail writes.
+    const saved = JSON.parse((await browser.evaluate(() => localStorage.getItem('esbozo.rail'))) ?? 'null');
+    expect(saved).toMatchObject({ orientation: 'standing' });
+    expect(typeof saved.x).toBe('number');
+    expect(typeof saved.y).toBe('number');
   });
 
   test('a middle or right press finishes the words before an input method can confirm them', async ({
