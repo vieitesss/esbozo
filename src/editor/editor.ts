@@ -78,6 +78,8 @@ class EsbozoEditorElement extends HTMLElement {
   #ownsKeysWhenFocused = false;
   /** Whether this page can export a PNG: a PNG is the page's, and the bundle has none. */
   #pngExport: ((request: PngExport) => Promise<void>) | undefined;
+  /** Last dispatched `esbozo:save` state and detail, so identical calls do not re-fire. */
+  #lastSaved: { state: SavedState; detail: string } = { state: 'idle', detail: '' };
   /** The Scene in hand: current Scene, selection, picked Bend point, and History. */
   readonly #hand = new Hand({
     writable: () => this.#connection.writable(),
@@ -301,6 +303,7 @@ class EsbozoEditorElement extends HTMLElement {
       refresh: () => this.#refresh(),
       refused: (problem) => this.#setSaved('failed', problem),
       forgetWordClick: () => this.#gestures.forgetWordClick(),
+      refocus: this.#ownsKeysWhenFocused ? () => this.focus({ preventScroll: true }) : undefined,
     });
 
     // The page's frame is told what the page may show, and asked for it. It owns
@@ -426,6 +429,11 @@ class EsbozoEditorElement extends HTMLElement {
     void this.#connection.connect();
   }
 
+  /** Where keyboard listeners attach: this element when embedded, `document` when standalone. */
+  #keyTarget(): HTMLElement | Document {
+    return this.#ownsKeysWhenFocused ? this : document;
+  }
+
   /** Wire the editor to the page, once it has a measurement to draw with. */
   #listen(): void {
     if (this.#wired) {
@@ -454,8 +462,9 @@ class EsbozoEditorElement extends HTMLElement {
     // already has is consumed here, not applied.
     this.#menu.addEventListener('click', this.#gestures.menuClickPress, true);
     this.#menu.addEventListener('pointerdown', this.#gestures.menuPress);
-    document.addEventListener('keydown', this.#onKeyDown);
-    document.addEventListener('keyup', this.#onKeyUp);
+    const keys = this.#keyTarget();
+    keys.addEventListener('keydown', this.#onKeyDown as EventListener);
+    keys.addEventListener('keyup', this.#onKeyUp as EventListener);
     // A Space held while the page loses the focus never sends its release: the
     // pan has to end here, or the pointer stays a hand on the way back.
     document.addEventListener('pointerdown', this.#gestures.anyPress);
@@ -478,8 +487,9 @@ class EsbozoEditorElement extends HTMLElement {
     document.removeEventListener('copy', this.#onCopy);
     document.removeEventListener('cut', this.#onCut);
     document.removeEventListener('paste', this.#onPaste);
-    document.removeEventListener('keydown', this.#onKeyDown);
-    document.removeEventListener('keyup', this.#onKeyUp);
+    const keys = this.#keyTarget();
+    keys.removeEventListener('keydown', this.#onKeyDown as EventListener);
+    keys.removeEventListener('keyup', this.#onKeyUp as EventListener);
     document.removeEventListener('pointerdown', this.#gestures.anyPress);
     this.#notes.unlisten();
     document.removeEventListener('visibilitychange', this.#onInterrupt);
@@ -513,16 +523,25 @@ class EsbozoEditorElement extends HTMLElement {
    * hand is dropped first.
    */
   attributeChangedCallback(name: string): void {
+    this.rebuild(name === 'font' ? 'font' : 'scene');
+  }
+
+  /**
+   * Re-read the font or reconnect the Scene on a running editor. `font` keeps
+   * the Scene in hand and remeasures; `scene` drops the connection in hand and
+   * opens the new one.
+   */
+  rebuild(what: 'scene' | 'font'): void {
     if (this.#canvas === undefined) {
       // Attributes written before the element was connected: nothing to drop,
       // and `connectedCallback` brings it up on them.
       return;
     }
-    if (name === 'font' && this.#connection.ready) {
+    if (what === 'font' && this.#connection.ready) {
       void this.#connection.remeasure();
       return;
     }
-    if (name !== 'font') {
+    if (what !== 'font') {
       // Another instance of the element: the connection in hand goes with it,
       // and `forget` is what that hands back to the page.
       this.#connection.reset();
@@ -906,6 +925,9 @@ class EsbozoEditorElement extends HTMLElement {
   // ----------------------------------------------------------------- keyboard
 
   #onKeyDown = (event: KeyboardEvent): void => {
+    if (this.#ownsKeysWhenFocused) {
+      event.stopPropagation();
+    }
     // A key between two clicks means the person is typing, not double-clicking.
     this.#gestures.forgetClicks();
     if (active !== this || !this.#takesKeys(event.target)) {
@@ -999,6 +1021,9 @@ class EsbozoEditorElement extends HTMLElement {
   };
 
   #onKeyUp = (event: KeyboardEvent): void => {
+    if (this.#ownsKeysWhenFocused) {
+      event.stopPropagation();
+    }
     if (active !== this) {
       return;
     }
@@ -1248,6 +1273,11 @@ class EsbozoEditorElement extends HTMLElement {
             : state === 'new'
               ? 'new Scene'
               : '';
+    if (state === this.#lastSaved.state && detail === this.#lastSaved.detail) {
+      return;
+    }
+    this.#lastSaved = { state, detail };
+    this.dispatchEvent(new CustomEvent('esbozo:save', { detail: this.#lastSaved }));
   }
 }
 
@@ -1301,4 +1331,14 @@ export function defineEditorElement(
       }
     },
   );
+}
+
+/**
+ * Trigger a font remeasure or Scene reconnect on a registered `<esbozo-editor>`.
+ * Used by the embed bundle's `mount()`; not exposed on the element's public API.
+ */
+export function rebuildEditorElement(element: HTMLElement, what: 'scene' | 'font'): void {
+  if (element instanceof EsbozoEditorElement) {
+    element.rebuild(what);
+  }
 }

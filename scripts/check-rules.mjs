@@ -77,6 +77,7 @@ const TEST_EDITOR_MODULES = new Set([
   'rail.ts',
   'hand.ts',
   'exits.ts',
+  'theme-css.ts',
 ]);
 
 /** A path in a test that names a module under `src/editor/`: written whole, or as a loader builds it. */

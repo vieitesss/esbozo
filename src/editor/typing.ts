@@ -61,6 +61,8 @@ interface TypingHost {
 
   /** The words are closed, so the press that selected a word in them pairs with nothing. */
   forgetWordClick(): void;
+  /** Reclaim focus when the field closes while focused (embedded editors). */
+  readonly refocus?: (() => void) | undefined;
 }
 
 export class Typing {
@@ -165,6 +167,7 @@ export class Typing {
       line: (key, state) => this.#host.page().wordsLine(key, state),
       commit: (words) => this.#commitText(words),
       ended: this.#onSessionEnded,
+      refocus: host.refocus,
     });
     host.page().paint();
   }
@@ -200,6 +203,7 @@ export class Typing {
       line: (key, state) => this.#host.page().wordsLine(key, state),
       commit: (words) => this.#commitWords(element, words),
       ended: this.#onSessionEnded,
+      refocus: host.refocus,
     });
   }
 

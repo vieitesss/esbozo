@@ -86,6 +86,8 @@ interface TextSessionOptions {
   readonly commit: (words: string) => boolean;
   /** Called once the session is over, by any way out: the caller drops what it drew. */
   readonly ended: () => void;
+  /** Called on close when the field held focus, so an embedded editor can reclaim it. */
+  readonly refocus?: (() => void) | undefined;
 }
 
 export class TextSession {
@@ -94,6 +96,7 @@ export class TextSession {
   readonly #line: ((key: LineKey, state: TextSessionState) => number | null) | null;
   readonly #commit: (words: string) => boolean;
   readonly #ended: () => void;
+  readonly #refocus: (() => void) | undefined;
   #open = true;
   /** True while an input method is composing: the value holds a preedit, not words yet. */
   #composing = false;
@@ -107,7 +110,7 @@ export class TextSession {
   #composed = { from: 0, to: 0 };
 
   constructor(options: TextSessionOptions) {
-    const { host, name, words, typed, moved, line, commit, ended } = options;
+    const { host, name, words, typed, moved, line, commit, ended, refocus } = options;
     const input = document.createElement('textarea');
     input.className = 'text-input';
     input.setAttribute('aria-label', name);
@@ -137,6 +140,7 @@ export class TextSession {
     this.#line = line ?? null;
     this.#commit = commit;
     this.#ended = ended;
+    this.#refocus = refocus;
     host.append(input);
     input.focus({ preventScroll: true });
     // The caret goes after the words, where a person adding to them looks for it.
@@ -243,7 +247,11 @@ export class TextSession {
       return;
     }
     this.#open = false;
+    const hadFocus = document.activeElement === this.#input;
     this.#input.remove();
+    if (hadFocus) {
+      this.#refocus?.();
+    }
     this.#ended();
   }
 

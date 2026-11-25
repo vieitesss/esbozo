@@ -1,16 +1,22 @@
 /**
  * The bundle's entry: `<esbozo-editor>` on a page that is not esbozo's own.
  *
- *   <esbozo-editor scene="scene.esbozo" save="save" font="Kalam-Regular.ttf"></esbozo-editor>
+ *   <esbozo-editor scene="scene.esbozo" save="save"></esbozo-editor>
  *   <script type="module" src="esbozo-0.0.0.js"></script>
  *
- * Three attributes, and nothing else:
+ * Three attributes cover the URL case:
  *
  *   scene  a URL a GET answers the Scene's source on
  *   save   a URL a PUT takes the write `ez serve`'s API takes, `{ scene, svg }`.
  *          Without it the editor is read-only, and the status line says so.
- *   font   the URL of the Kalam file the page draws and measures with. The
- *          bundle never carries the font, so the page decides where it lives.
+ *   font   the URL of the Kalam file the page draws and measures with.
+ *          Optional: without it, `./Kalam-Regular.ttf` beside the bundle is
+ *          fetched. The bundle never carries the font, so the page decides
+ *          where it lives.
+ *
+ * Hosts whose Scene does not live behind GET/PUT can import `mount` from the
+ * bundle and hand an `<esbozo-editor>` `{ font?: { url }, load, save? }`.
+ * Attributes win over `mount` when both are present.
  *
  * The element is the served editor, not a copy of it: same Renderer, same
  * Layout, same keyboard and pointer, same storage seam with a single-Scene
@@ -26,9 +32,10 @@
  * The stylesheet is the editor page's (`editor.css`), whose every rule is rooted
  * at `esbozo-editor`: the host page keeps its own margins, its own scrolling and
  * its own variables, and the element is a box in its content. The light and dark
- * variables come with the sheet, so a host that wants the dark theme sets
- * `data-theme="dark"` on its `<html>`, and a host that wants the element a
- * different size overrides its height with a rule of its own.
+ * variables come with the sheet: when `<html>` has no `data-theme` attribute,
+ * the bundle follows `prefers-color-scheme` live; when `data-theme` is set (to
+ * `"dark"` or anything else), it wins. A host that wants the element a different
+ * size overrides its height with a rule of its own.
  *
  * The element is registered here, once, whatever the page holds: an element
  * parsed later upgrades like any other custom element, and each one reads its
@@ -36,11 +43,55 @@
  */
 import { createLayout } from '../layout.js';
 import { measureFontBytes } from '../font-metrics.js';
-import { defineEditorElement } from './editor.js';
+import { DEFAULT_SCENE_FILE_NAME } from '../paths.js';
+import { defineEditorElement, rebuildEditorElement } from './editor.js';
 import type { PageFont } from './editor.js';
 import type { SceneFolder } from './files.js';
-import { sceneFolder } from './scene-url.js';
+import { enqueueWrite, sceneFolder } from './scene-url.js';
+import { systemDarkRules } from './theme-css.js';
 import STYLES from './editor.css';
+
+/**
+ * Host-supplied storage and optional font URL for an embedded `<esbozo-editor>`.
+ * @public
+ */
+export interface MountOptions {
+  /** Font URL used when the element has no `font` attribute. */
+  readonly font?: { readonly url: string };
+  /** Reads the Scene text, or `null` for a new empty Scene. */
+  readonly load: () => Promise<string | null> | string | null;
+  /** Writes the Scene text and rendered SVG. Omit for read-only. */
+  readonly save?: (scene: string, svg: string) => Promise<void> | void;
+}
+
+const mounts = new WeakMap<HTMLElement, MountOptions>();
+
+/**
+ * Bind an `<esbozo-editor>` element to host-supplied `load`/`save` functions.
+ * @public
+ */
+export function mount(element: HTMLElement, options: MountOptions): void {
+  const previous = mounts.get(element);
+  if (previous === options) {
+    return;
+  }
+  mounts.set(element, options);
+  if (!element.isConnected || attributeOf(element, 'scene') !== null) {
+    return;
+  }
+  const fontChanged =
+    previous !== undefined &&
+    previous.font?.url !== options.font?.url &&
+    attributeOf(element, 'font') === null;
+  const storageChanged =
+    previous === undefined || previous.load !== options.load || previous.save !== options.save;
+  if (fontChanged) {
+    rebuildEditorElement(element, 'font');
+  }
+  if (storageChanged) {
+    rebuildEditorElement(element, 'scene');
+  }
+}
 
 defineEditorElement(pageFont, folderAt, { focusInside: true });
 addStylesheet();
@@ -73,21 +124,29 @@ function attributeOf(element: Element, name: string): string | null {
  * without either winning. The face is installed with the measurement, by the
  * element that accepts it, so a font that arrived after a newer one never draws
  * the words it did not measure — and nothing fetches the file a second time. A
- * missing attribute or a font that will not load is the plain-text reason the
- * element shows in its status line.
+ * font that will not load — including the default `./Kalam-Regular.ttf` beside
+ * the bundle when `font` is omitted — is the plain-text reason the element
+ * shows in its status line.
  */
 async function pageFont(element: HTMLElement): Promise<PageFont> {
-  const named = attributeOf(element, 'font');
-  if (named === null) {
-    return { ok: false, problem: 'esbozo-editor needs a font attribute: the URL of Kalam' };
+  if (attributeOf(element, 'scene') === null && !mounts.has(element)) {
+    // An attribute-free element parsed before an inline `<script>mount(…)</script>`
+    // connects synchronously on upgrade; yield one microtask so `mount()` can
+    // supersede this request before fetching the default font twice.
+    await Promise.resolve();
+    if (mounts.has(element) || attributeOf(element, 'scene') !== null) {
+      return { ok: false, problem: '' };
+    }
   }
+  const named = attributeOf(element, 'font') ?? mounts.get(element)?.font?.url ?? null;
+  const label = named ?? new URL('./Kalam-Regular.ttf', import.meta.url).href;
   try {
-    const url = absolute('font', named);
+    const url = named === null ? label : absolute('font', named);
     const response = await fetch(url);
     if (!response.ok) {
-      // The status line names the file the way the page wrote it, not the URL
-      // the document's base made of it.
-      return { ok: false, problem: `cannot load ${named}: ${response.status} ${response.statusText}` };
+      // The status line names the file the way the page wrote it, or the
+      // resolved default URL when the attribute was left out.
+      return { ok: false, problem: `cannot load ${label}: ${response.status} ${response.statusText}` };
     }
     const bytes = new Uint8Array(await response.arrayBuffer());
     // One set of bytes for both: the metrics every word is placed with and the
@@ -101,21 +160,57 @@ async function pageFont(element: HTMLElement): Promise<PageFont> {
     const layout = createLayout({ family: face.family, metrics: measureFontBytes(bytes) });
     return { ok: true, layout, family: face.family, face: () => useFace(element, face) };
   } catch (error) {
-    return { ok: false, problem: `cannot load ${named}: ${(error as Error).message}` };
+    return { ok: false, problem: `cannot load ${label}: ${(error as Error).message}` };
   }
 }
 
-/** The single Scene the element names, read and written through the URLs it has now. */
+/** The single Scene the element names, read and written through its URLs or mounted functions. */
 async function folderAt(element: HTMLElement): Promise<SceneFolder | null> {
   const named = attributeOf(element, 'scene');
-  if (named === null) {
-    throw new Error('esbozo-editor needs a scene attribute: a URL that answers a Scene');
+  if (named !== null) {
+    const save = attributeOf(element, 'save');
+    return sceneFolder({
+      scene: absolute('scene', named),
+      save: save === null ? null : absolute('save', save),
+    });
   }
-  const save = attributeOf(element, 'save');
-  return sceneFolder({
-    scene: absolute('scene', named),
-    save: save === null ? null : absolute('save', save),
-  });
+  const mounted = mounts.get(element);
+  if (mounted !== undefined) {
+    return functionFolder(element, mounted);
+  }
+  throw new Error('esbozo-editor needs a scene attribute: a URL that answers a Scene');
+}
+
+function asError(reason: unknown): Error {
+  return reason instanceof Error ? reason : new Error(String(reason));
+}
+
+function functionFolder(element: HTMLElement, options: MountOptions): SceneFolder {
+  return {
+    name: location.host || 'page',
+    readOnly: options.save === undefined,
+    async listScenes(): Promise<string[]> {
+      return [DEFAULT_SCENE_FILE_NAME];
+    },
+    async read(): Promise<string | null> {
+      try {
+        return await options.load();
+      } catch (reason) {
+        throw asError(reason);
+      }
+    },
+    async write(_name: string, scene: string, svg: string): Promise<void> {
+      const { save } = options;
+      if (save === undefined) {
+        throw new Error('this editor is read-only');
+      }
+      try {
+        await enqueueWrite(element, () => save(scene, svg));
+      } catch (reason) {
+        throw asError(reason);
+      }
+    },
+  };
 }
 
 /** How many faces this page has made: each one is a family of its own. */
@@ -146,6 +241,6 @@ function addStylesheet(): void {
   const single = `esbozo-editor .status [data-act="open"],
 esbozo-editor .note { display: none; }`;
   const style = document.createElement('style');
-  style.textContent = `${STYLES}\n${single}`;
+  style.textContent = `${STYLES}\n${systemDarkRules(STYLES)}\n${single}`;
   document.head.prepend(style);
 }

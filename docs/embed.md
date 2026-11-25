@@ -3,16 +3,18 @@
 `ez bundle <dir>` writes the editor as one ES module, `<dir>/esbozo-<version>.js`, so a page that is not esbozo's own can hold it with a tag. The version is the one in `package.json`; an existing file of the same name is replaced, so a page pins the bundle with a one-file diff and a reviewer sees which editor version it pinned.
 
 ```sh
-ez bundle public/          # public/esbozo-0.0.0.js
+ez bundle public/                                          # public/esbozo-0.0.0.js
+cp node_modules/esbozo/fonts/Kalam-Regular.ttf public/     # beside the bundle
 ```
 
 ```html
 <esbozo-editor
   scene="/sketches/flow.esbozo"
-  save="/api/scenes/flow.esbozo"
-  font="/fonts/Kalam-Regular.ttf"></esbozo-editor>
+  save="/api/scenes/flow.esbozo"></esbozo-editor>
 <script type="module" src="/esbozo-0.0.0.js"></script>
 ```
+
+A host serving the font elsewhere sets `font` to its URL.
 
 The module registers `<esbozo-editor>` and injects the editor's stylesheet, so the page needs no second file and no build step. It registers the element whatever the page holds at the time, so the tag may be anywhere — before the script, after it, or made by a script of its own later — and it reads each element's attributes whenever they change.
 
@@ -20,17 +22,76 @@ The module registers `<esbozo-editor>` and injects the editor's stylesheet, so t
 
 | Attribute | Meaning |
 | --- | --- |
-| `scene` | A URL a `GET` answers the Scene's source on. A `404` opens an empty canvas that says `new Scene`: a Scene nobody has drawn yet is not an error, and nothing is written until the first edit. Anything else that goes wrong with the read is the server's words in the status line, and a page that could not read its Scene never writes one. Required: without it the status line says what is missing. |
-| `save` | A URL a `PUT` takes `{ "scene": "...", "svg": "..." }` on — the body and the answers in [save-api.md](save-api.md), which is also what `ez serve` answers. Leave it out and the editor is read-only: it draws, pans, zooms, selects and copies, refuses every edit, puts the tool back to Select, and its status line says `read-only`. A `403` on a save is the server saying the same thing, so from then on the page stops editing, stops asking, and takes no undo step it cannot show. |
-| `font` | The URL of the Kalam file the page draws words in. The bundle carries no font, so the page decides where it lives and which version it is. Each element fetches these bytes once, measures every Label and Text with them (`src/font-metrics.ts`), read with the font's own tables rather than a font library: a full OpenType parser is bigger than the whole budget below. The face the words are drawn in is built from those same bytes, so nothing fetches the file a second time and the drawing always matches the measurement. Give two elements two different files and each measures and draws with its own. |
+| `scene` | A URL a `GET` answers the Scene's source on. A `404` opens an empty canvas that says `new Scene`: a Scene nobody has drawn yet is not an error, and nothing is written until the first edit. Anything else that goes wrong with the read is the server's words in the status line, and a page that could not read its Scene never writes one. Required unless you supply storage through `mount()` (see [Storage functions](#storage-functions-mount)); without either, the status line says what is missing. |
+| `save` | A URL a `PUT` takes `{ "scene": "...", "svg": "..." }` on — the body and the answers in [save-api.md](save-api.md), which is also what `ez serve` answers. Leave it out (unless `mount()` supplies a `save` function) and the editor is read-only: it draws, pans, zooms, selects and copies, refuses every edit, puts the tool back to Select, and its status line says `read-only`. A `403` on a save is the server saying the same thing, so from then on the page stops editing, stops asking, and takes no undo step it cannot show. |
+| `font` | The URL of the Kalam file the page draws words in. Optional: leave it out and the bundle fetches `./Kalam-Regular.ttf` beside itself (resolved against the module's URL). The bundle carries no font, so the page decides where it lives and which version it is. Each element fetches these bytes once, measures every Label and Text with them (`src/font-metrics.ts`), read with the font's own tables rather than a font library: a full OpenType parser is bigger than the whole budget below. The face the words are drawn in is built from those same bytes, so nothing fetches the file a second time and the drawing always matches the measurement. Give two elements two different files and each measures and draws with its own. |
 
 Every attribute is live. Changing `font` fetches and measures the new file and redraws the Scene in hand in it; a font that will not load leaves the face and the metrics already there, and says so. Changing `scene` or `save` is a new instance of the element: it lets go of the gesture, the half-typed words, the tool in hand, the selection, the history and the writes of the old one, and starts again from its attributes — reading the Scene the `scene` URL names now, whole URL and not file name, and writing nothing until the next edit. Removing `save` rebuilds it read-only, with the Scene still on the canvas.
 
 One connection per element, numbered, and an answer that arrives for one the page has moved on from — a read, a font, a write — is dropped instead of drawn. A write is bound to the Scene it was made for when it is queued: it goes to that `save` URL and to no other, so an edit queued for the old destination lands there or not at all, and a `403` or a failure from an old connection changes nothing on the page.
 
-The focus is the page's until a person clicks into the editor. The element is focusable, and while the focus is inside it the keys and the clipboard are the editor's; with the focus anywhere else — before the first click, or after clicking the host's own words — <kbd>Space</kbd> and the arrows scroll the page like they do anywhere else.
+The focus is the page's until a person clicks into the editor. The element is focusable, and while the focus is inside it the keys and the clipboard are the editor's: every `keydown` and `keyup` stops at the element, handled or not, so host bubble-phase listeners on `document` or `window` never see them. A host capture-phase listener registered before the bundle still sees the event first. With the focus anywhere else — before the first click, or after clicking the host's own words — <kbd>Space</kbd>, the arrows and the host's own shortcuts work as usual.
 
 A load, a save or a font that fails is the server's or the browser's own words in the status line; the editor stays on screen.
+
+## Storage functions: `mount()`
+
+When a Scene does not live behind `GET` and `PUT` URLs, import `mount` from the bundle and pass storage functions to an `<esbozo-editor>` element.
+
+```js
+import { mount } from '/esbozo-0.0.0.js';
+```
+
+`mount(element, options)` accepts an object with three fields:
+
+```ts
+interface MountOptions {
+  readonly font?: { readonly url: string };
+  readonly load: () => Promise<string | null> | string | null;
+  readonly save?: (scene: string, svg: string) => Promise<void> | void;
+}
+```
+
+Attributes take precedence over `mount()` options:
+
+- If the `scene` attribute is present, the element reads and writes through its URL attributes and ignores `load` and `save`.
+- Font resolution checks the `font` attribute first, then `options.font.url`, and falls back to `./Kalam-Regular.ttf` beside the bundle.
+- Calling `mount()` on an already connected element rebuilds it with the new options.
+
+Omit `save` to open the editor in read-only mode. The editor displays `read-only` in the status line and refuses edits.
+
+Writes queue one at a time per element. If `save` throws or returns a rejected Promise, the status line shows the error message and the element dispatches `esbozo:save` with `state: 'failed'` and `detail` set to that message.
+
+The following example stores a Scene and its rendered SVG in `localStorage`:
+
+```html
+<esbozo-editor id="sketch"></esbozo-editor>
+<script type="module">
+  import { mount } from '/esbozo-0.0.0.js';
+
+  const key = 'my-sketch';
+  mount(document.getElementById('sketch'), {
+    load: () => localStorage.getItem(key),
+    save: (scene, svg) => {
+      localStorage.setItem(key, scene);
+      localStorage.setItem(`${key}:svg`, svg);
+    },
+  });
+</script>
+```
+
+## Events
+
+`<esbozo-editor>` dispatches a `CustomEvent` named `esbozo:save` on the element whenever its saved state changes (both the bundle and the served page dispatch it; the status line is unchanged). It does not bubble (`bubbles: false`, `composed: false`) and is not cancelable, so attach listeners directly on the element:
+
+```js
+editor.addEventListener('esbozo:save', ({ detail: { state, detail } }) => {
+  // state: 'idle' | 'saving' | 'saved' | 'new' | 'failed'
+  // detail: failure message when state === 'failed', '' otherwise
+});
+```
+
+It fires only when `state` or `detail` differs from the last dispatched pair. Because the editor starts in `idle`, opening an existing Scene in read-only mode fires no event. An attribute-driven rebuild (such as changing `scene` or `save`) resets from `saved`, `failed`, or `new` back to `idle` and therefore fires `idle` before the new Scene loads.
 
 ## The tool rail
 
@@ -62,7 +123,7 @@ esbozo-editor { height: 70vh }
 
 Every rule the bundle writes is rooted at `esbozo-editor`, so the host page keeps its own margins, its own font, its own scrolling and its own custom properties: the editor's palette (`--ink`, `--paper`, `--font-hand` and the rest) is declared on the element, not on `:root`. The injected stylesheet goes in first, so a host rule of the same specificity wins.
 
-The theme follows `<html data-theme>`: set `"dark"` for dark paper. The bundle does not follow `prefers-color-scheme` on its own, because a host page has usually decided that already.
+When `<html data-theme>` is absent, the bundle follows `prefers-color-scheme` live. When `data-theme` is set on `<html>` (including late, after load), it wins over `prefers-color-scheme`: `"dark"` draws dark paper and any other value draws light.
 
 A host that scales the element with CSS `transform: scale(...)` or `zoom` works as-is: pointer positions and layout measurements convert through the element's scale.
 

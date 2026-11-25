@@ -73,11 +73,13 @@ export function sceneFolder(endpoints: SceneEndpoints): SceneFolder {
         throw new Error('this page has no save URL: it may only read');
       }
       const body: SceneWrite = { scene, svg };
-      const response = await writeOnce(save, {
-        method: 'PUT',
-        headers: { accept: 'application/json', 'content-type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+      const response = await enqueueWrite(save, () =>
+        ask(save, {
+          method: 'PUT',
+          headers: { accept: 'application/json', 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        }),
+      );
       if (!response.ok) {
         // `403` is the server saying this page may only read: the editor stops
         // writing and blocks every edit, rather than trying again per change.
@@ -98,25 +100,22 @@ export function sceneFolder(endpoints: SceneEndpoints): SceneFolder {
  * to answer, so the bytes on disk are always the newest ones the page has, and
  * `saved` is never a claim an older write can bury.
  */
-const writes = new Map<string, Promise<unknown>>();
+const writes = new Map<unknown, Promise<void>>();
 
-/** One write, sent once every write to the same URL that came before it answered. */
-async function writeOnce(url: string, init: RequestInit): Promise<Response> {
-  const before = writes.get(url) ?? Promise.resolve();
+/** One write, run once every earlier write for `key` has settled. */
+export function enqueueWrite<T>(key: unknown, run: () => Promise<T> | T): Promise<T> {
+  const before = writes.get(key) ?? Promise.resolve();
   // A refusal is the last write's answer, not this one's: the queue goes on.
-  const sending = before.then(
-    () => ask(url, init),
-    () => ask(url, init),
-  );
+  const sending = before.then(run, run);
   const settled = sending.then(
     () => undefined,
     () => undefined,
   );
-  writes.set(url, settled);
+  writes.set(key, settled);
   // Nothing is left holding a destination nobody is writing to any more.
   void settled.then(() => {
-    if (writes.get(url) === settled) {
-      writes.delete(url);
+    if (writes.get(key) === settled) {
+      writes.delete(key);
     }
   });
   return sending;

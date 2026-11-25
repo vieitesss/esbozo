@@ -473,6 +473,61 @@ test('a plain page with the element and its attributes opens, edits and saves a 
   }
 });
 
+test('an element with no font attribute defaults to Kalam-Regular.ttf beside the bundle', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), { w: WORDS_SOURCE }, { defaultFont: true });
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/no-font.html`);
+
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    expect(embed.requests('/Kalam-Regular.ttf')).toBe(1);
+    expect((await shot(ui)).meanLuminance(WORDS)).toBeLessThan(0.99);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('an element with no font attribute and no file beside the bundle reports the resolved URL', async ({
+  app,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), { w: WORDS_SOURCE });
+  try {
+    await app.open(`${embed.url}/no-font.html`);
+
+    await expect(screen.getByRole('status')).toContainText(`cannot load ${embed.url}/Kalam-Regular.ttf: 404`);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('an explicit font attribute wins over Kalam-Regular.ttf beside the bundle', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), { l: LABEL_SOURCE }, { defaultFont: true });
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/no-font-label.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    const kalamLow = (await shot(ui)).meanLuminance(LABEL_LOW);
+
+    await app.open(`${embed.url}/label-wide.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    expect(embed.requests('/fonts/b.ttf')).toBe(1);
+    const wideLow = (await shot(ui)).meanLuminance(LABEL_LOW);
+
+    expect(wideLow).toBeLessThan(kalamLow);
+  } finally {
+    await embed.stop();
+  }
+});
+
 test('a Scene that is not there opens empty, says so, and is written by the first edit', async ({ app, browser, screen }) => {
   const embed = await startEmbed(await bundleFolder());
   try {
@@ -2174,6 +2229,530 @@ function xOf(source: string, id: string): number | undefined {
   return (JSON.parse(source) as SavedScene).elements.find((element) => element.id === id)?.x;
 }
 
+test('a host with no data-theme and a light preference draws light paper', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  const embed = await startEmbed(await bundleFolder());
+  try {
+    await browser.emulateMedia({ colorScheme: 'light' });
+    await browser.goto(`${embed.url}/embedded.html`);
+    await screen.getByRole('button', 'Select').waitFor({ state: 'visible' });
+    await settle(ui);
+
+    expect((await shot(ui)).meanLuminance(PAPER)).toBeGreaterThan(0.85);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('a host with no data-theme follows prefers-color-scheme: dark live', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  const embed = await startEmbed(await bundleFolder());
+  try {
+    await browser.emulateMedia({ colorScheme: 'dark' });
+    await browser.goto(`${embed.url}/embedded.html`);
+    await screen.getByRole('button', 'Select').waitFor({ state: 'visible' });
+    await settle(ui);
+
+    expect((await shot(ui)).meanLuminance(PAPER)).toBeLessThan(0.4);
+
+    // Changing the system preference live updates the paper.
+    await browser.emulateMedia({ colorScheme: 'light' });
+    await expect.poll(async () => (await shot(ui)).meanLuminance(PAPER)).toBeGreaterThan(0.85);
+    await browser.emulateMedia({ colorScheme: 'dark' });
+    await expect.poll(async () => (await shot(ui)).meanLuminance(PAPER)).toBeLessThan(0.4);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('data-theme on <html> wins over prefers-color-scheme in both directions', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  const embed = await startEmbed(await bundleFolder());
+  try {
+    await browser.emulateMedia({ colorScheme: 'light' });
+    await browser.goto(`${embed.url}/theme-dark.html`);
+    await screen.getByRole('button', 'Select').waitFor({ state: 'visible' });
+    await settle(ui);
+    expect((await shot(ui)).meanLuminance(PAPER)).toBeLessThan(0.4);
+
+    await browser.emulateMedia({ colorScheme: 'dark' });
+    await browser.goto(`${embed.url}/theme-light.html`);
+    await screen.getByRole('button', 'Select').waitFor({ state: 'visible' });
+    await settle(ui);
+    expect((await shot(ui)).meanLuminance(PAPER)).toBeGreaterThan(0.85);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('a host that sets data-theme late takes over from prefers-color-scheme', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  const embed = await startEmbed(await bundleFolder());
+  try {
+    await browser.emulateMedia({ colorScheme: 'dark' });
+    await browser.goto(`${embed.url}/embedded.html`);
+    await screen.getByRole('button', 'Select').waitFor({ state: 'visible' });
+    await settle(ui);
+    expect((await shot(ui)).meanLuminance(PAPER)).toBeLessThan(0.4);
+
+    await browser.evaluate(() => {
+      document.documentElement.dataset['theme'] = 'light';
+      return null;
+    });
+    await expect.poll(async () => (await shot(ui)).meanLuminance(PAPER)).toBeGreaterThan(0.85);
+
+    await browser.evaluate(() => {
+      document.documentElement.dataset['theme'] = 'dark';
+      return null;
+    });
+    await expect.poll(async () => (await shot(ui)).meanLuminance(PAPER)).toBeLessThan(0.4);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('focused embedded editor isolates keydown and keyup from host bubble listeners while leaving capture listeners intact', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder());
+  try {
+    await app.open(`${embed.url}/host.html`);
+    const rectButton = screen.getByRole('button', { name: /Rectangle/ });
+    await expect(rectButton).toBeVisible();
+
+    await browser.evaluate(() => {
+      const log = {
+        docBubbleDown: [] as string[],
+        docBubbleUp: [] as string[],
+        winBubbleDown: [] as string[],
+        winBubbleUp: [] as string[],
+        docCaptureDown: [] as string[],
+      };
+      (window as unknown as { __hostKeys: typeof log }).__hostKeys = log;
+      document.addEventListener('keydown', (e) => log.docBubbleDown.push(e.key));
+      document.addEventListener('keyup', (e) => log.docBubbleUp.push(e.key));
+      window.addEventListener('keydown', (e) => log.winBubbleDown.push(e.key));
+      window.addEventListener('keyup', (e) => log.winBubbleUp.push(e.key));
+      document.addEventListener('keydown', (e) => log.docCaptureDown.push(e.key), true);
+      return null;
+    });
+
+    const readLog = () =>
+      browser.evaluate(() => {
+        const log = (
+          window as unknown as {
+            __hostKeys: {
+              docBubbleDown: string[];
+              docBubbleUp: string[];
+              winBubbleDown: string[];
+              winBubbleUp: string[];
+              docCaptureDown: string[];
+            };
+          }
+        ).__hostKeys;
+        return {
+          docBubbleDown: [...log.docBubbleDown],
+          docBubbleUp: [...log.docBubbleUp],
+          winBubbleDown: [...log.winBubbleDown],
+          winBubbleUp: [...log.winBubbleUp],
+          docCaptureDown: [...log.docCaptureDown],
+        };
+      });
+
+    const clearLog = () =>
+      browser.evaluate(() => {
+        const log = (
+          window as unknown as {
+            __hostKeys: {
+              docBubbleDown: string[];
+              docBubbleUp: string[];
+              winBubbleDown: string[];
+              winBubbleUp: string[];
+              docCaptureDown: string[];
+            };
+          }
+        ).__hostKeys;
+        log.docBubbleDown.length = 0;
+        log.docBubbleUp.length = 0;
+        log.winBubbleDown.length = 0;
+        log.winBubbleUp.length = 0;
+        log.docCaptureDown.length = 0;
+        return null;
+      });
+
+    // Before focusing the editor, host bubble listeners see keys normally.
+    await browser.keyboard.press('k');
+    const beforeFocus = await readLog();
+    expect(beforeFocus.docBubbleDown).toEqual(['k']);
+    expect(beforeFocus.docBubbleUp).toEqual(['k']);
+    expect(beforeFocus.winBubbleDown).toEqual(['k']);
+    expect(beforeFocus.winBubbleUp).toEqual(['k']);
+
+    // Focus the editor by clicking inside it.
+    await browser.mouse.move(200, 260);
+    await browser.mouse.down();
+    await browser.mouse.up();
+    await clearLog();
+
+    // Tool shortcut, unhandled key, and Escape: editor handles its own keys,
+    // host bubble listeners see none of them, host capture listener still sees all.
+    await browser.keyboard.press('r');
+    await expect(rectButton).toHaveAttribute('aria-pressed', 'true');
+    await browser.keyboard.press('k');
+    await browser.keyboard.press('Escape');
+    await expect(rectButton).toHaveAttribute('aria-pressed', 'false');
+
+    // Typing a Text inside the editor: host bubble listeners still see nothing.
+    await browser.keyboard.press('t');
+    await browser.mouse.move(260, 280);
+    await browser.mouse.down();
+    await browser.mouse.up();
+    await browser.keyboard.type('hi');
+    await browser.keyboard.press('Escape');
+
+    const whileFocused = await readLog();
+    expect(whileFocused.docBubbleDown).toEqual([]);
+    expect(whileFocused.docBubbleUp).toEqual([]);
+    expect(whileFocused.winBubbleDown).toEqual([]);
+    expect(whileFocused.winBubbleUp).toEqual([]);
+    expect(whileFocused.docCaptureDown).toEqual(['r', 'k', 'Escape', 't', 'h', 'i', 'Escape']);
+
+    // After clicking outside the editor, host bubble listeners see keys again.
+    await screen.getByText("Someone else's page").click();
+    await clearLog();
+    await browser.keyboard.press('k');
+    const afterBlur = await readLog();
+    expect(afterBlur.docBubbleDown).toEqual(['k']);
+    expect(afterBlur.docBubbleUp).toEqual(['k']);
+    expect(afterBlur.winBubbleDown).toEqual(['k']);
+    expect(afterBlur.winBubbleUp).toEqual(['k']);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('esbozo:save fires saving then saved on autosave, failed on refusal, and idle on rebuild', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), { a: SCENE_SOURCE, b: SECOND_SOURCE });
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/embedded.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+
+    await browser.evaluate(() => {
+      const el = document.querySelector('esbozo-editor');
+      if (el === null) {
+        throw new Error('missing esbozo-editor');
+      }
+      const events: {
+        state: string;
+        detail: string;
+        bubbles: boolean;
+        composed: boolean;
+        cancelable: boolean;
+      }[] = [];
+      (window as unknown as { __saveEvents: typeof events }).__saveEvents = events;
+      el.addEventListener('esbozo:save', (event) => {
+        const custom = event as CustomEvent<{ state: string; detail: string }>;
+        events.push({
+          state: custom.detail.state,
+          detail: custom.detail.detail,
+          bubbles: custom.bubbles,
+          composed: custom.composed,
+          cancelable: custom.cancelable,
+        });
+      });
+      return null;
+    });
+
+    const readEvents = () =>
+      browser.evaluate(() => {
+        const events = (
+          window as unknown as {
+            __saveEvents: {
+              state: string;
+              detail: string;
+              bubbles: boolean;
+              composed: boolean;
+              cancelable: boolean;
+            }[];
+          }
+        ).__saveEvents;
+        return [...events];
+      });
+
+    const clearEvents = () =>
+      browser.evaluate(() => {
+        const events = (window as unknown as { __saveEvents: unknown[] }).__saveEvents;
+        events.length = 0;
+        return null;
+      });
+
+    // 1. Autosave: host sees saving then saved, non-bubbling, non-composed, non-cancelable.
+    await clickScene(ui, { x: 100, y: 80 }, [], VIEW);
+    await browser.keyboard.press('Shift+ArrowRight');
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    expect(await readEvents()).toEqual([
+      { state: 'saving', detail: '', bubbles: false, composed: false, cancelable: false },
+      { state: 'saved', detail: '', bubbles: false, composed: false, cancelable: false },
+    ]);
+
+    // 2. Refused write: host sees saving then failed with the server's message.
+    await clearEvents();
+    embed.refuseSave('a', 500, 'the folder is unreadable');
+    await browser.keyboard.press('Shift+ArrowRight');
+    await expect(screen.getByRole('status')).toContainText('the folder is unreadable');
+    expect(await readEvents()).toEqual([
+      { state: 'saving', detail: '', bubbles: false, composed: false, cancelable: false },
+      {
+        state: 'failed',
+        detail: 'the folder is unreadable',
+        bubbles: false,
+        composed: false,
+        cancelable: false,
+      },
+    ]);
+
+    // 3. Attribute-driven rebuild: changing scene resets to idle, then saved once loaded.
+    await clearEvents();
+    await browser.evaluate(() => {
+      const el = document.querySelector('esbozo-editor');
+      el?.setAttribute('scene', '/api/b');
+      return null;
+    });
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    expect(await readEvents()).toEqual([
+      { state: 'idle', detail: '', bubbles: false, composed: false, cancelable: false },
+      { state: 'saved', detail: '', bubbles: false, composed: false, cancelable: false },
+    ]);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('mount() backs an attribute-free element with load/save over localStorage', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), {});
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/mounted.html`);
+    await expect(screen.getByRole('status')).toHaveText('new Scene');
+
+    await screen.getByRole('button', { name: 'Rectangle', exact: true }).click();
+    await drag(ui, at({ x: 120, y: 120 }, EMPTY), at({ x: 320, y: 240 }, EMPTY));
+    await expect(screen.getByRole('status')).toHaveText('saved');
+
+    const stored = await browser.evaluate(() => ({
+      scene: localStorage.getItem('esbozo-mounted-scene'),
+      svg: localStorage.getItem('esbozo-mounted-scene:svg'),
+    }));
+    expect(stored.scene).not.toBeNull();
+    const parsed = JSON.parse(stored.scene ?? '{}') as { elements?: { type: string }[] };
+    expect(parsed.elements?.length).toBe(1);
+    expect(parsed.elements?.[0]?.type).toBe('rectangle');
+    expect(stored.svg).toContain('<svg');
+
+    // Reloading reads the saved Scene back from localStorage and draws it.
+    await app.open(`${embed.url}/mounted.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    await settle(ui);
+    expect((await shot(ui)).darkBounds(DRAWING, 0.6)).not.toBeNull();
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('mount() without save is read-only and says so in the status line', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), {});
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/mounted-readonly.html`);
+    await expect(screen.getByText('read-only')).toBeVisible();
+
+    await screen.getByRole('button', { name: 'Rectangle', exact: true }).click();
+    await drag(ui, at({ x: 120, y: 120 }, EMPTY), at({ x: 320, y: 240 }, EMPTY));
+    await expect(screen.getByText('read-only')).toBeVisible();
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('mount() reports a rejected save in the status line and esbozo:save event', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), {});
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/mounted-fail.html`);
+    await expect(screen.getByRole('status')).toHaveText('new Scene');
+
+    await screen.getByRole('button', { name: 'Rectangle', exact: true }).click();
+    await drag(ui, at({ x: 120, y: 120 }, EMPTY), at({ x: 320, y: 240 }, EMPTY));
+    await expect(screen.getByRole('status')).toContainText('quota exceeded');
+
+    const events = await browser.evaluate(
+      () => (window as unknown as { __saveEvents: { state: string; detail: string }[] }).__saveEvents,
+    );
+    expect(events.some((e) => e.state === 'failed' && e.detail === 'quota exceeded')).toBe(true);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('mount() reports a non-Error save rejection in the status line and esbozo:save event', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), {});
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/mounted-fail-string.html`);
+    await expect(screen.getByRole('status')).toHaveText('new Scene');
+
+    await screen.getByRole('button', { name: 'Rectangle', exact: true }).click();
+    await drag(ui, at({ x: 120, y: 120 }, EMPTY), at({ x: 320, y: 240 }, EMPTY));
+    await expect(screen.getByRole('status')).toContainText('quota exceeded');
+
+    const events = await browser.evaluate(
+      () => (window as unknown as { __saveEvents: { state: string; detail: string }[] }).__saveEvents,
+    );
+    expect(events.some((e) => e.state === 'failed' && e.detail === 'quota exceeded')).toBe(true);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('two mounted elements on one page call only their own save function', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), {});
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/mounted-two.html`);
+    await expect(screen.getByRole('status').first()).toHaveText('new Scene');
+
+    await screen.getByRole('button', { name: 'Rectangle', exact: true }).first().click();
+    await drag(ui, at({ x: 120, y: 80 }, HALF), at({ x: 320, y: 180 }, HALF));
+    await expect(screen.getByRole('status').first()).toHaveText('saved');
+
+    const counts = await browser.evaluate(
+      () => (window as unknown as { __saves: { a: number; b: number } }).__saves,
+    );
+    expect(counts.a).toBe(1);
+    expect(counts.b).toBe(0);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('scene attribute wins over mount(): the element reads from the URL', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), { a: FIRST_SOURCE });
+  try {
+    await app.open(`${embed.url}/mounted-attrs-win.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    expect(embed.requests('/api/a')).toBeGreaterThanOrEqual(1);
+    const mountCalled = await browser.evaluate(
+      () => (window as unknown as { __mountCalled?: boolean }).__mountCalled ?? false,
+    );
+    expect(mountCalled).toBe(false);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('mount() on an attribute-backed element does not refetch or fire esbozo:save', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), { a: FIRST_SOURCE });
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/mounted-attrs-noop.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    const before = embed.requests('/api/a');
+    await browser.evaluate(() => {
+      (window as unknown as { __saveEvents: { state: string; detail: string }[] }).__saveEvents.length = 0;
+      (window as unknown as { __mountAttrs: () => void }).__mountAttrs();
+      return null;
+    });
+    await settle(ui);
+    expect(embed.requests('/api/a')).toBe(before);
+    const events = await browser.evaluate(
+      () => (window as unknown as { __saveEvents: { state: string; detail: string }[] }).__saveEvents,
+    );
+    expect(events).toEqual([]);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('remounting with a different font.url fetches the new font', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), {});
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/mounted-font-change.html`);
+    await expect(screen.getByRole('status')).toHaveText('new Scene');
+    expect(embed.requests('/fonts/b.ttf')).toBe(0);
+    await browser.evaluate(() => {
+      (window as unknown as { __mountFont: (url: string) => void }).__mountFont('fonts/b.ttf');
+      return null;
+    });
+    await settle(ui);
+    expect(embed.requests('/fonts/b.ttf')).toBe(1);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('mount() shows a where label without a leading slash', async ({ app, screen }) => {
+  const embed = await startEmbed(await bundleFolder(), {});
+  try {
+    await app.open(`${embed.url}/mounted.html`);
+    await expect(screen.getByRole('status')).toHaveText('new Scene');
+    const where = (await screen.getByText(/scene\.esbozo/).textContent())?.trim() ?? '';
+    expect(where.startsWith('/')).toBe(false);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('mount() after parse fetches the default font once', async ({ app, screen }) => {
+  const embed = await startEmbed(await bundleFolder(), {}, { defaultFont: true });
+  try {
+    await app.open(`${embed.url}/mounted-default-font.html`);
+    await expect(screen.getByRole('status')).toHaveText('new Scene');
+    expect(embed.requests('/Kalam-Regular.ttf')).toBe(1);
+  } finally {
+    await embed.stop();
+  }
+});
+
 /**
  * The bundle, the fonts and the pages, in one folder a server can hand out.
  * `ez bundle` builds nothing: it copies the editor `pnpm build` made, so this
@@ -2257,6 +2836,8 @@ async function writeBundle(): Promise<string> {
     ),
     'label-kalam.html': page(FULL, `<esbozo-editor scene="api/l" save="api/l" font="${FONT}"></esbozo-editor>`, bundle),
     'label-wide.html': page(FULL, `<esbozo-editor scene="api/l" save="api/l" font="fonts/b.ttf"></esbozo-editor>`, bundle),
+    'no-font.html': page(FULL, `<esbozo-editor scene="api/w" save="api/w"></esbozo-editor>`, bundle),
+    'no-font-label.html': page(FULL, `<esbozo-editor scene="api/l" save="api/l"></esbozo-editor>`, bundle),
     'live.html': page(
       FULL,
       `<script type="module" src="${bundle}"></script>
@@ -2297,6 +2878,149 @@ async function writeBundle(): Promise<string> {
       `<esbozo-editor scene="api/scaled-zoom" save="api/scaled-zoom" font="${FONT}"></esbozo-editor>`,
       bundle,
     ),
+    'theme-dark.html': page(
+      FULL,
+      `<esbozo-editor scene="api/a" save="api/a" font="${FONT}"></esbozo-editor>`,
+      bundle,
+      ' data-theme="dark"',
+    ),
+    'theme-light.html': page(
+      FULL,
+      `<esbozo-editor scene="api/a" save="api/a" font="${FONT}"></esbozo-editor>`,
+      bundle,
+      ' data-theme="light"',
+    ),
+    'mounted.html': page(
+      FULL,
+      `<esbozo-editor></esbozo-editor>
+<script type="module">
+  import { mount } from './${bundle}';
+  const key = 'esbozo-mounted-scene';
+  mount(document.querySelector('esbozo-editor'), {
+    font: { url: '${FONT}' },
+    load: () => localStorage.getItem(key),
+    save: (scene, svg) => {
+      localStorage.setItem(key, scene);
+      localStorage.setItem(key + ':svg', svg);
+    },
+  });
+</script>`,
+      null,
+    ),
+    'mounted-readonly.html': page(
+      FULL,
+      `<esbozo-editor></esbozo-editor>
+<script type="module">
+  import { mount } from './${bundle}';
+  mount(document.querySelector('esbozo-editor'), {
+    font: { url: '${FONT}' },
+    load: () => ${JSON.stringify(SCENE_SOURCE)},
+  });
+</script>`,
+      null,
+    ),
+    'mounted-fail.html': page(
+      FULL,
+      `<esbozo-editor></esbozo-editor>
+<script type="module">
+  import { mount } from './${bundle}';
+  const el = document.querySelector('esbozo-editor');
+  window.__saveEvents = [];
+  el.addEventListener('esbozo:save', (e) => window.__saveEvents.push(e.detail));
+  mount(el, {
+    font: { url: '${FONT}' },
+    load: () => null,
+    save: () => Promise.reject(new Error('quota exceeded')),
+  });
+</script>`,
+      null,
+    ),
+    'mounted-fail-string.html': page(
+      FULL,
+      `<esbozo-editor></esbozo-editor>
+<script type="module">
+  import { mount } from './${bundle}';
+  const el = document.querySelector('esbozo-editor');
+  window.__saveEvents = [];
+  el.addEventListener('esbozo:save', (e) => window.__saveEvents.push(e.detail));
+  mount(el, {
+    font: { url: '${FONT}' },
+    load: () => null,
+    save: () => Promise.reject('quota exceeded'),
+  });
+</script>`,
+      null,
+    ),
+    'mounted-two.html': page(
+      HALVES,
+      `<esbozo-editor id="a"></esbozo-editor>
+<esbozo-editor id="b"></esbozo-editor>
+<script type="module">
+  import { mount } from './${bundle}';
+  window.__saves = { a: 0, b: 0 };
+  mount(document.getElementById('a'), {
+    font: { url: '${FONT}' },
+    load: () => null,
+    save: () => { window.__saves.a += 1; },
+  });
+  mount(document.getElementById('b'), {
+    font: { url: '${FONT}' },
+    load: () => null,
+    save: () => { window.__saves.b += 1; },
+  });
+</script>`,
+      null,
+    ),
+    'mounted-attrs-win.html': page(
+      FULL,
+      `<esbozo-editor scene="api/a" save="api/a" font="${FONT}"></esbozo-editor>
+<script type="module">
+  import { mount } from './${bundle}';
+  mount(document.querySelector('esbozo-editor'), {
+    font: { url: 'fonts/b.ttf' },
+    load: () => { window.__mountCalled = true; return null; },
+    save: () => { window.__mountCalled = true; },
+  });
+</script>`,
+      null,
+    ),
+    'mounted-attrs-noop.html': page(
+      FULL,
+      `<esbozo-editor scene="api/a" save="api/a" font="${FONT}"></esbozo-editor>
+<script type="module">
+  import { mount } from './${bundle}';
+  const el = document.querySelector('esbozo-editor');
+  window.__saveEvents = [];
+  el.addEventListener('esbozo:save', (e) => window.__saveEvents.push(e.detail));
+  window.__mountAttrs = () => mount(el, {
+    font: { url: 'fonts/b.ttf' },
+    load: () => null,
+    save: () => {},
+  });
+</script>`,
+      null,
+    ),
+    'mounted-font-change.html': page(
+      FULL,
+      `<esbozo-editor></esbozo-editor>
+<script type="module">
+  import { mount } from './${bundle}';
+  const el = document.querySelector('esbozo-editor');
+  const load = () => null;
+  window.__mountFont = (url) => mount(el, { font: { url }, load });
+  window.__mountFont('${FONT}');
+</script>`,
+      null,
+    ),
+    'mounted-default-font.html': page(
+      FULL,
+      `<esbozo-editor></esbozo-editor>
+<script type="module">
+  import { mount } from './${bundle}';
+  mount(document.querySelector('esbozo-editor'), { load: () => null });
+</script>`,
+      null,
+    ),
   };
   for (const [name, html] of Object.entries(pages)) {
     await writeFile(join(folder, name), html, 'utf8');
@@ -2305,9 +3029,9 @@ async function writeBundle(): Promise<string> {
 }
 
 /** A page with its own rules, its element and the module, and nothing else. */
-function page(style: string, markup: string, bundle: string | null): string {
+function page(style: string, markup: string, bundle: string | null, htmlAttrs = ''): string {
   return `<!doctype html>
-<html lang="en">
+<html lang="en"${htmlAttrs}>
 <head><meta charset="utf-8" /><title>embedded esbozo</title><style>${style}</style></head>
 <body>
 ${markup}
@@ -2321,6 +3045,7 @@ ${bundle === null ? '' : `<script type="module" src="${bundle}"></script>`}
 async function startEmbed(
   folder: string,
   scenes: Record<string, string> = { a: SCENE_SOURCE, b: SCENE_SOURCE },
+  options: { defaultFont?: boolean } = {},
 ): Promise<Embed> {
   const saved = join(folder, 'saved');
   // Every test starts on the Scenes it names, from before any edit.
@@ -2366,6 +3091,10 @@ async function startEmbed(
     }
     await waitOn(path);
 
+    if (path === '/Kalam-Regular.ttf' && options.defaultFont === true) {
+      await send(response, 200, 'font/ttf', await readFile(KALAM));
+      return;
+    }
     if (path.startsWith('/fonts/')) {
       // One file per URL, so two elements that asked for two files can be seen
       // to have drawn with the one each asked for.
