@@ -127,6 +127,33 @@ When `<html data-theme>` is absent, the bundle follows `prefers-color-scheme` li
 
 A host that scales the element with CSS `transform: scale(...)` or `zoom` works as-is: pointer positions and layout measurements convert through the element's scale.
 
+## Host integration walkthrough
+
+If you embed `<esbozo-editor>` in an existing site, the bundle covers the editor chrome and browser plumbing so your host only handles files and page layout.
+
+### What the bundle already does
+
+The bundle ships with these host-facing behaviours built in:
+
+- [Default font loading](#the-attributes) from `./Kalam-Regular.ttf` beside the bundle.
+- [Live `prefers-color-scheme` tracking](#where-it-sits) with `<html data-theme>` override.
+- [Key and clipboard isolation](#the-attributes) while focus stays inside the element.
+- [The `esbozo:save` event](#events) for save state changes.
+- [Function-based storage with `mount()`](#storage-functions-mount) when Scenes do not live at HTTP URLs.
+- [Per-element write ordering](#the-attributes) that queues saves one at a time and drops responses from replaced connections, also used by [`mount()`](#storage-functions-mount).
+
+### What the host must do
+
+1. Serve `esbozo-<version>.js` from `ez bundle` and `Kalam-Regular.ttf` from the same directory.
+2. Expose two Scene endpoints following [save-api.md](save-api.md). `GET` returns the Scene text or `404` for a new Scene. `PUT` or `POST` accepts `{ "scene": "...", "svg": "..." }` with `content-type: application/json`, writes the Scene and sibling `.svg`, and returns `200` with `{}`.
+3. Check SVG freshness when your host caches or serves rendered SVGs. The Renderer stamps each `<svg>` with `data-scene-hash="sha256:<hash>"` from the Scene's canonical form, described in [schema.md](schema.md#canonical-form). Neither `ez serve` nor the reference server checks that attribute on save, so compare it against the Scene's canonical SHA-256 or re-render with `ez render`.
+
+Use [examples/host-server/](../examples/host-server/) and [its README](../examples/host-server/README.md) as a reference server for nested Scene paths. It shows the path-safety rules for percent-encoding, dot segments, hidden segments, and symlinks, along with a per-SVG write queue, atomic temp-plus-rename writes, and a `--render` flag that runs `ez render` on save.
+
+### What a host adds on top
+
+A blog host adds page-specific glue around the element, such as figure layout around the rendered diagram and a prompt for creating a new diagram. Key isolation used to be host glue as well, and it now lives in the bundle.
+
 ## Size
 
 The bundle is one minified file, Rough.js and the editor's stylesheet included, of about 60 kB gzipped. `test/embed-bundle.test.ts` measures it and prints the number on every run, and fails if it grows past 64 kB gzipped, so a dependency that quietly doubles it cannot land unnoticed.
