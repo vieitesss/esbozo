@@ -65,8 +65,8 @@ const TILES = ['Select', 'Rectangle', 'Ellipse', 'Diamond', 'Arrow', 'Line', 'Te
  */
 const PRESS_TIMEOUT = 2000;
 
-/** A dock by name, the way a person moves it: the palette has no key, button or grip (D8). */
-async function dockRail(ui: Ui, side: 'top' | 'bottom' | 'left' | 'right'): Promise<void> {
+/** Move the rail to an edge by name, the way a person does through the palette. */
+async function placeRailAtEdge(ui: Ui, side: 'top' | 'bottom' | 'left' | 'right'): Promise<void> {
   const commands = ui.screen.getByRole('dialog', { name: 'Commands' });
   await ui.browser.keyboard.press('q');
   await expect(commands).toBeVisible();
@@ -175,12 +175,12 @@ test('a corner that grows while a press holds the strip leaves it still, and the
   const ui = { app, browser, screen };
   await browser.setViewport({ width: 360, height: 330 });
   await openBare(ui);
-  await dockRail(ui, 'bottom');
+  await placeRailAtEdge(ui, 'bottom');
 
   // A press on a tile is a press a person is making: the pointer is on the strip,
   // and no corner arriving under it may carry the strip out from under that hand.
   // The pan is named in the pill at the bottom of the status bar while it lasts,
-  // which is the room the bottom dock hangs over.
+  // which is the room the bottom-placed rail sits over.
   // The band holds the strip and stops above the pill the pan puts in the status
   // bar, so the strip's own ink is all it holds.
   const band: Rect = { x: 0, y: 150, width: 360, height: 110 };
@@ -267,7 +267,7 @@ test('a palette move places the rail without touching the Scene, the folder or t
   // A write the move would have to make waits on the test: nothing answers it, so
   // a save the move sent would stay held and the test would find it.
   await holdWrites(ui, 'big.json');
-  await dockRail(ui, 'left');
+  await placeRailAtEdge(ui, 'left');
   const held = await browser.evaluate(
     () => ((window as unknown as { __esbozoGates?: unknown[] }).__esbozoGates ?? []).length,
   );
@@ -275,7 +275,7 @@ test('a palette move places the rail without touching the Scene, the folder or t
   await allowWrites(ui);
 
   // The Scene's own file and the SVG beside it are the bytes they were, and the
-  // view has not moved: the dock is the page's chrome, not the diagram's ink.
+  // view has not moved: the rail is the page's chrome, not the diagram's ink.
   expect(await savedFiles(ui), 'a move writes nothing').toEqual(files);
   expect((await shot(ui)).darkBounds(BIG_BOX, 0.6), 'a move leaves the view alone').toEqual(before);
 
@@ -302,11 +302,11 @@ test('a palette move puts the rail at an edge’s middle, 16 px in', async ({
   // it returns to top-middle, 16 px in.
   await drag(ui, tileCentre(boxOfPlace(opened), 1), { x: 640, y: 300 });
   await settle(ui);
-  await dockRail(ui, 'top');
+  await placeRailAtEdge(ui, 'top');
   expectHeld(opened, await railPlace(ui, topBand), 'Tool rail: top');
 
   // Asking for the left edge stands the rail at left-middle, 16 px in.
-  await dockRail(ui, 'left');
+  await placeRailAtEdge(ui, 'left');
   const left = await railInk(ui, { x: 0, y: 200, width: 120, height: 400 });
   expect(left.x, 'the left edge rests 16 px in').toBeGreaterThan(4);
   expect(left.x, 'the left edge rests 16 px in').toBeLessThan(24);
@@ -321,7 +321,7 @@ test('a move to the left is kept, so the next editor starts there', async ({
 }) => {
   const ui = { app, browser, screen };
   await openBare(ui, { width: 3440, height: 1440 });
-  await dockRail(ui, 'left');
+  await placeRailAtEdge(ui, 'left');
   const stored = await keptPlace(ui);
   expect(stored?.orientation, 'the move is kept for the next start').toBe('standing');
 
@@ -350,7 +350,7 @@ test('a move in a second editor does not move the one already open', async ({ ap
   // broadcast to the editor already on the page.
   await browser.newTab();
   await openBare(ui);
-  await dockRail(ui, 'left');
+  await placeRailAtEdge(ui, 'left');
   expect((await keptPlace(ui))?.orientation, 'the move is kept for the next start').toBe('standing');
 
   await first.activate();
@@ -376,7 +376,7 @@ test('an unknown stored word starts the rail at the top, and the rail still move
   expect(ink.y, 'the rail starts at the top').toBeLessThan(28);
   expect(ink.width, 'the strip lies along the top').toBeGreaterThan(ink.height * 2);
 
-  await dockRail(ui, 'left');
+  await placeRailAtEdge(ui, 'left');
   const moved = await railInk(ui, { x: 0, y: 200, width: 200, height: 400 });
   expect(moved.height, 'the rail still moves').toBeGreaterThan(moved.width * 2);
   expect((await keptPlace(ui))?.orientation, 'the move replaces the word it could not use').toBe('standing');
@@ -404,7 +404,7 @@ test('a storage that throws starts the rail at the top, and the rail still moves
   expect(ink.y, 'the rail starts at the top').toBeLessThan(28);
   expect(ink.width, 'the strip lies along the top').toBeGreaterThan(ink.height * 2);
 
-  await dockRail(ui, 'left');
+  await placeRailAtEdge(ui, 'left');
   const moved = await railInk(ui, { x: 0, y: 200, width: 200, height: 400 });
   expect(moved.height, 'the rail still moves').toBeGreaterThan(moved.width * 2);
   expect(await problems(ui), 'a blocked storage is no error').toEqual([]);
@@ -429,7 +429,7 @@ test('a move in a read-only Scene keeps the place and leaves the Scene’s file 
   await settle(ui);
   const files = await savedFiles(ui);
 
-  await dockRail(ui, 'left');
+  await placeRailAtEdge(ui, 'left');
   expect((await keptPlace(ui))?.orientation, 'a read-only Scene keeps the place all the same').toBe('standing');
   expect(await savedFiles(ui), 'a move writes no file').toEqual(files);
 });
@@ -465,7 +465,7 @@ test('a press that moves 3 px on a tile picks that tool and leaves the rail wher
   await settle(ui);
 
   // The press is a click: the tile it landed on is the tool in hand, and the rail
-  // has not moved — a drag of the rail docks, and picks no tool at all.
+  // has not moved — a drag of the rail places it, and picks no tool at all.
   expect(await screen.getByRole('button', 'Ellipse').getAttribute('aria-pressed'), 'the tile picked its tool').toBe(
     'true',
   );
@@ -680,7 +680,7 @@ test('a finger a rail drag ignored ends as ignored, so its release leaves the mo
   const grip = tileCentre(boxOfPlace(opened), 1);
 
   // A pen presses the rail and carries it left; a finger lands on the paper and
-  // stays there; the pen lets go, so the rail docks with the finger still down.
+  // stays there; the pen lets go, so the rail lands with the finger still down.
   // Neither contact carries Ctrl: the board ignores the finger because a rail
   // drag owns a pointer, not because a menu owns its press.
   await pen('mousePressed', grip.x, grip.y);
@@ -741,7 +741,7 @@ test('a mouse a held rail drag ignored ends as ignored, so an in-flight touch dr
   expect(await writeCount(ui), 'the ignored mouse’s release saves nothing').toBe(0);
 
   // The finger's own release is the one that finishes its Rectangle, and the pen
-  // still docks the rail it is holding.
+  // still places the rail it is holding.
   await touch('touchEnd', []);
   await expect.poll(() => writeCount(ui), { timeout: 5000 }).toBe(1);
   await releaseWrite(ui);
@@ -781,7 +781,7 @@ test('a tap picks nothing on a tile while another pointer holds a drag of the ra
   expect(await picked(ui, 'Ellipse'), 'the tap under the drag picked nothing').toBe('false');
   expect(await picked(ui, 'Select')).toBe('true');
 
-  // The pen lets go and the rail docks where its drag would; a tile is a pick
+  // The pen lets go and the rail lands where its drag would; a tile is a pick
   // again, with the pointer that presses it as the one that owns the strip.
   await pen('mouseReleased', grip.x + 20, grip.y);
   await settle(ui);
@@ -799,7 +799,7 @@ const TOP_BAND: Rect = { x: 400, y: 0, width: 480, height: 240 };
 
 /**
  * The page's whole ink, with the strip drawn at full ink and the pointer resting
- * on bare paper: a dock preview, or any other mark an exit left behind, is ink
+ * on bare paper: any mark an exit left behind is ink
  * that was not there before. The fade is waited out and the hover is the same
  * both times, so neither can decide the measure.
  */
@@ -923,14 +923,14 @@ test('Escape during a drag of the rail puts the strip back and leaves the tool, 
   const ink = await pageInk(ui);
 
   // The drag has passed the click's 4 px and carried the strip most of the way to
-  // the left dock; Escape calls it off with the button still down (D7).
+  // the left side; Escape calls it off with the button still down.
   await drag(ui, before.grip, { x: 300, y: 400 }, 'left', async () => {
     await browser.keyboard.press('Escape');
     await settle(ui);
   });
   await settle(ui);
 
-  // The release that follows the cancel docks nothing and picks no tool: the
+  // The release that follows the cancel places nothing and picks no tool: the
   // strip, the side, the tool, the selection and the folder are the press's own.
   expect(await writeCount(ui), 'a cancel sends no save').toBe(0);
   await expectCalledOff(ui, before, ink);
@@ -1007,7 +1007,7 @@ test('a finger the browser cancels during a drag of the rail puts the strip back
   const ink = await pageInk(ui);
 
   // A finger presses the Rectangle tile and carries the strip most of the way to
-  // the left dock; the browser then takes the press over, as it does for a scroll,
+  // the left side; the browser then takes the press over, as it does for a scroll,
   // and cancels it — a real `pointercancel`, with the pointer the drag really had.
   await touchCarry(before.grip, { x: 300, y: 400 }, 5);
   await cancelTouch();
@@ -1029,7 +1029,7 @@ test('a cancel while the paper holds a finger it refused puts the strip back, an
   const { pen, touch } = await mixedPointers();
   const saved = (await savedScene(ui, 'bare.json')).elements;
 
-  // A pen presses the Rectangle tile and carries the strip towards the left dock;
+  // A pen presses the Rectangle tile and carries the strip towards the left side;
   // a finger lands on the paper while the drag owns a pointer and stays there, so
   // the board refuses it (29g). Escape then calls the drag off.
   await pen('mousePressed', before.grip.x, before.grip.y);
@@ -1047,10 +1047,10 @@ test('a cancel while the paper holds a finger it refused puts the strip back, an
   expect(await writeCount(ui), 'the refused finger settles no gesture').toBe(0);
   expect((await savedScene(ui, 'bare.json')).elements, 'the refused finger draws nothing').toEqual(saved);
 
-  // And the pen's own release docks nothing, because its drag was called off.
+  // And the pen's own release places nothing, because its drag was called off.
   await pen('mouseReleased', 300, 400);
   await settle(ui);
-  expect(await writeCount(ui), 'the cancelled pen docks nothing').toBe(0);
+  expect(await writeCount(ui), 'the cancelled pen places nothing').toBe(0);
   await expectCalledOff(ui, before, ink);
   await expectNoStep(ui);
 });
@@ -1165,7 +1165,7 @@ test('a pen a cancel left down carries no gesture and settles none', async ({ ap
   await screen.getByRole('button', { name: 'Rectangle', exact: true }).click();
   const { pen, touch } = await mixedPointers();
 
-  // A pen presses the Rectangle tile and carries the strip towards the left dock;
+  // A pen presses the Rectangle tile and carries the strip towards the left side;
   // Escape calls the drag off with the pen still down.
   await pen('mousePressed', grip.x, grip.y);
   await pen('mouseMoved', 1080, 400);
