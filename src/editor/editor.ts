@@ -304,6 +304,7 @@ class EsbozoEditorElement extends HTMLElement {
       refresh: () => this.#refresh(),
       refused: (problem) => this.#setSaved('failed', problem),
       forgetWordClick: () => this.#gestures.forgetWordClick(),
+      refocus: this.#ownsKeysWhenFocused ? () => this.focus({ preventScroll: true }) : undefined,
     });
 
     // The page's frame is told what the page may show, and asked for it. It owns
