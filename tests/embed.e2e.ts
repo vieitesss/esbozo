@@ -2681,6 +2681,55 @@ test('scene attribute wins over mount(): the element reads from the URL', async 
   }
 });
 
+test('mount() on an attribute-backed element does not refetch or fire esbozo:save', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), { a: FIRST_SOURCE });
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/mounted-attrs-noop.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    const before = embed.requests('/api/a');
+    await browser.evaluate(() => {
+      (window as unknown as { __saveEvents: { state: string; detail: string }[] }).__saveEvents.length = 0;
+      (window as unknown as { __mountAttrs: () => void }).__mountAttrs();
+      return null;
+    });
+    await settle(ui);
+    expect(embed.requests('/api/a')).toBe(before);
+    const events = await browser.evaluate(
+      () => (window as unknown as { __saveEvents: { state: string; detail: string }[] }).__saveEvents,
+    );
+    expect(events).toEqual([]);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('remounting with a different font.url fetches the new font', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), {});
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/mounted-font-change.html`);
+    await expect(screen.getByRole('status')).toHaveText('new Scene');
+    expect(embed.requests('/fonts/b.ttf')).toBe(0);
+    await browser.evaluate(() => {
+      (window as unknown as { __mountFont: (url: string) => void }).__mountFont('fonts/b.ttf');
+      return null;
+    });
+    await settle(ui);
+    expect(embed.requests('/fonts/b.ttf')).toBe(1);
+  } finally {
+    await embed.stop();
+  }
+});
+
 /**
  * The bundle, the fonts and the pages, in one folder a server can hand out.
  * `ez bundle` builds nothing: it copies the editor `pnpm build` made, so this
@@ -2909,6 +2958,34 @@ async function writeBundle(): Promise<string> {
     load: () => { window.__mountCalled = true; return null; },
     save: () => { window.__mountCalled = true; },
   });
+</script>`,
+      null,
+    ),
+    'mounted-attrs-noop.html': page(
+      FULL,
+      `<esbozo-editor scene="api/a" save="api/a" font="${FONT}"></esbozo-editor>
+<script type="module">
+  import { mount } from './${bundle}';
+  const el = document.querySelector('esbozo-editor');
+  window.__saveEvents = [];
+  el.addEventListener('esbozo:save', (e) => window.__saveEvents.push(e.detail));
+  window.__mountAttrs = () => mount(el, {
+    font: { url: 'fonts/b.ttf' },
+    load: () => null,
+    save: () => {},
+  });
+</script>`,
+      null,
+    ),
+    'mounted-font-change.html': page(
+      FULL,
+      `<esbozo-editor></esbozo-editor>
+<script type="module">
+  import { mount } from './${bundle}';
+  const el = document.querySelector('esbozo-editor');
+  const load = () => null;
+  window.__mountFont = (url) => mount(el, { font: { url }, load });
+  window.__mountFont('${FONT}');
 </script>`,
       null,
     ),
