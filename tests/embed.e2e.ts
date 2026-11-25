@@ -2570,6 +2570,93 @@ test('mount() backs an attribute-free element with load/save over localStorage',
   }
 });
 
+test('mount() without save is read-only and says so in the status line', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), {});
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/mounted-readonly.html`);
+    await expect(screen.getByText('read-only')).toBeVisible();
+
+    await screen.getByRole('button', { name: 'Rectangle', exact: true }).click();
+    await drag(ui, at({ x: 120, y: 120 }, EMPTY), at({ x: 320, y: 240 }, EMPTY));
+    await expect(screen.getByText('read-only')).toBeVisible();
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('mount() reports a rejected save in the status line and esbozo:save event', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), {});
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/mounted-fail.html`);
+    await expect(screen.getByRole('status')).toHaveText('new Scene');
+
+    await screen.getByRole('button', { name: 'Rectangle', exact: true }).click();
+    await drag(ui, at({ x: 120, y: 120 }, EMPTY), at({ x: 320, y: 240 }, EMPTY));
+    await expect(screen.getByRole('status')).toContainText('quota exceeded');
+
+    const events = await browser.evaluate(
+      () => (window as unknown as { __saveEvents: { state: string; detail: string }[] }).__saveEvents,
+    );
+    expect(events.some((e) => e.state === 'failed' && e.detail === 'quota exceeded')).toBe(true);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('two mounted elements on one page call only their own save function', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), {});
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/mounted-two.html`);
+    await expect(screen.getByRole('status').first()).toHaveText('new Scene');
+
+    await screen.getByRole('button', { name: 'Rectangle', exact: true }).first().click();
+    await drag(ui, at({ x: 120, y: 80 }, HALF), at({ x: 320, y: 180 }, HALF));
+    await expect(screen.getByRole('status').first()).toHaveText('saved');
+
+    const counts = await browser.evaluate(
+      () => (window as unknown as { __saves: { a: number; b: number } }).__saves,
+    );
+    expect(counts.a).toBe(1);
+    expect(counts.b).toBe(0);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('scene attribute wins over mount(): the element reads from the URL', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), { a: FIRST_SOURCE });
+  try {
+    await app.open(`${embed.url}/mounted-attrs-win.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    expect(embed.requests('/api/a')).toBeGreaterThanOrEqual(1);
+    const mountCalled = await browser.evaluate(
+      () => (window as unknown as { __mountCalled?: boolean }).__mountCalled ?? false,
+    );
+    expect(mountCalled).toBe(false);
+  } finally {
+    await embed.stop();
+  }
+});
+
 /**
  * The bundle, the fonts and the pages, in one folder a server can hand out.
  * `ez bundle` builds nothing: it copies the editor `pnpm build` made, so this
@@ -2720,6 +2807,67 @@ async function writeBundle(): Promise<string> {
       localStorage.setItem(key, scene);
       localStorage.setItem(key + ':svg', svg);
     },
+  });
+</script>`,
+      null,
+    ),
+    'mounted-readonly.html': page(
+      FULL,
+      `<esbozo-editor></esbozo-editor>
+<script type="module">
+  import { mount } from './${bundle}';
+  mount(document.querySelector('esbozo-editor'), {
+    font: { url: '${FONT}' },
+    load: () => ${JSON.stringify(SCENE_SOURCE)},
+  });
+</script>`,
+      null,
+    ),
+    'mounted-fail.html': page(
+      FULL,
+      `<esbozo-editor></esbozo-editor>
+<script type="module">
+  import { mount } from './${bundle}';
+  const el = document.querySelector('esbozo-editor');
+  window.__saveEvents = [];
+  el.addEventListener('esbozo:save', (e) => window.__saveEvents.push(e.detail));
+  mount(el, {
+    font: { url: '${FONT}' },
+    load: () => null,
+    save: () => Promise.reject(new Error('quota exceeded')),
+  });
+</script>`,
+      null,
+    ),
+    'mounted-two.html': page(
+      HALVES,
+      `<esbozo-editor id="a"></esbozo-editor>
+<esbozo-editor id="b"></esbozo-editor>
+<script type="module">
+  import { mount } from './${bundle}';
+  window.__saves = { a: 0, b: 0 };
+  mount(document.getElementById('a'), {
+    font: { url: '${FONT}' },
+    load: () => null,
+    save: () => { window.__saves.a += 1; },
+  });
+  mount(document.getElementById('b'), {
+    font: { url: '${FONT}' },
+    load: () => null,
+    save: () => { window.__saves.b += 1; },
+  });
+</script>`,
+      null,
+    ),
+    'mounted-attrs-win.html': page(
+      FULL,
+      `<esbozo-editor scene="api/a" save="api/a" font="${FONT}"></esbozo-editor>
+<script type="module">
+  import { mount } from './${bundle}';
+  mount(document.querySelector('esbozo-editor'), {
+    font: { url: 'fonts/b.ttf' },
+    load: () => { window.__mountCalled = true; return null; },
+    save: () => { window.__mountCalled = true; },
   });
 </script>`,
       null,
