@@ -322,7 +322,6 @@ class EsbozoEditorElement extends HTMLElement {
         shown: () => this.#shown(),
         preview: () => this.#gestures.preview(),
         dragging: () => this.#gestures.drag !== null,
-        railEdge: () => this.#rail.edge(),
         typing: this.#typing,
       },
     );

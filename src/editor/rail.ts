@@ -226,11 +226,6 @@ export class Rail {
     return this.#drag !== null;
   }
 
-  /** Kept until 1c removes the Style note's railEdge coupling. */
-  edge(): number | null {
-    return null;
-  }
-
   /** The orientation the rail currently rests in. */
   orientation(): RailOrientation {
     return this.#orientation;
@@ -492,7 +487,6 @@ export interface MountedRail {
   escape(): boolean;
   endDrag(): void;
   holding(): boolean;
-  edge(): number | null;
   markTool(tool: ToolId): void;
 }
 
@@ -628,7 +622,6 @@ export function mountRail(dom: RailDomHost): MountedRail {
     escape: () => rail.escape(),
     endDrag: () => rail.endDrag(),
     holding: () => rail.holding(),
-    edge: () => rail.edge(),
     markTool(tool) {
       for (const button of dom.rail.querySelectorAll('[data-tool]')) {
         button.setAttribute('aria-pressed', String(button.getAttribute('data-tool') === tool));
