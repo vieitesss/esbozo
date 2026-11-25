@@ -232,6 +232,29 @@ async function putBack(scene, backup, hadScene) {
   }
 }
 
+async function renderScene(sceneTemp, svgTemp) {
+  let renderedPath = `${sceneTemp}.svg`;
+  try {
+    const { stdout } = await execFileAsync('ez', ['render', sceneTemp]);
+    const trimmed = stdout.trim();
+    if (trimmed !== '') {
+      renderedPath = trimmed;
+    }
+  } catch (error) {
+    if (error && error.code === 3) {
+      const detail = String(error.stderr || error.stdout || error.message).trim();
+      throw new WriteRefused(400, `the Scene is invalid: ${detail}`);
+    }
+    throw error;
+  }
+  try {
+    await rename(renderedPath, svgTemp);
+  } catch (error) {
+    await unlink(renderedPath).catch(() => {});
+    throw error;
+  }
+}
+
 async function writePair(scenePath, svgPath, written, renderOnSave) {
   await mkdir(dirname(scenePath), { recursive: true });
   await refuseNonFile(scenePath);
@@ -246,7 +269,7 @@ async function writePair(scenePath, svgPath, written, renderOnSave) {
   try {
     await writeFile(sceneTemp, written.scene, 'utf8');
     if (renderOnSave) {
-      await execFileAsync('ez', ['render', sceneTemp, '-o', svgTemp]);
+      await renderScene(sceneTemp, svgTemp);
     } else {
       await writeFile(svgTemp, written.svg, 'utf8');
     }
