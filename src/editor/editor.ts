@@ -79,8 +79,7 @@ class EsbozoEditorElement extends HTMLElement {
   /** Whether this page can export a PNG: a PNG is the page's, and the bundle has none. */
   #pngExport: ((request: PngExport) => Promise<void>) | undefined;
   /** Last dispatched `esbozo:save` state and detail, so identical calls do not re-fire. */
-  #lastSavedState: SavedState = 'idle';
-  #lastSavedDetail = '';
+  #lastSaved: { state: SavedState; detail: string } = { state: 'idle', detail: '' };
   /** The Scene in hand: current Scene, selection, picked Bend point, and History. */
   readonly #hand = new Hand({
     writable: () => this.#connection.writable(),
@@ -430,6 +429,11 @@ class EsbozoEditorElement extends HTMLElement {
     void this.#connection.connect();
   }
 
+  /** Where keyboard listeners attach: this element when embedded, `document` when standalone. */
+  #keyTarget(): HTMLElement | Document {
+    return this.#ownsKeysWhenFocused ? this : document;
+  }
+
   /** Wire the editor to the page, once it has a measurement to draw with. */
   #listen(): void {
     if (this.#wired) {
@@ -458,13 +462,9 @@ class EsbozoEditorElement extends HTMLElement {
     // already has is consumed here, not applied.
     this.#menu.addEventListener('click', this.#gestures.menuClickPress, true);
     this.#menu.addEventListener('pointerdown', this.#gestures.menuPress);
-    if (this.#ownsKeysWhenFocused) {
-      this.addEventListener('keydown', this.#onKeyDown);
-      this.addEventListener('keyup', this.#onKeyUp);
-    } else {
-      document.addEventListener('keydown', this.#onKeyDown);
-      document.addEventListener('keyup', this.#onKeyUp);
-    }
+    const keys = this.#keyTarget();
+    keys.addEventListener('keydown', this.#onKeyDown as EventListener);
+    keys.addEventListener('keyup', this.#onKeyUp as EventListener);
     // A Space held while the page loses the focus never sends its release: the
     // pan has to end here, or the pointer stays a hand on the way back.
     document.addEventListener('pointerdown', this.#gestures.anyPress);
@@ -487,13 +487,9 @@ class EsbozoEditorElement extends HTMLElement {
     document.removeEventListener('copy', this.#onCopy);
     document.removeEventListener('cut', this.#onCut);
     document.removeEventListener('paste', this.#onPaste);
-    if (this.#ownsKeysWhenFocused) {
-      this.removeEventListener('keydown', this.#onKeyDown);
-      this.removeEventListener('keyup', this.#onKeyUp);
-    } else {
-      document.removeEventListener('keydown', this.#onKeyDown);
-      document.removeEventListener('keyup', this.#onKeyUp);
-    }
+    const keys = this.#keyTarget();
+    keys.removeEventListener('keydown', this.#onKeyDown as EventListener);
+    keys.removeEventListener('keyup', this.#onKeyUp as EventListener);
     document.removeEventListener('pointerdown', this.#gestures.anyPress);
     this.#notes.unlisten();
     document.removeEventListener('visibilitychange', this.#onInterrupt);
@@ -1277,12 +1273,11 @@ class EsbozoEditorElement extends HTMLElement {
             : state === 'new'
               ? 'new Scene'
               : '';
-    if (state === this.#lastSavedState && detail === this.#lastSavedDetail) {
+    if (state === this.#lastSaved.state && detail === this.#lastSaved.detail) {
       return;
     }
-    this.#lastSavedState = state;
-    this.#lastSavedDetail = detail;
-    this.dispatchEvent(new CustomEvent('esbozo:save', { detail: { state, detail } }));
+    this.#lastSaved = { state, detail };
+    this.dispatchEvent(new CustomEvent('esbozo:save', { detail: this.#lastSaved }));
   }
 }
 
