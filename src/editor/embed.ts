@@ -1,7 +1,7 @@
 /**
  * The bundle's entry: `<esbozo-editor>` on a page that is not esbozo's own.
  *
- *   <esbozo-editor scene="scene.esbozo" save="save" font="Kalam-Regular.ttf"></esbozo-editor>
+ *   <esbozo-editor scene="scene.esbozo" save="save"></esbozo-editor>
  *   <script type="module" src="esbozo-0.0.0.js"></script>
  *
  * Three attributes, and nothing else:
@@ -9,8 +9,10 @@
  *   scene  a URL a GET answers the Scene's source on
  *   save   a URL a PUT takes the write `ez serve`'s API takes, `{ scene, svg }`.
  *          Without it the editor is read-only, and the status line says so.
- *   font   the URL of the Kalam file the page draws and measures with. The
- *          bundle never carries the font, so the page decides where it lives.
+ *   font   the URL of the Kalam file the page draws and measures with.
+ *          Optional: without it, `./Kalam-Regular.ttf` beside the bundle is
+ *          fetched. The bundle never carries the font, so the page decides
+ *          where it lives.
  *
  * The element is the served editor, not a copy of it: same Renderer, same
  * Layout, same keyboard and pointer, same storage seam with a single-Scene
@@ -73,21 +75,20 @@ function attributeOf(element: Element, name: string): string | null {
  * without either winning. The face is installed with the measurement, by the
  * element that accepts it, so a font that arrived after a newer one never draws
  * the words it did not measure — and nothing fetches the file a second time. A
- * missing attribute or a font that will not load is the plain-text reason the
- * element shows in its status line.
+ * font that will not load — including the default `./Kalam-Regular.ttf` beside
+ * the bundle when `font` is omitted — is the plain-text reason the element
+ * shows in its status line.
  */
 async function pageFont(element: HTMLElement): Promise<PageFont> {
   const named = attributeOf(element, 'font');
-  if (named === null) {
-    return { ok: false, problem: 'esbozo-editor needs a font attribute: the URL of Kalam' };
-  }
+  const label = named ?? new URL('./Kalam-Regular.ttf', import.meta.url).href;
   try {
-    const url = absolute('font', named);
+    const url = named === null ? label : absolute('font', named);
     const response = await fetch(url);
     if (!response.ok) {
-      // The status line names the file the way the page wrote it, not the URL
-      // the document's base made of it.
-      return { ok: false, problem: `cannot load ${named}: ${response.status} ${response.statusText}` };
+      // The status line names the file the way the page wrote it, or the
+      // resolved default URL when the attribute was left out.
+      return { ok: false, problem: `cannot load ${label}: ${response.status} ${response.statusText}` };
     }
     const bytes = new Uint8Array(await response.arrayBuffer());
     // One set of bytes for both: the metrics every word is placed with and the
@@ -101,7 +102,7 @@ async function pageFont(element: HTMLElement): Promise<PageFont> {
     const layout = createLayout({ family: face.family, metrics: measureFontBytes(bytes) });
     return { ok: true, layout, family: face.family, face: () => useFace(element, face) };
   } catch (error) {
-    return { ok: false, problem: `cannot load ${named}: ${(error as Error).message}` };
+    return { ok: false, problem: `cannot load ${label}: ${(error as Error).message}` };
   }
 }
 

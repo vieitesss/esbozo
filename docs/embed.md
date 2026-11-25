@@ -9,8 +9,7 @@ ez bundle public/          # public/esbozo-0.0.0.js
 ```html
 <esbozo-editor
   scene="/sketches/flow.esbozo"
-  save="/api/scenes/flow.esbozo"
-  font="/fonts/Kalam-Regular.ttf"></esbozo-editor>
+  save="/api/scenes/flow.esbozo"></esbozo-editor>
 <script type="module" src="/esbozo-0.0.0.js"></script>
 ```
 
@@ -22,7 +21,7 @@ The module registers `<esbozo-editor>` and injects the editor's stylesheet, so t
 | --- | --- |
 | `scene` | A URL a `GET` answers the Scene's source on. A `404` opens an empty canvas that says `new Scene`: a Scene nobody has drawn yet is not an error, and nothing is written until the first edit. Anything else that goes wrong with the read is the server's words in the status line, and a page that could not read its Scene never writes one. Required: without it the status line says what is missing. |
 | `save` | A URL a `PUT` takes `{ "scene": "...", "svg": "..." }` on — the body and the answers in [save-api.md](save-api.md), which is also what `ez serve` answers. Leave it out and the editor is read-only: it draws, pans, zooms, selects and copies, refuses every edit, puts the tool back to Select, and its status line says `read-only`. A `403` on a save is the server saying the same thing, so from then on the page stops editing, stops asking, and takes no undo step it cannot show. |
-| `font` | The URL of the Kalam file the page draws words in. The bundle carries no font, so the page decides where it lives and which version it is. Each element fetches these bytes once, measures every Label and Text with them (`src/font-metrics.ts`), read with the font's own tables rather than a font library: a full OpenType parser is bigger than the whole budget below. The face the words are drawn in is built from those same bytes, so nothing fetches the file a second time and the drawing always matches the measurement. Give two elements two different files and each measures and draws with its own. |
+| `font` | The URL of the Kalam file the page draws words in. Optional: leave it out and the bundle fetches `./Kalam-Regular.ttf` beside itself (resolved against the module's URL). The bundle carries no font, so the page decides where it lives and which version it is. Each element fetches these bytes once, measures every Label and Text with them (`src/font-metrics.ts`), read with the font's own tables rather than a font library: a full OpenType parser is bigger than the whole budget below. The face the words are drawn in is built from those same bytes, so nothing fetches the file a second time and the drawing always matches the measurement. Give two elements two different files and each measures and draws with its own. |
 
 Every attribute is live. Changing `font` fetches and measures the new file and redraws the Scene in hand in it; a font that will not load leaves the face and the metrics already there, and says so. Changing `scene` or `save` is a new instance of the element: it lets go of the gesture, the half-typed words, the tool in hand, the selection, the history and the writes of the old one, and starts again from its attributes — reading the Scene the `scene` URL names now, whole URL and not file name, and writing nothing until the next edit. Removing `save` rebuilds it read-only, with the Scene still on the canvas.
 

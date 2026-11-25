@@ -473,6 +473,61 @@ test('a plain page with the element and its attributes opens, edits and saves a 
   }
 });
 
+test('an element with no font attribute defaults to Kalam-Regular.ttf beside the bundle', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), { w: WORDS_SOURCE }, { defaultFont: true });
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/no-font.html`);
+
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    expect(embed.requests('/Kalam-Regular.ttf')).toBe(1);
+    expect((await shot(ui)).meanLuminance(WORDS)).toBeLessThan(0.99);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('an element with no font attribute and no file beside the bundle reports the resolved URL', async ({
+  app,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), { w: WORDS_SOURCE });
+  try {
+    await app.open(`${embed.url}/no-font.html`);
+
+    await expect(screen.getByRole('status')).toContainText(`cannot load ${embed.url}/Kalam-Regular.ttf: 404`);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('an explicit font attribute wins over Kalam-Regular.ttf beside the bundle', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), { l: LABEL_SOURCE }, { defaultFont: true });
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/no-font-label.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    const kalamLow = (await shot(ui)).meanLuminance(LABEL_LOW);
+
+    await app.open(`${embed.url}/label-wide.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    expect(embed.requests('/fonts/b.ttf')).toBe(1);
+    const wideLow = (await shot(ui)).meanLuminance(LABEL_LOW);
+
+    expect(wideLow).toBeLessThan(kalamLow);
+  } finally {
+    await embed.stop();
+  }
+});
+
 test('a Scene that is not there opens empty, says so, and is written by the first edit', async ({ app, browser, screen }) => {
   const embed = await startEmbed(await bundleFolder());
   try {
@@ -2257,6 +2312,8 @@ async function writeBundle(): Promise<string> {
     ),
     'label-kalam.html': page(FULL, `<esbozo-editor scene="api/l" save="api/l" font="${FONT}"></esbozo-editor>`, bundle),
     'label-wide.html': page(FULL, `<esbozo-editor scene="api/l" save="api/l" font="fonts/b.ttf"></esbozo-editor>`, bundle),
+    'no-font.html': page(FULL, `<esbozo-editor scene="api/w" save="api/w"></esbozo-editor>`, bundle),
+    'no-font-label.html': page(FULL, `<esbozo-editor scene="api/l" save="api/l"></esbozo-editor>`, bundle),
     'live.html': page(
       FULL,
       `<script type="module" src="${bundle}"></script>
@@ -2321,6 +2378,7 @@ ${bundle === null ? '' : `<script type="module" src="${bundle}"></script>`}
 async function startEmbed(
   folder: string,
   scenes: Record<string, string> = { a: SCENE_SOURCE, b: SCENE_SOURCE },
+  options: { defaultFont?: boolean } = {},
 ): Promise<Embed> {
   const saved = join(folder, 'saved');
   // Every test starts on the Scenes it names, from before any edit.
@@ -2366,6 +2424,10 @@ async function startEmbed(
     }
     await waitOn(path);
 
+    if (path === '/Kalam-Regular.ttf' && options.defaultFont === true) {
+      await send(response, 200, 'font/ttf', await readFile(KALAM));
+      return;
+    }
     if (path.startsWith('/fonts/')) {
       // One file per URL, so two elements that asked for two files can be seen
       // to have drawn with the one each asked for.
