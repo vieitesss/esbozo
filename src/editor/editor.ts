@@ -454,8 +454,13 @@ class EsbozoEditorElement extends HTMLElement {
     // already has is consumed here, not applied.
     this.#menu.addEventListener('click', this.#gestures.menuClickPress, true);
     this.#menu.addEventListener('pointerdown', this.#gestures.menuPress);
-    document.addEventListener('keydown', this.#onKeyDown);
-    document.addEventListener('keyup', this.#onKeyUp);
+    if (this.#ownsKeysWhenFocused) {
+      this.addEventListener('keydown', this.#onKeyDown);
+      this.addEventListener('keyup', this.#onKeyUp);
+    } else {
+      document.addEventListener('keydown', this.#onKeyDown);
+      document.addEventListener('keyup', this.#onKeyUp);
+    }
     // A Space held while the page loses the focus never sends its release: the
     // pan has to end here, or the pointer stays a hand on the way back.
     document.addEventListener('pointerdown', this.#gestures.anyPress);
@@ -478,8 +483,13 @@ class EsbozoEditorElement extends HTMLElement {
     document.removeEventListener('copy', this.#onCopy);
     document.removeEventListener('cut', this.#onCut);
     document.removeEventListener('paste', this.#onPaste);
-    document.removeEventListener('keydown', this.#onKeyDown);
-    document.removeEventListener('keyup', this.#onKeyUp);
+    if (this.#ownsKeysWhenFocused) {
+      this.removeEventListener('keydown', this.#onKeyDown);
+      this.removeEventListener('keyup', this.#onKeyUp);
+    } else {
+      document.removeEventListener('keydown', this.#onKeyDown);
+      document.removeEventListener('keyup', this.#onKeyUp);
+    }
     document.removeEventListener('pointerdown', this.#gestures.anyPress);
     this.#notes.unlisten();
     document.removeEventListener('visibilitychange', this.#onInterrupt);
@@ -906,6 +916,9 @@ class EsbozoEditorElement extends HTMLElement {
   // ----------------------------------------------------------------- keyboard
 
   #onKeyDown = (event: KeyboardEvent): void => {
+    if (this.#ownsKeysWhenFocused) {
+      event.stopPropagation();
+    }
     // A key between two clicks means the person is typing, not double-clicking.
     this.#gestures.forgetClicks();
     if (active !== this || !this.#takesKeys(event.target)) {
@@ -999,6 +1012,9 @@ class EsbozoEditorElement extends HTMLElement {
   };
 
   #onKeyUp = (event: KeyboardEvent): void => {
+    if (this.#ownsKeysWhenFocused) {
+      event.stopPropagation();
+    }
     if (active !== this) {
       return;
     }

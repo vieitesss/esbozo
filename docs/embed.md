@@ -30,7 +30,7 @@ Every attribute is live. Changing `font` fetches and measures the new file and r
 
 One connection per element, numbered, and an answer that arrives for one the page has moved on from — a read, a font, a write — is dropped instead of drawn. A write is bound to the Scene it was made for when it is queued: it goes to that `save` URL and to no other, so an edit queued for the old destination lands there or not at all, and a `403` or a failure from an old connection changes nothing on the page.
 
-The focus is the page's until a person clicks into the editor. The element is focusable, and while the focus is inside it the keys and the clipboard are the editor's; with the focus anywhere else — before the first click, or after clicking the host's own words — <kbd>Space</kbd> and the arrows scroll the page like they do anywhere else.
+The focus is the page's until a person clicks into the editor. The element is focusable, and while the focus is inside it the keys and the clipboard are the editor's: every `keydown` and `keyup` stops at the element, handled or not, so host bubble-phase listeners on `document` or `window` never see them. A host capture-phase listener registered before the bundle still sees the event first. With the focus anywhere else — before the first click, or after clicking the host's own words — <kbd>Space</kbd>, the arrows and the host's own shortcuts work as usual.
 
 A load, a save or a font that fails is the server's or the browser's own words in the status line; the editor stays on screen.
 

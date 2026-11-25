@@ -2311,6 +2311,128 @@ test('a host that sets data-theme late takes over from prefers-color-scheme', as
   }
 });
 
+test('focused embedded editor isolates keydown and keyup from host bubble listeners while leaving capture listeners intact', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder());
+  try {
+    await app.open(`${embed.url}/host.html`);
+    const rectButton = screen.getByRole('button', { name: /Rectangle/ });
+    await expect(rectButton).toBeVisible();
+
+    await browser.evaluate(() => {
+      const log = {
+        docBubbleDown: [] as string[],
+        docBubbleUp: [] as string[],
+        winBubbleDown: [] as string[],
+        winBubbleUp: [] as string[],
+        docCaptureDown: [] as string[],
+      };
+      (window as unknown as { __hostKeys: typeof log }).__hostKeys = log;
+      document.addEventListener('keydown', (e) => log.docBubbleDown.push(e.key));
+      document.addEventListener('keyup', (e) => log.docBubbleUp.push(e.key));
+      window.addEventListener('keydown', (e) => log.winBubbleDown.push(e.key));
+      window.addEventListener('keyup', (e) => log.winBubbleUp.push(e.key));
+      document.addEventListener('keydown', (e) => log.docCaptureDown.push(e.key), true);
+      return null;
+    });
+
+    const readLog = () =>
+      browser.evaluate(() => {
+        const log = (
+          window as unknown as {
+            __hostKeys: {
+              docBubbleDown: string[];
+              docBubbleUp: string[];
+              winBubbleDown: string[];
+              winBubbleUp: string[];
+              docCaptureDown: string[];
+            };
+          }
+        ).__hostKeys;
+        return {
+          docBubbleDown: [...log.docBubbleDown],
+          docBubbleUp: [...log.docBubbleUp],
+          winBubbleDown: [...log.winBubbleDown],
+          winBubbleUp: [...log.winBubbleUp],
+          docCaptureDown: [...log.docCaptureDown],
+        };
+      });
+
+    const clearLog = () =>
+      browser.evaluate(() => {
+        const log = (
+          window as unknown as {
+            __hostKeys: {
+              docBubbleDown: string[];
+              docBubbleUp: string[];
+              winBubbleDown: string[];
+              winBubbleUp: string[];
+              docCaptureDown: string[];
+            };
+          }
+        ).__hostKeys;
+        log.docBubbleDown.length = 0;
+        log.docBubbleUp.length = 0;
+        log.winBubbleDown.length = 0;
+        log.winBubbleUp.length = 0;
+        log.docCaptureDown.length = 0;
+        return null;
+      });
+
+    // Before focusing the editor, host bubble listeners see keys normally.
+    await browser.keyboard.press('k');
+    const beforeFocus = await readLog();
+    expect(beforeFocus.docBubbleDown).toEqual(['k']);
+    expect(beforeFocus.docBubbleUp).toEqual(['k']);
+    expect(beforeFocus.winBubbleDown).toEqual(['k']);
+    expect(beforeFocus.winBubbleUp).toEqual(['k']);
+
+    // Focus the editor by clicking inside it.
+    await browser.mouse.move(200, 260);
+    await browser.mouse.down();
+    await browser.mouse.up();
+    await clearLog();
+
+    // Tool shortcut, unhandled key, and Escape: editor handles its own keys,
+    // host bubble listeners see none of them, host capture listener still sees all.
+    await browser.keyboard.press('r');
+    await expect(rectButton).toHaveAttribute('aria-pressed', 'true');
+    await browser.keyboard.press('k');
+    await browser.keyboard.press('Escape');
+    await expect(rectButton).toHaveAttribute('aria-pressed', 'false');
+
+    // Typing a Text inside the editor: host bubble listeners still see nothing.
+    await browser.keyboard.press('t');
+    await browser.mouse.move(260, 280);
+    await browser.mouse.down();
+    await browser.mouse.up();
+    await browser.keyboard.type('hi');
+    await browser.keyboard.press('Escape');
+
+    const whileFocused = await readLog();
+    expect(whileFocused.docBubbleDown).toEqual([]);
+    expect(whileFocused.docBubbleUp).toEqual([]);
+    expect(whileFocused.winBubbleDown).toEqual([]);
+    expect(whileFocused.winBubbleUp).toEqual([]);
+    expect(whileFocused.docCaptureDown).toEqual(['r', 'k', 'Escape', 't', 'h', 'i', 'Escape']);
+
+    // After clicking outside the editor, host bubble listeners see keys again.
+    await screen.getByText("Someone else's page").click();
+    await clearLog();
+    await browser.keyboard.press('k');
+    const afterBlur = await readLog();
+    expect(afterBlur.docBubbleDown).toEqual(['k']);
+    expect(afterBlur.docBubbleUp).toEqual(['k']);
+    expect(afterBlur.winBubbleDown).toEqual(['k']);
+    expect(afterBlur.winBubbleUp).toEqual(['k']);
+  } finally {
+    await embed.stop();
+  }
+});
+
 /**
  * The bundle, the fonts and the pages, in one folder a server can hand out.
  * `ez bundle` builds nothing: it copies the editor `pnpm build` made, so this

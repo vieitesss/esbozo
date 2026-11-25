@@ -243,7 +243,12 @@ export class TextSession {
       return;
     }
     this.#open = false;
+    const hadFocus = document.activeElement === this.#input;
+    const host = this.#input.parentElement;
     this.#input.remove();
+    if (hadFocus && host !== null && host.hasAttribute('tabindex')) {
+      host.focus({ preventScroll: true });
+    }
     this.#ended();
   }
 
