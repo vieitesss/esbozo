@@ -28,9 +28,10 @@
  * The stylesheet is the editor page's (`editor.css`), whose every rule is rooted
  * at `esbozo-editor`: the host page keeps its own margins, its own scrolling and
  * its own variables, and the element is a box in its content. The light and dark
- * variables come with the sheet, so a host that wants the dark theme sets
- * `data-theme="dark"` on its `<html>`, and a host that wants the element a
- * different size overrides its height with a rule of its own.
+ * variables come with the sheet: when `<html>` has no `data-theme` attribute,
+ * the bundle follows `prefers-color-scheme` live; when `data-theme` is set (to
+ * `"dark"` or anything else), it wins. A host that wants the element a different
+ * size overrides its height with a rule of its own.
  *
  * The element is registered here, once, whatever the page holds: an element
  * parsed later upgrades like any other custom element, and each one reads its
@@ -139,6 +140,22 @@ function useFace(element: HTMLElement, face: FontFace): void {
 }
 
 /**
+ * Mirror every `[data-theme="dark"]` rule in `STYLES` under
+ * `@media (prefers-color-scheme: dark)` for hosts that leave `data-theme` off
+ * `<html>`, so the dark palette has one source of truth (`editor.css`).
+ */
+function systemDarkRules(): string {
+  const rules: string[] = [];
+  for (const match of STYLES.matchAll(/\[data-theme=["']?dark["']?\]([^{]+\{[^}]+\})/g)) {
+    const rule = match[1];
+    if (rule !== undefined) {
+      rules.push(`html:not([data-theme])${rule}`);
+    }
+  }
+  return rules.length > 0 ? `@media (prefers-color-scheme: dark){${rules.join('')}}` : '';
+}
+
+/**
  * The editor's own look, first in the head so a host's own rules win, with the
  * two handles a page with a single Scene has no use for hidden: there is no
  * folder to browse and no second Scene to make.
@@ -147,6 +164,6 @@ function addStylesheet(): void {
   const single = `esbozo-editor .status [data-act="open"],
 esbozo-editor .note { display: none; }`;
   const style = document.createElement('style');
-  style.textContent = `${STYLES}\n${single}`;
+  style.textContent = `${STYLES}\n${systemDarkRules()}\n${single}`;
   document.head.prepend(style);
 }

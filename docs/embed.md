@@ -64,7 +64,7 @@ esbozo-editor { height: 70vh }
 
 Every rule the bundle writes is rooted at `esbozo-editor`, so the host page keeps its own margins, its own font, its own scrolling and its own custom properties: the editor's palette (`--ink`, `--paper`, `--font-hand` and the rest) is declared on the element, not on `:root`. The injected stylesheet goes in first, so a host rule of the same specificity wins.
 
-The theme follows `<html data-theme>`: set `"dark"` for dark paper. The bundle does not follow `prefers-color-scheme` on its own, because a host page has usually decided that already.
+When `<html data-theme>` is absent, the bundle follows `prefers-color-scheme` live. When `data-theme` is set on `<html>` (including late, after load), it wins over `prefers-color-scheme`: `"dark"` draws dark paper and any other value draws light.
 
 A host that scales the element with CSS `transform: scale(...)` or `zoom` works as-is: pointer positions and layout measurements convert through the element's scale.
 

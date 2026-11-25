@@ -2229,6 +2229,88 @@ function xOf(source: string, id: string): number | undefined {
   return (JSON.parse(source) as SavedScene).elements.find((element) => element.id === id)?.x;
 }
 
+test('a host with no data-theme and a light preference draws light paper', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  const embed = await startEmbed(await bundleFolder());
+  try {
+    await browser.emulateMedia({ colorScheme: 'light' });
+    await browser.goto(`${embed.url}/embedded.html`);
+    await screen.getByRole('button', 'Select').waitFor({ state: 'visible' });
+    await settle(ui);
+
+    expect((await shot(ui)).meanLuminance(PAPER)).toBeGreaterThan(0.85);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('a host with no data-theme follows prefers-color-scheme: dark live', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  const embed = await startEmbed(await bundleFolder());
+  try {
+    await browser.emulateMedia({ colorScheme: 'dark' });
+    await browser.goto(`${embed.url}/embedded.html`);
+    await screen.getByRole('button', 'Select').waitFor({ state: 'visible' });
+    await settle(ui);
+
+    expect((await shot(ui)).meanLuminance(PAPER)).toBeLessThan(0.4);
+
+    // Changing the system preference live updates the paper.
+    await browser.emulateMedia({ colorScheme: 'light' });
+    await expect.poll(async () => (await shot(ui)).meanLuminance(PAPER)).toBeGreaterThan(0.85);
+    await browser.emulateMedia({ colorScheme: 'dark' });
+    await expect.poll(async () => (await shot(ui)).meanLuminance(PAPER)).toBeLessThan(0.4);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('data-theme on <html> wins over prefers-color-scheme in both directions', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  const embed = await startEmbed(await bundleFolder());
+  try {
+    await browser.emulateMedia({ colorScheme: 'light' });
+    await browser.goto(`${embed.url}/theme-dark.html`);
+    await screen.getByRole('button', 'Select').waitFor({ state: 'visible' });
+    await settle(ui);
+    expect((await shot(ui)).meanLuminance(PAPER)).toBeLessThan(0.4);
+
+    await browser.emulateMedia({ colorScheme: 'dark' });
+    await browser.goto(`${embed.url}/theme-light.html`);
+    await screen.getByRole('button', 'Select').waitFor({ state: 'visible' });
+    await settle(ui);
+    expect((await shot(ui)).meanLuminance(PAPER)).toBeGreaterThan(0.85);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('a host that sets data-theme late takes over from prefers-color-scheme', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  const embed = await startEmbed(await bundleFolder());
+  try {
+    await browser.emulateMedia({ colorScheme: 'dark' });
+    await browser.goto(`${embed.url}/embedded.html`);
+    await screen.getByRole('button', 'Select').waitFor({ state: 'visible' });
+    await settle(ui);
+    expect((await shot(ui)).meanLuminance(PAPER)).toBeLessThan(0.4);
+
+    await browser.evaluate(() => {
+      document.documentElement.dataset['theme'] = 'light';
+      return null;
+    });
+    await expect.poll(async () => (await shot(ui)).meanLuminance(PAPER)).toBeGreaterThan(0.85);
+
+    await browser.evaluate(() => {
+      document.documentElement.dataset['theme'] = 'dark';
+      return null;
+    });
+    await expect.poll(async () => (await shot(ui)).meanLuminance(PAPER)).toBeLessThan(0.4);
+  } finally {
+    await embed.stop();
+  }
+});
+
 /**
  * The bundle, the fonts and the pages, in one folder a server can hand out.
  * `ez bundle` builds nothing: it copies the editor `pnpm build` made, so this
@@ -2354,6 +2436,18 @@ async function writeBundle(): Promise<string> {
       `<esbozo-editor scene="api/scaled-zoom" save="api/scaled-zoom" font="${FONT}"></esbozo-editor>`,
       bundle,
     ),
+    'theme-dark.html': page(
+      FULL,
+      `<esbozo-editor scene="api/a" save="api/a" font="${FONT}"></esbozo-editor>`,
+      bundle,
+      ' data-theme="dark"',
+    ),
+    'theme-light.html': page(
+      FULL,
+      `<esbozo-editor scene="api/a" save="api/a" font="${FONT}"></esbozo-editor>`,
+      bundle,
+      ' data-theme="light"',
+    ),
   };
   for (const [name, html] of Object.entries(pages)) {
     await writeFile(join(folder, name), html, 'utf8');
@@ -2362,9 +2456,9 @@ async function writeBundle(): Promise<string> {
 }
 
 /** A page with its own rules, its element and the module, and nothing else. */
-function page(style: string, markup: string, bundle: string | null): string {
+function page(style: string, markup: string, bundle: string | null, htmlAttrs = ''): string {
   return `<!doctype html>
-<html lang="en">
+<html lang="en"${htmlAttrs}>
 <head><meta charset="utf-8" /><title>embedded esbozo</title><style>${style}</style></head>
 <body>
 ${markup}
