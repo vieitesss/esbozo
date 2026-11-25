@@ -697,17 +697,38 @@ interface RailDock {
 /** The side of the frame the rail docks on: top and bottom lie along it, left and right stand up it (D1). */
 export type RailSide = 'top' | 'bottom' | 'left' | 'right';
 
+/** The orientation the floating rail rests in: horizontal or vertical. */
+export type RailOrientation = 'lying' | 'standing';
+
 /**
  * The pencil outline the rail wears, as the rail box cannot measure it: the
  * strip is wider and taller than the box it turns about.
  */
-interface RailOutline {
+export interface RailOutline {
   /** How wide the outline is, in screen pixels. */
   readonly width: number;
   /** How tall the outline is, in screen pixels. */
   readonly height: number;
   /** How far the outline hangs outside the rail's box on every side. */
   readonly overhang: number;
+}
+
+/** The lying and standing pencil outlines of the rail. */
+export interface RailOutlines {
+  readonly lying: RailOutline;
+  readonly standing: RailOutline;
+}
+
+/** Where a floating rail rests in the editor's box. */
+export interface PlacedRail {
+  /** The strip's own box left edge (excluding overhang), in screen pixels. */
+  readonly x: number;
+  /** The strip's own box top edge (excluding overhang), in screen pixels. */
+  readonly y: number;
+  /** The strip's centre, in screen pixels. */
+  readonly centre: Point;
+  /** The orientation the strip rests in after fit fallback. */
+  readonly orientation: RailOrientation;
 }
 
 /** The smallest frame a diagram gets on screen (D2). */
@@ -721,7 +742,10 @@ const RAIL_GAP = 16;
  * How far inside the editor's edges the rail stops: inside the edge the frame
  * leaves no room at (D2), and inside an edge a resize has carried it past (D3).
  */
-const RAIL_INSET = 15;
+const RAIL_INSET = 16;
+
+/** Perpendicular distance from a diagonal within which the current orientation holds. */
+const RAIL_HOLD_BAND = 16;
 
 /**
  * The frame around a Scene's diagram, and where that side's dock sits on it.
@@ -1061,3 +1085,155 @@ function emptyFrame(editor: Box): Box {
     height,
   };
 }
+
+/**
+ * Orientation of a point in the editor's box: the two corner-to-corner diagonals
+ * split the box into four spaces; top and bottom lie, left and right stand.
+ * When a current orientation is given, it holds while the point is within 16px
+ * (perpendicular distance) of either diagonal.
+ */
+export function railOrientation(
+  at: Point,
+  editor: { width: number; height: number },
+  current?: RailOrientation,
+): RailOrientation {
+  const diagonal = Math.hypot(editor.width, editor.height);
+  if (diagonal === 0) {
+    return current ?? 'lying';
+  }
+  const dx = at.x - editor.width / 2;
+  const dy = at.y - editor.height / 2;
+  if (current !== undefined) {
+    const d1 = Math.abs(editor.height * dx - editor.width * dy) / diagonal;
+    const d2 = Math.abs(editor.height * dx + editor.width * dy) / diagonal;
+    if (Math.min(d1, d2) <= RAIL_HOLD_BAND) {
+      return current;
+    }
+  }
+  return editor.width * Math.abs(dy) >= editor.height * Math.abs(dx) ? 'lying' : 'standing';
+}
+
+/** Whether an outline fits inside the editor with `RAIL_INSET` on every side. */
+function outlineFits(outline: RailOutline, editor: { width: number; height: number }): boolean {
+  return (
+    outline.width + RAIL_INSET * 2 <= editor.width &&
+    outline.height + RAIL_INSET * 2 <= editor.height
+  );
+}
+
+/** Clamp a coordinate to `[min, max]`, or centre it when `max < min`. */
+function clampCoord(value: number, min: number, max: number, centred: number): number {
+  if (max < min) {
+    return centred;
+  }
+  return Math.max(min, Math.min(value, max));
+}
+
+/**
+ * Where a floating rail rests: fits the orientation (falling back to the other,
+ * or lying if neither fits), keeps the pencil outline inside the editor with
+ * `RAIL_INSET` from each edge, and moves it off every status chrome box.
+ */
+export function placeRail(
+  requestedCentre: Point,
+  requestedOrientation: RailOrientation,
+  outlines: RailOutlines,
+  editor: { width: number; height: number },
+  chrome: readonly Box[],
+): PlacedRail {
+  const other: RailOrientation = requestedOrientation === 'lying' ? 'standing' : 'lying';
+  const orientation: RailOrientation = outlineFits(outlines[requestedOrientation], editor)
+    ? requestedOrientation
+    : outlineFits(outlines[other], editor)
+      ? other
+      : 'lying';
+  const outline = outlines[orientation];
+  const minX = RAIL_INSET;
+  const maxX = editor.width - RAIL_INSET - outline.width;
+  const minY = RAIL_INSET;
+  const maxY = editor.height - RAIL_INSET - outline.height;
+  const centreX = (editor.width - outline.width) / 2;
+  const centreY = (editor.height - outline.height) / 2;
+
+  const baseX = clampCoord(requestedCentre.x - outline.width / 2, minX, maxX, centreX);
+  const baseY = clampCoord(requestedCentre.y - outline.height / 2, minY, maxY, centreY);
+  const baseBox: Box = { x: baseX, y: baseY, width: outline.width, height: outline.height };
+
+  let bestX = baseX;
+  let bestY = baseY;
+
+  if (chrome.some((box) => overlaps(baseBox, box))) {
+    const xs = new Set<number>([baseX]);
+    const ys = new Set<number>([baseY]);
+    for (const box of chrome) {
+      xs.add(clampCoord(box.x - outline.width, minX, maxX, centreX));
+      xs.add(clampCoord(box.x + box.width, minX, maxX, centreX));
+      ys.add(clampCoord(box.y - outline.height, minY, maxY, centreY));
+      ys.add(clampCoord(box.y + box.height, minY, maxY, centreY));
+    }
+
+    let bestClearDist = Infinity;
+    let bestOverlapArea = Infinity;
+    let bestOverlapDist = Infinity;
+
+    for (const x of xs) {
+      for (const y of ys) {
+        const candidate: Box = { x, y, width: outline.width, height: outline.height };
+        const dist = (x - baseX) * (x - baseX) + (y - baseY) * (y - baseY);
+        if (chrome.every((box) => !overlaps(candidate, box))) {
+          if (dist < bestClearDist) {
+            bestClearDist = dist;
+            bestX = x;
+            bestY = y;
+          }
+        } else if (bestClearDist === Infinity) {
+          const area = covered(candidate, chrome);
+          if (area < bestOverlapArea || (area === bestOverlapArea && dist < bestOverlapDist)) {
+            bestOverlapArea = area;
+            bestOverlapDist = dist;
+            bestX = x;
+            bestY = y;
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    x: bestX + outline.overhang,
+    y: bestY + outline.overhang,
+    centre: { x: bestX + outline.width / 2, y: bestY + outline.height / 2 },
+    orientation,
+  };
+}
+
+/**
+ * The centre and orientation that put the rail at the middle of an editor edge,
+ * `RAIL_INSET` in (top and bottom lie, left and right stand).
+ */
+export function railEdgeMiddle(
+  side: RailSide,
+  outlines: RailOutlines,
+  editor: { width: number; height: number },
+): { centre: Point; orientation: RailOrientation } {
+  const orientation: RailOrientation = side === 'top' || side === 'bottom' ? 'lying' : 'standing';
+  const outline = outlines[orientation];
+  switch (side) {
+    case 'top':
+      return { centre: { x: editor.width / 2, y: RAIL_INSET + outline.height / 2 }, orientation };
+    case 'bottom':
+      return {
+        centre: { x: editor.width / 2, y: editor.height - RAIL_INSET - outline.height / 2 },
+        orientation,
+      };
+    case 'left':
+      return { centre: { x: RAIL_INSET + outline.width / 2, y: editor.height / 2 }, orientation };
+    case 'right':
+      return {
+        centre: { x: editor.width - RAIL_INSET - outline.width / 2, y: editor.height / 2 },
+        orientation,
+      };
+  }
+}
+
+export { readRailPlace, writeRailPlace } from './rail-preference.js';
