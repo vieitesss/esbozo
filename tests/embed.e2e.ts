@@ -2730,6 +2730,29 @@ test('remounting with a different font.url fetches the new font', async ({
   }
 });
 
+test('mount() shows a where label without a leading slash', async ({ app, screen }) => {
+  const embed = await startEmbed(await bundleFolder(), {});
+  try {
+    await app.open(`${embed.url}/mounted.html`);
+    await expect(screen.getByRole('status')).toHaveText('new Scene');
+    const where = (await screen.getByText(/scene\.esbozo/).textContent())?.trim() ?? '';
+    expect(where.startsWith('/')).toBe(false);
+  } finally {
+    await embed.stop();
+  }
+});
+
+test('mount() after parse fetches the default font once', async ({ app, screen }) => {
+  const embed = await startEmbed(await bundleFolder(), {}, { defaultFont: true });
+  try {
+    await app.open(`${embed.url}/mounted-default-font.html`);
+    await expect(screen.getByRole('status')).toHaveText('new Scene');
+    expect(embed.requests('/Kalam-Regular.ttf')).toBe(1);
+  } finally {
+    await embed.stop();
+  }
+});
+
 /**
  * The bundle, the fonts and the pages, in one folder a server can hand out.
  * `ez bundle` builds nothing: it copies the editor `pnpm build` made, so this
@@ -2986,6 +3009,15 @@ async function writeBundle(): Promise<string> {
   const load = () => null;
   window.__mountFont = (url) => mount(el, { font: { url }, load });
   window.__mountFont('${FONT}');
+</script>`,
+      null,
+    ),
+    'mounted-default-font.html': page(
+      FULL,
+      `<esbozo-editor></esbozo-editor>
+<script type="module">
+  import { mount } from './${bundle}';
+  mount(document.querySelector('esbozo-editor'), { load: () => null });
 </script>`,
       null,
     ),
