@@ -34,6 +34,52 @@ The focus is the page's until a person clicks into the editor. The element is fo
 
 A load, a save or a font that fails is the server's or the browser's own words in the status line; the editor stays on screen.
 
+## Storage functions: `mount()`
+
+When a Scene does not live behind `GET` and `PUT` URLs, import `mount` from the bundle and pass storage functions to an `<esbozo-editor>` element.
+
+```js
+import { mount } from '/esbozo-0.0.0.js';
+```
+
+`mount(element, options)` accepts an object with three fields:
+
+```ts
+interface MountOptions {
+  readonly font?: { readonly url: string };
+  readonly load: () => Promise<string | null> | string | null;
+  readonly save?: (scene: string, svg: string) => Promise<void> | void;
+}
+```
+
+Attributes take precedence over `mount()` options:
+
+- If the `scene` attribute is present, the element reads and writes through its URL attributes and ignores `load` and `save`.
+- Font resolution checks the `font` attribute first, then `options.font.url`, and falls back to `./Kalam-Regular.ttf` beside the bundle.
+- Calling `mount()` on an already connected element rebuilds it with the new options.
+
+Omit `save` to open the editor in read-only mode. The editor displays `read-only` in the status line and refuses edits.
+
+Writes queue one at a time per element. If `save` throws or returns a rejected Promise, the status line shows the error message and the element dispatches `esbozo:save` with `state: 'failed'` and `detail` set to that message.
+
+The following example stores a Scene and its rendered SVG in `localStorage`:
+
+```html
+<esbozo-editor id="sketch"></esbozo-editor>
+<script type="module">
+  import { mount } from '/esbozo-0.0.0.js';
+
+  const key = 'my-sketch';
+  mount(document.getElementById('sketch'), {
+    load: () => localStorage.getItem(key),
+    save: (scene, svg) => {
+      localStorage.setItem(key, scene);
+      localStorage.setItem(`${key}:svg`, svg);
+    },
+  });
+</script>
+```
+
 ## Events
 
 `<esbozo-editor>` dispatches a `CustomEvent` named `esbozo:save` on the element whenever its saved state changes (both the bundle and the served page dispatch it; the status line is unchanged). It does not bubble (`bubbles: false`, `composed: false`) and is not cancelable, so attach listeners directly on the element:
