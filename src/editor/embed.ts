@@ -44,7 +44,7 @@
 import { createLayout } from '../layout.js';
 import { measureFontBytes } from '../font-metrics.js';
 import { DEFAULT_SCENE_FILE_NAME } from '../paths.js';
-import { defineEditorElement } from './editor.js';
+import { defineEditorElement, rebuildEditorElement } from './editor.js';
 import type { PageFont } from './editor.js';
 import type { SceneFolder } from './files.js';
 import { sceneFolder } from './scene-url.js';
@@ -71,11 +71,25 @@ const writes = new WeakMap<HTMLElement, Promise<void>>();
  * @public
  */
 export function mount(element: HTMLElement, options: MountOptions): void {
+  const previous = mounts.get(element);
+  if (previous === options) {
+    return;
+  }
   mounts.set(element, options);
-  if (element.isConnected) {
-    (
-      element as HTMLElement & { attributeChangedCallback?: (name: string) => void }
-    ).attributeChangedCallback?.('scene');
+  if (!element.isConnected || attributeOf(element, 'scene') !== null) {
+    return;
+  }
+  const fontChanged =
+    previous !== undefined &&
+    previous.font?.url !== options.font?.url &&
+    attributeOf(element, 'font') === null;
+  const storageChanged =
+    previous === undefined || previous.load !== options.load || previous.save !== options.save;
+  if (fontChanged) {
+    rebuildEditorElement(element, 'font');
+  }
+  if (storageChanged) {
+    rebuildEditorElement(element, 'scene');
   }
 }
 

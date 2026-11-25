@@ -526,16 +526,25 @@ class EsbozoEditorElement extends HTMLElement {
    * hand is dropped first.
    */
   attributeChangedCallback(name: string): void {
+    this.rebuild(name === 'font' ? 'font' : 'scene');
+  }
+
+  /**
+   * Re-read the font or reconnect the Scene on a running editor. `font` keeps
+   * the Scene in hand and remeasures; `scene` drops the connection in hand and
+   * opens the new one.
+   */
+  rebuild(what: 'scene' | 'font'): void {
     if (this.#canvas === undefined) {
       // Attributes written before the element was connected: nothing to drop,
       // and `connectedCallback` brings it up on them.
       return;
     }
-    if (name === 'font' && this.#connection.ready) {
+    if (what === 'font' && this.#connection.ready) {
       void this.#connection.remeasure();
       return;
     }
-    if (name !== 'font') {
+    if (what !== 'font') {
       // Another instance of the element: the connection in hand goes with it,
       // and `forget` is what that hands back to the page.
       this.#connection.reset();
@@ -1326,4 +1335,14 @@ export function defineEditorElement(
       }
     },
   );
+}
+
+/**
+ * Trigger a font remeasure or Scene reconnect on a registered `<esbozo-editor>`.
+ * Used by the embed bundle's `mount()`; not exposed on the element's public API.
+ */
+export function rebuildEditorElement(element: HTMLElement, what: 'scene' | 'font'): void {
+  if (element instanceof EsbozoEditorElement) {
+    element.rebuild(what);
+  }
 }
