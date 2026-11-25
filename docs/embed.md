@@ -3,7 +3,8 @@
 `ez bundle <dir>` writes the editor as one ES module, `<dir>/esbozo-<version>.js`, so a page that is not esbozo's own can hold it with a tag. The version is the one in `package.json`; an existing file of the same name is replaced, so a page pins the bundle with a one-file diff and a reviewer sees which editor version it pinned.
 
 ```sh
-ez bundle public/          # public/esbozo-0.0.0.js
+ez bundle public/                                          # public/esbozo-0.0.0.js
+cp node_modules/esbozo/fonts/Kalam-Regular.ttf public/     # beside the bundle
 ```
 
 ```html
@@ -12,6 +13,8 @@ ez bundle public/          # public/esbozo-0.0.0.js
   save="/api/scenes/flow.esbozo"></esbozo-editor>
 <script type="module" src="/esbozo-0.0.0.js"></script>
 ```
+
+A host serving the font elsewhere sets `font` to its URL.
 
 The module registers `<esbozo-editor>` and injects the editor's stylesheet, so the page needs no second file and no build step. It registers the element whatever the page holds at the time, so the tag may be anywhere — before the script, after it, or made by a script of its own later — and it reads each element's attributes whenever they change.
 
