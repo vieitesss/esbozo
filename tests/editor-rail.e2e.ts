@@ -1618,3 +1618,140 @@ test('in an editor too short for a standing strip, a drop in the left space fall
   expect(ink.y + ink.height, 'the strip stays inside the bottom edge').toBeLessThanOrEqual(240);
 });
 
+test('mid-drag, no outline appears at any other edge: the only rail ink is the strip itself', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+
+  const opened = await railPlace(ui, TOP_BAND);
+  const grip = tileCentre(boxOfPlace(opened), 1);
+
+  // Sample the four edge middles away from the mid-drag pointer (780, 360).
+  const topEdge: Rect = { x: 460, y: 8, width: 360, height: 80 };
+  const bottomEdge: Rect = { x: 460, y: 712, width: 360, height: 80 };
+  const leftEdge: Rect = { x: 8, y: 220, width: 80, height: 360 };
+  const rightEdge: Rect = { x: 1192, y: 220, width: 80, height: 360 };
+  const midBand: Rect = { x: 560, y: 260, width: 460, height: 180 };
+
+  const before = await shot(ui);
+
+  await browser.mouse.move(grip.x, grip.y);
+  await browser.mouse.down();
+  await browser.mouse.move(780, 360);
+  await settle(ui);
+
+  const during = await shot(ui);
+  expect(during.darkBounds(midBand, 0.6), 'the strip itself is drawn at the pointer mid-drag').not.toBeNull();
+  expect(during.darkBounds(topEdge, 0.7), 'no outline stays behind at the top edge mid-drag').toBeNull();
+  expect(during.darkCount(topEdge, 0.85), 'the strip left the top edge').toBeLessThan(
+    before.darkCount(topEdge, 0.85) / 4,
+  );
+  expect(during.darkCount(bottomEdge, 0.85), 'no outline appears at the bottom edge mid-drag').toBe(
+    before.darkCount(bottomEdge, 0.85),
+  );
+  expect(during.darkCount(leftEdge, 0.85), 'no outline appears at the left edge mid-drag').toBe(
+    before.darkCount(leftEdge, 0.85),
+  );
+  expect(during.darkCount(rightEdge, 0.85), 'no outline appears at the right edge mid-drag').toBe(
+    before.darkCount(rightEdge, 0.85),
+  );
+
+  await browser.mouse.up();
+});
+
+test('dragging a standing strip from the left space into the top space lays it down under the grabbed tile', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+  await placeRailAtEdge(ui, 'left');
+
+  const stood = await railInk(ui, { x: 0, y: 180, width: 120, height: 440 });
+  expect(stood.height, 'the strip starts standing on the left').toBeGreaterThan(stood.width * 2);
+
+  // Tile 5 is Line: grab it off-centre on the standing strip and drag into the top space.
+  const grip = { x: stood.x + stood.width / 2, y: stood.y + 7 + 8 + 5 * 31 + 15 };
+  const drop = { x: 640, y: 180 };
+
+  await drag(ui, grip, drop);
+  await settle(ui);
+
+  const laid = await railInk(ui, { x: 360, y: 100, width: 560, height: 160 });
+  expect(laid.width, 'the strip lays down in the top space').toBeGreaterThan(laid.height * 2);
+  expect(drop.x, 'the strip encloses the drop point horizontally').toBeGreaterThanOrEqual(laid.x);
+  expect(drop.x, 'the strip encloses the drop point horizontally').toBeLessThanOrEqual(laid.x + laid.width);
+  expect(drop.y, 'the strip encloses the drop point vertically').toBeGreaterThanOrEqual(laid.y);
+  expect(drop.y, 'the strip encloses the drop point vertically').toBeLessThanOrEqual(laid.y + laid.height);
+  expect((await keptPlace(ui))?.orientation, 'the stored orientation is lying').toBe('lying');
+
+  await browser.mouse.move(drop.x, drop.y);
+  await browser.mouse.down();
+  await browser.mouse.up();
+  await expect(
+    rail(ui).getByRole('button', { name: 'Line', pressed: true }),
+    'the tile under the pointer at the press is still under it after the turn',
+  ).toBeVisible();
+});
+
+test('a strip dropped over a drawn box shows its own ink on top', async ({ app, browser, screen }) => {
+  const ui = { app, browser, screen };
+  const darkBox = JSON.stringify(
+    {
+      version: 1,
+      title: 'Dark',
+      defaults: { roughness: 0 },
+      elements: [
+        {
+          id: 'box',
+          type: 'rectangle',
+          x: 0,
+          y: 0,
+          width: 600,
+          height: 360,
+          fill: { kind: 'solid', grey: 6 },
+        },
+      ],
+    },
+    null,
+    2,
+  );
+  await openEditor(ui, { A: { 'dark.json': darkBox } }, 'dark.json');
+  await settle(ui);
+
+  const opened = await railPlace(ui, { x: 400, y: 0, width: 480, height: 100 });
+  const drop = { x: 640, y: 340 };
+  const targetSample: Rect = {
+    x: drop.x - 90,
+    y: drop.y - 16,
+    width: 180,
+    height: 32,
+  };
+
+  const before = await shot(ui);
+  const boxLook = before.meanLuminance(targetSample);
+  expect(boxLook, 'the drawn box is dark where the strip will land').toBeLessThan(0.25);
+
+  await drag(ui, tileCentre(boxOfPlace(opened), 3), drop);
+  await rail(ui).getByRole('button', 'Select').focus();
+  await fullInk(ui);
+
+  const after = await shot(ui);
+  const overLook = after.meanLuminance(targetSample);
+  expect(overLook, 'the strip’s own ink paints on top of the dark box').toBeGreaterThan(boxLook + 0.15);
+
+  // Clicking where the strip rests picks its tile rather than the box underneath.
+  await browser.mouse.move(drop.x, drop.y);
+  await browser.mouse.down();
+  await browser.mouse.up();
+  await expect(
+    rail(ui).getByRole('button', { name: 'Diamond', pressed: true }),
+    'a press on the strip over the box hits the strip on top',
+  ).toBeVisible();
+});
+
+
