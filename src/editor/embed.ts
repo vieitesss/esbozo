@@ -4,7 +4,7 @@
  *   <esbozo-editor scene="scene.esbozo" save="save"></esbozo-editor>
  *   <script type="module" src="esbozo-0.0.0.js"></script>
  *
- * Three attributes, and nothing else:
+ * Three attributes cover the URL case:
  *
  *   scene  a URL a GET answers the Scene's source on
  *   save   a URL a PUT takes the write `ez serve`'s API takes, `{ scene, svg }`.
@@ -47,7 +47,7 @@ import { DEFAULT_SCENE_FILE_NAME } from '../paths.js';
 import { defineEditorElement, rebuildEditorElement } from './editor.js';
 import type { PageFont } from './editor.js';
 import type { SceneFolder } from './files.js';
-import { sceneFolder } from './scene-url.js';
+import { enqueueWrite, sceneFolder } from './scene-url.js';
 import STYLES from './editor.css';
 
 /**
@@ -64,7 +64,6 @@ export interface MountOptions {
 }
 
 const mounts = new WeakMap<HTMLElement, MountOptions>();
-const writes = new WeakMap<HTMLElement, Promise<void>>();
 
 /**
  * Bind an `<esbozo-editor>` element to host-supplied `load`/`save` functions.
@@ -196,25 +195,12 @@ function functionFolder(element: HTMLElement, options: MountOptions): SceneFolde
         throw new Error('this editor is read-only');
       }
       try {
-        await queueWrite(element, () => save(scene, svg));
+        await enqueueWrite(element, () => save(scene, svg));
       } catch (reason) {
         throw asError(reason);
       }
     },
   };
-}
-
-function queueWrite(element: HTMLElement, run: () => Promise<void> | void): Promise<void> {
-  const before = writes.get(element) ?? Promise.resolve();
-  const sending = before.then(run, run);
-  writes.set(
-    element,
-    sending.then(
-      () => undefined,
-      () => undefined,
-    ),
-  );
-  return sending;
 }
 
 /** How many faces this page has made: each one is a family of its own. */
