@@ -2535,6 +2535,41 @@ test('esbozo:save fires saving then saved on autosave, failed on refusal, and id
   }
 });
 
+test('mount() backs an attribute-free element with load/save over localStorage', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), {});
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/mounted.html`);
+    await expect(screen.getByRole('status')).toHaveText('new Scene');
+
+    await screen.getByRole('button', { name: 'Rectangle', exact: true }).click();
+    await drag(ui, at({ x: 120, y: 120 }, EMPTY), at({ x: 320, y: 240 }, EMPTY));
+    await expect(screen.getByRole('status')).toHaveText('saved');
+
+    const stored = await browser.evaluate(() => ({
+      scene: localStorage.getItem('esbozo-mounted-scene'),
+      svg: localStorage.getItem('esbozo-mounted-scene:svg'),
+    }));
+    expect(stored.scene).not.toBeNull();
+    const parsed = JSON.parse(stored.scene ?? '{}') as { elements?: { type: string }[] };
+    expect(parsed.elements?.length).toBe(1);
+    expect(parsed.elements?.[0]?.type).toBe('rectangle');
+    expect(stored.svg).toContain('<svg');
+
+    // Reloading reads the saved Scene back from localStorage and draws it.
+    await app.open(`${embed.url}/mounted.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+    await settle(ui);
+    expect((await shot(ui)).darkBounds(DRAWING, 0.6)).not.toBeNull();
+  } finally {
+    await embed.stop();
+  }
+});
+
 /**
  * The bundle, the fonts and the pages, in one folder a server can hand out.
  * `ez bundle` builds nothing: it copies the editor `pnpm build` made, so this
@@ -2671,6 +2706,23 @@ async function writeBundle(): Promise<string> {
       `<esbozo-editor scene="api/a" save="api/a" font="${FONT}"></esbozo-editor>`,
       bundle,
       ' data-theme="light"',
+    ),
+    'mounted.html': page(
+      FULL,
+      `<esbozo-editor></esbozo-editor>
+<script type="module">
+  import { mount } from './${bundle}';
+  const key = 'esbozo-mounted-scene';
+  mount(document.querySelector('esbozo-editor'), {
+    font: { url: '${FONT}' },
+    load: () => localStorage.getItem(key),
+    save: (scene, svg) => {
+      localStorage.setItem(key, scene);
+      localStorage.setItem(key + ':svg', svg);
+    },
+  });
+</script>`,
+      null,
     ),
   };
   for (const [name, html] of Object.entries(pages)) {

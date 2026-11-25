@@ -14,6 +14,10 @@
  *          fetched. The bundle never carries the font, so the page decides
  *          where it lives.
  *
+ * Hosts whose Scene does not live behind GET/PUT can import `mount` from the
+ * bundle and hand an `<esbozo-editor>` `{ font?: { url }, load, save? }`.
+ * Attributes win over `mount` when both are present.
+ *
  * The element is the served editor, not a copy of it: same Renderer, same
  * Layout, same keyboard and pointer, same storage seam with a single-Scene
  * implementation behind it (`scene-url.ts`). The one thing this module adds is
@@ -39,11 +43,41 @@
  */
 import { createLayout } from '../layout.js';
 import { measureFontBytes } from '../font-metrics.js';
+import { DEFAULT_SCENE_FILE_NAME } from '../paths.js';
 import { defineEditorElement } from './editor.js';
 import type { PageFont } from './editor.js';
 import type { SceneFolder } from './files.js';
 import { sceneFolder } from './scene-url.js';
 import STYLES from './editor.css';
+
+/**
+ * Host-supplied storage and optional font URL for an embedded `<esbozo-editor>`.
+ * @public
+ */
+export interface MountOptions {
+  /** Font URL used when the element has no `font` attribute. */
+  readonly font?: { readonly url: string };
+  /** Reads the Scene text, or `null` for a new empty Scene. */
+  readonly load: () => Promise<string | null> | string | null;
+  /** Writes the Scene text and rendered SVG. Omit for read-only. */
+  readonly save?: (scene: string, svg: string) => Promise<void> | void;
+}
+
+const mounts = new WeakMap<HTMLElement, MountOptions>();
+const writes = new WeakMap<HTMLElement, Promise<void>>();
+
+/**
+ * Bind an `<esbozo-editor>` element to host-supplied `load`/`save` functions.
+ * @public
+ */
+export function mount(element: HTMLElement, options: MountOptions): void {
+  mounts.set(element, options);
+  if (element.isConnected) {
+    (
+      element as HTMLElement & { attributeChangedCallback?: (name: string) => void }
+    ).attributeChangedCallback?.('scene');
+  }
+}
 
 defineEditorElement(pageFont, folderAt, { focusInside: true });
 addStylesheet();
@@ -81,7 +115,7 @@ function attributeOf(element: Element, name: string): string | null {
  * shows in its status line.
  */
 async function pageFont(element: HTMLElement): Promise<PageFont> {
-  const named = attributeOf(element, 'font');
+  const named = attributeOf(element, 'font') ?? mounts.get(element)?.font?.url ?? null;
   const label = named ?? new URL('./Kalam-Regular.ttf', import.meta.url).href;
   try {
     const url = named === null ? label : absolute('font', named);
@@ -107,17 +141,54 @@ async function pageFont(element: HTMLElement): Promise<PageFont> {
   }
 }
 
-/** The single Scene the element names, read and written through the URLs it has now. */
+/** The single Scene the element names, read and written through its URLs or mounted functions. */
 async function folderAt(element: HTMLElement): Promise<SceneFolder | null> {
   const named = attributeOf(element, 'scene');
-  if (named === null) {
-    throw new Error('esbozo-editor needs a scene attribute: a URL that answers a Scene');
+  if (named !== null) {
+    const save = attributeOf(element, 'save');
+    return sceneFolder({
+      scene: absolute('scene', named),
+      save: save === null ? null : absolute('save', save),
+    });
   }
-  const save = attributeOf(element, 'save');
-  return sceneFolder({
-    scene: absolute('scene', named),
-    save: save === null ? null : absolute('save', save),
-  });
+  const mounted = mounts.get(element);
+  if (mounted !== undefined) {
+    return functionFolder(element, mounted);
+  }
+  throw new Error('esbozo-editor needs a scene attribute: a URL that answers a Scene');
+}
+
+function functionFolder(element: HTMLElement, options: MountOptions): SceneFolder {
+  return {
+    name: '',
+    readOnly: options.save === undefined,
+    async listScenes(): Promise<string[]> {
+      return [DEFAULT_SCENE_FILE_NAME];
+    },
+    async read(): Promise<string | null> {
+      return await options.load();
+    },
+    async write(_name: string, scene: string, svg: string): Promise<void> {
+      const { save } = options;
+      if (save === undefined) {
+        throw new Error('this editor is read-only');
+      }
+      await queueWrite(element, () => save(scene, svg));
+    },
+  };
+}
+
+function queueWrite(element: HTMLElement, run: () => Promise<void> | void): Promise<void> {
+  const before = writes.get(element) ?? Promise.resolve();
+  const sending = before.then(run, run);
+  writes.set(
+    element,
+    sending.then(
+      () => undefined,
+      () => undefined,
+    ),
+  );
+  return sending;
 }
 
 /** How many faces this page has made: each one is a family of its own. */
