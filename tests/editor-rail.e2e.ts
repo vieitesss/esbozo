@@ -1360,3 +1360,261 @@ test('a finger pressed on a tile before a cancel keeps the click it makes after 
   expect(await keptPlace(ui), 'a called-off drag stores no place').toBeNull();
 });
 
+test('a drag past the slop carries the strip with the pointer and rests it where dropped', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+
+  const opened = await railPlace(ui, TOP_BAND);
+  const grip = tileCentre(boxOfPlace(opened), 1);
+  const midBand: Rect = { x: 560, y: 80, width: 460, height: 180 };
+
+  await browser.mouse.move(grip.x, grip.y);
+  await browser.mouse.down();
+  await browser.mouse.move(780, 180);
+  await settle(ui);
+
+  // Mid-drag, before release, the strip has already moved to follow the pointer.
+  const midInk = (await shot(ui)).darkBounds(midBand, 0.6);
+  expect(midInk, 'the strip follows the pointer mid-drag').not.toBeNull();
+  const carried: Place = {
+    centreX: midInk!.x + midInk!.width / 2,
+    top: midInk!.y,
+    width: midInk!.width,
+    height: midInk!.height,
+  };
+  expect(carried.centreX, 'the strip moved right with the pointer').toBeGreaterThan(opened.centreX + 100);
+  expect(carried.top, 'the strip moved down with the pointer').toBeGreaterThan(opened.top + 80);
+
+  await browser.mouse.up();
+  await settle(ui);
+  expectHeld(carried, await railPlace(ui, midBand), 'release');
+});
+
+test('dragging from the top space into the left space stands the strip up under the grabbed tile', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+
+  const opened = await railPlace(ui, TOP_BAND);
+  const grip = tileCentre(boxOfPlace(opened), 5);
+  const drop = { x: 220, y: 400 };
+
+  await drag(ui, grip, drop);
+  await settle(ui);
+
+  const stood = await railInk(ui, { x: 140, y: 120, width: 160, height: 560 });
+  expect(stood.height, 'the strip stands up in the left space').toBeGreaterThan(stood.width * 2);
+  expect(drop.x, 'the strip encloses the drop point horizontally').toBeGreaterThanOrEqual(stood.x);
+  expect(drop.x, 'the strip encloses the drop point horizontally').toBeLessThanOrEqual(stood.x + stood.width);
+  expect(drop.y, 'the strip encloses the drop point vertically').toBeGreaterThanOrEqual(stood.y);
+  expect(drop.y, 'the strip encloses the drop point vertically').toBeLessThanOrEqual(stood.y + stood.height);
+
+  // Tile 5 is Line: clicking where the drag ended picks Line, proving the grabbed
+  // tile stayed under the pointer across the turn.
+  await browser.mouse.move(drop.x, drop.y);
+  await browser.mouse.down();
+  await browser.mouse.up();
+  await expect(
+    rail(ui).getByRole('button', { name: 'Line', pressed: true }),
+    'the tile under the pointer at the press is still under it after the turn',
+  ).toBeVisible();
+});
+
+test('a pointer within 16 px of a diagonal keeps the strip’s orientation, and past the band it turns', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+
+  const opened = await railPlace(ui, TOP_BAND);
+  const grip = tileCentre(boxOfPlace(opened), 3);
+
+  // In a 1280×800 editor the top-left diagonal is y = 0.625 * x, so at x = 320
+  // the diagonal is at y = 200. (320, 210) is ~8.5 px into the left space
+  // (inside the 16 px hold band); (320, 230) is ~25.4 px past it.
+  await browser.mouse.move(grip.x, grip.y);
+  await browser.mouse.down();
+  await browser.mouse.move(320, 210);
+  await settle(ui);
+  const within = (await shot(ui)).darkBounds({ x: 120, y: 120, width: 400, height: 200 }, 0.6);
+  expect(within, 'the strip is visible inside the hold band').not.toBeNull();
+  expect(within!.width, 'within 16 px of the diagonal, the strip keeps lying').toBeGreaterThan(within!.height * 2);
+
+  await browser.mouse.move(320, 230);
+  await settle(ui);
+  const past = (await shot(ui)).darkBounds({ x: 220, y: 60, width: 200, height: 400 }, 0.6);
+  expect(past, 'the strip is visible past the hold band').not.toBeNull();
+  expect(past!.height, 'past 16 px from the diagonal, the strip turns to standing').toBeGreaterThan(past!.width * 2);
+
+  await browser.mouse.up();
+  await settle(ui);
+});
+
+test('a drop stores centre fractions and orientation, and a reload starts there', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+
+  const opened = await railPlace(ui, TOP_BAND);
+  await drag(ui, tileCentre(boxOfPlace(opened), 3), { x: 760, y: 640 });
+  await settle(ui);
+
+  const band: Rect = { x: 560, y: 540, width: 400, height: 200 };
+  const dropped = await railPlace(ui, band);
+  const stored = await keptPlace(ui);
+  expect(stored, 'the drop stores a place').not.toBeNull();
+  expect(stored!.orientation, 'the stored orientation is lying').toBe('lying');
+  expect(Math.abs(stored!.x - dropped.centreX / 1280), 'stored x is the centre fraction').toBeLessThan(0.01);
+  expect(
+    Math.abs(stored!.y - (dropped.top + dropped.height / 2) / 800),
+    'stored y is the centre fraction',
+  ).toBeLessThan(0.01);
+
+  await openBare(ui);
+  expectHeld(dropped, await railPlace(ui, band), 'reload');
+});
+
+test('pan, zoom, Zoom to fit and opening another Scene leave the strip where it was', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  const smallScene = JSON.stringify(
+    {
+      version: 1,
+      title: 'Small',
+      defaults: { roughness: 0 },
+      elements: [{ id: 'box', type: 'rectangle', x: 40, y: 40, width: 120, height: 80 }],
+    },
+    null,
+    2,
+  );
+  await openEditor(ui, { A: { 'one.json': smallScene, 'two.json': BARE_SOURCE } }, 'one.json');
+  await settle(ui);
+
+  const opened = await railPlace(ui, TOP_BAND);
+  await drag(ui, tileCentre(boxOfPlace(opened), 3), { x: 960, y: 660 });
+  await settle(ui);
+
+  const band: Rect = { x: 760, y: 560, width: 400, height: 200 };
+  const before = await railPlace(ui, band);
+
+  // Pan with Space-drag on the canvas, moving the diagram up-left away from the strip.
+  await browser.keyboard.down('Space');
+  await drag(ui, { x: 520, y: 460 }, { x: 400, y: 400 });
+  await browser.keyboard.up('Space');
+  await settle(ui);
+  expectHeld(before, await railPlace(ui, band), 'pan');
+
+  // Zoom in via the command palette.
+  const commands = screen.getByRole('dialog', { name: 'Commands' });
+  await browser.keyboard.press('q');
+  await expect(commands).toBeVisible();
+  await browser.keyboard.type('zoom in');
+  await browser.keyboard.press('Enter');
+  await expect(commands).toBeHidden();
+  await settle(ui);
+  expectHeld(before, await railPlace(ui, band), 'zoom in');
+
+  // Zoom to fit via the command palette.
+  await browser.keyboard.press('q');
+  await expect(commands).toBeVisible();
+  await browser.keyboard.type('zoom to fit');
+  await browser.keyboard.press('Enter');
+  await expect(commands).toBeHidden();
+  await settle(ui);
+  expectHeld(before, await railPlace(ui, band), 'Zoom to fit');
+
+  // Open another Scene from the folder drawer.
+  await screen.getByRole('button', { name: /Open folder/ }).click();
+  await screen.getByRole('button', { name: 'two.json', exact: true }).click();
+  await settle(ui);
+  expectHeld(before, await railPlace(ui, band), 'opening another Scene');
+});
+
+test('a window resize keeps the strip’s centre at the same fraction of the editor’s box', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui);
+
+  const opened = await railPlace(ui, TOP_BAND);
+  await drag(ui, tileCentre(boxOfPlace(opened), 3), { x: 860, y: 600 });
+  await settle(ui);
+
+  const stored = await keptPlace(ui);
+  expect(stored, 'the drop stores centre fractions').not.toBeNull();
+
+  await browser.setViewport({ width: 960, height: 600 });
+  await settle(ui);
+
+  const expectedX = stored!.x * 960;
+  const expectedY = stored!.y * 600;
+  const ink = await railInk(ui, {
+    x: Math.round(expectedX - 200),
+    y: Math.round(expectedY - 80),
+    width: 400,
+    height: 160,
+  });
+  expect(
+    Math.abs(ink.x + ink.width / 2 - expectedX),
+    'the strip’s horizontal centre stays at the stored fraction',
+  ).toBeLessThan(4);
+  expect(
+    Math.abs(ink.y + ink.height / 2 - expectedY),
+    'the strip’s vertical centre stays at the stored fraction',
+  ).toBeLessThan(4);
+  expect(await keptPlace(ui), 'a window resize keeps the stored fractions').toEqual(stored);
+});
+
+test('a stored old side word starts the strip at that edge’s middle, 16 px in, standing', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await browser.addInitScript(() => localStorage.setItem('esbozo.rail', 'right'));
+  await openBare(ui);
+
+  const ink = await railInk(ui, { x: 1160, y: 200, width: 120, height: 400 });
+  expect(ink.height, 'the strip stands along the right edge').toBeGreaterThan(ink.width * 2);
+  expect(1280 - (ink.x + ink.width), 'the strip rests 16 px inside the right edge').toBeGreaterThan(4);
+  expect(1280 - (ink.x + ink.width), 'the strip rests 16 px inside the right edge').toBeLessThan(24);
+  expect(Math.abs(ink.y + ink.height / 2 - 800 / 2), 'the strip is centred vertically').toBeLessThan(4);
+});
+
+test('in an editor too short for a standing strip, a drop in the left space falls back to lying inside the box', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const ui = { app, browser, screen };
+  await openBare(ui, { width: 600, height: 240 });
+
+  const opened = await railPlace(ui, { x: 140, y: 0, width: 340, height: 100 });
+  await drag(ui, tileCentre(boxOfPlace(opened), 3), { x: 100, y: 120 });
+  await settle(ui);
+
+  const ink = await railInk(ui, { x: 0, y: 50, width: 420, height: 140 });
+  expect(ink.width, 'the strip falls back to lying when too short to stand').toBeGreaterThan(ink.height * 2);
+  expect(ink.x, 'the strip stays inside the left edge').toBeGreaterThanOrEqual(0);
+  expect(ink.x + ink.width, 'the strip stays inside the right edge').toBeLessThanOrEqual(600);
+  expect(ink.y, 'the strip stays inside the top edge').toBeGreaterThanOrEqual(0);
+  expect(ink.y + ink.height, 'the strip stays inside the bottom edge').toBeLessThanOrEqual(240);
+});
+
