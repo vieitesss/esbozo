@@ -158,6 +158,10 @@ async function folderAt(element: HTMLElement): Promise<SceneFolder | null> {
   throw new Error('esbozo-editor needs a scene attribute: a URL that answers a Scene');
 }
 
+function asError(reason: unknown): Error {
+  return reason instanceof Error ? reason : new Error(String(reason));
+}
+
 function functionFolder(element: HTMLElement, options: MountOptions): SceneFolder {
   return {
     name: '',
@@ -166,14 +170,22 @@ function functionFolder(element: HTMLElement, options: MountOptions): SceneFolde
       return [DEFAULT_SCENE_FILE_NAME];
     },
     async read(): Promise<string | null> {
-      return await options.load();
+      try {
+        return await options.load();
+      } catch (reason) {
+        throw asError(reason);
+      }
     },
     async write(_name: string, scene: string, svg: string): Promise<void> {
       const { save } = options;
       if (save === undefined) {
         throw new Error('this editor is read-only');
       }
-      await queueWrite(element, () => save(scene, svg));
+      try {
+        await queueWrite(element, () => save(scene, svg));
+      } catch (reason) {
+        throw asError(reason);
+      }
     },
   };
 }
