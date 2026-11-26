@@ -31,10 +31,20 @@ function git(args) {
   return result.stdout.trim();
 }
 
+/**
+ * The `check` runs GitHub Actions has for one commit, as `{status, conclusion}`.
+ * Asked through the REST endpoint rather than `gh run list --commit`, which
+ * older `gh` releases (Debian's 2.23) reject as an unknown flag.
+ */
 function queryCheckRuns(commit) {
   const result = spawnSync(
     'gh',
-    ['run', 'list', '--commit', commit, '--workflow', 'check', '--json', 'conclusion,status'],
+    [
+      'api',
+      `repos/{owner}/{repo}/actions/runs?head_sha=${commit}`,
+      '--jq',
+      '[.workflow_runs[] | select(.name == "check") | {status, conclusion}]',
+    ],
     { encoding: 'utf8' },
   );
   if (result.status !== 0) {

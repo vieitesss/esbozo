@@ -130,8 +130,10 @@ test('pushing a merge on main whose M^2 has a completed success run passes', () 
 
     assert.deepEqual(run, { code: 0, stdout: '', stderr: '' });
     const calledArgs = readFileSync(fx.markerFile, 'utf8');
-    assert.match(calledArgs, new RegExp(`--commit ${fx.branchHead}`));
-    assert.match(calledArgs, /--workflow check/);
+    // `gh run list --commit` is missing from older `gh` releases; the REST
+    // endpoint answers the same question on every one of them.
+    assert.match(calledArgs, new RegExp(`^api repos/\\{owner\\}/\\{repo\\}/actions/runs\\?head_sha=${fx.branchHead} `));
+    assert.match(calledArgs, /select\(\.name == "check"\)/);
   } finally {
     rmSync(fx.dir, { recursive: true, force: true });
   }
