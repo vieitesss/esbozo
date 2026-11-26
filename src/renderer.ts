@@ -1089,7 +1089,6 @@ const HEAD_STEP = 0.25;
 
 const HEAD_CROSSING_STEPS = 24;
 
-/** How many points along a head's reach the pen is asked for the cut. */
 const HEAD_FIT_PROBES = 3;
 
 function headFacesOf(heads: readonly PlacedHead[], radius: number): HeadFaces {
@@ -1124,7 +1123,6 @@ interface HeadCut {
   readonly removed: number;
 }
 
-/** A piece of a Shaft that bends: it carries the controls a cut subdivides. */
 type CurvedShaftPiece = Exclude<ShaftPiece, { readonly kind: 'straight' }>;
 
 function shaftBehindHeads(pieces: readonly ShaftPiece[], faces: HeadFaces): HeadCut {
@@ -1159,62 +1157,36 @@ function behindHead(
   return { pieces: kept.filter((one) => one.length > 0), removed: at === 'start' ? covered : 0 };
 }
 
-/**
- * How much of a Shaft, measured from the end a head sits on, that head hides.
- * The head's own shape answers for a Shaft that runs straight under it: the pen
- * fits between its sides from `penFitsFrom` behind the apex out to the base, and
- * a roughened Shaft needs a few points asked to land in the same place. One that
- * bends under its head is walked a quarter pixel at a time instead, and one that
- * ends inside its head has no Shaft left to draw beside it.
- */
 function coveredFrom(inward: readonly ShaftPiece[], face: HeadFace, at: 'start' | 'end'): number {
   const total = inward.reduce((sum, piece) => sum + piece.length, 0);
   const limit = Math.min(face.reach, total);
   const under = (arc: number): boolean => underHead(face, pointWalked(inward, arc, at));
-  if (!runsStraight(inward, limit)) {
+  if (bendsWithinReach(inward, limit)) {
     return walkedCover(inward, face, at, limit, under);
   }
-  // A Shaft that ends inside its head: there is no Shaft to keep beside it.
-  if (limit === total && under(limit)) {
+  const hidesWholeShaft = limit === total && under(limit);
+  if (hidesWholeShaft) {
     return limit;
   }
   const fitted = fittedCover(face, limit, under);
   return fitted ?? walkedCover(inward, face, at, limit, under);
 }
 
-/**
- * Whether the whole of a head's reach lies on one straight run of the Shaft.
- * The head's shape answers where its cut lands only while the pen runs straight
- * away from it; a Bend point inside the reach turns the Shaft out of the head's
- * triangle and back in, and where it does that is the walk's to find.
- */
-function runsStraight(inward: readonly ShaftPiece[], limit: number): boolean {
+function bendsWithinReach(inward: readonly ShaftPiece[], limit: number): boolean {
   const nearest = inward[0];
-  return nearest !== undefined && nearest.length >= limit;
+  return nearest === undefined || nearest.length < limit;
 }
 
-/**
- * How far behind its apex a head hides a stroke whole: the point where the pen
- * the stroke draws with first fits between the head's own sides, told in one
- * step by the head's shape.
- */
-function penFitsFrom(face: HeadFace): number {
+function penFitsBehind(face: HeadFace): number {
   return (face.radius * Math.hypot(1, face.lean)) / face.lean;
 }
 
-/**
- * Where the pen first fits under the head, as the Shaft itself answers, or null
- * when the Shaft turns away before it ever does. `penFitsFrom` places that
- * point on a Shaft running down the head's own axis, and a roughened Shaft lies
- * a little off that axis, so the pen is asked a few points along the head's
- * reach as well.
- */
 function fittedCover(
   face: HeadFace,
   limit: number,
   under: (arc: number) => boolean,
 ): number | null {
-  const entry = Math.min(penFitsFrom(face), limit);
+  const entry = Math.min(penFitsBehind(face), limit);
   if (under(entry)) {
     return entry;
   }
@@ -1228,10 +1200,6 @@ function fittedCover(
   return null;
 }
 
-/**
- * The walk the head's shape cannot answer for: a Shaft that turns away under
- * its head is followed a quarter pixel at a time, as every Shaft was before.
- */
 function walkedCover(
   inward: readonly ShaftPiece[],
   face: HeadFace,
@@ -1239,14 +1207,12 @@ function walkedCover(
   limit: number,
   under: (arc: number) => boolean,
 ): number {
-  const into = (arc: number): boolean => intoTriangle(face, pointWalked(inward, arc, at));
   let entered = false;
   let covered = 0;
   let reached = 0;
   let arc = 0;
   while (arc < limit) {
     const next = Math.min(arc + HEAD_STEP, limit);
-    // Both tests ask where the same arc lands, so the walk is paid for once.
     const centre = pointWalked(inward, next, at);
     if (underHead(face, centre)) {
       entered = true;
@@ -1262,7 +1228,11 @@ function walkedCover(
     return covered;
   }
   const beyond = Math.min(reached + HEAD_STEP, limit);
-  return reached < beyond ? edgeOfCover(into, reached, beyond) : reached;
+  if (reached >= beyond) {
+    return reached;
+  }
+  const into = (arc: number): boolean => intoTriangle(face, pointWalked(inward, arc, at));
+  return edgeOfCover(into, reached, beyond);
 }
 
 function edgeOfCover(under: (arc: number) => boolean, inside: number, outside: number): number {
@@ -1325,19 +1295,14 @@ function halvedAt(
     const at = between(piece.from, piece.to, fraction);
     return { at, before: straight(piece.from, at), after: straight(at, piece.to) };
   }
-  const { at, first, below, above, third } = splitPoints(piece, fraction);
+  const { at, before, after } = splitPoints(piece, fraction);
   return {
     at,
-    before: curve(piece.from, first, below, at),
-    after: curve(at, above, third, piece.to),
+    before: curve(piece.from, before.first, before.second, at),
+    after: curve(at, after.first, after.second, piece.to),
   };
 }
 
-/**
- * The point `fraction` of the way along a piece, from the same subdivision
- * `halvedAt` cuts at. A caller that only asks where it stands pays for one
- * point: either half of the cut costs a whole arc-length table to build.
- */
 function pointAtSplit(piece: ShaftPiece, fraction: number): Point {
   if (piece.kind === 'straight') {
     return between(piece.from, piece.to, fraction);
@@ -1345,26 +1310,24 @@ function pointAtSplit(piece: ShaftPiece, fraction: number): Point {
   return splitPoints(piece, fraction).at;
 }
 
-/**
- * De Casteljau's subdivision of a curved piece at `fraction`: the point there,
- * and the controls each half of the cut is built from.
- */
 function splitPoints(
   piece: CurvedShaftPiece,
   fraction: number,
 ): {
   readonly at: Point;
-  readonly first: Point;
-  readonly below: Point;
-  readonly above: Point;
-  readonly third: Point;
+  readonly before: { readonly first: Point; readonly second: Point };
+  readonly after: { readonly first: Point; readonly second: Point };
 } {
   const first = between(piece.from, piece.control1, fraction);
-  const second = between(piece.control1, piece.control2, fraction);
-  const third = between(piece.control2, piece.to, fraction);
-  const below = between(first, second, fraction);
-  const above = between(second, third, fraction);
-  return { at: between(below, above, fraction), first, below, above, third };
+  const middle = between(piece.control1, piece.control2, fraction);
+  const last = between(piece.control2, piece.to, fraction);
+  const beforeSecond = between(first, middle, fraction);
+  const afterFirst = between(middle, last, fraction);
+  return {
+    at: between(beforeSecond, afterFirst, fraction),
+    before: { first, second: beforeSecond },
+    after: { first: afterFirst, second: last },
+  };
 }
 
 function between(from: Point, to: Point, fraction: number): Point {
