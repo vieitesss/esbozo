@@ -109,3 +109,113 @@ export function topLevelHelp(bold: boolean): string {
   ];
   return `${sections.join('\n\n')}\n`;
 }
+
+export type HelpTopic =
+  | 'render'
+  | 'png'
+  | 'bundle'
+  | 'check'
+  | 'anchor'
+  | 'snap'
+  | 'serve'
+  | 'skill'
+  | 'skill install';
+
+interface CommandHelpSpec {
+  readonly summary: string;
+  readonly usage: readonly string[];
+  readonly optionsHeading?: string;
+  readonly options?: readonly (readonly [string, string])[];
+  readonly example: string;
+}
+
+const COMMAND_HELP: Readonly<Record<HelpTopic, CommandHelpSpec>> = {
+  render: {
+    summary: 'Write <name>.svg beside the Scene and print its path.',
+    usage: ['ez render <scene> [--font <file>]'],
+    options: [['--font <file>', 'Font file used to measure Labels (default: bundled Kalam)']],
+    example: 'ez render diagram.esbozo',
+  },
+  png: {
+    summary: 'Write <name>.<theme>.png beside the Scene and print its path.',
+    usage: [
+      'ez png <scene> --theme light|dark [--css <stylesheet>]',
+      '       [--ink <colour>] [--paper <colour>] [--muted <colour>] [--font <file>]',
+    ],
+    options: [
+      ['--theme light|dark', 'Theme to render (required)'],
+      ['--css <stylesheet>', 'Stylesheet providing theme colours and --font-hand (default: built-in theme)'],
+      ['--ink <colour>', 'Override ink colour (opaque)'],
+      ['--paper <colour>', 'Override paper colour (opaque)'],
+      ['--muted <colour>', 'Override muted colour (opaque)'],
+      ['--font <file>', 'Font file used to measure and draw text (default: stylesheet @font-face or bundled Kalam)'],
+    ],
+    example: 'ez png diagram.esbozo --theme light',
+  },
+  bundle: {
+    summary: 'Write the embeddable <esbozo-editor> ES module to <dir>/esbozo-<version>.js.',
+    usage: ['ez bundle <dir>'],
+    example: 'ez bundle public/',
+  },
+  check: {
+    summary: 'Validate a Scene and check that every Label fits its Element. Prints nothing when clean.',
+    usage: ['ez check <scene> [--font <file>] [--css <stylesheet>]'],
+    options: [
+      ['--font <file>', 'Font file used to measure Labels (default: stylesheet @font-face or bundled Kalam)'],
+      ['--css <stylesheet>', "Stylesheet read for the light theme's --font-hand"],
+    ],
+    example: 'ez check diagram.esbozo',
+  },
+  anchor: {
+    summary: "Place a Snapped end's Anchor on its target's outline, or freeze all unanchored Snapped ends.",
+    usage: ['ez anchor <scene> <element> <start|end> <place>', 'ez anchor <scene> --all'],
+    options: [
+      ['<place>', `${PLACE_LIST}, a pair of fractions "fx,fy", or none`],
+      ['--all', 'Freeze every Snapped end that carries no Anchor where it draws today'],
+    ],
+    example: 'ez anchor diagram.esbozo a-b end left',
+  },
+  snap: {
+    summary: 'Attach an arrow or line end to an Element at the nearest outline point, or turn Snap off.',
+    usage: ['ez snap <scene> <element> <start|end> <target|off>'],
+    example: 'ez snap diagram.esbozo a-b end target-box',
+  },
+  serve: {
+    summary: 'Serve the browser editor and save API on a folder of Scenes.',
+    usage: ['ez serve <dir> [--host 127.0.0.1] [--port N] [--read-only]'],
+    options: [
+      ['--host <host>', 'Address to bind (default: 127.0.0.1)'],
+      ['--port <N>', 'Port to listen on; 0 picks a free port (default: 4320)'],
+      ['--read-only', 'Show Scenes and refuse all saves'],
+    ],
+    example: 'ez serve ./diagrams --port 0',
+  },
+  skill: {
+    summary: 'Print the shipped esbozo agent skill to stdout, or install it into a skills folder.',
+    usage: ['ez skill [install [--dir <path>]]'],
+    optionsHeading: 'SUBCOMMANDS',
+    options: [['install [--dir <path>]', 'Copy SKILL.md to <path>/esbozo/SKILL.md (default: ~/.agents/skills)']],
+    example: 'ez skill install',
+  },
+  'skill install': {
+    summary: 'Copy the shipped esbozo/SKILL.md into a skills folder and print the written path.',
+    usage: ['ez skill install [--dir <path>]'],
+    options: [['--dir <path>', 'Target skills folder (default: ~/.agents/skills)']],
+    example: 'ez skill install --dir ~/.agents/skills',
+  },
+};
+
+export function commandHelp(topic: HelpTopic, bold: boolean): string {
+  const spec = COMMAND_HELP[topic];
+  const sections: string[] = [
+    spec.summary,
+    [heading('USAGE', bold), ...spec.usage.map((line) => `  ${line}`)].join('\n'),
+  ];
+  if (spec.options !== undefined && spec.options.length > 0) {
+    sections.push(
+      [heading(spec.optionsHeading ?? 'FLAGS', bold), ...alignedRows(spec.options, 1)].join('\n'),
+    );
+  }
+  sections.push([heading('EXAMPLE', bold), `  ${spec.example}`].join('\n'));
+  return `${sections.join('\n\n')}\n`;
+}

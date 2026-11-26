@@ -86,7 +86,8 @@ import type { ServeOptions } from './serve.js';
 import type { PngOptions, Theme } from './png.js';
 import type { Anchor, ArrowOrLineElement, Element, OutlinedElement, Point, Scene } from './scene.js';
 import { chooseFont, layoutFor, readStylesheet } from './font.js';
-import { USAGE_LINE, shouldBold, topLevelHelp } from './help.js';
+import { USAGE_LINE, commandHelp, shouldBold, topLevelHelp } from './help.js';
+import type { HelpTopic } from './help.js';
 import type { Layout } from './layout.js';
 
 const EXIT = {
@@ -126,8 +127,34 @@ const DEFAULT_PORT = 4320;
 
 const BUILT = fileURLToPath(new URL('.', import.meta.url));
 
+function helpTopicFor(command: string | undefined, rest: readonly string[]): HelpTopic | null {
+  if (command === 'skill' && rest.length === 2 && rest[0] === 'install' && rest[1] === '--help') {
+    return 'skill install';
+  }
+  if (rest.length === 1 && rest[0] === '--help') {
+    if (
+      command === 'render' ||
+      command === 'png' ||
+      command === 'bundle' ||
+      command === 'check' ||
+      command === 'anchor' ||
+      command === 'snap' ||
+      command === 'serve' ||
+      command === 'skill'
+    ) {
+      return command;
+    }
+  }
+  return null;
+}
+
 async function main(argv: readonly string[]): Promise<number> {
   const [command, ...rest] = argv;
+  const topic = helpTopicFor(command, rest);
+  if (topic !== null) {
+    process.stdout.write(commandHelp(topic, shouldBold(process.stdout)));
+    return EXIT.ok;
+  }
   if (command === 'render') {
     return runRender(rest);
   }
