@@ -29,6 +29,10 @@ RUN corepack enable && corepack prepare "pnpm@${PNPM_VERSION}" --activate
 
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+# esbuild reads `tsconfig.json` for the files it builds, and one compiler option
+# in it (`verbatimModuleSyntax`) changes the bytes it writes. Without it here the
+# image carried bundles no checkout builds.
+COPY tsconfig.json tsconfig.base.json ./
 RUN pnpm install --frozen-lockfile
 
 COPY scripts ./scripts
