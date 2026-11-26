@@ -32,6 +32,7 @@ The package itself is not on the registry yet. `npm pack` builds the tarball —
 | `ez png <scene> --theme light\|dark` | Writes `<name>.<theme>.png` beside the Scene and prints its path. |
 | `ez serve <dir>` | Serves the editor on a folder of Scenes, and a save API for them. Runs until stopped. See [The editor](#the-editor). |
 | `ez bundle <dir>` | Writes the editor as one ES module, `<dir>/esbozo-<version>.js`, for a page of your own. An existing file of that name is replaced, so a page pins it with a one-file diff. See [Embedding the editor](#embedding-the-editor). |
+| `ez skill [install [--dir <path>]]` | Prints the shipped agent skill (`SKILL.md`) to stdout, or with `install` copies it into `~/.agents/skills/esbozo/SKILL.md` (or `<path>/esbozo/SKILL.md`) and prints the written path. |
 
 Flags take a separate value: `--theme dark`, never `--theme=dark`. `ez anchor` and `ez snap` print `ez check`'s exit codes, and re-parse the Scene they built before saving it, so they never write one the schema turns down.
 

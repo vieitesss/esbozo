@@ -324,6 +324,6 @@ test('ez --help names both anchor commands', async () => {
   const run = await ez(['--help'], folder);
 
   assert.equal(run.code, 0, run.stderr);
-  assert.match(run.stdout, /usage: ez anchor <scene>/);
-  assert.match(run.stdout, /usage: ez snap <scene>/);
+  assert.match(run.stdout, /^  anchor\s+\S/m);
+  assert.match(run.stdout, /^  snap\s+\S/m);
 });

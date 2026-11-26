@@ -132,7 +132,7 @@ test('the packed tarball installs, and both of its bins run the editor it bundle
   // Both `bin` names npm links, out of the installed package alone.
   const bin = (name: string): string => join(consumer, 'node_modules', '.bin', name);
   const alias = await run(bin('ez'), ['--help'], { cwd: consumer });
-  assert.match(alias.stdout, /usage: ez bundle <dir>/);
+  assert.match(alias.stdout, /^  bundle\s+\S/m);
   const named = await run(bin('esbozo'), ['--help'], { cwd: consumer });
   assert.equal(named.stdout, alias.stdout);
 

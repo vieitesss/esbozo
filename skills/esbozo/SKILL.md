@@ -18,7 +18,7 @@ pnpm install && pnpm build    # in a clone of the esbozo repository
 node dist/cli.js check <name>.esbozo
 ```
 
-Everywhere below, `ez` stands for `node dist/cli.js`, or for the `ez` bin when the package is linked into the path. The npm package (`npx esbozo <command>`, a global `ez`) arrives with #13 and is not on the registry yet. `ez --help` lists every command, flag, default and exit code; flags take a separate value: `--theme dark`, never `--theme=dark`.
+Everywhere below, `ez` stands for `node dist/cli.js`, or for the `ez` bin when the package is linked into the path. The npm package (`npx esbozo <command>`, a global `ez`) arrives with #13 and is not on the registry yet. `ez --help` lists every command, CSS subset and exit code (`ez <command> --help` shows flags, defaults and an example); flags take a separate value: `--theme dark`, never `--theme=dark`. `ez skill` prints this skill to stdout, and `ez skill install [--dir <path>]` copies it into `~/.agents/skills/esbozo/SKILL.md` (or `<path>/esbozo/SKILL.md`).
 
 ## The loop
 

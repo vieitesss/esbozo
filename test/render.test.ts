@@ -343,13 +343,25 @@ test('the SVG carries the Scene hash and a title and no script or external refer
   assert.deepEqual(urls, ['http://www.w3.org/2000/svg']);
 });
 
-test('wrong arguments exit 2 and explain the usage', async () => {
+test('wrong render arguments exit 2 and explain the render usage', async () => {
   const folder = await sceneFolder(SAMPLE_SCENE);
 
-  for (const args of [[], ['render'], ['render', 'scene.json', 'extra.json'], ['draw', 'scene.json']]) {
+  for (const args of [['render'], ['render', 'scene.json', 'extra.json']]) {
     const run = await ez(args, folder);
     assert.equal(run.code, 2, `\`ez ${args.join(' ')}\``);
     assert.match(run.stderr, /usage: ez render <scene>/);
+    assert.equal(existsSync(join(folder, 'scene.svg')), false);
+  }
+});
+
+test('a missing or unknown command exits 2 and lists the commands', async () => {
+  const folder = await sceneFolder(SAMPLE_SCENE);
+
+  for (const args of [[], ['draw', 'scene.json']]) {
+    const run = await ez(args, folder);
+    assert.equal(run.code, 2, `\`ez ${args.join(' ')}\``);
+    assert.match(run.stderr, /^USAGE$/m, `\`ez ${args.join(' ')}\``);
+    assert.match(run.stderr, /ez <command>/, `\`ez ${args.join(' ')}\``);
     assert.equal(existsSync(join(folder, 'scene.svg')), false);
   }
 });
