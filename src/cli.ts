@@ -133,6 +133,7 @@ const PNG_USAGE =
   ' [--ink <colour>] [--paper <colour>] [--muted <colour>] [--font <file>]';
 const SERVE_USAGE = 'usage: ez serve <dir> [--host 127.0.0.1] [--port N] [--read-only]';
 const BUNDLE_USAGE = 'usage: ez bundle <dir>';
+const SKILL_USAGE = 'usage: ez skill [install [--dir <path>]]';
 const DEFAULT_PORT = 4320;
 
 const BUILT = fileURLToPath(new URL('.', import.meta.url));
@@ -156,7 +157,7 @@ const CSS_SUBSET = [
   'Palette colours must be opaque.',
 ].join('\n');
 
-const USAGE = `${RENDER_USAGE}\n${CHECK_USAGE}\n${ANCHOR_USAGE}\n${SNAP_USAGE}\n${PNG_USAGE}\n${SERVE_USAGE}\n${BUNDLE_USAGE}\n${CSS_SUBSET}\n${EXIT_CODES}\n`;
+const USAGE = `${RENDER_USAGE}\n${CHECK_USAGE}\n${ANCHOR_USAGE}\n${SNAP_USAGE}\n${PNG_USAGE}\n${SERVE_USAGE}\n${BUNDLE_USAGE}\n${SKILL_USAGE}\n${CSS_SUBSET}\n${EXIT_CODES}\n`;
 
 async function main(argv: readonly string[]): Promise<number> {
   const [command, ...rest] = argv;
@@ -180,6 +181,9 @@ async function main(argv: readonly string[]): Promise<number> {
   }
   if (command === 'bundle') {
     return runBundle(rest);
+  }
+  if (command === 'skill') {
+    return runSkill(rest);
   }
   if (command === '--help' || command === 'help') {
     process.stdout.write(USAGE);
@@ -874,6 +878,27 @@ async function runBundle(argv: readonly string[]): Promise<number> {
     return EXIT.writeFailed;
   }
   process.stdout.write(`${outputPath}\n`);
+  return EXIT.ok;
+}
+
+const SHIPPED_SKILL = fileURLToPath(new URL('../skills/esbozo/SKILL.md', import.meta.url));
+
+async function runSkill(argv: readonly string[]): Promise<number> {
+  if (argv.length !== 0) {
+    process.stderr.write(`${SKILL_USAGE}\n`);
+    return EXIT.usage;
+  }
+
+  let source: Buffer;
+  try {
+    source = await readFile(SHIPPED_SKILL);
+  } catch (error) {
+    process.stderr.write(
+      `cannot read ${SHIPPED_SKILL}: ${(error as NodeJS.ErrnoException).message}\n`,
+    );
+    return EXIT.writeFailed;
+  }
+  process.stdout.write(source);
   return EXIT.ok;
 }
 
