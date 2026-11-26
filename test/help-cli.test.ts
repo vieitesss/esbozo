@@ -131,6 +131,43 @@ test('ez <command> --help prints usage, flags/defaults, and an example with exit
   }
 });
 
+test('ez help <command> prints the same help as ez <command> --help', async () => {
+  const folder = await tempFolder();
+  const commands: readonly (readonly string[])[] = [
+    ['render'],
+    ['png'],
+    ['bundle'],
+    ['check'],
+    ['anchor'],
+    ['snap'],
+    ['serve'],
+    ['skill'],
+    ['skill', 'install'],
+  ];
+
+  for (const command of commands) {
+    const direct = await ez([...command, '--help'], folder);
+    const viaHelp = await ez(['help', ...command], folder);
+    const name = command.join(' ');
+
+    assert.equal(direct.code, 0, `${name} --help: ${direct.stderr}`);
+    assert.equal(viaHelp.code, 0, `help ${name}: ${viaHelp.stderr}`);
+    assert.equal(viaHelp.stderr, '', `help ${name}`);
+    assert.equal(viaHelp.stdout, direct.stdout, `help ${name} differs from ${name} --help`);
+  }
+});
+
+test('ez help <unknown> prints the top-level help to stderr and exits 2', async () => {
+  const folder = await tempFolder();
+  const top = await ez(['--help'], folder);
+
+  const res = await ez(['help', 'bogus'], folder);
+
+  assert.equal(res.code, 2, res.stderr);
+  assert.equal(res.stdout, '');
+  assert.equal(res.stderr, top.stdout);
+});
+
 test('usage errors still print usage on stderr and exit 2', async () => {
   const folder = await tempFolder();
   const cases: readonly (readonly [string[], RegExp])[] = [

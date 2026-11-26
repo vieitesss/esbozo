@@ -150,6 +150,9 @@ function helpTopicFor(command: string | undefined, rest: readonly string[]): Hel
 
 async function main(argv: readonly string[]): Promise<number> {
   const [command, ...rest] = argv;
+  if (command === 'help') {
+    return runHelp(rest);
+  }
   const topic = helpTopicFor(command, rest);
   if (topic !== null) {
     process.stdout.write(commandHelp(topic, shouldBold(process.stdout)));
@@ -179,12 +182,32 @@ async function main(argv: readonly string[]): Promise<number> {
   if (command === 'skill') {
     return runSkill(rest);
   }
-  if (command === '--help' || command === 'help') {
+  if (command === '--help') {
     process.stdout.write(topLevelHelp(shouldBold(process.stdout)));
     return EXIT.ok;
   }
   process.stderr.write(topLevelHelp(false));
   return EXIT.usage;
+}
+
+/**
+ * `ez help [command [subcommand]]`: the top-level help alone, or the same help
+ * `ez <command> --help` prints. A name `helpTopicFor` does not know is an
+ * unknown command, and answers as any other unknown command does.
+ */
+function runHelp(argv: readonly string[]): number {
+  const [command, ...rest] = argv;
+  if (command === undefined) {
+    process.stdout.write(topLevelHelp(shouldBold(process.stdout)));
+    return EXIT.ok;
+  }
+  const topic = helpTopicFor(command, [...rest, '--help']);
+  if (topic === null) {
+    process.stderr.write(topLevelHelp(false));
+    return EXIT.usage;
+  }
+  process.stdout.write(commandHelp(topic, shouldBold(process.stdout)));
+  return EXIT.ok;
 }
 
 async function runRender(argv: readonly string[]): Promise<number> {
