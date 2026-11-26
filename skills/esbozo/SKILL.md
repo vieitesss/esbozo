@@ -74,7 +74,7 @@ Only top-level `*.esbozo` files in `<dir>` are Scenes, and a `*.json` file there
 - `rectangle`, `ellipse`, `diamond`: `x`, `y`, `width`, `height` (whole pixels, size at least 1) and an optional `label`.
 - `arrow`, `line`: `points`, two or more `{ "x", "y", "snap"?, "corner"? }`. The first and last are the ends, and only an end takes `snap`; every point between them is a bend point, and only a bend point takes `corner` (`round` pulls the shaft into a smooth curve, `sharp` breaks it into a corner softened by a small fillet; unwritten, it takes the Element's `corners`). Also an optional `label`, an optional `labelAt` that places it, and `heads` from `none | arrow | dot | bar`. An arrow draws an arrow head at its end; a line has none. Both ends may Snap to one Element when a bend point lies between them, which is how a self-loop is drawn.
 - `text`: `x`, `y` and `content` (`\n` breaks lines). It has no `label`: its words are the Element.
-- Style keys (`roughness`, `stroke`, `fill`, `tone`, `corners`, `fontSize`, `textAlign`) sit on an Element or in a Scene-wide `defaults`; an Element's own value wins. Leave them out and an Element is drawn artist-rough (`roughness` `1`), in a bold solid ink stroke, unfilled, with sharp corners and `M` words (18px). Add one only for a reason, and take its values from `docs/schema.md`.
+- Style keys (`roughness`, `stroke`, `fill`, `tone`, `corners`, `fontSize`, `textAlign`) sit on an Element or in a Scene-wide `defaults`; an Element's own value wins. Leave them out and an Element is drawn artist-rough (`roughness` `1`), in a bold solid ink stroke, unfilled, with sharp corners and `M` words (18px): that is the plain look, and a Scene left there is unfinished (see Give it a point of view). Take the values from `docs/schema.md`.
 - Colours are never written: only `tone` (`ink` or `muted`) and the grey steps of `fill` exist. No opacity, rotation, images, groups or frames.
 - `seed` fixes an Element's wobble and defaults to a hash of its `id`; leave it out, and keep ids unchanged so redrawing never reshuffles the lines.
 
@@ -102,6 +102,23 @@ Plan the coordinates before you write them. Use one step of 22px, the spacing of
 **Look and style.**
 - Box Labels sit in the middle of their Elements, and Text starts at its `x`. Write `textAlign` only to break that: `"left"` on a box Label's Element, or `"center"` on a Text you centre on its `x`. An explicit `textAlign` wins for box Labels and Text.
 - List boxes and ellipses first and arrows after them, so arrows draw on top; put Text last.
-- Nothing is filled by default, so words stay clear. Add a fill only for emphasis: `{ "kind": "solid", "grey": 1 }` is a light wash, and `hachure` puts lines behind the words, so use it only on Elements without a Label.
-- Keep to one `roughness` per Scene unless the difference is the point. Use `tone: "muted"` for secondary Elements and `dashed` strokes for optional or planned ones.
+- Words stay clear of fills: `{ "kind": "solid", "grey": 1 }` is a light wash that keeps a Label readable, while `hachure` and `cross-hatch` put lines behind the words, so use them only on Elements without a Label.
+- Keep to one `roughness` per Scene unless the difference is the point.
 - Titles and notes are Text; words that belong to a box or an arrow are its `label`.
+
+## Give it a point of view
+
+A Scene of identical rectangles joined by identical arrows, all in the default look, is a draft, not a diagram. Before you write, decide what the reader should see first, then spend the style keys on it. Each key has a job; use it for that job, not as decoration.
+
+1. **Pick one focal Element**: the thing the diagram is about, or the step that matters most. Give it a solid `fill` (`grey` `1`, or `2` to push harder), `stroke.width` `"extra"`, or both.
+2. **Push context back**: the actors, stores and surroundings that are not the story take `tone: "muted"` and `stroke.width` `"thin"`.
+3. **Say what kind of thing each Element is by its shape**: a rectangle for a step or a thing, an ellipse for a person, actor or store, a diamond for a decision. Mix shapes when the story has more than one kind of thing.
+4. **Mark status with the stroke**: `dashed` for optional, planned or external; `dotted` for something implied.
+5. **Group with a dashed container**: a large unlabelled rectangle with `tone: "muted"` and `stroke.style: "dashed"` behind the Elements it holds, named by a small Text in its corner. List it first, so it draws underneath. Keep its edge at least two steps from what it holds, and keep arrows that cross it clear of its Label.
+6. **Make the title and the notes speak**: a Text title at `fontSize: "L"` or `"XL"`, notes at `"S"` with `tone: "muted"`. Use a Text note to say the one thing the shapes cannot.
+7. **Use the line vocabulary**: `corners: "round"` for friendly flows, `heads: { "end": "dot" }` or `"bar"` for a relationship that is not a step, `muted` or `dashed` arrows for secondary or return paths, a bold `extra` arrow for the main path.
+8. **Break the straight line**: a loop is drawn as a loop, a hub with spokes around it, layers as stacked rows. Do not stretch a graph into one row because a row is easy to compute. Keep the 22px step and the aligned-rows rule inside whatever shape you choose.
+
+A Scene is done when it has a focal Element and at least two other keys from this list doing their job, and its PNGs show the focus in both themes. A small Scene of two or three Elements may use fewer levers, but still has a focal Element.
+
+**The person's wishes win.** When the person says how a diagram should look, whether more or less styled, which Element to stress, a given shape, `roughness`, plain, or anything else, do exactly that and skip every default in this section. Their words override these rules, and the Layout rules still apply for a Scene that must be readable. If they ask for plain, draw it plain.
