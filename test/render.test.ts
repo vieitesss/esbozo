@@ -782,6 +782,61 @@ test('a head’s cut takes ink from its own end, and no more than the head reach
   }
 });
 
+test('a head’s cut stops its shaft inside the window the head allows', async () => {
+  const ended = { x: 180, y: 40 };
+  const svg = await renderOne({
+    version: 1,
+    title: 'One headed arrow',
+    defaults: { roughness: 0 },
+    elements: [
+      {
+        id: 'headed',
+        type: 'arrow',
+        points: [{ x: 40, y: 40 }, ended],
+        heads: { start: 'none', end: 'arrow' },
+        stroke: { width: 'bold', style: 'solid' },
+      },
+    ],
+  });
+
+  const [group] = inkGroups(svg);
+  assert.ok(group !== undefined, 'the arrow has ink of its own');
+  const shaft = pathsOf(group).filter((tag) => attributeIn(tag, 'fill') === 'none');
+  const head = pathsOf(group).filter((tag) => attributeIn(tag, 'fill') !== 'none');
+  assert.equal(head.length, 1, 'one filled triangle for the one head');
+  const corners = flatPoints(head[0]!);
+  assert.equal(corners.length, 3, 'the head fills a triangle');
+
+  const { at: apex } = nearestOf(corners, ended);
+  const base = middleOf(corners.filter((corner) => corner !== apex));
+  const away = towards(apex, base);
+  const radius = attributeOf(shaft[0]!, 'stroke-width') / 2;
+  const cut = cutOf(shaft, apex, away);
+  const covered = (cut.x - apex.x) * away.x + (cut.y - apex.y) * away.y;
+
+  // Where a pen half the shaft's width wide first fits between the head's sides,
+  // and the head's own base: the window the head allows the cut to land in. The
+  // walk stopped at the near edge of it; asking the head lands one probe deeper,
+  // a drift the spike recorded and the user approved.
+  const reach = far(apex, base);
+  const [first, second] = corners.filter((corner) => corner !== apex) as [At, At];
+  const lean = far(first, second) / 2 / reach;
+  const entry = (radius * Math.hypot(1, lean)) / lean;
+
+  assert.ok(
+    covered >= entry - 1,
+    `the cut covers ${covered.toFixed(2)} of the shaft, short of the head’s own ${entry.toFixed(2)}`,
+  );
+  assert.ok(
+    covered <= reach - radius + 1,
+    `the cut covers ${covered.toFixed(2)} of the shaft, past the head’s base at ${(reach - radius).toFixed(2)}`,
+  );
+  assert.ok(
+    penFits(corners, apex, radius, cut),
+    `the cut at (${cut.x.toFixed(2)}, ${cut.y.toFixed(2)}) leaves the pen room between the head’s sides`,
+  );
+});
+
 test('a short leg at a head still runs into its triangle', async () => {
   const arrows = shortLegMatrix();
   const svg = await renderOne(turnedScene(arrows.map((one) => one.element)));
@@ -1501,6 +1556,33 @@ function nearestOf(points: readonly At[], target: At): { at: At; off: number } {
 /** How far apart two places are. */
 function far(from: At, to: At): number {
   return Math.hypot(to.x - from.x, to.y - from.y);
+}
+
+/** The place a shaft's ink stops nearest a head's apex: the cut that head made. */
+function cutOf(shaft: readonly string[], apex: At, away: At): At {
+  let cut = apex;
+  let nearestBehind = Number.POSITIVE_INFINITY;
+  for (const tag of shaft) {
+    for (const run of inkRuns(tag)) {
+      for (const point of run) {
+        const behind = (point.x - apex.x) * away.x + (point.y - apex.y) * away.y;
+        if (behind < nearestBehind) {
+          nearestBehind = behind;
+          cut = point;
+        }
+      }
+    }
+  }
+  return cut;
+}
+
+/** Whether the pen a stroke draws with fits between the two sides of a head at `centre`. */
+function penFits(corners: readonly At[], apex: At, radius: number, centre: At): boolean {
+  const [first, second] = corners.filter((corner) => corner !== apex) as [At, At];
+  return [first, second].every((side) => {
+    const beside = Math.abs(turn(apex, side, centre)) / far(apex, side);
+    return beside >= radius - 1;
+  });
 }
 
 /** The place between two places. */
