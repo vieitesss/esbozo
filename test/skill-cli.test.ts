@@ -2,7 +2,8 @@
  * CLI seam: `ez skill` and `ez skill install` in temporary folders.
  */
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { after, test } from 'node:test';
 import { ez, tempFolder } from './cli.ts';
@@ -29,4 +30,35 @@ test('ez --help names the skill command', async () => {
 
   assert.equal(run.code, 0, run.stderr);
   assert.match(run.stdout, /usage: ez skill/);
+});
+
+test('ez skill install --dir copies SKILL.md into a missing folder and prints the path', async () => {
+  const folder = await tempFolder();
+  const targetDir = join(folder, 'custom', 'skills');
+  const expected = await readFile(SHIPPED_SKILL, 'utf8');
+
+  const run = await ez(['skill', 'install', '--dir', targetDir], folder);
+
+  const writtenPath = join(targetDir, 'esbozo', 'SKILL.md');
+  assert.equal(run.code, 0, run.stderr);
+  assert.equal(run.stdout, `${writtenPath}\n`);
+  assert.equal(await readFile(writtenPath, 'utf8'), expected);
+});
+
+test('ez skill install overwrites only esbozo/SKILL.md and leaves other skills untouched', async () => {
+  const folder = await tempFolder();
+  const esbozoFile = join(folder, 'esbozo', 'SKILL.md');
+  const siblingFile = join(folder, 'other', 'SKILL.md');
+  await mkdir(join(folder, 'esbozo'), { recursive: true });
+  await mkdir(join(folder, 'other'), { recursive: true });
+  await writeFile(esbozoFile, 'old content\n', 'utf8');
+  await writeFile(siblingFile, 'keep me\n', 'utf8');
+  const expected = await readFile(SHIPPED_SKILL, 'utf8');
+
+  const run = await ez(['skill', 'install', '--dir', folder], folder);
+
+  assert.equal(run.code, 0, run.stderr);
+  assert.equal(run.stdout, `${esbozoFile}\n`);
+  assert.equal(await readFile(esbozoFile, 'utf8'), expected);
+  assert.equal(await readFile(siblingFile, 'utf8'), 'keep me\n');
 });

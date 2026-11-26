@@ -70,7 +70,8 @@
  * Problems are plain text, one per line, on stderr, and name the Element they
  * belong to: `a: width must be at least 1 pixel, got 0`.
  */
-import { readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BUILD, BUILT_AT } from './build-id.js';
@@ -883,8 +884,31 @@ async function runBundle(argv: readonly string[]): Promise<number> {
 
 const SHIPPED_SKILL = fileURLToPath(new URL('../skills/esbozo/SKILL.md', import.meta.url));
 
+type SkillArguments = { action: 'print' } | { action: 'install'; dir: string };
+
+function parseSkillArguments(argv: readonly string[]): SkillArguments | null {
+  if (argv.length === 0) {
+    return { action: 'print' };
+  }
+  if (argv[0] !== 'install') {
+    return null;
+  }
+  if (argv.length === 1) {
+    return { action: 'install', dir: join(homedir(), '.agents', 'skills') };
+  }
+  if (argv.length === 3 && argv[1] === '--dir') {
+    const dir = argv[2];
+    if (dir === undefined || dir === '' || dir.startsWith('--')) {
+      return null;
+    }
+    return { action: 'install', dir: resolve(dir) };
+  }
+  return null;
+}
+
 async function runSkill(argv: readonly string[]): Promise<number> {
-  if (argv.length !== 0) {
+  const parsed = parseSkillArguments(argv);
+  if (parsed === null) {
     process.stderr.write(`${SKILL_USAGE}\n`);
     return EXIT.usage;
   }
@@ -898,7 +922,20 @@ async function runSkill(argv: readonly string[]): Promise<number> {
     );
     return EXIT.writeFailed;
   }
-  process.stdout.write(source);
+  if (parsed.action === 'print') {
+    process.stdout.write(source);
+    return EXIT.ok;
+  }
+
+  const target = join(parsed.dir, 'esbozo', 'SKILL.md');
+  try {
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, source);
+  } catch (error) {
+    process.stderr.write(`cannot write ${target}: ${(error as NodeJS.ErrnoException).message}\n`);
+    return EXIT.writeFailed;
+  }
+  process.stdout.write(`${target}\n`);
   return EXIT.ok;
 }
 
