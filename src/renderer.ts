@@ -1161,22 +1161,36 @@ function behindHead(
 
 /**
  * How much of a Shaft, measured from the end a head sits on, that head hides.
- * The head's own shape answers for most Shafts: the pen fits between its sides
- * from `penFitsFrom` behind the apex out to the base, and a roughened Shaft
- * needs a few points asked to land in the same place. One that turns away under
- * its head is walked a quarter pixel at a time instead, and one that ends
- * inside its head has no Shaft left to draw beside it.
+ * The head's own shape answers for a Shaft that runs straight under it: the pen
+ * fits between its sides from `penFitsFrom` behind the apex out to the base, and
+ * a roughened Shaft needs a few points asked to land in the same place. One that
+ * bends under its head is walked a quarter pixel at a time instead, and one that
+ * ends inside its head has no Shaft left to draw beside it.
  */
 function coveredFrom(inward: readonly ShaftPiece[], face: HeadFace, at: 'start' | 'end'): number {
   const total = inward.reduce((sum, piece) => sum + piece.length, 0);
   const limit = Math.min(face.reach, total);
   const under = (arc: number): boolean => underHead(face, pointWalked(inward, arc, at));
+  if (!runsStraight(inward, limit)) {
+    return walkedCover(inward, face, at, limit, under);
+  }
   // A Shaft that ends inside its head: there is no Shaft to keep beside it.
   if (limit === total && under(limit)) {
     return limit;
   }
   const fitted = fittedCover(face, limit, under);
   return fitted ?? walkedCover(inward, face, at, limit, under);
+}
+
+/**
+ * Whether the whole of a head's reach lies on one straight run of the Shaft.
+ * The head's shape answers where its cut lands only while the pen runs straight
+ * away from it; a Bend point inside the reach turns the Shaft out of the head's
+ * triangle and back in, and where it does that is the walk's to find.
+ */
+function runsStraight(inward: readonly ShaftPiece[], limit: number): boolean {
+  const nearest = inward[0];
+  return nearest !== undefined && nearest.length >= limit;
 }
 
 /**
