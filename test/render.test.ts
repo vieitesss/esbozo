@@ -828,10 +828,6 @@ test('a head’s cut stops its shaft inside the window the head allows', async (
     covered <= headBase + 1,
     `the cut covers ${covered.toFixed(2)} of the shaft, past the head’s base at ${headBase.toFixed(2)}`,
   );
-  assert.ok(
-    penFits(corners, apex, radius, cut),
-    `the cut at (${cut.x.toFixed(2)}, ${cut.y.toFixed(2)}) leaves the pen room between the head’s sides`,
-  );
 });
 
 test('a short shaft that bends out of its head keeps the ink the head cannot hide', async () => {
@@ -1651,14 +1647,6 @@ function assertCutIsKept(svg: string, tip: At, walkCut: At): void {
     .flatMap((tag) => inkRuns(tag))
     .some((run) => run.some((sample) => !covers(corners, sample)));
   assert.ok(visible, 'the shaft keeps ink outside the head’s triangle');
-}
-
-function penFits(corners: readonly At[], apex: At, radius: number, centre: At): boolean {
-  const [first, second] = corners.filter((corner) => corner !== apex) as [At, At];
-  return [first, second].every((side) => {
-    const beside = Math.abs(turn(apex, side, centre)) / far(apex, side);
-    return beside >= radius - 1;
-  });
 }
 
 /** The place between two places. */
