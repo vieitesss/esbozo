@@ -29,7 +29,7 @@ test('ez --help names the skill command', async () => {
   const run = await ez(['--help'], folder);
 
   assert.equal(run.code, 0, run.stderr);
-  assert.match(run.stdout, /usage: ez skill/);
+  assert.match(run.stdout, /^  skill\s+\S/m);
 });
 
 test('ez skill install --dir copies SKILL.md into a missing folder and prints the path', async () => {

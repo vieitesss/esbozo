@@ -439,7 +439,7 @@ test('--help lists check and every exit code', async () => {
   const help = await ez(['--help'], folder);
 
   assert.equal(help.code, 0);
-  assert.match(help.stdout, /usage: ez check <scene> \[--font <file>\] \[--css <stylesheet>\]/);
+  assert.match(help.stdout, /^  check\s+\S/m);
   for (const code of ['0', '2', '3', '4', '5', '6']) {
     assert.match(help.stdout, new RegExp(`^  ${code}  \\S`, 'm'), `exit code ${code} is in the help text`);
   }

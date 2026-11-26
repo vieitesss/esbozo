@@ -86,6 +86,7 @@ import type { ServeOptions } from './serve.js';
 import type { PngOptions, Theme } from './png.js';
 import type { Anchor, ArrowOrLineElement, Element, OutlinedElement, Point, Scene } from './scene.js';
 import { chooseFont, layoutFor, readStylesheet } from './font.js';
+import { USAGE_LINE, shouldBold, topLevelHelp } from './help.js';
 import type { Layout } from './layout.js';
 
 const EXIT = {
@@ -97,8 +98,6 @@ const EXIT = {
   labelOverflow: 6,
 } as const;
 
-const RENDER_USAGE = 'usage: ez render <scene> [--font <file>]';
-const CHECK_USAGE = 'usage: ez check <scene> [--font <file>] [--css <stylesheet>]';
 /**
  * The places an Anchor takes on the command line: names for the middle of a
  * side, the middle of the box, and its four corners. A Scene never holds a name,
@@ -123,42 +122,9 @@ const CORNER_PLACES: Readonly<Record<string, Anchor>> = {
 /** Every place a person can name, in the order the help lists them. */
 const PLACE_WORDS = [...Object.keys(SIDE_PLACES), ...Object.keys(CORNER_PLACES)];
 
-const ANCHOR_USAGE = [
-  'usage: ez anchor <scene> <element> <start|end> <place>',
-  '       ez anchor <scene> --all',
-  `  place: ${PLACE_WORDS.join(', ')}, a pair of fractions "fx,fy", or none`,
-].join('\n');
-const SNAP_USAGE = 'usage: ez snap <scene> <element> <start|end> <target|off>';
-const PNG_USAGE =
-  'usage: ez png <scene> --theme light|dark [--css <stylesheet>]' +
-  ' [--ink <colour>] [--paper <colour>] [--muted <colour>] [--font <file>]';
-const SERVE_USAGE = 'usage: ez serve <dir> [--host 127.0.0.1] [--port N] [--read-only]';
-const BUNDLE_USAGE = 'usage: ez bundle <dir>';
-const SKILL_USAGE = 'usage: ez skill [install [--dir <path>]]';
 const DEFAULT_PORT = 4320;
 
 const BUILT = fileURLToPath(new URL('.', import.meta.url));
-
-const EXIT_CODES = [
-  'exit codes:',
-  '  0  the Scene is clean, was rendered, the PNG or the bundle was written, or the server stopped',
-  '  2  wrong arguments (unknown command, missing or extra arguments, bad flag)',
-  '  3  the Scene could not be read or parsed',
-  '  4  the output could not be written, the server could not start, or the editor is not built',
-  '  5  missing theme values, or a missing or unreadable font',
-  '  6  a Label that does not fit its Element (see `ez check`)',
-].join('\n');
-
-const CSS_SUBSET = [
-  'css: `:root` and `html` declarations are the light theme; dark is those values',
-  'overridden by `@media (prefers-color-scheme: dark)` blocks and by `:root.dark`,',
-  '`:root[data-theme="dark"]`, `html.dark` and `html[data-theme="dark"]`. Other',
-  'selectors and every other grouping at-rule are ignored. Values may use `var()`',
-  'and `color-mix(in srgb, A p%, B)` with hex, rgb()/rgba() or CSS colour names.',
-  'Palette colours must be opaque.',
-].join('\n');
-
-const USAGE = `${RENDER_USAGE}\n${CHECK_USAGE}\n${ANCHOR_USAGE}\n${SNAP_USAGE}\n${PNG_USAGE}\n${SERVE_USAGE}\n${BUNDLE_USAGE}\n${SKILL_USAGE}\n${CSS_SUBSET}\n${EXIT_CODES}\n`;
 
 async function main(argv: readonly string[]): Promise<number> {
   const [command, ...rest] = argv;
@@ -187,17 +153,17 @@ async function main(argv: readonly string[]): Promise<number> {
     return runSkill(rest);
   }
   if (command === '--help' || command === 'help') {
-    process.stdout.write(USAGE);
+    process.stdout.write(topLevelHelp(shouldBold(process.stdout)));
     return EXIT.ok;
   }
-  process.stderr.write(USAGE);
+  process.stderr.write(topLevelHelp(false));
   return EXIT.usage;
 }
 
 async function runRender(argv: readonly string[]): Promise<number> {
   const parsed = parseSceneArguments(argv, SCENE_FLAGS);
   if (parsed === null) {
-    process.stderr.write(`${RENDER_USAGE}\n`);
+    process.stderr.write(`${USAGE_LINE.render}\n`);
     return EXIT.usage;
   }
 
@@ -224,7 +190,7 @@ async function runRender(argv: readonly string[]): Promise<number> {
 async function runCheck(argv: readonly string[]): Promise<number> {
   const parsed = parseSceneArguments(argv, CHECK_FLAGS);
   if (parsed === null) {
-    process.stderr.write(`${CHECK_USAGE}\n`);
+    process.stderr.write(`${USAGE_LINE.check}\n`);
     return EXIT.usage;
   }
 
@@ -410,10 +376,10 @@ function parseAnchorArguments(argv: readonly string[]): Answer<AnchorRequest> {
     const rest = argv.filter((word) => word !== '--all');
     const scenePath = rest[0];
     if (rest.length !== 1 || scenePath === undefined || scenePath === '') {
-      return refusal(ANCHOR_USAGE, EXIT.usage);
+      return refusal(USAGE_LINE.anchor, EXIT.usage);
     }
     if (scenePath.startsWith('--')) {
-      return refusal(ANCHOR_USAGE, EXIT.usage);
+      return refusal(USAGE_LINE.anchor, EXIT.usage);
     }
     return { ok: true, value: { scenePath, all: true } };
   }
@@ -426,7 +392,7 @@ function parseAnchorArguments(argv: readonly string[]): Answer<AnchorRequest> {
     elementId === undefined ||
     place === undefined
   ) {
-    return refusal(ANCHOR_USAGE, EXIT.usage);
+    return refusal(USAGE_LINE.anchor, EXIT.usage);
   }
   const end = parseEnd(word);
   if (end === null) {
@@ -448,7 +414,7 @@ function parseSnapArguments(argv: readonly string[]): Answer<SnapRequest> {
     elementId === undefined ||
     target === undefined
   ) {
-    return refusal(SNAP_USAGE, EXIT.usage);
+    return refusal(USAGE_LINE.snap, EXIT.usage);
   }
   const end = parseEnd(word);
   if (end === null) {
@@ -741,7 +707,7 @@ async function saveScene(scenePath: string, change: Change): Promise<number> {
 async function runPng(argv: readonly string[]): Promise<number> {
   const parsed = parsePngArguments(argv);
   if (parsed === null) {
-    process.stderr.write(`${PNG_USAGE}\n`);
+    process.stderr.write(`${USAGE_LINE.png}\n`);
     return EXIT.usage;
   }
 
@@ -776,7 +742,7 @@ async function runPng(argv: readonly string[]): Promise<number> {
 async function runServe(argv: readonly string[]): Promise<number> {
   const parsed = parseServeArguments(argv);
   if (parsed === null) {
-    process.stderr.write(`${SERVE_USAGE}\n`);
+    process.stderr.write(`${USAGE_LINE.serve}\n`);
     return EXIT.usage;
   }
 
@@ -849,7 +815,7 @@ function parseServeArguments(argv: readonly string[]): ServeOptions | null {
 async function runBundle(argv: readonly string[]): Promise<number> {
   const folder = argv.length === 1 ? argv[0] : undefined;
   if (folder === undefined || folder === '' || folder.startsWith('--')) {
-    process.stderr.write(`${BUNDLE_USAGE}\n`);
+    process.stderr.write(`${USAGE_LINE.bundle}\n`);
     return EXIT.usage;
   }
 
@@ -909,7 +875,7 @@ function parseSkillArguments(argv: readonly string[]): SkillArguments | null {
 async function runSkill(argv: readonly string[]): Promise<number> {
   const parsed = parseSkillArguments(argv);
   if (parsed === null) {
-    process.stderr.write(`${SKILL_USAGE}\n`);
+    process.stderr.write(`${USAGE_LINE.skill}\n`);
     return EXIT.usage;
   }
 
