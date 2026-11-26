@@ -2,14 +2,14 @@
  * Script seam: `scripts/check.mjs` behind `pnpm check`.
  *
  * What is asserted is the contract the wrapper keeps: the same five steps in
- * order, fail-fast, the ok summary as the last line, the FAILED summary with
- * the first decisive error and the failing step's exit code, and through the
- * real pnpm wrapper the failure summary within the last three lines, where
- * pnpm's own footer follows it.
+ * order (the four before `test` with `--static`), fail-fast, the ok summary
+ * as the last line, the FAILED summary with the first decisive error and the
+ * failing step's exit code, and through the real pnpm wrapper the failure
+ * summary within the last three lines, where pnpm's own footer follows it.
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test, type TestContext } from 'node:test';
@@ -25,8 +25,8 @@ async function makeRunner(t: TestContext, body: string): Promise<{ dir: string; 
   return { dir, runner };
 }
 
-function runCheck(runner: string, cwd: string) {
-  return spawnSync(process.execPath, [SCRIPT], {
+function runCheck(runner: string, cwd: string, args: string[] = []) {
+  return spawnSync(process.execPath, [SCRIPT, ...args], {
     cwd,
     encoding: 'utf8',
     env: { ...process.env, ESBOZO_CHECK_RUNNER: runner },
@@ -45,6 +45,21 @@ process.stdout.write(\`ran \${step}\\n\`);
   assert.equal(run.status, 0, run.stdout + run.stderr);
   const lines = run.stdout.trimEnd().split('\n');
   assert.equal(lines.at(-1), 'check: ok (typecheck, lint, knip, check-rules, test)');
+});
+
+test('with --static, runs every step but test and names them in the ok summary', async (t) => {
+  const { dir, runner } = await makeRunner(
+    t,
+    `import { appendFileSync } from 'node:fs';
+appendFileSync('ran.log', process.argv[2] + '\\n');
+`,
+  );
+
+  const run = runCheck(runner, dir, ['--static']);
+  assert.equal(run.status, 0, run.stdout + run.stderr);
+  assert.equal(run.stdout.trimEnd().split('\n').at(-1), 'check: ok (typecheck, lint, knip, check-rules)');
+  const ran = (await readFile(join(dir, 'ran.log'), 'utf8')).trim().split('\n');
+  assert.deepEqual(ran, ['typecheck', 'lint', 'knip', 'check-rules']);
 });
 
 test('when a step fails, stops immediately, preserves exit code, and prints FAILED summary on last line', async (t) => {
@@ -68,7 +83,6 @@ process.stdout.write(\`ok \${step}\\n\`);
   const combined = (run.stdout + run.stderr).trimEnd().split('\n');
   assert.equal(combined.at(-1), 'check: FAILED at lint — src/foo.ts:12:5 error: unused variable');
 
-  const { readFile } = await import('node:fs/promises');
   const ran = (await readFile(join(dir, 'ran.log'), 'utf8')).trim().split('\n');
   assert.deepEqual(ran, ['typecheck', 'lint']);
 });

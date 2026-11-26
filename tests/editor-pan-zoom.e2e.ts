@@ -260,7 +260,7 @@ test('G shows and hides the dot Grid', async ({ app, browser, screen }) => {
   expect((await shot(ui)).darkCount(GRID, 0.9)).toBeGreaterThan(bare + 100);
 });
 
-test('the docked note never covers the selection: the view pans clear of it', async ({ app, browser, screen }) => {
+test('the Style note never covers the selection: the view pans clear of it', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   await openEditor(ui, { A: { 'edge.json': EDGE_SOURCE } }, 'edge.json');
 
@@ -371,7 +371,7 @@ test('a rectangle too wide for the note zooms out past the manual zoom floor', a
   expect((await savedFiles(ui))['long.json']).toBe(LONG_SOURCE);
 });
 
-test('the docked note fits a 1366×768 window', async ({ app, browser, screen }) => {
+test('the Style note fits a 1366×768 window', async ({ app, browser, screen }) => {
   const ui = { app, browser, screen };
   await ui.browser.setViewport({ width: 1366, height: 768 });
   await openEditor(ui, { A: { 'edge.json': EDGE_SOURCE } }, 'edge.json');
