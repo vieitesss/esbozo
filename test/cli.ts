@@ -8,7 +8,7 @@
  */
 import { execFile, spawn } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { tempFolder } from './temp.ts';
@@ -17,6 +17,24 @@ const run = promisify(execFile);
 
 /** The built CLI both suites exercise. */
 export const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
+
+/**
+ * The `ez` one run starts: `EZ_BIN` when it names one, so a suite can be pointed
+ * at another build of the same command line (the Go binary), and the built CLI
+ * otherwise. A `.js` path is a script and runs under this Node; anything else is
+ * executed itself, because a binary is not a script. A relative `EZ_BIN` is read
+ * from the folder the run was asked for, as `CLI` already is.
+ */
+function ezCommand(args: readonly string[]): { file: string; argv: string[] } {
+  const bin = process.env.EZ_BIN;
+  if (bin === undefined || bin === '') {
+    return { file: process.execPath, argv: [CLI, ...args] };
+  }
+  const file = resolve(bin);
+  return file.endsWith('.js')
+    ? { file: process.execPath, argv: [file, ...args] }
+    : { file, argv: [...args] };
+}
 
 /** What one `ez` run left behind: its exit code and its two streams. */
 export interface Run {
@@ -37,8 +55,9 @@ export async function sceneFolder(scene: unknown, name = 'scene.json'): Promise<
 
 /** `ez` with its exit code read, whether it succeeded or not. */
 export async function ez(args: string[], cwd: string): Promise<Run> {
+  const { file, argv } = ezCommand(args);
   try {
-    const { stdout, stderr } = await run(process.execPath, [CLI, ...args], { cwd });
+    const { stdout, stderr } = await run(file, argv, { cwd });
     return { code: 0, stdout, stderr };
   } catch (error) {
     const failed = error as { code?: unknown; stdout?: string; stderr?: string };
