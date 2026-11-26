@@ -837,6 +837,67 @@ test('a head’s cut stops its shaft inside the window the head allows', async (
   );
 });
 
+test('a short shaft that bends out of its head keeps the ink the head cannot hide', async () => {
+  // The fix round's repro: the whole Shaft is inside its head's reach, and it
+  // leaves the head's triangle on a bend and comes back, so only the ink the
+  // head covers may go and the bend has to stay drawn.
+  const svg = await renderOne({
+    version: 1,
+    title: 'Short bent shaft',
+    elements: [
+      {
+        id: 'b-extra',
+        type: 'arrow',
+        corners: 'sharp',
+        roughness: 0,
+        points: [
+          { x: 189, y: 99 },
+          { x: 193, y: 95 },
+          { x: 193, y: 100 },
+          { x: 200, y: 100 },
+        ],
+        heads: { start: 'none', end: 'arrow' },
+        stroke: { width: 'extra', style: 'solid' },
+      },
+    ],
+  });
+
+  // (193.54, 99.29) is where main's own quarter pixel walk stopped cutting.
+  assertCutIsKept(svg, { x: 200, y: 100 }, { x: 193.54, y: 99.29 });
+});
+
+test('a shaft that leaves its head and comes back keeps the ink outside it', async () => {
+  // The fix round's other repro: the Shaft loops out of the head's triangle just
+  // behind the apex, so a cut that only asks a few points along the head's reach
+  // steps over the exit and eats the loop.
+  const svg = await renderOne({
+    version: 1,
+    title: 'Shaft leaving its head',
+    elements: [
+      {
+        id: 'a-bold',
+        type: 'arrow',
+        corners: 'sharp',
+        roughness: 0,
+        points: [
+          { x: 100, y: 100 },
+          { x: 192, y: 100 },
+          { x: 195, y: 95 },
+          { x: 196, y: 100 },
+          { x: 198, y: 98 },
+          { x: 198, y: 100 },
+          { x: 200, y: 100 },
+        ],
+        heads: { start: 'none', end: 'arrow' },
+        stroke: { width: 'bold', style: 'solid' },
+      },
+    ],
+  });
+
+  // (196.02, 99.3) is where main's own quarter pixel walk stopped cutting.
+  assertCutIsKept(svg, { x: 200, y: 100 }, { x: 196.02, y: 99.3 });
+});
+
 test('a short leg at a head still runs into its triangle', async () => {
   const arrows = shortLegMatrix();
   const svg = await renderOne(turnedScene(arrows.map((one) => one.element)));
@@ -1574,6 +1635,37 @@ function cutOf(shaft: readonly string[], apex: At, away: At): At {
     }
   }
   return cut;
+}
+
+/**
+ * The ink a head leaves on its own Shaft: the cut lands where the walk of main
+ * (`ec384b8`) stopped, within a pixel, and the Shaft keeps the ink of its own
+ * that the head's triangle does not cover.
+ */
+function assertCutIsKept(svg: string, tip: At, walked: At): void {
+  const [group] = inkGroups(svg);
+  assert.ok(group !== undefined, 'the arrow has ink of its own');
+  const shaft = pathsOf(group).filter((tag) => attributeIn(tag, 'fill') === 'none');
+  assert.ok(shaft.length > 0, 'the shaft keeps ink of its own beside its head');
+
+  const head = pathsOf(group).filter((tag) => attributeIn(tag, 'fill') !== 'none');
+  const corners = flatPoints(head[0]!);
+  assert.equal(corners.length, 3, 'the head fills a triangle');
+  const { at: apex } = nearestOf(corners, tip);
+  const base = middleOf(corners.filter((corner) => corner !== apex));
+  const away = towards(apex, base);
+
+  const cut = cutOf(shaft, apex, away);
+  const drift = far(cut, walked);
+  assert.ok(
+    drift <= 1,
+    `the cut at (${cut.x.toFixed(2)}, ${cut.y.toFixed(2)}) is ${drift.toFixed(2)} px from the walk's (${walked.x}, ${walked.y})`,
+  );
+
+  const visible = shaft
+    .flatMap((tag) => inkRuns(tag))
+    .some((run) => run.some((sample) => !covers(corners, sample)));
+  assert.ok(visible, 'the shaft keeps ink outside the head’s triangle');
 }
 
 /** Whether the pen a stroke draws with fits between the two sides of a head at `centre`. */
