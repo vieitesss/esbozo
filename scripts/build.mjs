@@ -1,11 +1,15 @@
 /**
- * Build the three artefacts: the `ez` CLI, the editor page, and the bundle that
+ * Build what a person runs: the `ez` CLI, the editor page, and the bundle that
  * puts the editor on someone else's page.
  *
  * All three share the Scene and the Renderer, and none needs a node builtin, so
  * the browser bundles are the same source as the CLI's. The page and the bundle
  * differ in two ways only: the page links its stylesheet and font beside itself,
  * while the bundle carries the CSS and takes the font URL from its element.
+ *
+ * It ends with the core bundle the Go binary embeds (`scripts/build-core.mjs`),
+ * because that is the same Scene, Layout and Renderer again, for the runtime that
+ * has no Node: one build writes every copy of them.
  */
 import { execFileSync } from 'node:child_process';
 import { chmod, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -122,6 +126,14 @@ await copyFile('src/editor/page.html', 'dist/editor.html');
 await copyFile('fonts/Kalam-Regular.ttf', 'dist/fonts/Kalam-Regular.ttf');
 await copyFile('fonts/OFL.txt', 'dist/fonts/OFL.txt');
 await compressPageFiles();
+
+/**
+ * The core bundle `ez` carries, which runs the same sources in goja. It is built
+ * here so one `pnpm build` writes everything a person runs and everything the
+ * binary embeds, and so a change to the Scene, the Layout or the Renderer
+ * reaches both.
+ */
+execFileSync(process.execPath, ['scripts/build-core.mjs'], { stdio: 'inherit' });
 
 /**
  * Every text page file, compressed beside itself. `ez serve` sends these bytes

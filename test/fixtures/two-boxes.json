@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "title": "Two boxes",
+  "defaults": { "roughness": 1 },
+  "elements": [
+    { "id": "a", "type": "rectangle", "x": 40, "y": 40, "width": 120, "height": 80 },
+    {
+      "id": "b",
+      "type": "rectangle",
+      "x": 200,
+      "y": 60,
+      "width": 100,
+      "height": 100,
+      "tone": "muted",
+      "fill": { "kind": "solid", "grey": 4 },
+      "stroke": { "width": "bold", "style": "dashed" }
+    }
+  ]
+}

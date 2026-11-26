@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "title": "Every angle",
+  "defaults": { "roughness": 1 },
+  "elements": [
+    { "id": "a000", "type": "arrow", "points": [{ "x": 0, "y": 0 }, { "x": 260, "y": 0 }], "label": "a label", "roughness": 0, "fontSize": "M", "stroke": { "width": "thin" } },
+    { "id": "a015", "type": "arrow", "points": [{ "x": 0, "y": 0 }, { "x": 251, "y": -67 }], "label": "two\nlines", "roughness": 0, "fontSize": "XL", "stroke": { "width": "extra" } },
+    { "id": "a030", "type": "arrow", "points": [{ "x": 0, "y": 0 }, { "x": 225, "y": -130 }], "roughness": 1, "fontSize": "M", "stroke": { "width": "thin" } },
+    { "id": "a045", "type": "arrow", "points": [{ "x": 0, "y": 0 }, { "x": 184, "y": -184 }], "label": "a label", "roughness": 2, "fontSize": "M", "stroke": { "width": "extra" } },
+    { "id": "a060", "type": "arrow", "points": [{ "x": 0, "y": 0 }, { "x": 130, "y": -225 }], "label": "two\nlines", "roughness": 1, "fontSize": "XL", "stroke": { "width": "bold" } },
+    { "id": "a075", "type": "arrow", "points": [{ "x": 0, "y": 0 }, { "x": 67, "y": -251 }], "roughness": 0, "fontSize": "M", "stroke": { "width": "thin" } },
+    { "id": "a090", "type": "arrow", "points": [{ "x": 0, "y": 0 }, { "x": 0, "y": -260 }], "label": "a label", "roughness": 2, "fontSize": "M", "stroke": { "width": "bold" } },
+    { "id": "a105", "type": "arrow", "points": [{ "x": 0, "y": 0 }, { "x": -67, "y": -251 }], "roughness": 1, "fontSize": "XL", "stroke": { "width": "extra" } },
+    { "id": "a120", "type": "arrow", "points": [{ "x": 0, "y": 0 }, { "x": -130, "y": -225 }], "label": "two\nlines", "roughness": 0, "fontSize": "M", "stroke": { "width": "thin" } },
+    { "id": "a135", "type": "arrow", "points": [{ "x": 0, "y": 0 }, { "x": -184, "y": -184 }], "roughness": 2, "fontSize": "M", "stroke": { "width": "bold" } },
+    { "id": "a150", "type": "arrow", "points": [{ "x": 0, "y": 0 }, { "x": -225, "y": -130 }], "label": "a label", "roughness": 1, "fontSize": "XL", "stroke": { "width": "extra" } },
+    { "id": "a165", "type": "arrow", "points": [{ "x": 0, "y": 0 }, { "x": -251, "y": -67 }], "roughness": 0, "fontSize": "M", "stroke": { "width": "thin" } }
+  ]
+}

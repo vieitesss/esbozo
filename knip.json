@@ -18,6 +18,9 @@
     "tests/**/*.{ts,js}"
   ],
   "includeEntryExports": true,
+  "ignoreBinaries": [
+    "go"
+  ],
   "tags": [
     "-public"
   ]
