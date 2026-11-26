@@ -62,3 +62,23 @@ test('ez skill install overwrites only esbozo/SKILL.md and leaves other skills u
   assert.equal(await readFile(esbozoFile, 'utf8'), expected);
   assert.equal(await readFile(siblingFile, 'utf8'), 'keep me\n');
 });
+
+test('ez skill rejects bad flags and arguments with exit 2 and usage', async () => {
+  const folder = await tempFolder();
+  const cases: string[][] = [
+    ['skill', 'remove'],
+    ['skill', '--dir', folder],
+    ['skill', 'install', `--dir=${folder}`],
+    ['skill', 'install', '--dir'],
+    ['skill', 'install', '--dir', ''],
+    ['skill', 'install', '--dir', '--other'],
+    ['skill', 'install', '--unknown', folder],
+    ['skill', 'install', '--dir', folder, 'extra'],
+  ];
+
+  for (const args of cases) {
+    const run = await ez(args, folder);
+    assert.equal(run.code, 2, `${args.join(' ')}: ${run.stderr}`);
+    assert.equal(run.stderr, 'usage: ez skill [install [--dir <path>]]\n', args.join(' '));
+  }
+});
