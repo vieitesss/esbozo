@@ -67,4 +67,4 @@ The hand-drawn strip of tools over the paper. A person drags it anywhere in
 the editor, whatever the Scene holds; it rests there again on the next visit.
 Where it rests sets whether it lies or stands. Moving it never changes the
 Scene.
-_Avoid_: toolbar
+_Avoid_: toolbar, dock
