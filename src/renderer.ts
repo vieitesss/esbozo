@@ -1121,6 +1121,9 @@ interface HeadCut {
   readonly removed: number;
 }
 
+/** A piece of a Shaft that bends: it carries the controls a cut subdivides. */
+type CurvedShaftPiece = Exclude<ShaftPiece, { readonly kind: 'straight' }>;
+
 function shaftBehindHeads(pieces: readonly ShaftPiece[], faces: HeadFaces): HeadCut {
   const start = faces.start === null ? { pieces, removed: 0 } : behindHead(pieces, faces.start, 'start');
   const end = faces.end === null ? start : behindHead(start.pieces, faces.end, 'end');
@@ -1164,12 +1167,14 @@ function coveredFrom(inward: readonly ShaftPiece[], face: HeadFace, at: 'start' 
   let arc = 0;
   while (arc < limit) {
     const next = Math.min(arc + HEAD_STEP, limit);
-    if (under(next)) {
+    // Both tests ask where the same arc lands, so the walk is paid for once.
+    const centre = pointWalked(inward, next, at);
+    if (underHead(face, centre)) {
       entered = true;
       covered = next;
     } else if (entered) {
       return edgeOfCover(under, arc, next);
-    } else if (into(next)) {
+    } else if (intoTriangle(face, centre)) {
       reached = next;
     }
     arc = next;
@@ -1199,7 +1204,7 @@ function pointWalked(pieces: readonly ShaftPiece[], arc: number, at: 'start' | '
   let walked = arc;
   for (const piece of pieces) {
     if (piece.length > 0 && walked <= piece.length) {
-      return halvedAt(piece, parameterWalked(piece, walked, at)).at;
+      return pointAtSplit(piece, parameterWalked(piece, walked, at));
     }
     walked -= piece.length;
   }
@@ -1241,17 +1246,46 @@ function halvedAt(
     const at = between(piece.from, piece.to, fraction);
     return { at, before: straight(piece.from, at), after: straight(at, piece.to) };
   }
+  const { at, first, below, above, third } = splitPoints(piece, fraction);
+  return {
+    at,
+    before: curve(piece.from, first, below, at),
+    after: curve(at, above, third, piece.to),
+  };
+}
+
+/**
+ * The point `fraction` of the way along a piece, from the same subdivision
+ * `halvedAt` cuts at. A caller that only asks where it stands pays for one
+ * point: either half of the cut costs a whole arc-length table to build.
+ */
+function pointAtSplit(piece: ShaftPiece, fraction: number): Point {
+  if (piece.kind === 'straight') {
+    return between(piece.from, piece.to, fraction);
+  }
+  return splitPoints(piece, fraction).at;
+}
+
+/**
+ * De Casteljau's subdivision of a curved piece at `fraction`: the point there,
+ * and the controls each half of the cut is built from.
+ */
+function splitPoints(
+  piece: CurvedShaftPiece,
+  fraction: number,
+): {
+  readonly at: Point;
+  readonly first: Point;
+  readonly below: Point;
+  readonly above: Point;
+  readonly third: Point;
+} {
   const first = between(piece.from, piece.control1, fraction);
   const second = between(piece.control1, piece.control2, fraction);
   const third = between(piece.control2, piece.to, fraction);
-  const before = between(first, second, fraction);
-  const after = between(second, third, fraction);
-  const at = between(before, after, fraction);
-  return {
-    at,
-    before: curve(piece.from, first, before, at),
-    after: curve(at, after, third, piece.to),
-  };
+  const below = between(first, second, fraction);
+  const above = between(second, third, fraction);
+  return { at: between(below, above, fraction), first, below, above, third };
 }
 
 function between(from: Point, to: Point, fraction: number): Point {
