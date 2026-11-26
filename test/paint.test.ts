@@ -9,11 +9,17 @@
  * to be the CLI's hash of the same bytes.
  */
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { after, test } from 'node:test';
+import { ez, tempFolder } from './cli.ts';
 import { fontBytes } from './fonts.ts';
 import { loadProjectModules } from './modules.ts';
+import { removeTempFolders } from './temp.ts';
 import type { Layout } from '../src/layout.ts';
 import type { Scene } from '../src/scene.ts';
+
+after(removeTempFolders);
 
 const {
   PaintCache,
@@ -77,12 +83,32 @@ test('the file and the SVG in hand are the ones the Renderer writes', async () =
   paintables.paint(scene.elements);
 
   const files = await paintables.files(scene);
+  const expectedHash = hashScene(scene);
   assert.equal(files.json, serialiseScene(scene), 'the file is the serialiser’s own bytes');
-  assert.equal(files.svg, renderScene(scene, KALAM_LAYOUT), 'the SVG is the Renderer’s own bytes');
+  assert.equal(
+    files.svg,
+    renderScene(scene, KALAM_LAYOUT, expectedHash),
+    'the SVG is the Renderer’s own bytes with data-source-hash',
+  );
   assert.ok(
-    files.svg.includes(`data-scene-hash="sha256:${hashScene(scene)}"`),
+    files.svg.includes(`data-scene-hash="sha256:${expectedHash}"`),
     'the platform digest is the CLI’s hash of the same bytes',
   );
+  assert.ok(
+    files.svg.includes(`data-source-hash="sha256:${expectedHash}"`),
+    'editor save stamps data-source-hash from the Scene bytes it writes',
+  );
+  assert.ok(
+    !renderScene(scene, KALAM_LAYOUT).includes('data-source-hash='),
+    'in-memory renderScene without a source file omits data-source-hash',
+  );
+
+  const folder = await tempFolder();
+  await writeFile(join(folder, 'saved.esbozo'), files.json, 'utf8');
+  const rendered = await ez(['render', 'saved.esbozo'], folder);
+  assert.equal(rendered.code, 0, rendered.stderr);
+  const cliSvg = await readFile(join(folder, 'saved.svg'), 'utf8');
+  assert.equal(cliSvg, files.svg, 'editor save then ez render gives identical SVG and matching data-source-hash');
 });
 
 test('a drawn Element keeps the words it placed, so a caret that moves measures nothing', () => {
@@ -137,7 +163,7 @@ test('an Element that changed is the only one drawn again, and the file follows 
 
   const files = await paintables.files(moved);
   assert.equal(files.json, serialiseScene(moved));
-  assert.equal(files.svg, renderScene(moved, KALAM_LAYOUT));
+  assert.equal(files.svg, renderScene(moved, KALAM_LAYOUT, hashScene(moved)));
 });
 
 test('a Scene edited by replacing one Element writes that Element again', () => {
@@ -169,7 +195,7 @@ test('a new measurement draws the Scene again, and the file keeps its bytes', as
   const after = await paintables.files(scene);
 
   assert.equal(after.json, before.json, 'a font is not part of the Scene file');
-  assert.equal(after.svg, renderScene(scene, WIDE_LAYOUT), 'the SVG is drawn with the new font');
+  assert.equal(after.svg, renderScene(scene, WIDE_LAYOUT, hashScene(scene)), 'the SVG is drawn with the new font');
   assert.notEqual(after.svg, before.svg, 'and the wide font draws other words');
 });
 
@@ -183,5 +209,5 @@ test('a Scene whose Elements changed since they were painted is drawn before its
 
   const files = await paintables.files(rebuilt);
   assert.equal(files.json, serialiseScene(rebuilt));
-  assert.equal(files.svg, renderScene(rebuilt, KALAM_LAYOUT));
+  assert.equal(files.svg, renderScene(rebuilt, KALAM_LAYOUT, hashScene(rebuilt)));
 });

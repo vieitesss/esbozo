@@ -6,6 +6,7 @@
  * change.
  */
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -106,6 +107,46 @@ test('different Scenes give different Scene hashes', async () => {
   assert.notEqual(hashOf(first), hashOf(second));
 });
 
+test('ez render stamps data-source-hash from the exact Scene file bytes, not canonical form', async () => {
+  const folder = await tempFolder();
+  const handFormatted =
+    '{\n    "version":   1,\n    "title": "Hand formatted",\n    "elements": [\n      { "id": "a", "type": "rectangle", "x": 40, "y": 40, "width": 120, "height": 80 }\n    ]\n}\n';
+  const scenePath = join(folder, 'hand.esbozo');
+  await writeFile(scenePath, handFormatted, 'utf8');
+
+  const result = await ez(['render', 'hand.esbozo'], folder);
+  assert.equal(result.code, 0, result.stderr);
+
+  const svg = await readFile(join(folder, 'hand.svg'), 'utf8');
+  const expectedSourceHash = `sha256:${createHash('sha256').update(handFormatted, 'utf8').digest('hex')}`;
+  const stampedSourceHash = /data-source-hash="(sha256:[0-9a-f]{64})"/.exec(svg)?.[1] ?? '';
+
+  assert.equal(stampedSourceHash, expectedSourceHash);
+  assert.notEqual(stampedSourceHash, hashOf(svg), 'non-canonical source bytes differ from canonical scene hash');
+});
+
+test('editing a Scene file without re-rendering makes data-source-hash differ from the file bytes', async () => {
+  const folder = await tempFolder();
+  const original = JSON.stringify(SAMPLE_SCENE, null, 2) + '\n';
+  const scenePath = join(folder, 'edited.esbozo');
+  await writeFile(scenePath, original, 'utf8');
+
+  const result = await ez(['render', 'edited.esbozo'], folder);
+  assert.equal(result.code, 0, result.stderr);
+
+  const svg = await readFile(join(folder, 'edited.svg'), 'utf8');
+  const stampedSourceHash = /data-source-hash="(sha256:[0-9a-f]{64})"/.exec(svg)?.[1] ?? '';
+  assert.equal(
+    stampedSourceHash,
+    `sha256:${createHash('sha256').update(original, 'utf8').digest('hex')}`,
+  );
+
+  const edited = `${original}\n`;
+  await writeFile(scenePath, edited, 'utf8');
+  const currentFileHash = `sha256:${createHash('sha256').update(edited, 'utf8').digest('hex')}`;
+  assert.notEqual(stampedSourceHash, currentFileHash);
+});
+
 test('the Scene hash covers the seed the SVG is drawn with', async () => {
   const first = await renderOne(withSeed(SAMPLE_SCENE, 1));
   const second = await renderOne(withSeed(SAMPLE_SCENE, 2));
@@ -121,8 +162,10 @@ test('a fractional coordinate rounds to a whole pixel once, for the hash and the
   const at39point9 = await renderOne(boxAt(39.9, 40));
   const at41 = await renderOne(boxAt(41, 40));
 
-  assert.equal(at40point2, at40, 'x: 40.2 draws exactly what x: 40 draws');
-  assert.equal(at39point9, at40, 'x: 39.9 draws exactly what x: 40 draws');
+  const withoutSourceHash = (svg: string): string =>
+    svg.replace(/ data-source-hash="sha256:[0-9a-f]{64}"/, '');
+  assert.equal(withoutSourceHash(at40point2), withoutSourceHash(at40), 'x: 40.2 draws exactly what x: 40 draws');
+  assert.equal(withoutSourceHash(at39point9), withoutSourceHash(at40), 'x: 39.9 draws exactly what x: 40 draws');
   assert.equal(hashOf(at40point2), hashOf(at40));
 
   assert.match(at40, /viewBox="24 24 152 112"/);

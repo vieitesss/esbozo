@@ -27,7 +27,7 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { test } from '@e2e-dev/web';
 import { afterAll, expect } from 'e2e';
-import { EMPTY, SCENE, SNAPPED_SCENE, VIEW, at, cliRender, clickScene, doubleClickScene, drag, settle } from './helpers.ts';
+import { EMPTY, SCENE, SNAPPED_SCENE, VIEW, at, cliRenderBytes, clickScene, doubleClickScene, drag, settle } from './helpers.ts';
 import type { Ui, View } from './helpers.ts';
 import { fullInk } from './editor-shared.ts';
 import { blurPage, livePage } from './cdp.ts';
@@ -467,7 +467,7 @@ test('a plain page with the element and its attributes opens, edits and saves a 
     const scene = JSON.parse(await embed.saved('a')) as SavedScene;
     expect(scene.title).toBe('Two boxes');
     expect(scene.elements.map((element) => element.id)).toEqual(['a', 'b']);
-    expect(await embed.saved('a', 'svg')).toBe(await cliRender(scene));
+    expect(await embed.saved('a', 'svg')).toBe(await cliRenderBytes(await embed.saved('a')));
   } finally {
     await embed.stop();
   }
@@ -551,7 +551,7 @@ test('a Scene that is not there opens empty, says so, and is written by the firs
     const scene = JSON.parse(await embed.saved('missing')) as SavedScene;
     expect(scene.title).toBe('missing');
     expect(scene.elements).toHaveLength(1);
-    expect(await embed.saved('missing', 'svg')).toBe(await cliRender(scene));
+    expect(await embed.saved('missing', 'svg')).toBe(await cliRenderBytes(await embed.saved('missing')));
   } finally {
     await embed.stop();
   }
@@ -1335,9 +1335,8 @@ test('a slow font cannot put its face under a newer measurement', async ({ app, 
     await clickScene(ui, { x: 100, y: 80 }, [], VIEW);
     await browser.keyboard.press('Shift+ArrowRight');
     await expect.poll(() => embed.writes('w')).toBe(1);
-    const scene = JSON.parse(await embed.saved('w'));
     expect(await embed.saved('w', 'svg')).toBe(
-      await cliRender(scene, join(embed.folder, OTHER_FONT_FILE)),
+      await cliRenderBytes(await embed.saved('w'), join(embed.folder, OTHER_FONT_FILE)),
     );
     const swapped = (await shot(ui)).darkCount(WORDS, 0.6);
     await app.open(`${embed.url}/words.html`);
@@ -1429,9 +1428,8 @@ test('a save change while a font is on its way still installs that font', async 
     await clickScene(ui, { x: 100, y: 80 }, [], VIEW);
     await browser.keyboard.press('Shift+ArrowRight');
     await expect.poll(() => embed.writes('w2')).toBe(1);
-    const scene = JSON.parse(await embed.saved('w2'));
     expect(await embed.saved('w2', 'svg')).toBe(
-      await cliRender(scene, join(embed.folder, OTHER_FONT_FILE)),
+      await cliRenderBytes(await embed.saved('w2'), join(embed.folder, OTHER_FONT_FILE)),
     );
     const drawn = (await shot(ui)).darkCount(WORDS, 0.6);
     await app.open(`${embed.url}/words.html`);
@@ -1572,8 +1570,7 @@ test('two elements on one page share no font, no Scene, no Grid and no keystroke
     await browser.keyboard.press('Shift+ArrowRight');
     await expect.poll(async () => xOf(await embed.saved('a'), 'a')).toBe(50);
     expect(await embed.saved('b')).toBe(WORDS_SOURCE);
-    const first = JSON.parse(await embed.saved('a'));
-    expect(await embed.saved('a', 'svg')).toBe(await cliRender(first, KALAM));
+    expect(await embed.saved('a', 'svg')).toBe(await cliRenderBytes(await embed.saved('a'), KALAM));
 
     // And a nudge in the second reaches only the second: the half below is the
     // same Scene at the same view, 400px down the page, drawn with b's font.
@@ -1581,9 +1578,8 @@ test('two elements on one page share no font, no Scene, no Grid and no keystroke
     await browser.keyboard.press('Shift+ArrowRight');
     await expect.poll(async () => xOf(await embed.saved('b'), 'a')).toBe(50);
     expect(xOf(await embed.saved('a'), 'a')).toBe(50);
-    const second = JSON.parse(await embed.saved('b'));
     expect(await embed.saved('b', 'svg')).toBe(
-      await cliRender(second, join(embed.folder, OTHER_FONT_FILE)),
+      await cliRenderBytes(await embed.saved('b'), join(embed.folder, OTHER_FONT_FILE)),
     );
   } finally {
     await embed.stop();

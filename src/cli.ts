@@ -78,6 +78,7 @@ import { anchorOf, anchorPoint, pointOnOutline } from './geometry.js';
 import { sceneStem, svgFileName } from './paths.js';
 import { isOutlined, parseScene, serialiseScene, snapTargetId, elementsById } from './scene.js';
 import { drawnGeometry, renderScene } from './renderer.js';
+import { sha256Hex } from './sha256.js';
 import { THEMES, renderPng } from './png.js';
 import { serve } from './serve.js';
 import type { ServeOptions } from './serve.js';
@@ -206,7 +207,7 @@ async function runRender(argv: readonly string[]): Promise<number> {
 
   const outputPath = svgPathFor(parsed.scenePath);
   try {
-    await writeFile(outputPath, renderScene(scene.value, layout.value), 'utf8');
+    await writeFile(outputPath, renderScene(scene.value, layout.value, scene.sourceHash), 'utf8');
   } catch (error) {
     process.stderr.write(`cannot write SVG ${outputPath}: ${(error as NodeJS.ErrnoException).message}\n`);
     return EXIT.writeFailed;
@@ -942,7 +943,9 @@ function parsePngArguments(argv: readonly string[]): PngArguments | null {
   return { ...values, theme, scenePath };
 }
 
-type LoadedScene = { ok: true; value: Scene } | { ok: false; exitCode: number };
+type LoadedScene =
+  | { ok: true; value: Scene; sourceHash: string }
+  | { ok: false; exitCode: number };
 
 /** Every problem a parse found, one line each, naming the Element it belongs to. */
 function printProblems(problems: readonly { elementId: string | null; message: string }[]): void {
@@ -953,20 +956,20 @@ function printProblems(problems: readonly { elementId: string | null; message: s
 }
 
 async function loadScene(scenePath: string): Promise<LoadedScene> {
-  let source: string;
+  let bytes: Buffer;
   try {
-    source = await readFile(scenePath, 'utf8');
+    bytes = await readFile(scenePath);
   } catch (error) {
     process.stderr.write(`cannot read Scene ${scenePath}: ${(error as NodeJS.ErrnoException).message}\n`);
     return { ok: false, exitCode: EXIT.invalidScene };
   }
 
-  const parsed = parseScene(source);
+  const parsed = parseScene(bytes.toString('utf8'));
   if (!parsed.ok) {
     printProblems(parsed.problems);
     return { ok: false, exitCode: EXIT.invalidScene };
   }
-  return { ok: true, value: parsed.scene };
+  return { ok: true, value: parsed.scene, sourceHash: sha256Hex(bytes) };
 }
 
 function svgPathFor(scenePath: string): string {

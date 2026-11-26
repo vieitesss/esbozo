@@ -62,11 +62,11 @@ const EMPTY_PAGE = { width: 320, height: 240 };
 const GREY_INK_PERCENT = [0, 12, 24, 38, 55, 72, 100] as const;
 const GREY_LAST = GREY_INK_PERCENT.length - 1;
 
-export function renderScene(scene: Scene, layout: Layout): string {
+export function renderScene(scene: Scene, layout: Layout, sourceHash?: string): string {
   const canonical = canonicalScene(scene);
   const byId = elementsById(canonical.elements);
   const drawn = canonical.elements.map((element) => renderElement(element, byId, layout));
-  return sceneSvg(canonical, hashScene(canonical), drawn);
+  return sceneSvg(canonical, hashScene(canonical), drawn, sourceHash);
 }
 
 export interface DrawnElement {
@@ -80,14 +80,16 @@ export function sceneSvg(
   scene: Scene,
   hash: string,
   drawings: readonly DrawnElement[],
+  sourceHash?: string,
 ): string {
   const page = pageOfBounds(drawings.map((drawing) => drawing.bounds));
   const body = drawings.map((drawing) => drawing.svg).join('');
+  const sourceAttribute = sourceHash === undefined ? '' : ` data-source-hash="sha256:${sourceHash}"`;
 
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${page.width}" height="${page.height}"` +
       ` viewBox="${page.x} ${page.y} ${page.width} ${page.height}"` +
-      ` role="img" font-family="${FONT}" data-scene-hash="sha256:${hash}">`,
+      ` role="img" font-family="${FONT}" data-scene-hash="sha256:${hash}"${sourceAttribute}>`,
     `<title>${escapeXml(scene.title)}</title>`,
     body,
     '</svg>',

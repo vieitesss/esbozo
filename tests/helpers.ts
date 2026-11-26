@@ -1484,14 +1484,21 @@ async function sceneFolder(source: string, prefix = 'esbozo-e2e-'): Promise<stri
   return folder;
 }
 
-/**
- * `ez render` on the Scene the editor saved, in a temp folder: the editor's SVG
- * has to be the CLI's SVG, byte for byte, or the browser is not drawing with the
- * same Renderer. `font` measures the words with that file, so an editor that
- * measured with a different one is caught here rather than in a screenshot.
- */
+/** `ez render` on a Scene, in a temp folder: the SVG the CLI draws for it. */
 export async function cliRender(scene: unknown, font?: string): Promise<string> {
-  const folder = await sceneFolder(JSON.stringify(scene, null, 2));
+  return cliRenderBytes(JSON.stringify(scene, null, 2), font);
+}
+
+/**
+ * `ez render` on the bytes the editor saved, exactly as they were saved, in a
+ * temp folder: the editor's SVG has to be the CLI's SVG, byte for byte, or the
+ * browser is not drawing with the same Renderer. Re-serialising the Scene would
+ * change its `data-source-hash`, which is the hash of these bytes. `font`
+ * measures the words with that file, so an editor that measured with a
+ * different one is caught here rather than in a screenshot.
+ */
+export async function cliRenderBytes(source: string, font?: string): Promise<string> {
+  const folder = await sceneFolder(source);
   const args = [CLI, 'render', 'scene.json', ...(font === undefined ? [] : ['--font', font])];
   await run(process.execPath, args, { cwd: folder });
   return readFile(join(folder, 'scene.svg'), 'utf8');
@@ -1527,8 +1534,9 @@ export async function expectSvgMatchesCli(ui: Ui, name = 'scene.json', folder = 
   const svgName = name.replace(/\.json$/i, '.svg');
   const saved = files[svgName];
   expect(saved, `${svgName} was saved`).toBeTruthy();
-  const scene = JSON.parse(files[name] ?? '{}');
-  expect(saved).toBe(await cliRender(scene));
+  const source = files[name];
+  expect(source, `${name} was saved`).toBeTruthy();
+  expect(saved).toBe(await cliRenderBytes(source ?? ''));
 }
 
 /** The stylesheet and the font the page draws with: what the CLI needs to draw the same Scene. */

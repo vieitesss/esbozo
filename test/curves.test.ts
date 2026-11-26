@@ -1336,7 +1336,7 @@ test('a two-point shaft keeps the whole SVG it always drew, its page included', 
   });
 
   assert.equal(
-    svg,
+    svg.replace(/ data-source-hash="sha256:[0-9a-f]{64}"/, ''),
     `<svg xmlns="http://www.w3.org/2000/svg" width="332" height="32" viewBox="-16 -16 332 32" role="img" font-family="${FONT}" data-scene-hash="sha256:14d52072702e35774f3f5a3238d6244c5f6a3ae1f0d591fd1c2993ffb735aaaa">
 <title>Scene</title>
 <g stroke-linecap="round" stroke-linejoin="round"><path d="M0 0 C57.91 -4.3, 118.6 -3.42, 300 0 M0 0 C65.66 -4.09, 128.58 -4.6, 300 0" fill="none" stroke="${INK}" stroke-width="2"/></g>
@@ -1372,7 +1372,7 @@ test('a two-point shaft keeps the bytes it always drew, its Snap fraction includ
   // was: a two-point shaft reaches no further than its ends. The hash is the
   // Scene's own, so it moved with the one field that says the shaft has no head.
   assert.equal(
-    svg.slice(0, svg.indexOf('\n')),
+    svg.slice(0, svg.indexOf('\n')).replace(/ data-source-hash="sha256:[0-9a-f]{64}"/, ''),
     `<svg xmlns="http://www.w3.org/2000/svg" width="332" height="232" viewBox="-16 -16 332 232" role="img" font-family="${FONT}" data-scene-hash="sha256:12158a7a977d3d16497d4f447898682cde72301ac635d39f51cf0f9e27f14c34">`,
   );
   assert.equal(
