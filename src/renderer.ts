@@ -1089,6 +1089,9 @@ const HEAD_STEP = 0.25;
 
 const HEAD_CROSSING_STEPS = 24;
 
+/** How many points along a head's reach the pen is asked for the cut. */
+const HEAD_FIT_PROBES = 3;
+
 function headFacesOf(heads: readonly PlacedHead[], radius: number): HeadFaces {
   const faces: { start: HeadFace | null; end: HeadFace | null } = { start: null, end: null };
   for (const head of heads) {
@@ -1156,10 +1159,72 @@ function behindHead(
   return { pieces: kept.filter((one) => one.length > 0), removed: at === 'start' ? covered : 0 };
 }
 
+/**
+ * How much of a Shaft, measured from the end a head sits on, that head hides.
+ * The head's own shape answers for most Shafts: the pen fits between its sides
+ * from `penFitsFrom` behind the apex out to the base, and a roughened Shaft
+ * needs a few points asked to land in the same place. One that turns away under
+ * its head is walked a quarter pixel at a time instead, and one that ends
+ * inside its head has no Shaft left to draw beside it.
+ */
 function coveredFrom(inward: readonly ShaftPiece[], face: HeadFace, at: 'start' | 'end'): number {
   const total = inward.reduce((sum, piece) => sum + piece.length, 0);
   const limit = Math.min(face.reach, total);
   const under = (arc: number): boolean => underHead(face, pointWalked(inward, arc, at));
+  // A Shaft that ends inside its head: there is no Shaft to keep beside it.
+  if (limit === total && under(limit)) {
+    return limit;
+  }
+  const fitted = fittedCover(face, limit, under);
+  return fitted ?? walkedCover(inward, face, at, limit, under);
+}
+
+/**
+ * How far behind its apex a head hides a stroke whole: the point where the pen
+ * the stroke draws with first fits between the head's own sides, told in one
+ * step by the head's shape.
+ */
+function penFitsFrom(face: HeadFace): number {
+  return (face.radius * Math.hypot(1, face.lean)) / face.lean;
+}
+
+/**
+ * Where the pen first fits under the head, as the Shaft itself answers, or null
+ * when the Shaft turns away before it ever does. `penFitsFrom` places that
+ * point on a Shaft running down the head's own axis, and a roughened Shaft lies
+ * a little off that axis, so the pen is asked a few points along the head's
+ * reach as well.
+ */
+function fittedCover(
+  face: HeadFace,
+  limit: number,
+  under: (arc: number) => boolean,
+): number | null {
+  const entry = Math.min(penFitsFrom(face), limit);
+  if (under(entry)) {
+    return entry;
+  }
+  const base = Math.min(face.reach - face.radius, limit);
+  for (let step = 1; step <= HEAD_FIT_PROBES; step += 1) {
+    const arc = entry + ((base - entry) * step) / HEAD_FIT_PROBES;
+    if (arc > entry && under(arc)) {
+      return arc;
+    }
+  }
+  return null;
+}
+
+/**
+ * The walk the head's shape cannot answer for: a Shaft that turns away under
+ * its head is followed a quarter pixel at a time, as every Shaft was before.
+ */
+function walkedCover(
+  inward: readonly ShaftPiece[],
+  face: HeadFace,
+  at: 'start' | 'end',
+  limit: number,
+  under: (arc: number) => boolean,
+): number {
   const into = (arc: number): boolean => intoTriangle(face, pointWalked(inward, arc, at));
   let entered = false;
   let covered = 0;
