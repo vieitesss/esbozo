@@ -1,5 +1,6 @@
 /**
- * Run the five `pnpm check` steps in order, streaming their output live and
+ * Run the five `pnpm check` steps in order (with `--static`, every step but
+ * `test`: `pnpm check:static`), streaming their output live and
  * printing a one-line summary (`check: ok (...)` or
  * `check: FAILED at <step> — <error>`) as the script's own last line. Through
  * `pnpm check`, pnpm appends its own `[ELIFECYCLE] Command failed...` footer
@@ -8,7 +9,8 @@
  */
 import { spawn } from 'node:child_process';
 
-const STEPS = ['typecheck', 'lint', 'knip', 'check-rules', 'test'];
+const ALL_STEPS = ['typecheck', 'lint', 'knip', 'check-rules', 'test'];
+const STEPS = process.argv.includes('--static') ? ALL_STEPS.filter((step) => step !== 'test') : ALL_STEPS;
 
 const ANSI_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-9;?]*[ -/]*[@-~]`, 'g');
 
