@@ -14,6 +14,13 @@
 # `NODE_VERSION` and `PNPM_VERSION` have no defaults on purpose: a default here
 # is a second place to bump, and the two numbers live in `.node-version` and
 # `package.json`.
+#
+# The worktree's own `pnpm build` also compiles `cmd/ez`, so the image carries
+# the Go toolchain `go.mod` names, copied from its own image: it is a static
+# binary and needs nothing from Ubuntu's packages.
+ARG GO_VERSION=1.25.5
+
+FROM golang:${GO_VERSION} AS go
 
 FROM ubuntu:26.04
 
@@ -40,6 +47,10 @@ RUN set -eux; \
     rm "node-v${NODE_VERSION}-linux-${node_arch}.tar.xz"; \
     node --version; npm --version; \
     npm install -g "pnpm@${PNPM_VERSION}"; pnpm --version
+
+# The Go `go.mod` asks for, so `pnpm build` can compile the binary it ends with.
+COPY --from=go /usr/local/go /usr/local/go
+ENV PATH=/usr/local/go/bin:${PATH}
 
 # Where `e2e-web install` puts Chromium, and the user the suite runs as: nobody
 # draws as root, and Chromium refuses its sandbox as root.

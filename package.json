@@ -11,6 +11,9 @@
   },
   "files": [
     "dist",
+    "!dist/ez",
+    "!dist/core.js",
+    "!dist/font-metrics.json",
     "fonts",
     "skills"
   ],

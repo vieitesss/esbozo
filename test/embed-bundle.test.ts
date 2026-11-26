@@ -165,6 +165,13 @@ async function sourceCopy(): Promise<string> {
     'tsconfig.json',
     'tsconfig.base.json',
     'tsconfig.browser.json',
+    // `prepack` is `pnpm build`, which ends with `go build ./cmd/ez`: the pack
+    // has the Go sources, or it does not build the binary the build writes.
+    'go.mod',
+    'go.sum',
+    'assets.go',
+    'cmd',
+    'internal',
   ]) {
     await cp(join(ROOT, path), join(folder, path), { recursive: true });
   }

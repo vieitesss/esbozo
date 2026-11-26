@@ -966,7 +966,18 @@ test('a build stamps the commit it was built from, and the server serves that bu
  */
 async function committedSources(): Promise<string> {
   const folder = await tempFolder('esbozo-build-');
-  for (const path of ['package.json', 'scripts', 'src', 'fonts']) {
+  for (const path of [
+    'package.json',
+    'scripts',
+    'src',
+    'fonts',
+    // The build ends with `go build ./cmd/ez`, so it reads these too.
+    'go.mod',
+    'go.sum',
+    'assets.go',
+    'cmd',
+    'internal',
+  ]) {
     await cp(join(ROOT, path), join(folder, path), { recursive: true });
   }
   await symlink(join(ROOT, 'node_modules'), join(folder, 'node_modules'), 'dir');

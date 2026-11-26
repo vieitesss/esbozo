@@ -7,8 +7,19 @@
 # opentype and resvg's wasm — so the second stage carries no `node_modules`.
 # `test/bundle.test.ts` holds that split honest: it renders, draws a PNG and
 # serves the page from a folder that holds `dist/` alone.
+#
+# `pnpm build` ends with `go build ./cmd/ez`, so the build stage carries the Go
+# toolchain `go.mod` names. It is copied from its own image rather than
+# downloaded here: one pinned version, and a toolchain that needs nothing from
+# this base.
+ARG GO_VERSION=1.25.5
+
+FROM golang:${GO_VERSION} AS go
 
 FROM node:22-slim AS build
+
+COPY --from=go /usr/local/go /usr/local/go
+ENV PATH=/usr/local/go/bin:${PATH}
 
 # The pnpm this repository's lockfile was written with: corepack would stop and
 # ask for a version otherwise. Bump both together.
@@ -23,6 +34,9 @@ RUN pnpm install --frozen-lockfile
 COPY scripts ./scripts
 COPY src ./src
 COPY fonts ./fonts
+COPY go.mod go.sum assets.go ./
+COPY cmd ./cmd
+COPY internal ./internal
 RUN pnpm build
 
 

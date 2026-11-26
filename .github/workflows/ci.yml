@@ -23,6 +23,10 @@ on:
 # `gh run view --log-failed`, where colour codes only bury the failing test.
 env:
   NO_COLOR: '1'
+  # The binary `pnpm build` writes is static and built by the toolchain
+  # `go.mod` names: no cgo, and no second toolchain fetched behind the build.
+  CGO_ENABLED: '0'
+  GOTOOLCHAIN: local
 
 jobs:
   check:
@@ -40,12 +44,20 @@ jobs:
           # install the same Node. `engines` stays the floor the project needs.
           node-version-file: .node-version
           cache: pnpm
+      # Before the first `pnpm build`, which compiles `cmd/ez` with it.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
       - run: pnpm install --frozen-lockfile
       - name: Install the browser the suite launches
         run: pnpm exec e2e-web install chromium --with-deps
       # After the browser, not before it: `pnpm check` runs the node tests, and
       # `test/probe-editor.test.ts` launches a browser of its own.
       - run: pnpm check
+      # The Go half of the port: the same two commands a person runs. After
+      # `pnpm check`, whose `pnpm test` builds the bundle both of them read.
+      - run: go vet ./...
+      - run: go test ./...
       - run: pnpm e2e
       # After the browser checks, so a red commit verdict can never skip one of
       # them, and before the evidence, which is read only once both have run.

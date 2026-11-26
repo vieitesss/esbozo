@@ -136,6 +136,21 @@ await compressPageFiles();
 execFileSync(process.execPath, ['scripts/build-core.mjs'], { stdio: 'inherit' });
 
 /**
+ * The one static binary: the bundle above, the font Kalam, and what measuring it
+ * yielded, linked by goja into `ez` with the Go toolchain `go.mod` names. Built
+ * here so a `pnpm build` writes everything `ez` is, and so the size, a `go vet`
+ * or a `go test` is always of the binary this build wrote.
+ *
+ * `CGO_ENABLED=0` is what makes it one file that runs anywhere; `GOTOOLCHAIN` is
+ * `local` so a toolchain older than `go.mod` fails here instead of downloading
+ * another one behind the build's back.
+ */
+execFileSync('go', ['build', '-ldflags=-s -w', '-o', 'dist/ez', './cmd/ez'], {
+  stdio: 'inherit',
+  env: { ...process.env, GOTOOLCHAIN: 'local', CGO_ENABLED: '0' },
+});
+
+/**
  * Every text page file, compressed beside itself. `ez serve` sends these bytes
  * instead of compressing per request: a page load pays for the compression once,
  * here, and the server only picks the variant the request takes. The table is
