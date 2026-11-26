@@ -14,7 +14,7 @@ import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from '@e2e-dev/web';
 import { afterAll, expect } from 'e2e';
-import { cliRender, dragBy, MIXED, MIXED_SCENE, SCENE, clickScene, doubleClickScene, settle } from './helpers.ts';
+import { cliRenderBytes, dragBy, MIXED, MIXED_SCENE, SCENE, clickScene, doubleClickScene, settle } from './helpers.ts';
 import { shot } from './pixels.ts';
 import type { Rect, Shot } from './pixels.ts';
 import { startServe, tempFolder } from '../test/cli.ts';
@@ -209,7 +209,7 @@ test('the served editor lists, opens and autosaves Scenes, saving Scene and SVG 
     const savedScene = async (): Promise<SavedScene> =>
       JSON.parse(await readFile(join(folder, 'two.json'), 'utf8')) as SavedScene;
     await expect.poll(async () => elementX(await savedScene(), 'oval')).toBe(70);
-    const expectedSvg = await cliRender(await savedScene());
+    const expectedSvg = await cliRenderBytes(await readFile(join(folder, 'two.json'), 'utf8'));
     await expect.poll(() => readFile(join(folder, 'two.svg'), 'utf8')).toBe(expectedSvg);
     await expect(screen.getByRole('status')).toHaveText('saved');
 
@@ -414,13 +414,14 @@ test('a drag saves the SVG the CLI draws for the Scene it saved', async ({ app, 
     // The moved Element is where the drag put it, and the SVG beside it is the
     // one `ez render` writes for that Scene — no bytes left over from the frame
     // the gesture was drawn with.
-    const saved = JSON.parse(await readFile(join(folder, 'two.json'), 'utf8')) as {
+    const savedSource = await readFile(join(folder, 'two.json'), 'utf8');
+    const saved = JSON.parse(savedSource) as {
       elements: Array<{ id: string; x?: number; y?: number }>;
     };
     expect(saved.elements.find((element) => element.id === 'oval')).toMatchObject({ x: 100, y: 90 });
     await expect
       .poll(() => readFile(join(folder, 'two.svg'), 'utf8'))
-      .toBe(await cliRender(saved));
+      .toBe(await cliRenderBytes(savedSource));
   } finally {
     await server.stop();
   }
