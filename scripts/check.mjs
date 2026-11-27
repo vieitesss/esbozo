@@ -17,7 +17,7 @@ const STEPS = ['typecheck', 'lint', 'knip', 'check-rules', 'test', 'check:go'];
 const ANSI_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-9;?]*[ -/]*[@-~]`, 'g');
 
 const BOILERPLATE_PATTERNS = [
-  /^>\s/,
+  /^[>$]\s/,
   /\bELIFECYCLE\b/,
   /\bERR_PNPM_/,
   /^Command failed with exit code\b/,

@@ -169,3 +169,20 @@ if (step === 'test') {
   const combined = (run.stdout + run.stderr).trimEnd().split('\n');
   assert.equal(combined.at(-1), 'check: FAILED at test — ✖ broken behavior (12ms)');
 });
+
+test('names the failing step\u2019s own line, not the command pnpm echoes before it', async (t) => {
+  const { dir, runner } = await makeRunner(
+    t,
+    `if (process.argv[2] === 'check:go') {
+  process.stdout.write('$ node scripts/check-go.mjs\\n');
+  process.stdout.write('cmd/ez/main.go\\n');
+  process.exit(1);
+}
+`,
+  );
+
+  const run = runCheck(runner, dir);
+  assert.equal(run.status, 1);
+  const combined = (run.stdout + run.stderr).trimEnd().split('\n');
+  assert.equal(combined.at(-1), 'check: FAILED at check:go — cmd/ez/main.go');
+});
