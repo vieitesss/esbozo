@@ -22,8 +22,11 @@ interface Run {
   readonly stderr: string;
 }
 
-/** A `go` that answers `vet` cleanly and prints `line` when asked for `deadcode`. */
-function makeStubGo(binDir: string, line: string): void {
+/**
+ * A `go` that answers `vet` cleanly and prints `line` on `stream` when asked for
+ * `deadcode`.
+ */
+function makeStubGo(binDir: string, line: string, stream: 'stdout' | 'stderr' = 'stdout'): void {
   mkdirSync(binDir, { recursive: true });
   const goPath = join(binDir, 'go');
   writeFileSync(
@@ -31,7 +34,7 @@ function makeStubGo(binDir: string, line: string): void {
     [
       '#!/bin/sh',
       'if [ "$1" = tool ] && [ "$2" = deadcode ]; then',
-      `  printf '%s\\n' '${line}'`,
+      `  printf '%s\\n' '${line}'${stream === 'stderr' ? ' >&2' : ''}`,
       '  exit 0',
       'fi',
       'exit 0',
@@ -39,6 +42,14 @@ function makeStubGo(binDir: string, line: string): void {
     ].join('\n'),
   );
   chmodSync(goPath, 0o755);
+}
+
+/** A `gofmt` that names `file` as one it would rewrite, so the run stops there. */
+function makeStubGofmt(binDir: string, file: string): void {
+  mkdirSync(binDir, { recursive: true });
+  const gofmtPath = join(binDir, 'gofmt');
+  writeFileSync(gofmtPath, ['#!/bin/sh', `printf '%s\\n' '${file}'`, 'exit 0', ''].join('\n'));
+  chmodSync(gofmtPath, 0o755);
 }
 
 function runCheckGo(binDir: string): Run {
@@ -61,6 +72,25 @@ test('a dead function fails the deadcode step and keeps the line it named', () =
     assert.notEqual(run.code, 0);
     assert.match(run.stderr, /^check:go: FAILED at deadcode$/m);
     assert.ok(run.stdout.includes(line), run.stdout);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('module download chatter on stderr passes the deadcode step', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'check-go-'));
+  try {
+    const binDir = join(dir, 'bin');
+    const chatter = 'go: downloading golang.org/x/tools v0.44.0';
+    makeStubGo(binDir, chatter, 'stderr');
+    // The run has to stop after deadcode: the suites it reaches last need a built `dist/ez`.
+    makeStubGofmt(binDir, 'cmd/ez/main.go');
+
+    const run = runCheckGo(binDir);
+
+    assert.match(run.stderr, /^check:go: FAILED at gofmt$/m);
+    assert.doesNotMatch(run.stderr, /FAILED at deadcode/);
+    assert.ok(run.stderr.includes(chatter), run.stderr);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
