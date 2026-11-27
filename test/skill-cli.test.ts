@@ -2,7 +2,7 @@
  * CLI seam: `ez skill` and `ez skill install` in temporary folders.
  */
 import assert from 'node:assert/strict';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { after, test } from 'node:test';
@@ -61,6 +61,23 @@ test('ez skill install overwrites only esbozo/SKILL.md and leaves other skills u
   assert.equal(run.stdout, `${esbozoFile}\n`);
   assert.equal(await readFile(esbozoFile, 'utf8'), expected);
   assert.equal(await readFile(siblingFile, 'utf8'), 'keep me\n');
+});
+
+test('ez skill install names the mkdir error the CLI words when esbozo is a dangling link', async () => {
+  const folder = await tempFolder();
+  const dir = join(folder, 'skills');
+  await mkdir(dir, { recursive: true });
+  await symlink(join(folder, 'missing'), join(dir, 'esbozo'));
+  const target = join(dir, 'esbozo', 'SKILL.md');
+
+  const run = await ez(['skill', 'install', '--dir', dir], folder);
+
+  assert.equal(run.code, 4, run.stderr);
+  assert.equal(run.stdout, '');
+  assert.equal(
+    run.stderr,
+    `cannot write ${target}: ENOENT: no such file or directory, mkdir '${join(dir, 'esbozo')}'\n`,
+  );
 });
 
 test('ez skill rejects bad flags and arguments with exit 2 and usage', async () => {

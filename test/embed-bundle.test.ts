@@ -103,6 +103,23 @@ test('a folder that is a file is not a folder to write into', async () => {
   assert.equal(run.stderr, `cannot write ${path}: ENOTDIR: not a directory, open '${path}'\n`);
 });
 
+test('a folder reached through a symlink loop is the error the CLI words', async () => {
+  // Go's own text for a loop is `open ...: too many levels of symbolic links`, and
+  // every `ez` message about a file is built around Node's wording instead.
+  const folder = await tempFolder('esbozo-bundle-');
+  await symlink(join(folder, 'b'), join(folder, 'a'));
+  await symlink(join(folder, 'a'), join(folder, 'b'));
+  const path = join(folder, 'a', BUNDLE);
+
+  const run = await ez(['bundle', join(folder, 'a')], ROOT);
+  assert.equal(run.code, 4, run.stderr);
+  assert.equal(run.stdout, '');
+  assert.equal(
+    run.stderr,
+    `cannot write ${path}: ELOOP: too many symbolic links encountered, open '${path}'\n`,
+  );
+});
+
 test('the packed tarball installs, and both of its bins run the editor it bundles', async () => {
   // Packing runs `prepack`, which rebuilds `dist` where it runs. So it runs on a
   // copy of the sources, with this repository's `node_modules` linked in: the

@@ -150,23 +150,68 @@ func bytesOf(value goja.Value) ([]byte, error) {
 	return nil, fmt.Errorf("expected bytes, got %s", value.ExportType())
 }
 
-// NodeMessage is a file error as Node words it, because every message `ez`
-// prints about a file is built around Node's: `cannot read font x: ENOENT: no
-// such file or directory, open 'x'`. Go already carries the code and the reason;
-// what Node adds is the call that made it, which is `open` for a path it could
-// not open and `read` for the read of a directory that failed.
+// NodeMessage is a file error as Node words it, because every message `ez` prints
+// about a file is built around Node's: `cannot read font x: ENOENT: no such file
+// or directory, open 'x'`. Go already carries the code and the reason; what Node
+// adds is the call that made it, which is `open` for a path it could not open and
+// `read` for the read of a directory that failed.
 func NodeMessage(err error, path string, reading bool) string {
+	if reading && errors.Is(err, syscall.EISDIR) {
+		return "EISDIR: illegal operation on a directory, read"
+	}
+	return nodeMessage(err, path, "open")
+}
+
+// NodeMkdirMessage is what Node says about a folder it could not make: the wording
+// above with `mkdir` where `open` goes. Node makes a folder by probing the path it
+// was given before it climbs, so what it names is what it found — a file where the
+// folder should be is `EEXIST`, a file above it is `ENOTDIR` naming the folder, and
+// a dangling link is the `ENOENT` the kernel gives for a path that leads nowhere.
+func NodeMkdirMessage(err error, dir string) string {
+	var pathErr *fs.PathError
+	if !errors.As(err, &pathErr) {
+		return err.Error()
+	}
+	taken := errors.Is(pathErr.Err, fs.ErrExist) ||
+		(errors.Is(pathErr.Err, syscall.ENOTDIR) && pathErr.Path == dir)
+	if !taken {
+		if errors.Is(pathErr.Err, syscall.ENOTDIR) {
+			return nodeMessage(pathErr.Err, dir, "mkdir")
+		}
+		return nodeMessage(pathErr.Err, pathErr.Path, "mkdir")
+	}
+	// The name is taken. What Node reports is what it found there: a folder it
+	// cannot walk through, a file it cannot make a folder of, or nothing at all —
+	// nothing at all being the folder itself when `MkdirAll` reached it, and the
+	// folder it was climbing through when the name it could not take was above.
+	info, statErr := os.Stat(dir)
+	switch {
+	case statErr != nil && !errors.Is(statErr, fs.ErrNotExist):
+		return nodeMessage(statErr, dir, "mkdir")
+	case info != nil:
+		return nodeMessage(syscall.EEXIST, dir, "mkdir")
+	case pathErr.Path == dir:
+		return nodeMessage(statErr, dir, "mkdir")
+	}
+	return nodeMessage(syscall.ENOTDIR, pathErr.Path, "mkdir")
+}
+
+// nodeMessage is Node's wording for one file error, made by `call`, so every file
+// error has one owner and one shape: `CODE: reason, call 'path'`.
+func nodeMessage(err error, path, call string) string {
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		return fmt.Sprintf("ENOENT: no such file or directory, open '%s'", path)
+		return fmt.Sprintf("ENOENT: no such file or directory, %s '%s'", call, path)
 	case errors.Is(err, fs.ErrPermission):
-		return fmt.Sprintf("EACCES: permission denied, open '%s'", path)
-	case errors.Is(err, syscall.EISDIR) && reading:
-		return "EISDIR: illegal operation on a directory, read"
+		return fmt.Sprintf("EACCES: permission denied, %s '%s'", call, path)
+	case errors.Is(err, syscall.EEXIST):
+		return fmt.Sprintf("EEXIST: file already exists, %s '%s'", call, path)
+	case errors.Is(err, syscall.ELOOP):
+		return fmt.Sprintf("ELOOP: too many symbolic links encountered, %s '%s'", call, path)
 	case errors.Is(err, syscall.EISDIR):
-		return fmt.Sprintf("EISDIR: illegal operation on a directory, open '%s'", path)
+		return fmt.Sprintf("EISDIR: illegal operation on a directory, %s '%s'", call, path)
 	case errors.Is(err, syscall.ENOTDIR):
-		return fmt.Sprintf("ENOTDIR: not a directory, open '%s'", path)
+		return fmt.Sprintf("ENOTDIR: not a directory, %s '%s'", call, path)
 	}
 	return err.Error()
 }

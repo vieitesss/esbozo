@@ -4,15 +4,12 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"os/user"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	"esbozo"
 	"esbozo/internal/core"
@@ -101,7 +98,7 @@ func runSkill(argv []string, stdout, stderr io.Writer) int {
 		return exitWriteFailed
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o777); err != nil {
-		fmt.Fprintf(stderr, "cannot write %s: %s\n", target, cannotMkdir(err, filepath.Dir(target)))
+		fmt.Fprintf(stderr, "cannot write %s: %s\n", target, core.NodeMkdirMessage(err, filepath.Dir(target)))
 		return exitWriteFailed
 	}
 	// 0666, as `writeFile` writes: the umask decides the rest.
@@ -111,24 +108,4 @@ func runSkill(argv []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintln(stdout, target)
 	return exitOK
-}
-
-// cannotMkdir is what Node says about a folder it could not make. Node words every
-// file error the same way — `CODE: reason, syscall 'path'` — and tries the folder it
-// was given before it climbs to a folder that is missing, so a path that runs into a
-// file is named whole, and a folder that is itself a file is `EEXIST`.
-func cannotMkdir(err error, dir string) string {
-	var pathErr *fs.PathError
-	if !errors.As(err, &pathErr) {
-		return err.Error()
-	}
-	if errors.Is(pathErr, syscall.ENOTDIR) {
-		if pathErr.Path == dir {
-			return fmt.Sprintf("EEXIST: file already exists, mkdir '%s'", dir)
-		}
-		return fmt.Sprintf("ENOTDIR: not a directory, mkdir '%s'", dir)
-	}
-	// `NodeMessage` words the error for an `open`, and `mkdir` is the only word
-	// that differs.
-	return strings.Replace(core.NodeMessage(pathErr.Err, pathErr.Path, false), ", open '", ", mkdir '", 1)
 }
