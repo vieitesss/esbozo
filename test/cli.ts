@@ -1,10 +1,10 @@
 /**
  * The one seam the CLI tests share: `ez` on Scene files in temporary folders.
  *
- * Both `render.test.ts` and `elements.test.ts` drive the built CLI the same way:
- * write a Scene to a fresh folder, run `ez`, read what it wrote. Keeping the
- * three helpers here means a change to how the CLI is invoked, or to how its
- * exit code is read, cannot make the suites disagree.
+ * The CLI suites drive the built CLI the same way: write a Scene to a fresh
+ * folder, run `ez`, read what it wrote. Keeping the helpers here means a change
+ * to how the CLI is invoked, or to how its exit code is read, cannot make the
+ * suites disagree — and `png` goes through here too, so `EZ_BIN` reaches it.
  */
 import { execFile, spawn } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
@@ -15,7 +15,7 @@ import { tempFolder } from './temp.ts';
 
 const run = promisify(execFile);
 
-/** The built CLI both suites exercise. */
+/** The built CLI every suite exercises unless `EZ_BIN` names another `ez`. */
 export const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 
 /**

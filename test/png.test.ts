@@ -6,25 +6,24 @@
  * IHDR chunk gives the page size on its own, and IDAT is inflated and
  * unfiltered with node:zlib so a single pixel can be sampled from the 8-bit
  * encodings resvg writes without the test requiring one particular colour type.
+ *
+ * `ez` is `test/cli.ts`'s runner, so the suite runs the built CLI by default and
+ * the Go binary under `EZ_BIN`: both must answer every assertion here.
  */
-import { execFile } from 'node:child_process';
 import assert from 'node:assert/strict';
 import { copyFile, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
 import { inflateSync } from 'node:zlib';
 import opentype from 'opentype.js';
 import { after, test } from 'node:test';
+import { ez } from './cli.ts';
 import { writeFont } from './fonts.ts';
 import { removeTempFolders, tempFolder } from './temp.ts';
 
 /** Every folder this file makes is removed when its tests are done. */
 after(removeTempFolders);
-
-const run = promisify(execFile);
-const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 
 const SAMPLE_SCENE = {
   version: 1,
@@ -67,20 +66,6 @@ async function sceneFolder(scene: unknown = SAMPLE_SCENE): Promise<string> {
   const folder = await tempFolder('esbozo-png-');
   await writeFile(join(folder, 'scene.json'), JSON.stringify(scene, null, 2), 'utf8');
   return folder;
-}
-
-async function ez(args: string[], cwd: string): Promise<Run> {
-  try {
-    const { stdout, stderr } = await run(process.execPath, [CLI, ...args], { cwd });
-    return { code: 0, stdout, stderr };
-  } catch (error) {
-    const failed = error as { code?: unknown; stdout?: string; stderr?: string };
-    return {
-      code: typeof failed.code === 'number' ? failed.code : -1,
-      stdout: failed.stdout ?? '',
-      stderr: failed.stderr ?? '',
-    };
-  }
 }
 
 interface Size {
