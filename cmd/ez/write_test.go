@@ -5,15 +5,17 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"sync"
 	"testing"
 )
 
 // TestPutBackRestoresTheSceneByteForByte: the write's rename landed and the
 // write then failed, so the copy taken aside has to be the file on disk again —
 // the bytes a person had are back, and nothing of the copy is left behind.
+//
+// No public seam reaches this on Linux: the only way to fail a write after its
+// Scene landed is a file a rename will not replace, which takes `chflags uchg` on
+// macOS — the case `test/serve.test.ts` skips here.
 func TestPutBackRestoresTheSceneByteForByte(t *testing.T) {
 	folder := t.TempDir()
 	scene := filepath.Join(folder, "kept.json")
@@ -35,6 +37,9 @@ func TestPutBackRestoresTheSceneByteForByte(t *testing.T) {
 
 // TestPutBackRemovesASceneTheWriteCreated: a write that made a Scene where there
 // was none leaves nothing of it behind when it fails.
+//
+// No public seam reaches this on Linux, for the reason above, and no case in
+// `test/serve.test.ts` reaches the leg of the undo this one does anywhere.
 func TestPutBackRemovesASceneTheWriteCreated(t *testing.T) {
 	folder := t.TempDir()
 	scene := filepath.Join(folder, "made.json")
@@ -57,6 +62,11 @@ func TestPutBackRemovesASceneTheWriteCreated(t *testing.T) {
 // TestAFailedRestoreNamesTheCopyThatHoldsTheScene: a folder that will not take
 // the Scene back either is the one answer a client can do anything with, so it
 // says so and says where the bytes still are.
+//
+// No public seam reaches this on Linux: the undo needs a `rename` that fails
+// after a `rename` that landed, and a folder this process may not write fails the
+// write's copy in `copyAside` long before either — the case
+// `test/serve.test.ts` skips here is macOS's `chflags uchg`.
 func TestAFailedRestoreNamesTheCopyThatHoldsTheScene(t *testing.T) {
 	folder := t.TempDir()
 	if os.Geteuid() == 0 {
@@ -95,6 +105,10 @@ func TestAFailedRestoreNamesTheCopyThatHoldsTheScene(t *testing.T) {
 
 // TestNamesThatReachOneSVGShareOneQueue: two names whose Scenes sit beside one
 // SVG take the same write queue, or the SVG would be two requests' at once.
+//
+// No public seam reaches this on Linux: two names that fold to one queue are two
+// distinct pairs here, so no answer and no file on disk differs — only a
+// filesystem that folds case, which `test/serve.test.ts` skips here, shows it.
 func TestNamesThatReachOneSVGShareOneQueue(t *testing.T) {
 	for _, names := range [][2]string{
 		{"flow.esbozo", "flow.json"},
@@ -109,53 +123,6 @@ func TestNamesThatReachOneSVGShareOneQueue(t *testing.T) {
 	}
 	if queueKey("one.json") == queueKey("two.json") {
 		t.Errorf("two Scenes with an SVG of their own share one queue, so their writes wait on each other")
-	}
-}
-
-// TestWritesToOneSceneDoNotInterleave: a Scene and its SVG are one answer, so
-// writes to one pair land whole, one after the other — the pair on disk always
-// comes from a single request.
-func TestWritesToOneSceneDoNotInterleave(t *testing.T) {
-	folder := t.TempDir()
-	scene := filepath.Join(folder, "busy.json")
-	svg := filepath.Join(folder, "busy.svg")
-	writeText(t, scene, "nothing")
-	writeText(t, svg, "nothing")
-	queue := newWriteQueue()
-
-	const writes = 32
-	answers := make([]error, writes)
-	var group sync.WaitGroup
-	for index := range writes {
-		group.Add(1)
-		go func() {
-			defer group.Done()
-			number := strconv.Itoa(index)
-			answers[index] = queue.run(queueKey("busy.json"), func() error {
-				return writePair(scene, svg, sceneWrite{
-					Scene: "the Scene of write " + number,
-					Svg:   "the SVG of write " + number,
-				})
-			})
-		}()
-	}
-	group.Wait()
-
-	for index, err := range answers {
-		if err != nil {
-			t.Fatalf("write %d was not answered: %v", index, err)
-		}
-	}
-	saved, drawn := readText(t, scene), readText(t, svg)
-	if strings.TrimPrefix(saved, "the Scene of write ") != strings.TrimPrefix(drawn, "the SVG of write ") {
-		t.Errorf("the pair on disk is two requests' — %q beside %q", saved, drawn)
-	}
-	left, err := os.ReadDir(folder)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(left) != 2 {
-		t.Errorf("a write left something beside the pair: %v", namesOf(left))
 	}
 }
 
@@ -175,13 +142,4 @@ func readText(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return string(bytes)
-}
-
-// namesOf is the folder's entries, for a failure that says what is there.
-func namesOf(entries []os.DirEntry) []string {
-	names := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		names = append(names, entry.Name())
-	}
-	return names
 }
