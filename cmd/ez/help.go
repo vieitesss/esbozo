@@ -12,15 +12,17 @@ import (
 
 const placeList = "top, bottom, left, right, center, top-left, top-right, bottom-left, bottom-right"
 
-// anchorUsageLine, snapUsageLine and skillUsageLine are `USAGE_LINE.anchor`,
-// `USAGE_LINE.snap` and `USAGE_LINE.skill` in `src/help.ts`, word for word: what a
-// command prints when it refuses the arguments it was given.
+// anchorUsageLine, snapUsageLine, skillUsageLine and bundleUsageLine are
+// `USAGE_LINE.anchor`, `USAGE_LINE.snap`, `USAGE_LINE.skill` and
+// `USAGE_LINE.bundle` in `src/help.ts`, word for word: what a command prints when
+// it refuses the arguments it was given.
 const (
 	anchorUsageLine = "usage: ez anchor <scene> <element> <start|end> <place>\n" +
 		"       ez anchor <scene> --all\n" +
 		`  place: ` + placeList + `, a pair of fractions "fx,fy", or none`
-	snapUsageLine  = "usage: ez snap <scene> <element> <start|end> <target|off>"
-	skillUsageLine = "usage: ez skill [install [--dir <path>]]"
+	snapUsageLine   = "usage: ez snap <scene> <element> <start|end> <target|off>"
+	skillUsageLine  = "usage: ez skill [install [--dir <path>]]"
+	bundleUsageLine = "usage: ez bundle <dir>"
 )
 
 var cssSubsetLines = []string{
