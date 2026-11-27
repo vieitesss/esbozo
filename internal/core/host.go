@@ -31,8 +31,8 @@ func newRuntime() (*goja.Runtime, error) {
 }
 
 // installHost is the whole of what the core is allowed to ask its host for: read
-// a file, turn text into bytes and back, hand over the bundled font, and hand
-// over what measuring it yields.
+// a file, turn text into bytes and back, say where the process runs, hand over
+// the bundled font, and hand over what measuring it yields.
 //
 // `src/font.ts` reads the font and the stylesheet through `node:fs/promises`, and
 // `src/scene.ts` and `src/sha256.ts` hash with `TextEncoder`; the bundle reaches
@@ -80,6 +80,19 @@ func installHost(vm *goja.Runtime) error {
 			panic(vm.NewGoError(err))
 		}
 		return vm.ToValue(string(bytes))
+	}); err != nil {
+		return err
+	}
+
+	// The folder this process runs in: a stylesheet's `@font-face` url is
+	// resolved beside the stylesheet, which the command line may have named
+	// relatively, and only the host knows where that is.
+	if err := host.Set("cwd", func(call goja.FunctionCall) goja.Value {
+		folder, err := os.Getwd()
+		if err != nil {
+			panic(vm.NewGoError(err))
+		}
+		return vm.ToValue(folder)
 	}); err != nil {
 		return err
 	}

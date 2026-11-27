@@ -40,7 +40,7 @@ const FONT_METRICS_TEXT = readFileSync(FONT_METRICS, 'utf8');
 
 /**
  * The host the bundle reaches through `globalThis.__ezHost`, answered with
- * Node's own filesystem: the same six answers `internal/core/host.go` gives the
+ * Node's own filesystem: the same seven answers `internal/core/host.go` gives the
  * goja runtime. It is installed before the bundle runs, because the font's
  * bytes are read at bundle load.
  */
@@ -49,6 +49,7 @@ globalThis.__ezHost = {
   readBytes: (path) => arrayBufferOf(readFileSync(String(path))),
   encodeUtf8: (text) => arrayBufferOf(Buffer.from(String(text), 'utf8')),
   decodeUtf8: (bytes) => Buffer.from(new Uint8Array(bytes)).toString('utf8'),
+  cwd: () => process.cwd(),
   bundledFont: () => arrayBufferOf(KALAM_BYTES),
   bundledFontMetrics: () => FONT_METRICS_TEXT,
 };

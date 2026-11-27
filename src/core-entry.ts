@@ -22,7 +22,7 @@ import { sha256Hex } from './sha256.js';
 import type { Layout } from './layout.js';
 
 /**
- * What the host lends the bundle. `ez` in Go provides all six; a host that
+ * What the host lends the bundle. `ez` in Go provides all seven; a host that
  * cannot is a host that cannot run the core.
  */
 interface EzHost {
@@ -30,6 +30,12 @@ interface EzHost {
   readBytes(path: string): ArrayBuffer;
   encodeUtf8(text: string): ArrayBuffer;
   decodeUtf8(bytes: ArrayBuffer): string;
+  /**
+   * The folder the host's process runs in, because a stylesheet's `@font-face`
+   * url is resolved beside the stylesheet and the command line may have named it
+   * relatively: `node:path`'s `resolve` needs the host's working folder.
+   */
+  cwd(): string;
   /**
    * The bundled font's bytes, read in place of the `.ttf` import the CLI bundles
    * as base64: the binary carries that very file, so the bundle keeps only a
