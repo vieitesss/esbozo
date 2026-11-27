@@ -1,14 +1,4 @@
-// Package resvg rasterises an SVG with the same resvg build the core runs in
-// Node.
-//
-// `src/png.ts` turns the words into outlines before resvg sees the SVG. This side
-// takes one SVG string and the module's options JSON — the whole of what
-// `@resvg/resvg-wasm` accepts — and answers the PNG bytes `render().asPng()`
-// would have handed back in Node.
-//
-// The module is `node_modules/@resvg/resvg-wasm/index_bg.wasm`, carried in the
-// binary as `esbozo.ResvgModule` and run in wazero. What this package adds is the
-// wasm-bindgen ABI around it.
+// Package resvg rasterises SVGs using @resvg/resvg-wasm in wazero.
 package resvg
 
 import (
@@ -27,13 +17,8 @@ import (
 	"esbozo"
 )
 
-// Rasterise draws svg — already free of text, as `src/png.ts` leaves it — and
-// returns PNG bytes. options is resvg's options JSON, exactly as
-// `@resvg/resvg-wasm` marshals what `src/png.ts` passes.
-//
-// The module is started once per process and reused, as the Node side reuses its
-// single `initWasm`; a failed start is remembered, because it cannot become a
-// success later.
+// Rasterise renders svg (with text already outlined) to PNG bytes using
+// @resvg/resvg-wasm options JSON. The wasm module is initialised once per process.
 func Rasterise(svg, options string) ([]byte, error) {
 	one, err := shared()
 	if err != nil {
@@ -48,15 +33,11 @@ var (
 	sharedErr    error
 )
 
-// shared is the one rasteriser: nothing that does not draw a PNG pays for
-// compiling the module.
 func shared() (*rasteriser, error) {
 	sharedOnce.Do(func() { sharedModule, sharedErr = newRasteriser(cacheDir()) })
 	return sharedModule, sharedErr
 }
 
-// cacheDir is where wazero keeps resvg's module compiled between runs, so `ez png`
-// pays for the compile once rather than once per PNG.
 func cacheDir() string {
 	base, err := os.UserCacheDir()
 	if err != nil {
@@ -65,9 +46,7 @@ func cacheDir() string {
 	return filepath.Join(base, "esbozo", "wazero")
 }
 
-// rasteriser is the one module and the state of the call in flight. resvg keeps
-// module-level state in the wasm (a global allocator, the shadow stack pointer),
-// so calls are serialised on mu.
+// resvg's wasm holds global state (allocator, shadow stack pointer), so calls serialise on mu.
 type rasteriser struct {
 	ctx     context.Context
 	runtime wazero.Runtime
@@ -76,9 +55,6 @@ type rasteriser struct {
 	heap    *heap
 }
 
-// newRasteriser makes the one module, over the compilation cache in dir when
-// there is one. A cache that does not work costs seconds; it must never cost the
-// PNG.
 func newRasteriser(dir string) (*rasteriser, error) {
 	cache := compilationCache(dir)
 	one, err := startWith(cache)
@@ -86,9 +62,7 @@ func newRasteriser(dir string) (*rasteriser, error) {
 		return one, err
 	}
 
-	// An entry wazero cannot read or cannot replace fails the compile outright, and
-	// would go on failing every run until the user deleted it. Compiling again
-	// without the cache costs seconds and draws.
+	// wazero fails compilation outright on a corrupted cache entry; retry without a cache.
 	return startWith(nil)
 }
 
@@ -96,8 +70,6 @@ func startWith(cache wazero.CompilationCache) (*rasteriser, error) {
 	ctx := context.Background()
 	one := &rasteriser{ctx: ctx}
 
-	// wazero picks its compiler engine when the platform has one, its interpreter
-	// when it does not.
 	config := wazero.NewRuntimeConfig()
 	if cache != nil {
 		config = config.WithCompilationCache(cache)
@@ -116,16 +88,12 @@ func startWith(cache wazero.CompilationCache) (*rasteriser, error) {
 	return one, nil
 }
 
-// rasterise is the call sequence the wasm-bindgen glue runs for
-// `new Resvg(svg, options).render().asPng()`, in the same order and with the
-// same arguments.
 func (one *rasteriser) rasterise(svg, options string) ([]byte, error) {
 	one.mu.Lock()
 	defer one.mu.Unlock()
 	one.heap = newHeap()
 
-	// The glue reserves 16 bytes of the module's shadow stack for one call's
-	// results; the wasm frames grow down from the pointer it returns.
+	// wasm-bindgen reserves 16 bytes on the downward-growing shadow stack for each call's return area.
 	retptr, err := one.moveStackPointer(-16)
 	if err != nil {
 		return nil, err
@@ -143,8 +111,6 @@ func (one *rasteriser) rasterise(svg, options string) ([]byte, error) {
 		return nil, fmt.Errorf("resvg's memory cannot hold %d bytes of options", len(options))
 	}
 
-	// No custom font buffers: `src/png.ts` draws words as outlines, so resvg is
-	// never asked for a font.
 	if err := one.call("resvg_new", retptr, svgHandle, optionsPtr, uint32(len(options)), 0); err != nil {
 		return nil, err
 	}
@@ -195,15 +161,11 @@ func (one *rasteriser) call(name string, params ...uint32) error {
 	return nil
 }
 
-// withoutStackTrace drops the wasm stack trace wazero appends to a trap: the
-// frames are the module's, and the message is the line saying why.
 func withoutStackTrace(err error) error {
 	message, _, _ := strings.Cut(err.Error(), "\nwasm stack trace:")
 	return errors.New(message)
 }
 
-// result reads one call's result area: the value, and the handle of the exception
-// it threw instead.
 func (one *rasteriser) result(retptr uint32) (uint32, error) {
 	buffer, ok := one.memory().Read(retptr, 12)
 	if !ok {
@@ -248,10 +210,8 @@ func (one *rasteriser) memory() api.Memory {
 	return one.module.Memory()
 }
 
-// compilationCache is wazero's store of compiled code in dir, or nil when dir
-// cannot hold one. Every failure here is swallowed on purpose: a cache only buys
-// time. wazero fails the compile outright when it cannot save the result, so a
-// directory that refuses a write has to be given up beforehand.
+// wazero fails compilation if it cannot write to the cache directory, so probe
+// writability first and return nil on any failure.
 func compilationCache(dir string) wazero.CompilationCache {
 	if dir == "" || ensureWritable(dir) != nil {
 		return nil
@@ -263,8 +223,6 @@ func compilationCache(dir string) wazero.CompilationCache {
 	return cache
 }
 
-// ensureWritable makes dir and proves a file can be written in it: only a real
-// write tells a read-only directory from a writable one.
 func ensureWritable(dir string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
@@ -306,8 +264,6 @@ func (k kind) String() string {
 	return "unknown value"
 }
 
-// object is one value the module holds a handle to: the SVG string, the module's
-// memory and the views into it that a PNG arrives in, or an error.
 type object struct {
 	kind   kind
 	text   string

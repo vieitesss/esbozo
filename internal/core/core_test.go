@@ -7,16 +7,10 @@ import (
 	"testing"
 )
 
-// A Scene the parser takes: `docs/save-api.md` writes it as the empty Scene.
 const emptyScene = `{"version":1,"elements":[]}`
 
-// A Scene the parser refuses, and why it does.
 const unparsableScene = `{ not json`
 
-// TestParseAnswersWhatTheParserSays holds parsing to the one thing it is: the
-// parser `ez check` uses, with no font measured and no Label fitted. A Scene it
-// takes is the whole of a valid answer, and a Scene it refuses carries the lines
-// `ez check` prints for one, so a host can tell a Scene from any other JSON.
 func TestParseAnswersWhatTheParserSays(t *testing.T) {
 	session, err := Open()
 	if err != nil {
@@ -48,8 +42,6 @@ func TestParseAnswersWhatTheParserSays(t *testing.T) {
 		t.Fatal("a Scene that will not parse said nothing about why")
 	}
 
-	// `check` refuses an invalid Scene at the same place and with the same lines,
-	// so a parser that drifted from it would answer a different Scene's problem.
 	checked, err := Check([]byte(unparsableScene), CheckOptions{})
 	if err != nil {
 		t.Fatalf("check: %v", err)
@@ -60,15 +52,10 @@ func TestParseAnswersWhatTheParserSays(t *testing.T) {
 	}
 }
 
-// A Scene whose Label carries a lone UTF-16 surrogate as a `\u` escape. Keeping
-// the code unit is the reading of V8's that goja's own `JSON.parse` cannot take —
-// it turns a lone surrogate into U+FFFD — and `src/scene.ts` refuses a character
-// XML cannot represent, so that swap would let the Scene through.
+// goja's built-in JSON.parse replaces lone surrogate escapes with U+FFFD instead
+// of preserving the code unit as V8 does.
 const loneSurrogateScene = `{"version":1,"elements":[{"id":"a","type":"rectangle","x":0,"y":0,"width":100,"height":50,"label":"before\ud800after"}]}`
 
-// TestCheckKeepsALoneSurrogateEscape holds reading a text no engine of this host
-// reads as V8 reads it to V8's reading: the Scene is refused, because the Label's
-// code unit is one XML cannot carry.
 func TestCheckKeepsALoneSurrogateEscape(t *testing.T) {
 	checked, err := Check([]byte(loneSurrogateScene), CheckOptions{})
 	if err != nil {
@@ -82,13 +69,10 @@ func TestCheckKeepsALoneSurrogateEscape(t *testing.T) {
 	}
 }
 
-// A Scene whose `x` is a number too large for a float64, which V8 reads as
-// ±Infinity and `src/scene.ts` refuses as a number that is not finite.
+// goja's built-in JSON.parse rejects float64-overflowing numbers instead of
+// reading Infinity as V8 does.
 const overflowingNumberScene = `{"version":1,"elements":[{"id":"a","type":"rectangle","x":1e400,"y":0,"width":100,"height":50,"label":"big"}]}`
 
-// TestCheckReadsANumberTooLargeForAFloat64AsV8Does holds reading the same text to
-// V8's reading of it: goja's own `JSON.parse` refuses the number where V8 reads
-// Infinity, and the refusal of a Scene is about the Scene, not the host.
 func TestCheckReadsANumberTooLargeForAFloat64AsV8Does(t *testing.T) {
 	checked, err := Check([]byte(overflowingNumberScene), CheckOptions{})
 	if err != nil {
@@ -102,9 +86,6 @@ func TestCheckReadsANumberTooLargeForAFloat64AsV8Does(t *testing.T) {
 	}
 }
 
-// TestWarmSessionAnswersLikeFreshRuntimes holds one runtime used over and over to
-// what a runtime of its own answers each time: a session is a way to skip the
-// start-up cost, never a pair of hands that remembers the last command.
 func TestWarmSessionAnswersLikeFreshRuntimes(t *testing.T) {
 	session, err := Open()
 	if err != nil {
@@ -142,20 +123,11 @@ func TestWarmSessionAnswersLikeFreshRuntimes(t *testing.T) {
 	}
 }
 
-// TestASeedIsHashedByTheHost holds the seed an unseeded Element takes to the
-// platform's digest. `src/sha256.ts` can walk its own sha256, and a Scene of
-// hundreds of Elements walks it once per Element inside a script; a host with a
-// digest of its own answers that instead, and the script's is left unread.
-//
-// What a Scene that writes every seed asks for is nothing, and what a Scene that
-// writes none asks for is one digest per Element: `internal/core`'s host is the
-// only digest a session has.
 func TestASeedIsHashedByTheHost(t *testing.T) {
 	session, err := Open()
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Count what the core asks the host for, around the host's own answer.
 	counting := `globalThis.__ezDigests = 0;
 		globalThis.__ezHost.sha256 = ((real) => (bytes) => {
 			globalThis.__ezDigests += 1;
@@ -172,7 +144,6 @@ func TestASeedIsHashedByTheHost(t *testing.T) {
 		return value.ToInteger()
 	}
 
-	// Three Elements, no seed written: three seeds to make.
 	if _, err := session.Parse(writtenScene(3)); err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +152,6 @@ func TestASeedIsHashedByTheHost(t *testing.T) {
 			made)
 	}
 
-	// The same Scene with a seed on every Element: nothing left to make.
 	seeded := []byte(`{"version":1,"elements":[
 		{"id":"a","type":"rectangle","x":0,"y":0,"width":10,"height":10,"seed":1},
 		{"id":"b","type":"rectangle","x":0,"y":20,"width":10,"height":10,"seed":2}]}`)
@@ -194,9 +164,6 @@ func TestASeedIsHashedByTheHost(t *testing.T) {
 	}
 }
 
-// BenchmarkParse measures one Scene parsed in a session already warm, as the
-// listing parses a folder's Scenes in the session `ez serve` keeps, beside the
-// same Scene parsed by a command that opens its runtime, as `ez check` does.
 func BenchmarkParse(b *testing.B) {
 	source := writtenScene(200)
 	b.Run("warm", func(b *testing.B) {
@@ -219,8 +186,6 @@ func BenchmarkParse(b *testing.B) {
 	})
 }
 
-// writtenScene is a Scene of `elements` labelled rectangles as an agent writes
-// one: every Element spelled out, and none of them carrying a seed.
 func writtenScene(elements int) []byte {
 	var source strings.Builder
 	source.WriteString(`{"version":1,"elements":[`)
@@ -236,8 +201,6 @@ func writtenScene(elements int) []byte {
 	return []byte(source.String())
 }
 
-// TestSessionAnswersOneCommandAtATime is the lock: many commands over one session
-// answer what each would answer alone. Run it with `-race`.
 func TestSessionAnswersOneCommandAtATime(t *testing.T) {
 	session, err := Open()
 	if err != nil {
@@ -271,7 +234,6 @@ func TestSessionAnswersOneCommandAtATime(t *testing.T) {
 	}
 }
 
-// sameLines is whether two answers carry the same lines, empty and nil alike.
 func sameLines(one, other []string) bool {
 	if len(one) != len(other) {
 		return false

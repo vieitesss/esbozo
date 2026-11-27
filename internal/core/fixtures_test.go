@@ -7,10 +7,6 @@ import (
 	"testing"
 )
 
-// answer is one command's answer, as `scripts/same-bytes.mjs` compares it. An
-// empty list is `[]` rather than `null`, so both sides write the same JSON, and
-// a field the command did not make is empty: `png` is `null` for `render` and
-// `check`, and `svg` is `""` for `png`.
 type answer struct {
 	OK       bool     `json:"ok"`
 	ExitCode int      `json:"exitCode"`
@@ -32,12 +28,6 @@ type answers struct {
 	Fixtures []fixtureAnswers `json:"fixtures"`
 }
 
-// TestCoreAnswers writes what the Go core answers for every fixture Scene, for
-// `scripts/same-bytes.mjs` to hold to what the same bundle answers in Node. The
-// two halves stay two halves — one runtime cannot be compared with itself — so
-// this writes and the script judges. `png` runs in both themes: a rasteriser the
-// SVG comparison cannot see, and a theme that never arrived, would both pass a
-// single-theme comparison.
 func TestCoreAnswers(t *testing.T) {
 	out := os.Getenv("EZ_SAME_BYTES_OUT")
 	if out == "" {
@@ -75,8 +65,6 @@ func TestCoreAnswers(t *testing.T) {
 	}
 }
 
-// renderAnswer runs `render`, failing the test rather than writing a half answer
-// the comparison would then have to explain.
 func renderAnswer(t *testing.T, source []byte) answer {
 	t.Helper()
 	rendered, err := Render(source, RenderOptions{})
@@ -88,8 +76,6 @@ func renderAnswer(t *testing.T, source []byte) answer {
 	return written
 }
 
-// checkAnswer runs `check`, which writes no file: its answer is the lines it
-// refuses with.
 func checkAnswer(t *testing.T, source []byte) answer {
 	t.Helper()
 	checked, err := Check(source, CheckOptions{})
@@ -99,7 +85,6 @@ func checkAnswer(t *testing.T, source []byte) answer {
 	return answered(checked)
 }
 
-// pngAnswer runs `png` in one theme.
 func pngAnswer(t *testing.T, source []byte, theme string) answer {
 	t.Helper()
 	image, err := PNG(source, PNGOptions{Theme: theme})
@@ -111,8 +96,6 @@ func pngAnswer(t *testing.T, source []byte, theme string) answer {
 	return written
 }
 
-// answered is what every command answers, as the comparison writes it; each
-// command's own field is set beside these.
 func answered(result Result) answer {
 	return answer{
 		OK:       result.OK,
@@ -122,7 +105,6 @@ func answered(result Result) answer {
 	}
 }
 
-// listed answers an empty list as an empty list, never as null.
 func listed(problems []string) []string {
 	if problems == nil {
 		return []string{}
@@ -130,8 +112,6 @@ func listed(problems []string) []string {
 	return problems
 }
 
-// BenchmarkRenderEveryElement measures a cold Render: every iteration starts a
-// goja runtime, as every `ez` command does, over the bundle compiled once.
 func BenchmarkRenderEveryElement(b *testing.B) {
 	source, err := os.ReadFile("../../test/fixtures/every-element.json")
 	if err != nil {
