@@ -128,6 +128,16 @@ execFileSync(process.execPath, ['scripts/build-core.mjs'], { stdio: 'inherit' })
 execFileSync(process.execPath, ['scripts/version-stamp.mjs', 'dist/version'], { stdio: 'inherit' });
 
 /**
+ * What `ez serve` names as the build it is, and when that build ran: the same
+ * answers `buildId` and `buildTime` give the TypeScript CLI's own stamp, written
+ * beside the version so that `assets.go` embeds them and the binary reads
+ * nothing at run time. The startup line and `/api/health` end with this pair, so
+ * a server someone finds running can say whether it is the one they started.
+ */
+await writeFile('dist/build-id', `${buildId(gitAnswer)}\n`);
+await writeFile('dist/built-at', `${buildTime(new Date())}\n`);
+
+/**
  * The one static binary: the bundle above, Kalam, and what measuring it yielded,
  * linked by goja into `ez` with the Go toolchain `go.mod` names.
  *

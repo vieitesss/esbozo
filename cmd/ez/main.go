@@ -5,7 +5,7 @@
 // the core's, which `render`, `check`, `png`, `anchor` and `snap` hand bytes and
 // get text or an image back from.
 //
-// Surface (the commands marked * are not ported yet):
+// Surface (every command is ported):
 //
 //	ez render <scene> [--font <file>]
 //	ez check <scene> [--font <file>] [--css <stylesheet>]
@@ -16,7 +16,7 @@
 //	ez snap <scene> <element> <start|end> <target|off>
 //	ez skill [install [--dir <path>]]
 //	ez bundle <dir>
-//	ez serve*
+//	ez serve
 //	ez --version
 package main
 
@@ -73,8 +73,7 @@ func run(argv []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, esbozo.Stamp)
 		return exitOK
 	case "serve":
-		fmt.Fprintf(stderr, "ez %s is not yet ported to Go\n", command)
-		return exitUsage
+		return runServe(rest, stdout, stderr)
 	}
 	// No command, or one no `ez` has: the help lists what there is, as before.
 	fmt.Fprint(stderr, topLevelHelp(false))

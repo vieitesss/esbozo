@@ -12,6 +12,8 @@
   "files": [
     "dist",
     "!dist/ez",
+    "!dist/build-id",
+    "!dist/built-at",
     "!dist/core.js",
     "!dist/font-metrics.json",
     "!dist/resvg.wasm",

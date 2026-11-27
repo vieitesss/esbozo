@@ -25,6 +25,7 @@ var usageLine = map[string]string{
 	"snap":   "usage: ez snap <scene> <element> <start|end> <target|off>",
 	"skill":  "usage: ez skill [install [--dir <path>]]",
 	"bundle": "usage: ez bundle <dir>",
+	"serve":  "usage: ez serve <dir> [--host 127.0.0.1] [--port N] [--read-only]",
 }
 
 var cssSubsetLines = []string{

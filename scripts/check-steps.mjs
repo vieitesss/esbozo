@@ -36,7 +36,28 @@ const CHECKS = ['typecheck', 'lint', 'knip', 'check-rules'];
  * carry: `go vet` resolves `//go:embed` patterns, so they are stood in for empty.
  * A new built embed is red here until it is listed.
  */
-const BUILT_EMBEDS = ['dist/core.js', 'dist/embed.js', 'dist/font-metrics.json', 'dist/resvg.wasm', 'dist/version'];
+const BUILT_EMBEDS = [
+  'dist/build-id',
+  'dist/built-at',
+  'dist/core.js',
+  'dist/editor.css',
+  'dist/editor.css.br',
+  'dist/editor.css.gz',
+  'dist/editor.html',
+  'dist/editor.html.br',
+  'dist/editor.html.gz',
+  'dist/editor.js',
+  'dist/editor.js.br',
+  'dist/editor.js.gz',
+  'dist/embed.js',
+  'dist/font-metrics.json',
+  'dist/fonts/Kalam-Regular.ttf',
+  'dist/fonts/OFL.txt',
+  'dist/fonts/OFL.txt.br',
+  'dist/fonts/OFL.txt.gz',
+  'dist/resvg.wasm',
+  'dist/version',
+];
 
 /** The two files whose change makes this checkout's modules the wrong ones. */
 const MANIFEST = ['package.json', 'pnpm-lock.yaml'];
