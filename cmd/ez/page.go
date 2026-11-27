@@ -97,7 +97,7 @@ func servePageFile(response http.ResponseWriter, request *http.Request, pathname
 	}
 
 	compressed := strings.HasPrefix(asset.mime, "text/")
-	for _, offered := range takenBy(request.Header.Get("accept-encoding")) {
+	for _, offered := range takenBy(acceptedEncodings(request)) {
 		if offered != identity && !compressed {
 			continue
 		}
@@ -114,6 +114,14 @@ func servePageFile(response http.ResponseWriter, request *http.Request, pathname
 	sendJSON(response, http.StatusNotAcceptable, problem{
 		"this page is sent with no content coding, and the request takes none of it",
 	})
+}
+
+// acceptedEncodings is what the request takes, as Node's `http` module reads it
+// for `src/serve.ts`: every line of the header, folded into the one list it is.
+// `Header.Get` would return the first line alone, so a client that repeats the
+// header would be ranked by half of what it said.
+func acceptedEncodings(request *http.Request) string {
+	return strings.Join(request.Header.Values("accept-encoding"), ", ")
 }
 
 // pageAssetAt is the page file one path names, and whether the page has it.

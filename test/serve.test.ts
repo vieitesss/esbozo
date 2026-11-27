@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { chmod, cp, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
-import { request as httpRequest } from 'node:http';
+import { request as httpRequest, type IncomingHttpHeaders } from 'node:http';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -94,6 +94,26 @@ async function rawRequest(server: Serve, path: string, method = 'GET'): Promise<
       let body = '';
       response.on('data', (chunk: string) => (body += chunk));
       response.on('end', () => resolve_({ status: response.statusCode ?? 0, body }));
+    });
+    asking.on('error', reject);
+    asking.end();
+  });
+}
+
+/**
+ * A request that writes its headers exactly as given: an array value goes on the
+ * wire as one line per value, which is how a client repeats `accept-encoding`.
+ */
+async function repeatedRequest(
+  server: Serve,
+  path: string,
+  headers: Record<string, string[]>,
+): Promise<{ status: number; headers: IncomingHttpHeaders }> {
+  const { hostname, port } = new URL(server.url);
+  return new Promise((resolve_, reject) => {
+    const asking = httpRequest({ hostname, port, path, headers }, (response) => {
+      response.resume();
+      response.on('end', () => resolve_({ status: response.statusCode ?? 0, headers: response.headers }));
     });
     asking.on('error', reject);
     asking.end();
@@ -215,6 +235,25 @@ test('the page transfers compressed when the client asks, in the best encoding i
     assert.equal(answer.status, 406, `${asked} cannot be answered with a font`);
     assert.match(await answer.text(), /content coding/);
   }
+});
+
+test('a page request that names accept-encoding twice is ranked as one header', async () => {
+  const server = await served(await sceneFolder(SCENE));
+
+  // A client may repeat the header instead of folding it into one list: both
+  // lines are the one acceptance the page has to rank.
+  for (const [asked, encoding] of [
+    [['identity;q=0', 'gzip'], 'gzip'],
+    [['deflate', 'br'], 'br'],
+  ] as const) {
+    const answer = await repeatedRequest(server, '/editor.js', { 'accept-encoding': [...asked] });
+    assert.equal(answer.status, 200, `${asked.join(' + ')} is answered`);
+    assert.equal(answer.headers['content-encoding'], encoding, `${asked.join(' + ')} is answered in ${encoding}`);
+  }
+
+  // Repeating the one line that refuses everything is still a refusal.
+  const refused = await repeatedRequest(server, '/editor.js', { 'accept-encoding': ['identity;q=0'] });
+  assert.equal(refused.status, 406);
 });
 
 test('the build compresses every text page file beside itself, and serves those bytes', async () => {
