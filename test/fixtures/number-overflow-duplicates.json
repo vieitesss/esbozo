@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "elements": [
+    { "id": "gone", "type": "rectangle", "x": 1e400, "y": 0, "width": 100, "height": 50 }
+  ],
+  "elements": [
+    { "id": "a", "type": "rectangle", "x": 1e400, "x": 240, "y": 0, "width": 100, "height": 50 }
+  ]
+}
