@@ -434,6 +434,18 @@ test('a Scene reads back byte for byte, and a missing one is not found', async (
   assert.match(missing.body, /no Scene named other\.json/);
 });
 
+test('a JSON answer carries the text as written, not HTML-escaped', async () => {
+  const folder = await sceneFolder(SCENE);
+  const server = await served(folder);
+
+  const answer = await request(server, '/api/scenes/a%3Cb%3E%26c.json');
+
+  assert.equal(answer.status, 404);
+  // `JSON.stringify` writes `<`, `>` and `&` as they are, and so is the name
+  // here: the body is the text byte for byte, with no newline after it.
+  assert.equal(answer.body, '{"error":"no Scene named a<b>&c.json"}');
+});
+
 /**
  * A name that holds something other than a file is not a Scene, and it is
  * answered the way any other name that is not a Scene file is: not found. A

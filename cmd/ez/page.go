@@ -6,6 +6,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -237,10 +238,14 @@ func weigh(value string) float64 {
 }
 
 // sendJSON answers with a body of this server's own: JSON, and never cached,
-// which is every route but a page file's.
+// which is every route but a page file's. The text is written as it is: `JSON`
+// in the page, not this server's answer, is where a `<` has to be escaped.
 func sendJSON(response http.ResponseWriter, status int, body any) {
-	encoded, err := json.Marshal(body)
-	if err != nil {
+	var encoded bytes.Buffer
+	encoder := json.NewEncoder(&encoded)
+	encoder.SetEscapeHTML(false)
+	// Encode ends the body with a newline, which `JSON.stringify` does not.
+	if err := encoder.Encode(body); err != nil {
 		// Every body above is a struct of strings, which always encodes.
 		http.Error(response, err.Error(), http.StatusInternalServerError)
 		return
@@ -249,5 +254,5 @@ func sendJSON(response http.ResponseWriter, status int, body any) {
 	header.Set("content-type", "application/json; charset=utf-8")
 	header.Set("cache-control", "no-store")
 	response.WriteHeader(status)
-	_, _ = response.Write(encoded)
+	_, _ = response.Write(bytes.TrimSuffix(encoded.Bytes(), []byte("\n")))
 }
