@@ -107,7 +107,7 @@ func installHost(vm *goja.Runtime) error {
 		return err
 	}
 
-	// One SVG and the module's options document in, PNG bytes out: the same two
+	// One SVG and the module's options JSON in, PNG bytes out: the same two
 	// calls `src/png.ts` makes of `@resvg/resvg-wasm`, answered by resvg's wasm.
 	if err := host.Set("rasterise", func(call goja.FunctionCall) goja.Value {
 		png, err := resvg.Rasterise(call.Argument(0).String(), call.Argument(1).String())

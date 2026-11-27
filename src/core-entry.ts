@@ -47,7 +47,7 @@ interface EzHost {
   /**
    * One SVG in, PNG bytes out, with resvg's own module: `ez` runs those bytes in
    * wazero (`internal/resvg`), so `scripts/core-host/resvg-wasm.mjs` hands the
-   * SVG and the module's options document here instead of to a JS engine.
+   * SVG and the module's options JSON here instead of to a JS engine.
    */
   rasterise(svg: string, options: string): ArrayBuffer;
 }

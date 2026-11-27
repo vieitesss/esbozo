@@ -33,17 +33,17 @@ func TestRasteriseMatchesTheNodeModule(t *testing.T) {
 	}
 }
 
-// TestRasteriseRefusesAndRecovers: the module is started once and reused, so a
-// document resvg cannot parse must come back as its own message — and the next
-// Scene must still draw. A call sequence that leaves the heap or the shadow
-// stack dirty would pass the test above and fail here.
+// TestRasteriseRefusesAndRecovers: the module is started once and reused, so an
+// SVG resvg cannot parse must come back as its own message — and the next Scene
+// must still draw. A call sequence that leaves the heap or the shadow stack dirty
+// would pass the test above and fail here.
 func TestRasteriseRefusesAndRecovers(t *testing.T) {
 	want := triangle(t)
 
-	if _, err := Rasterise("this is not a drawing", optionsJSON); err == nil {
-		t.Fatal("resvg accepted a document that is not an SVG")
+	if _, err := Rasterise("this is not an SVG", optionsJSON); err == nil {
+		t.Fatal("resvg accepted an input that is not an SVG")
 	} else if err.Error() == "" {
-		t.Fatal("resvg refused the document without a message")
+		t.Fatal("resvg refused the SVG without a message")
 	}
 
 	got, err := Rasterise(triangleSVG(t), optionsJSON)
@@ -55,7 +55,7 @@ func TestRasteriseRefusesAndRecovers(t *testing.T) {
 	}
 }
 
-// triangleSVG is the drawing `testdata/triangle.png` was made from.
+// triangleSVG is the SVG `testdata/triangle.png` was made from.
 func triangleSVG(t *testing.T) string {
 	t.Helper()
 	svg, err := os.ReadFile("testdata/triangle.svg")
@@ -65,7 +65,7 @@ func triangleSVG(t *testing.T) string {
 	return string(svg)
 }
 
-// triangle is that drawing as Node's module wrote it.
+// triangle is that SVG as Node's module wrote it.
 func triangle(t *testing.T) []byte {
 	t.Helper()
 	png, err := os.ReadFile("testdata/triangle.png")

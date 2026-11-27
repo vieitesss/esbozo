@@ -1,12 +1,11 @@
 // Package resvg rasterises an SVG with the same resvg build the TypeScript CLI
 // runs.
 //
-// `src/png.ts` owns everything that has to happen before resvg sees the drawing:
-// the palette is resolved and the words are turned into outlines, so the SVG that
+// `src/png.ts` owns everything that has to happen before resvg sees the SVG: the
+// palette is resolved and the words are turned into outlines, so the SVG that
 // arrives here has no text left in it. This side takes one SVG string and the
-// module's JSON options document, which is the whole of what
-// `@resvg/resvg-wasm` accepts, and answers the PNG bytes `render().asPng()`
-// would have handed back in Node.
+// module's options JSON, which is the whole of what `@resvg/resvg-wasm` accepts,
+// and answers the PNG bytes `render().asPng()` would have handed back in Node.
 //
 // The module is `node_modules/@resvg/resvg-wasm/index_bg.wasm`, carried in the
 // binary as `esbozo.ResvgModule` and run in wazero. What this package adds is the
@@ -31,7 +30,7 @@ import (
 )
 
 // Rasterise draws svg — already free of text, as `src/png.ts` leaves it — and
-// returns PNG bytes. options is resvg's JSON options document, exactly as
+// returns PNG bytes. options is resvg's options JSON, exactly as
 // `@resvg/resvg-wasm` marshals what `src/png.ts` passes.
 //
 // The module is compiled and instantiated once per process and reused, which is
