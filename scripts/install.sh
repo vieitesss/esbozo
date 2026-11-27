@@ -52,7 +52,10 @@ while [ $# -gt 0 ]; do
     --version)
       [ $# -ge 2 ] || refuse '--version needs a version, like 0.1.0'
       [ -z "$tag" ] || refuse '--main and --version cannot be combined'
+      # Three dot-separated runs of digits and nothing else: `1.2.3/../main`
+      # would fetch the Main build and print it as `Release v1.2.3/../main`.
       case "$2" in
+        *[!0-9.]* | *..* | *.*.*.* | .* | *.) refuse "--version wants X.Y.Z, not '$2'" ;;
         [0-9]*.[0-9]*.[0-9]*) ;;
         *) refuse "--version wants X.Y.Z, not '$2'" ;;
       esac

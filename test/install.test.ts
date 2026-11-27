@@ -183,6 +183,20 @@ test('refuses --main with --version, naming both', async () => {
   assert.equal(await stat(join(bin, 'ez')).catch(() => null), null, 'nothing is installed');
 });
 
+test('refuses a --version that is not three dot-separated runs of digits', async () => {
+  for (const shell of SHELLS) {
+    for (const version of ['1.2.3/../main', '1a.2b.3c', '1.2', '1.2.3.4']) {
+      const bin = join(await tempFolder(), 'bin');
+
+      const run = await install(['--dir', bin, '--version', version], {}, shell);
+
+      assert.equal(run.code, 2, `${version}: ${run.stderr}`);
+      assert.match(run.stderr, /usage: install\.sh/, version);
+      assert.equal(await stat(join(bin, 'ez')).catch(() => null), null, `${version} installed`);
+    }
+  }
+});
+
 test('refuses an unknown flag, naming it', async () => {
   const bin = join(await tempFolder(), 'bin');
 
