@@ -23,8 +23,8 @@ export const CLI = fileURLToPath(new URL('../dist/ez', import.meta.url));
  * at another build of the same command line (the TypeScript CLI, still under
  * `dist/`, until the Go binary alone is shipped), and the Go binary otherwise. A
  * `.js` path runs under this Node; anything else is executed itself, because a
- * binary is not a script. A relative `EZ_BIN` is read from the folder the run
- * was asked for.
+ * binary is not a script. A relative `EZ_BIN` is read from the folder this
+ * process runs in, not from the folder the run was asked for.
  *
  * `cli` is the `ez` a caller names when it wants a copy of `dist/` that has
  * nothing else from the repository beside it; `EZ_BIN` still wins, because a run
