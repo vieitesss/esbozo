@@ -436,7 +436,7 @@ test('a Scene that is not JSON exits 3', async () => {
   assert.match(run.stderr, /not valid JSON/);
 });
 
-test('a number JSON cannot hold is refused as V8 refuses it', async () => {
+test('a leading-zero JSON number is refused with V8 wording and position', async () => {
   const folder = await tempFolder();
   await writeFile(
     join(folder, 'scene.json'),
@@ -454,7 +454,7 @@ test('a number JSON cannot hold is refused as V8 refuses it', async () => {
   assert.equal(existsSync(join(folder, 'scene.svg')), false, 'no SVG for a Scene it cannot read');
 });
 
-test('a refused Scene counts \r and \r\n as V8 counts them', async () => {
+test('a refused Scene counts CR and CRLF line breaks as V8 does', async () => {
   const cases = [
     {
       name: 'CR line endings',
