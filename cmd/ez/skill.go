@@ -19,16 +19,16 @@ import (
 )
 
 // skillArguments is what one `skill` run was asked for: print the skill, or install
-// it into a folder.
+// it into a folder. An empty dir is the folder this user's agent skills live in.
 type skillArguments struct {
 	install bool
 	dir     string
 }
 
 // parseSkillArguments reads no argument, `install`, or `install --dir <path>`, and
-// refuses anything else as a usage error. `install` on its own goes to the folder
-// this user's agent skills live in; `--dir` names the folder as it was typed, so a
-// relative one is read from the folder the command runs in.
+// refuses anything else as a usage error. `--dir` names the folder as it was typed:
+// where that lands is `skillTarget`'s to say, because a folder that cannot be
+// resolved is a write that failed, not an argument that is wrong.
 func parseSkillArguments(argv []string) (skillArguments, bool) {
 	if len(argv) == 0 {
 		return skillArguments{}, true
@@ -37,24 +37,36 @@ func parseSkillArguments(argv []string) (skillArguments, bool) {
 		return skillArguments{}, false
 	}
 	if len(argv) == 1 {
-		home, err := homeFolder()
-		if err != nil {
-			return skillArguments{}, false
-		}
-		return skillArguments{install: true, dir: filepath.Join(home, ".agents", "skills")}, true
+		return skillArguments{install: true}, true
 	}
 	if len(argv) == 3 && argv[1] == "--dir" {
 		dir := argv[2]
 		if dir == "" || strings.HasPrefix(dir, "--") {
 			return skillArguments{}, false
 		}
-		absolute, err := filepath.Abs(dir)
-		if err != nil {
-			return skillArguments{}, false
-		}
-		return skillArguments{install: true, dir: absolute}, true
+		return skillArguments{install: true, dir: dir}, true
 	}
 	return skillArguments{}, false
+}
+
+// skillTarget is `<dir>/esbozo/SKILL.md` with the folder resolved, so a relative
+// folder is read from the folder the command runs in. It is the path a failure
+// names, so a folder that cannot be resolved is reported as the file it was meant
+// to become, named as far as the folder was known.
+func skillTarget(arguments skillArguments) (string, error) {
+	folder := arguments.dir
+	if folder == "" {
+		home, err := homeFolder()
+		if err != nil {
+			return filepath.Join("esbozo", "SKILL.md"), err
+		}
+		folder = filepath.Join(home, ".agents", "skills")
+	}
+	resolved, err := filepath.Abs(folder)
+	if err != nil {
+		return filepath.Join(folder, "esbozo", "SKILL.md"), err
+	}
+	return filepath.Join(resolved, "esbozo", "SKILL.md"), nil
 }
 
 // homeFolder is `homedir()` in `node:os`: `HOME` when the environment has it, and
@@ -83,7 +95,11 @@ func runSkill(argv []string, stdout, stderr io.Writer) int {
 		return exitOK
 	}
 
-	target := filepath.Join(parsed.dir, "esbozo", "SKILL.md")
+	target, err := skillTarget(parsed)
+	if err != nil {
+		fmt.Fprintf(stderr, "cannot write %s: %s\n", target, err)
+		return exitWriteFailed
+	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o777); err != nil {
 		fmt.Fprintf(stderr, "cannot write %s: %s\n", target, cannotMkdir(err, filepath.Dir(target)))
 		return exitWriteFailed
