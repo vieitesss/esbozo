@@ -53,7 +53,7 @@ var ResvgModule []byte
 var EmbedBundle []byte
 
 // Skill is the agent skill `ez skill` prints and `ez skill install` copies, so the
-// skill always matches the binary that is running.//
+// skill always matches the binary that is running.
 //
 //go:embed skills/esbozo/SKILL.md
 var Skill []byte
@@ -66,13 +66,8 @@ var Skill []byte
 //go:embed scripts/install.sh
 var InstallScript []byte
 
-// mainSuffix is what the build puts after the version of a build that is not a
-// Release, as #93 story 24 has `ez --version` print it.
 const mainSuffix = "-main+"
 
-// versionStamp is the stamp the build wrote before it built this binary; nothing
-// is read beside the binary once it runs.
-//
 //go:embed dist/version
 var versionStamp string
 
@@ -86,20 +81,12 @@ var versionStamp string
 //go:embed dist/editor.html dist/editor.html.br dist/editor.html.gz dist/editor.css dist/editor.css.br dist/editor.css.gz dist/editor.js dist/editor.js.br dist/editor.js.gz dist/fonts/OFL.txt dist/fonts/OFL.txt.br dist/fonts/OFL.txt.gz
 var PageFiles embed.FS
 
-// buildID is the commit the build was made from, as `buildId` in
-// `src/build-id.ts` answers it: the short sha of HEAD, with `-dirty` when the
-// folder it was built in had changes, and `unknown` when the build found no git
-// checkout.
-//
 //go:embed dist/build-id
 var buildID string
 
 // Build is buildID, with the newline the build wrote gone.
 var Build = strings.TrimSpace(buildID)
 
-// builtAt is when that build ran, ISO-8601 UTC to the second, so two builds of
-// one commit are told apart.
-//
 //go:embed dist/built-at
 var builtAt string
 

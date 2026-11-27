@@ -8,11 +8,6 @@ import (
 	"testing"
 )
 
-// TestSkillInstallReportsAFolderItCannotName: a folder that cannot be resolved is
-// a write that failed, not a usage error — `ez bundle` reports the path it could
-// not name with exit 4, so `ez skill install` does too, naming the file it was
-// asked to write. A folder the run started in and something removed is the one way
-// to reach it without a broken `$HOME`.
 func TestSkillInstallReportsAFolderItCannotName(t *testing.T) {
 	gone := filepath.Join(t.TempDir(), "gone")
 	if err := os.Mkdir(gone, 0o777); err != nil {
