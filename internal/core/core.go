@@ -108,83 +108,90 @@ type SnapOptions struct {
 
 // Render answers `ez render` over a Scene's bytes.
 func Render(source []byte, options RenderOptions) (Rendered, error) {
-	answer, err := run("render", source, map[string]interface{}{"fontPath": options.FontPath})
-	if err != nil {
-		return Rendered{}, err
-	}
-	return Rendered{Result: resultOf(answer), SVG: answer.Get("svg").String()}, nil
+	var rendered Rendered
+	err := run("render", source, map[string]interface{}{"fontPath": options.FontPath},
+		func(answer *goja.Object) error {
+			rendered = Rendered{Result: resultOf(answer), SVG: answer.Get("svg").String()}
+			return nil
+		})
+	return rendered, err
 }
 
 // Check answers `ez check` over a Scene's bytes: the lines its Labels overflow
 // with.
 func Check(source []byte, options CheckOptions) (Result, error) {
-	answer, err := run("check", source, map[string]interface{}{
+	var result Result
+	err := run("check", source, map[string]interface{}{
 		"fontPath": options.FontPath,
 		"cssPath":  options.CSSPath,
+	}, func(answer *goja.Object) error {
+		result = resultOf(answer)
+		return nil
 	})
-	if err != nil {
-		return Result{}, err
-	}
-	return resultOf(answer), nil
+	return result, err
 }
 
 // PNG answers `ez png` over a Scene's bytes: the image the Scene draws to.
 func PNG(source []byte, options PNGOptions) (Image, error) {
-	answer, err := run("png", source, map[string]interface{}{
+	var image Image
+	err := run("png", source, map[string]interface{}{
 		"fontPath": options.FontPath,
 		"cssPath":  options.CSSPath,
 		"theme":    options.Theme,
 		"ink":      options.Ink,
 		"paper":    options.Paper,
 		"muted":    options.Muted,
-	})
-	if err != nil {
-		return Image{}, err
-	}
-	image := Image{Result: resultOf(answer)}
-	if png := answer.Get("png"); png != nil && !goja.IsNull(png) && !goja.IsUndefined(png) {
+	}, func(answer *goja.Object) error {
+		image = Image{Result: resultOf(answer)}
+		png := answer.Get("png")
+		if png == nil || goja.IsNull(png) || goja.IsUndefined(png) {
+			return nil
+		}
 		bytes, err := bytesOf(png)
 		if err != nil {
-			return Image{}, fmt.Errorf("the core's image: %w", err)
+			return fmt.Errorf("the core's image: %w", err)
 		}
 		image.PNG = bytes
-	}
-	return image, nil
+		return nil
+	})
+	return image, err
 }
 
 // Anchor answers `ez anchor` over a Scene's bytes: the Scene the command would
 // save, and the lines it prints once it has. A nil source is a Scene the host
 // could not read, and answers only whether the command's words stand.
 func Anchor(source []byte, options AnchorOptions) (Edited, error) {
-	answer, err := run("anchor", source, map[string]interface{}{
+	var edited Edited
+	err := run("anchor", source, map[string]interface{}{
 		"all":       options.All,
 		"elementId": options.ElementID,
 		"end":       options.End,
 		"place":     options.Place,
+	}, func(answer *goja.Object) error {
+		edited = editedOf(answer)
+		return nil
 	})
-	if err != nil {
-		return Edited{}, err
-	}
-	return edited(answer), nil
+	return edited, err
 }
 
 // Snap answers `ez snap` over a Scene's bytes: the Scene the command would save,
 // and the lines it prints once it has. A nil source is a Scene the host could not
 // read, and answers only whether the command's words stand.
 func Snap(source []byte, options SnapOptions) (Edited, error) {
-	answer, err := run("snap", source, map[string]interface{}{
+	var edited Edited
+	err := run("snap", source, map[string]interface{}{
 		"elementId": options.ElementID,
 		"end":       options.End,
 		"target":    options.Target,
+	}, func(answer *goja.Object) error {
+		edited = editedOf(answer)
+		return nil
 	})
-	if err != nil {
-		return Edited{}, err
-	}
-	return edited(answer), nil
+	return edited, err
 }
 
-// edited reads the Scene text and the lines an editing command answered with.
-func edited(answer *goja.Object) Edited {
+// editedOf reads the Scene text and the lines an editing command answered with.
+func editedOf(answer *goja.Object) Edited {
 	return Edited{
 		Result: resultOf(answer),
 		Scene:  answer.Get("scene").String(),
@@ -193,12 +200,15 @@ func edited(answer *goja.Object) Edited {
 }
 
 // run answers one command: `begin` starts `kind` over the Scene and the fields
-// `fields` names, and `answer` reads what it settled on. Only the fields a command
-// takes are in its request, so no command reads a field another one named.
-func run(kind string, source []byte, fields map[string]interface{}) (*goja.Object, error) {
+// `fields` names, `answer` reads what it settled on, and `read` decodes that answer
+// before `run` returns. Nothing the runtime made outlives the call, so a runtime
+// the host keeps — behind a lock, once more than one command shares it — is only
+// ever touched from inside here. Only the fields a command takes are in its
+// request, so no command reads a field another one named.
+func run(kind string, source []byte, fields map[string]interface{}, read func(*goja.Object) error) error {
 	vm, err := newRuntime()
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	request := vm.NewObject()
@@ -206,14 +216,14 @@ func run(kind string, source []byte, fields map[string]interface{}) (*goja.Objec
 	// edits nothing.
 	if source == nil {
 		if err := request.Set("source", goja.Null()); err != nil {
-			return nil, err
+			return err
 		}
 	} else if err := request.Set("source", vm.NewArrayBuffer(source)); err != nil {
-		return nil, err
+		return err
 	}
 	for name, value := range fields {
 		if err := request.Set(name, optional(value)); err != nil {
-			return nil, err
+			return err
 		}
 	}
 
@@ -221,24 +231,24 @@ func run(kind string, source []byte, fields map[string]interface{}) (*goja.Objec
 	// awaited them ends, so `begin` settles the answer and `answer` reads it.
 	begin, err := callableOf(vm, "begin")
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if _, err := begin(goja.Undefined(), request, vm.ToValue(kind)); err != nil {
-		return nil, err
+		return err
 	}
 	answer, err := callableOf(vm, "answer")
 	if err != nil {
-		return nil, err
+		return err
 	}
 	value, err := answer(goja.Undefined())
 	if err != nil {
-		return nil, err
+		return err
 	}
 	object, ok := value.(*goja.Object)
 	if !ok {
-		return nil, fmt.Errorf("the core answered with %s, not an object", value.ExportType())
+		return fmt.Errorf("the core answered with %s, not an object", value.ExportType())
 	}
-	return object, nil
+	return read(object)
 }
 
 // callableOf is a function the bundle left on `__ezCore`.
