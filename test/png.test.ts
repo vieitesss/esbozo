@@ -19,6 +19,7 @@ import { inflateSync } from 'node:zlib';
 import opentype from 'opentype.js';
 import { after, test } from 'node:test';
 import { ez } from './cli.ts';
+import type { Run } from './cli.ts';
 import { writeFont } from './fonts.ts';
 import { removeTempFolders, tempFolder } from './temp.ts';
 
@@ -55,12 +56,6 @@ const PAGE = { width: 292, height: 152 };
 /** Built-in paper colours, from sb's Excalidraw converter. */
 const LIGHT_PAPER = [0xff, 0xff, 0xf8];
 const DARK_PAPER = [0x1a, 0x1a, 0x1a];
-
-interface Run {
-  code: number;
-  stdout: string;
-  stderr: string;
-}
 
 async function sceneFolder(scene: unknown = SAMPLE_SCENE): Promise<string> {
   const folder = await tempFolder('esbozo-png-');
