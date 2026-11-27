@@ -68,6 +68,190 @@ declare global {
 };
 
 /**
+ * `JSON.parse`, with V8's numbers.
+ *
+ * goja reads a JSON number as a Go float64 and refuses the ones that overflow
+ * it, where V8 reads them as ±Infinity. A Scene file is the one place a person
+ * or an agent can write a number that large — `JSON.stringify` writes Infinity
+ * as `null`, so no editor can — and `scene.ts` refuses it by name (`labelAt.t
+ * must be a finite number, got null`) rather than as JSON it cannot read. The
+ * engine stays the parser: it validates the text, decodes the strings and builds
+ * the objects, and only a text it refused is read again with those numbers put
+ * back.
+ */
+const engineParse = JSON.parse;
+
+const v8Parse = (text: string, reviver?: unknown): unknown => {
+  try {
+    return (engineParse as (text: string, reviver?: unknown) => unknown)(text, reviver);
+  } catch (error) {
+    // A reviver reads the engine's own objects, and the core parses with none.
+    if (reviver !== undefined) {
+      throw error;
+    }
+    const repaired = withOverflowingNumbers(text);
+    if (repaired === null) {
+      throw error;
+    }
+    const parsed = engineParse(repaired.source) as Record<string, unknown>;
+    for (const { path, value } of repaired.overflowed) {
+      if (path.length === 0) {
+        return value;
+      }
+      let holder = parsed;
+      for (const step of path.slice(0, -1)) {
+        holder = holder[String(step)] as Record<string, unknown>;
+      }
+      const slot = String(path[path.length - 1]);
+      // Only where the `0` this walk wrote still stands: a duplicated key that
+      // came later in the text is the value V8 keeps, and is left alone.
+      if (holder[slot] === 0) {
+        holder[slot] = value;
+      }
+    }
+    return parsed;
+  }
+};
+
+(JSON as unknown as { parse: typeof v8Parse }).parse = v8Parse;
+
+/** One number V8 reads as ±Infinity, and where in the text it was written. */
+interface OverflowedNumber {
+  readonly path: readonly (string | number)[];
+  readonly value: number;
+}
+
+/**
+ * A JSON text with every number V8 reads as ±Infinity written as `0`, and the
+ * places those numbers were — `null` when there is no such number, or when the
+ * walk cannot read the text, because then the engine's own refusal is the
+ * answer.
+ *
+ * This walk finds numbers; it does not judge the text. Whatever it rewrites is
+ * parsed by the engine afterwards, which is what refuses a text that is not
+ * JSON.
+ */
+function withOverflowingNumbers(
+  text: string,
+): { source: string; overflowed: OverflowedNumber[] } | null {
+  const found: (OverflowedNumber & { start: number; end: number })[] = [];
+  let at = 0;
+
+  const space = (): void => {
+    while (at < text.length && ' \t\n\r'.includes(text[at] as string)) {
+      at += 1;
+    }
+  };
+
+  /** One quoted string, quotes and all: the engine decodes what this skips. */
+  const quoted = (): void => {
+    at += 1;
+    while (at < text.length) {
+      if (text[at] === '\\') {
+        at += 2;
+        continue;
+      }
+      const char = text[at];
+      at += 1;
+      if (char === '"') {
+        return;
+      }
+    }
+    throw new Error('the string never closes');
+  };
+
+  const value = (path: (string | number)[]): void => {
+    space();
+    const char = text[at];
+    if (char === '{') {
+      at += 1;
+      space();
+      if (text[at] === '}') {
+        at += 1;
+        return;
+      }
+      for (;;) {
+        space();
+        const start = at;
+        quoted();
+        const key = engineParse(text.slice(start, at)) as string;
+        space();
+        at += 1;
+        value([...path, key]);
+        space();
+        if (text[at] === ',') {
+          at += 1;
+          continue;
+        }
+        at += 1;
+        return;
+      }
+    }
+    if (char === '[') {
+      at += 1;
+      space();
+      if (text[at] === ']') {
+        at += 1;
+        return;
+      }
+      for (let index = 0; ; index += 1) {
+        value([...path, index]);
+        space();
+        if (text[at] === ',') {
+          at += 1;
+          continue;
+        }
+        at += 1;
+        return;
+      }
+    }
+    if (char === '"') {
+      quoted();
+      return;
+    }
+    if (char === '-' || (char !== undefined && char >= '0' && char <= '9')) {
+      const start = at;
+      while (at < text.length && '+-.0123456789eE'.includes(text[at] as string)) {
+        at += 1;
+      }
+      const number = Number(text.slice(start, at));
+      if (Number.isNaN(number)) {
+        throw new Error('the number does not read as one');
+      }
+      if (!Number.isFinite(number)) {
+        found.push({ path, value: number, start, end: at });
+      }
+      return;
+    }
+    if (char === 't' || char === 'f' || char === 'n') {
+      while (at < text.length && 'abcdefghijklmnopqrstuvwxyz'.includes(text[at] as string)) {
+        at += 1;
+      }
+      return;
+    }
+    throw new Error('this walk cannot read this text');
+  };
+
+  try {
+    value([]);
+  } catch {
+    return null;
+  }
+  if (found.length === 0) {
+    return null;
+  }
+
+  let source = '';
+  let copied = 0;
+  for (const { start, end } of found) {
+    source += `${text.slice(copied, start)}0`;
+    copied = end;
+  }
+  source += text.slice(copied);
+  return { source, overflowed: found };
+}
+
+/**
  * The exit codes `render` and `check` use, copied from `EXIT` in `src/cli.ts`
  * because that table is not exported. The Go side owns them for the process; the
  * core answers them so a host prints what the CLI prints.
