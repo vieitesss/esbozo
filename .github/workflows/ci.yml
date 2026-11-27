@@ -21,9 +21,23 @@
 # commits are checked four at a time instead of one after another.
 name: check
 
+# Both triggers stay. A pull request from a fork is checked on `pull_request`,
+# since nobody pushed its commits here; a pull request from this repository is
+# checked once, by the `push` run of the head commit it points at, which GitHub
+# shows on the pull request. The `push` trigger is not optional either way:
+# `.githooks/pre-push` (`scripts/main-ci-guard.mjs`) refuses a merge into `main`
+# whose merged branch head has no completed, successful `check` run, and the
+# push of that branch is where the run comes from.
 on:
   push:
   pull_request:
+
+# One run per ref, the newest: a second push to a branch cancels the run the
+# first one started, whose verdict would only be about commits the branch has
+# already moved past.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 # Plain text in the log: the runner sets `CI`, which makes the test reporters
 # colour their output, and a failed run is read as text through
@@ -36,9 +50,19 @@ env:
   GOTOOLCHAIN: local
 
 jobs:
+  # Every job carries this gate, written out in each one. A `pull_request` run
+  # for a pull request from this repository is all-skipped: its head commit was
+  # pushed here, so the `push` run above already checked it, and running it
+  # again is the duplicate this workflow stopped paying for. A fork's pull
+  # request has no push run, so it is the one thing a `pull_request` event is
+  # still needed for.
+  #
+  #   if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository }}
+
   # `pnpm check` itself: typecheck, lint, knip, the rules, the node tests and the
   # Go half, which build the binary on the way.
   check:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -64,6 +88,7 @@ jobs:
   # first itself. The flaky read and the evidence upload live here because both
   # are about this job's report.
   e2e:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -122,6 +147,7 @@ jobs:
   # once. Static checks only, so no browser: `pnpm check:steps` runs
   # `typecheck`, `lint`, `knip`, `check-rules`, `go vet` and `gofmt`.
   steps:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository }}
     runs-on: ubuntu-latest
     strategy:
       # A red shard says nothing about the other three, and a cancelled shard
