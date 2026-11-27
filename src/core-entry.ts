@@ -169,10 +169,15 @@ function readJson(text: string): unknown {
     let line = 1;
     let lineStart = 0;
     for (let index = 0; index < offset && index < end; index += 1) {
-      if (text[index] === '\n') {
-        line += 1;
-        lineStart = index + 1;
+      const char = text[index];
+      if (char === '\r' && text[index + 1] === '\n' && index + 1 < offset) {
+        // A `\r\n` pair is one line break to V8, not two.
+        index += 1;
+      } else if (char !== '\r' && char !== '\n') {
+        continue;
       }
+      line += 1;
+      lineStart = index + 1;
     }
     return `position ${offset} (line ${line} column ${offset - lineStart + 1})`;
   }
