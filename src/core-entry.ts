@@ -536,7 +536,7 @@ let settled: Answer | null = null;
 let failure: { error: unknown } | null = null;
 
 /**
- * Start one command over the request the host installed as `__ezRequest`.
+ * Start one command over `request`, as the host built it.
  *
  * A command this bundle does not have is refused here rather than answered as
  * `check`: a Scene reported as unmeasurable when nothing measured it is a
