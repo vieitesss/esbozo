@@ -80,14 +80,32 @@ type rasteriser struct {
 	heap    *heap
 }
 
+// newRasteriser makes the one module, over the compilation cache in dir when
+// there is one. A cache that does not work is worth exactly nothing: it buys
+// seconds, and it must never cost the PNG.
 func newRasteriser(dir string) (*rasteriser, error) {
+	cache := compilationCache(dir)
+	one, err := startWith(cache)
+	if cache == nil || err == nil {
+		return one, err
+	}
+
+	// An entry wazero cannot read or cannot replace — a crash left it truncated,
+	// another writer left it nonsense — fails the compile outright, and would go on
+	// failing every run until the user deleted it. Compiling again without the
+	// cache costs seconds and draws.
+	return startWith(nil)
+}
+
+// startWith makes a runtime over cache, if any, and starts the module in it.
+func startWith(cache wazero.CompilationCache) (*rasteriser, error) {
 	ctx := context.Background()
 	one := &rasteriser{ctx: ctx}
 
 	// NewRuntimeConfig picks wazero's compiler engine when the platform has one
 	// and the interpreter when it does not, so this builds anywhere.
 	config := wazero.NewRuntimeConfig()
-	if cache := compilationCache(dir); cache != nil {
+	if cache != nil {
 		config = config.WithCompilationCache(cache)
 	}
 	one.runtime = wazero.NewRuntimeWithConfig(ctx, config)

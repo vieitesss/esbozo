@@ -3,6 +3,7 @@ package resvg
 import (
 	"bytes"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -95,6 +96,95 @@ func TestRasteriseWithoutAWritableCache(t *testing.T) {
 	if want := triangle(t); !bytes.Equal(got, want) {
 		t.Fatalf("PNG %d bytes, Node's %d; %s", len(got), len(want), firstDifference(got, want))
 	}
+}
+
+// TestRasterisePastABrokenCache: a cache entry wazero cannot read costs the
+// seconds it was meant to save, never the PNG. A crash mid-write leaves an entry
+// truncated and something else in the cache directory can leave it nonsense;
+// either way `ez png` has to draw — and match Node — without the user deleting
+// the entry by hand.
+func TestRasterisePastABrokenCache(t *testing.T) {
+	want := triangle(t)
+
+	// One real cold start, so the broken entries below are wazero's own work in
+	// the places wazero puts them, rather than a guess at the layout.
+	cached := filepath.Join(t.TempDir(), "wazero")
+	one, err := newRasteriser(cached)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := one.rasterise(triangleSVG(t), optionsJSON); err != nil {
+		t.Fatalf("cannot warm the cache: %v", err)
+	}
+	if err := one.runtime.Close(one.ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, broken := range []struct {
+		name     string
+		contents []byte
+	}{
+		{"truncated", nil},
+		{"garbage", []byte("CORRUPTED_WAZERO_CACHE")},
+	} {
+		t.Run(broken.name, func(t *testing.T) {
+			start, err := newRasteriser(brokenCache(t, cached, broken.contents))
+			if err != nil {
+				t.Fatalf("a broken cache entry stops the rasteriser: %v", err)
+			}
+			defer func() { _ = start.runtime.Close(start.ctx) }()
+
+			got, err := start.rasterise(triangleSVG(t), optionsJSON)
+			if err != nil {
+				t.Fatalf("cannot rasterise past a broken cache entry: %v", err)
+			}
+			if !bytes.Equal(got, want) {
+				t.Fatalf("PNG %d bytes, Node's %d; %s", len(got), len(want), firstDifference(got, want))
+			}
+		})
+	}
+}
+
+// brokenCache is a copy of the cache at root whose every saved entry holds
+// contents, standing in for what a crash or another writer leaves behind.
+func brokenCache(t *testing.T, root string, contents []byte) string {
+	t.Helper()
+	saved := entries(t, root)
+	if len(saved) == 0 {
+		t.Fatal("the warm cache saved nothing to break")
+	}
+	dir := t.TempDir()
+	for _, entry := range saved {
+		target := filepath.Join(dir, entry)
+		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(target, contents, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+// entries is every file saved under root, as a path relative to it.
+func entries(t *testing.T, root string) []string {
+	t.Helper()
+	var saved []string
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		saved = append(saved, relative)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return saved
 }
 
 // firstDifference says where two byte strings part company, because a PNG that
