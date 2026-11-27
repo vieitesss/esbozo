@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"unicode/utf8"
 
 	"esbozo/internal/core"
 )
@@ -142,7 +143,7 @@ func cannotList(err error) bool {
 // only then what the method asks of the file.
 func serveScene(response http.ResponseWriter, request *http.Request, folder, encodedName string, readOnly bool, session *core.Session, writes *writeQueue) {
 	name, err := url.PathUnescape(encodedName)
-	if err != nil {
+	if err != nil || !utf8.ValidString(name) {
 		sendJSON(response, http.StatusBadRequest, problem{"the Scene name is not valid percent-encoding"})
 		return
 	}

@@ -825,6 +825,22 @@ test('a request path with a dot segment is refused before it is normalised', asy
   assert.equal(await readFile(join(folder, 'scene.json'), 'utf8'), SCENE_SOURCE);
 });
 
+test('a path that is not UTF-8 percent-encoding is refused, and nothing is written', async () => {
+  const folder = await sceneFolder(SCENE);
+  const server = await served(folder);
+
+  // `%ff` is a valid escape of a byte that is no text: the path cannot be read,
+  // so a name made of it would land on disk as a file nothing can open.
+  for (const path of ['/api/scenes/%ff.json', '/api/scenes/%c3%28.json']) {
+    for (const method of ['GET', 'PUT']) {
+      const answer = await rawRequest(server, path, method);
+      assert.equal(answer.status, 400, `${method} ${path} answered ${answer.status}`);
+      assert.deepEqual(JSON.parse(answer.body), { error: 'the path is not valid percent-encoding' });
+    }
+  }
+  assert.deepEqual(await readdir(folder), ['scene.json']);
+});
+
 test('a write has to announce JSON, so a plain cross-origin post cannot write', async () => {
   const folder = await sceneFolder(SCENE);
   const server = await served(folder);

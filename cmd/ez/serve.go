@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"unicode/utf8"
 
 	"esbozo"
 	"esbozo/internal/core"
@@ -239,11 +240,12 @@ func answer(response http.ResponseWriter, request *http.Request, folder string, 
 // request path, decoded but before it is normalised, or a percent-encoding the
 // path cannot be read from. `..`, `%2e%2e`, `.` and a backslash for a separator
 // are all refused, so no path is read one way here and another way by the URL
-// parser.
+// parser. The decode is `decodeURIComponent`'s, which refuses bytes that are no
+// text as well as escapes that are no escape.
 func rawPathProblem(raw string) string {
 	path, _, _ := strings.Cut(raw, "?")
 	decoded, err := url.PathUnescape(path)
-	if err != nil {
+	if err != nil || !utf8.ValidString(decoded) {
 		return "the path is not valid percent-encoding"
 	}
 	for _, segment := range strings.FieldsFunc(decoded, isSeparator) {
