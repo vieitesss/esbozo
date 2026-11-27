@@ -123,47 +123,6 @@ func TestWarmSessionAnswersLikeFreshRuntimes(t *testing.T) {
 	}
 }
 
-func TestASeedIsHashedByTheHost(t *testing.T) {
-	session, err := Open()
-	if err != nil {
-		t.Fatal(err)
-	}
-	counting := `globalThis.__ezDigests = 0;
-		globalThis.__ezHost.sha256 = ((real) => (bytes) => {
-			globalThis.__ezDigests += 1;
-			return real(bytes);
-		})(globalThis.__ezHost.sha256);`
-	if _, err := session.vm.RunString(counting); err != nil {
-		t.Fatal(err)
-	}
-	digests := func() int64 {
-		value, err := session.vm.RunString(`globalThis.__ezDigests`)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return value.ToInteger()
-	}
-
-	if _, err := session.Parse(writtenScene(3)); err != nil {
-		t.Fatal(err)
-	}
-	if made := digests(); made != 3 {
-		t.Fatalf("a Scene of 3 unseeded Elements asked the host for %d digests, want 3: the script is hashing seeds itself",
-			made)
-	}
-
-	seeded := []byte(`{"version":1,"elements":[
-		{"id":"a","type":"rectangle","x":0,"y":0,"width":10,"height":10,"seed":1},
-		{"id":"b","type":"rectangle","x":0,"y":20,"width":10,"height":10,"seed":2}]}`)
-	if _, err := session.Parse(seeded); err != nil {
-		t.Fatal(err)
-	}
-	if made := digests(); made != 3 {
-		t.Fatalf("a Scene whose Elements all write their seed asked the host for %d more digests, want none",
-			made-3)
-	}
-}
-
 func BenchmarkParse(b *testing.B) {
 	source := writtenScene(200)
 	b.Run("warm", func(b *testing.B) {

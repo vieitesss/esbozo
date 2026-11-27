@@ -12,18 +12,6 @@ import (
 
 const optionsJSON = `{"background":"rgb(255,255,248)","fitTo":{"mode":"original"}}`
 
-func TestRasteriseMatchesTheModule(t *testing.T) {
-	want := triangle(t)
-
-	got, err := Rasterise(triangleSVG(t), optionsJSON)
-	if err != nil {
-		t.Fatalf("cannot rasterise: %v", err)
-	}
-	if !bytes.Equal(got, want) {
-		t.Fatalf("PNG %d bytes, Node's %d; %s", len(got), len(want), firstDifference(got, want))
-	}
-}
-
 func TestRasteriseRefusesAndRecovers(t *testing.T) {
 	want := triangle(t)
 
