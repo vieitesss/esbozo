@@ -1,8 +1,3 @@
-// `update`: the install script this binary carries, re-run against the folder it
-// runs from. Go owns where that folder is and why an update is refused here; what
-// a Release is, whether it is already on the target and what the flags mean are
-// `scripts/install.sh`'s, whose streams and exit code pass straight through
-// unchanged.
 package main
 
 import (
@@ -18,8 +13,6 @@ import (
 	"esbozo"
 )
 
-// runUpdate is `update`, and `upgrade` as its alias: the carried installer, on
-// the folder this binary runs from, with the flags this run was given.
 func runUpdate(argv []string, stdout, stderr io.Writer) int {
 	tag, ok := updateTag(argv)
 	if !ok {
@@ -38,9 +31,6 @@ func runUpdate(argv []string, stdout, stderr io.Writer) int {
 	return runInstallScript(tag, folder, stdout, stderr)
 }
 
-// ezFolder is the folder the running binary sits in, symlinks resolved: the
-// installer links `esbozo` beside `ez`, and a run through that link still updates
-// the folder `ez` is in.
 func ezFolder() (string, error) {
 	executable, err := os.Executable()
 	if err != nil {
@@ -53,9 +43,6 @@ func ezFolder() (string, error) {
 	return filepath.Dir(resolved), nil
 }
 
-// updateRefusal is what to print instead of updating this folder, and why: a
-// clone is rebuilt, an image is pulled, and a folder nothing may write to takes
-// the installer with a `--dir` of its own. An empty answer is no refusal.
 func updateRefusal(tag string, folder string) string {
 	if isClone(folder) {
 		return fmt.Sprintf(
@@ -79,10 +66,6 @@ func updateRefusal(tag string, folder string) string {
 	return ""
 }
 
-// isClone reports whether folder is the `dist/` of a checkout: it is named `dist`
-// and the repository's `go.mod` sits beside it. A release lands in a folder of
-// its own with no module beside it, and a `bin/` beside one was installed there,
-// so neither is called a clone.
 func isClone(folder string) bool {
 	if filepath.Base(folder) != "dist" {
 		return false
@@ -99,22 +82,10 @@ func isClone(folder string) bool {
 	return false
 }
 
-// inDocker is the image saying so, through the `ESBOZO_DOCKER` its Dockerfile
-// sets. `/.dockerenv` is not read: it also names every container a person
-// develops in, where the `dist/ez` beside `pnpm` is the clone this file already
-// refuses, and a container running the installed binary has already been told
-// about itself by the image.
 func inDocker() bool {
 	return os.Getenv("ESBOZO_DOCKER") != ""
 }
 
-// updateTag reads this command's own flags, once, before any refusal is judged:
-// the tag they name — the Main build, that Release, or the latest one — which is
-// also the `docker pull` tag a refusal in Docker prints. `ok` is false for the
-// flags `ez update` does not take — an unknown one, `--dir`, which it sets
-// itself, a `--version` with nothing after it or with no `X.Y.Z` in it, and
-// `--main` with `--version` — so what reaches the script is always one channel
-// it reads the same way.
 func updateTag(argv []string) (tag string, ok bool) {
 	main, version := false, ""
 	for index := 0; index < len(argv); index++ {
@@ -142,9 +113,6 @@ func updateTag(argv []string) (tag string, ok bool) {
 	return "latest", true
 }
 
-// isVersion reports whether s is the `X.Y.Z` `--version` takes: three parts of
-// digits and nothing else, so a tag that is a path — `1.2.3/../main` — is refused
-// here rather than fetched as the Release it resolves to.
 func isVersion(s string) bool {
 	parts := strings.Split(s, ".")
 	if len(parts) != 3 {
@@ -158,9 +126,6 @@ func isVersion(s string) bool {
 	return true
 }
 
-// writableFolder writes a probe into folder and takes it away again, because only
-// a write answers the question: permissions, an owner and a read-only mount are
-// three different reasons a folder says no.
 func writableFolder(folder string) bool {
 	probe, err := os.CreateTemp(folder, ".ez-update-*")
 	if err != nil {
@@ -172,11 +137,6 @@ func writableFolder(folder string) bool {
 	return true
 }
 
-// runInstallScript runs the carried `scripts/install.sh` as `sh` reads it from
-// stdin, with the tag this run was given and `--dir` last, so the folder this
-// binary runs from is where it installs whatever a `--dir` of the caller's would
-// have asked for. The environment is inherited — `ESBOZO_RELEASE_URL` reaches the
-// script that way — and the two streams and the exit code are the script's own.
 func runInstallScript(tag string, folder string, stdout, stderr io.Writer) int {
 	args := []string{"-s", "--"}
 	if tag == "main" {

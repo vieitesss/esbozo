@@ -6,9 +6,6 @@ import (
 	"testing"
 )
 
-// TestHelpIsPlainOnACharacterDeviceThatIsNoTerminal: `/dev/null` is a character
-// device, which is as far as a file's mode gets, and it is no terminal — the
-// help `ez --help > /dev/null` writes is plain text.
 func TestHelpIsPlainOnACharacterDeviceThatIsNoTerminal(t *testing.T) {
 	unsetenv(t, "NO_COLOR")
 	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
@@ -25,8 +22,6 @@ func TestHelpIsPlainOnACharacterDeviceThatIsNoTerminal(t *testing.T) {
 	}
 }
 
-// TestNoColorTurnsBoldOffWhenItIsSetEmpty: `NO_COLOR` turns bold off when it is
-// there at all, an empty value included.
 func TestNoColorTurnsBoldOffWhenItIsSetEmpty(t *testing.T) {
 	unsetenv(t, "NO_COLOR")
 	terminal := askTerminal(t)
@@ -37,7 +32,6 @@ func TestNoColorTurnsBoldOffWhenItIsSetEmpty(t *testing.T) {
 	}
 }
 
-// askTerminal is a pty master, which is a terminal, or a skip.
 func askTerminal(t *testing.T) *os.File {
 	t.Helper()
 	const ptmx = "/dev/ptmx"

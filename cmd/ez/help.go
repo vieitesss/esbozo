@@ -1,6 +1,3 @@
-// Help text for the `ez` command line: the one reference for what each command
-// is called, what it takes, and what it exits with. Section headings are bold
-// only for a terminal without `NO_COLOR`.
 package main
 
 import (
@@ -12,8 +9,6 @@ import (
 
 const placeList = "top, bottom, left, right, center, top-left, top-right, bottom-left, bottom-right"
 
-// usageLine is what a command prints when it refuses the arguments it was
-// given.
 var usageLine = map[string]string{
 	"render": "usage: ez render <scene> [--font <file>]",
 	"check":  "usage: ez check <scene> [--font <file>] [--css <stylesheet>]",
@@ -38,8 +33,6 @@ var cssSubsetLines = []string{
 	"  Palette colours must be opaque.",
 }
 
-// exitCodeRows is the exit table: every code a command exits with, and what it
-// means.
 var exitCodeRows = [][2]string{
 	{"0", "the Scene is clean, was rendered, the PNG or the bundle was written, or the server stopped"},
 	{"1", "`ez update` did not update this folder: it refused, or the install script failed"},
@@ -278,8 +271,6 @@ func runHelp(argv []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-// shouldBold reports whether headings are bold: only to a terminal that
-// `NO_COLOR` has not turned off, an empty value included.
 func shouldBold(stream io.Writer) bool {
 	file, isFile := stream.(*os.File)
 	if !isFile || !isTerminal(file) {

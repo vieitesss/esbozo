@@ -1,7 +1,3 @@
-// `bundle`: the embeddable editor module, written beside the page that loads it.
-// Go owns the argument, the path and the exit code; the bytes are
-// `esbozo.EmbedBundle`, embedded beside the core, so the file written is the one
-// this binary carries and nothing is read beside it.
 package main
 
 import (
@@ -15,8 +11,6 @@ import (
 	"esbozo/internal/core"
 )
 
-// runBundle is `bundle`: the module written to `<dir>/esbozo-<version>.js`, named
-// with the path it wrote.
 func runBundle(argv []string, stdout, stderr io.Writer) int {
 	folder := ""
 	if len(argv) == 1 {
@@ -32,8 +26,6 @@ func runBundle(argv []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "cannot name the bundle in %s: %s\n", folder, err)
 		return exitWriteFailed
 	}
-	// 0666, as `writeFile` writes: the umask decides the rest. A file a page pinned
-	// before this run is replaced, not appended to.
 	if err := os.WriteFile(outputPath, esbozo.EmbedBundle, 0o666); err != nil {
 		fmt.Fprintf(stderr, "cannot write %s: %s\n", outputPath, core.NodeMessage(err, outputPath, false))
 		return exitWriteFailed
@@ -42,9 +34,6 @@ func runBundle(argv []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-// bundlePath is `resolve(folder, 'esbozo-<version>.js')`: what is
-// printed is the path that was written, and a relative folder is read from the
-// folder the command runs in.
 func bundlePath(folder string) (string, error) {
 	resolved, err := filepath.Abs(folder)
 	if err != nil {

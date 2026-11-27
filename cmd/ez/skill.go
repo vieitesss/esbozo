@@ -1,6 +1,3 @@
-// `skill`: the agent skill this binary carries, printed or installed. Go owns the
-// arguments, the folder and the exit code; the bytes are `esbozo.Skill`, embedded
-// beside the core, so what a person installs is what this binary runs.
 package main
 
 import (
@@ -15,17 +12,11 @@ import (
 	"esbozo/internal/core"
 )
 
-// skillArguments is what one `skill` run was asked for: print the skill, or install
-// it into a folder. An empty dir is the folder this user's agent skills live in.
 type skillArguments struct {
 	install bool
 	dir     string
 }
 
-// parseSkillArguments reads no argument, `install`, or `install --dir <path>`, and
-// refuses anything else as a usage error. `--dir` names the folder as it was typed:
-// where that lands is `skillTarget`'s to say, because a folder that cannot be
-// resolved is a write that failed, not an argument that is wrong.
 func parseSkillArguments(argv []string) (skillArguments, bool) {
 	if len(argv) == 0 {
 		return skillArguments{}, true
@@ -46,10 +37,6 @@ func parseSkillArguments(argv []string) (skillArguments, bool) {
 	return skillArguments{}, false
 }
 
-// skillTarget is `<dir>/esbozo/SKILL.md` with the folder resolved, so a relative
-// folder is read from the folder the command runs in. It is the path a failure
-// names, so a folder that cannot be resolved is reported as the file it was meant
-// to become, named as far as the folder was known.
 func skillTarget(arguments skillArguments) (string, error) {
 	folder := arguments.dir
 	if folder == "" {
@@ -66,8 +53,6 @@ func skillTarget(arguments skillArguments) (string, error) {
 	return filepath.Join(resolved, "esbozo", "SKILL.md"), nil
 }
 
-// homeFolder is `homedir()` in `node:os`: `HOME` when the environment has it, and
-// the home the user database gives this user when it does not.
 func homeFolder() (string, error) {
 	if home, err := os.UserHomeDir(); err == nil {
 		return home, nil
@@ -79,8 +64,6 @@ func homeFolder() (string, error) {
 	return who.HomeDir, nil
 }
 
-// runSkill is `skill`: the shipped SKILL.md to stdout, or a copy of it written to
-// `<dir>/esbozo/SKILL.md` with that path printed.
 func runSkill(argv []string, stdout, stderr io.Writer) int {
 	parsed, ok := parseSkillArguments(argv)
 	if !ok {
@@ -101,7 +84,6 @@ func runSkill(argv []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "cannot write %s: %s\n", target, core.NodeMkdirMessage(err, filepath.Dir(target)))
 		return exitWriteFailed
 	}
-	// 0666, as `writeFile` writes: the umask decides the rest.
 	if err := os.WriteFile(target, esbozo.Skill, 0o666); err != nil {
 		fmt.Fprintf(stderr, "cannot write %s: %s\n", target, core.NodeMessage(err, target, false))
 		return exitWriteFailed

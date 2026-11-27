@@ -1,6 +1,3 @@
-// `anchor` and `snap`: the two commands that edit a Scene in place. Go owns the
-// arguments, the file and the exit code; the core owns what an Element, a Snap or
-// an Anchor is, and what an end or a place word means.
 package main
 
 import (
@@ -12,22 +9,16 @@ import (
 	"esbozo/internal/core"
 )
 
-// anchorArguments is what one `anchor` run was asked for: the Scene to edit, and
-// the words the core judges.
 type anchorArguments struct {
 	scenePath string
 	options   core.AnchorOptions
 }
 
-// snapArguments is what one `snap` run was asked for.
 type snapArguments struct {
 	scenePath string
 	options   core.SnapOptions
 }
 
-// parseAnchorArguments reads `--all` with a Scene, or a Scene, an Element, an end
-// and a place, and refuses anything else as a usage error. What an end and a place
-// mean is the core's, so they travel as the words the command line typed.
 func parseAnchorArguments(argv []string) (anchorArguments, bool) {
 	if hasWord(argv, "--all") {
 		rest := withoutWord(argv, "--all")
@@ -45,7 +36,6 @@ func parseAnchorArguments(argv []string) (anchorArguments, bool) {
 	}, true
 }
 
-// parseSnapArguments reads a Scene, an Element, an end and a target or `off`.
 func parseSnapArguments(argv []string) (snapArguments, bool) {
 	if !fourWords(argv) {
 		return snapArguments{}, false
@@ -56,8 +46,6 @@ func parseSnapArguments(argv []string) (snapArguments, bool) {
 	}, true
 }
 
-// fourWords is the four words `anchor` and `snap` share: none of them empty and
-// none of them a flag.
 func fourWords(argv []string) bool {
 	if len(argv) != 4 {
 		return false
@@ -79,7 +67,6 @@ func hasWord(argv []string, word string) bool {
 	return false
 }
 
-// withoutWord is `argv.filter((argument) => argument !== word)`.
 func withoutWord(argv []string, word string) []string {
 	kept := make([]string, 0, len(argv))
 	for _, argument := range argv {
@@ -90,8 +77,6 @@ func withoutWord(argv []string, word string) []string {
 	return kept
 }
 
-// runAnchor is `anchor`: one end's Anchor placed on its target's outline, or every
-// Snapped end frozen where it draws.
 func runAnchor(argv []string, stdout, stderr io.Writer) int {
 	parsed, ok := parseAnchorArguments(argv)
 	if !ok {
@@ -103,7 +88,6 @@ func runAnchor(argv []string, stdout, stderr io.Writer) int {
 	}, stdout, stderr)
 }
 
-// runSnap is `snap`: one end attached to an Element, or written free with `off`.
 func runSnap(argv []string, stdout, stderr io.Writer) int {
 	parsed, ok := parseSnapArguments(argv)
 	if !ok {
@@ -115,18 +99,11 @@ func runSnap(argv []string, stdout, stderr io.Writer) int {
 	}, stdout, stderr)
 }
 
-// editScene has the core edit the Scene a command names, and writes the answer over
-// the file. The core judges the command's words before it parses the Scene, so a
-// Scene that cannot be read still has its words refused first — and a Scene the
-// core never saw is the read error the host prints. The core refuses a Scene its own
-// parser turns down, so nothing is written until the answer reads back.
 func editScene(
 	command, scenePath string,
 	edit func(source []byte) (core.Edited, error),
 	stdout, stderr io.Writer,
 ) int {
-	// A read that failed leaves nothing to edit, whatever bytes it handed over on the
-	// way: the error is what a person sees, and a Scene is only a Scene read whole.
 	source, readErr := os.ReadFile(scenePath)
 	if readErr != nil {
 		source = nil
@@ -148,7 +125,6 @@ func editScene(
 		return exitInvalidScene
 	}
 
-	// 0666, as `writeFile` writes: the umask decides the rest.
 	if err := os.WriteFile(scenePath, []byte(edited.Scene), 0o666); err != nil {
 		fmt.Fprintf(stderr, "cannot write Scene %s: %s\n", scenePath, core.NodeMessage(err, scenePath, false))
 		return exitWriteFailed

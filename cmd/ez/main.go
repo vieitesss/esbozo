@@ -1,24 +1,3 @@
-// Command ez is the Go binary that runs the TypeScript core.
-//
-// This file decides what each command is
-// given and what it exits with; what a Scene, a font or a stylesheet means is
-// the core's, which `render`, `check`, `png`, `anchor` and `snap` hand bytes and
-// get text or an image back from.
-//
-// Surface (every command is ported):
-//
-//	ez render <scene> [--font <file>]
-//	ez check <scene> [--font <file>] [--css <stylesheet>]
-//	ez png <scene> --theme light|dark [--css <stylesheet>] [--ink <colour>]
-//	      [--paper <colour>] [--muted <colour>] [--font <file>]
-//	ez anchor <scene> <element> <start|end> <place>
-//	ez anchor <scene> --all
-//	ez snap <scene> <element> <start|end> <target|off>
-//	ez skill [install [--dir <path>]]
-//	ez bundle <dir>
-//	ez update [--main | --version <X.Y.Z>]
-//	ez serve
-//	ez --version
 package main
 
 import (
@@ -29,9 +8,6 @@ import (
 	"esbozo"
 )
 
-// The codes the commands decide for themselves; 5 and 6 are the core's, which it
-// refuses a Scene with. 1 is `ez update`'s: the installer failed, or this binary
-// refused to run it.
 const (
 	exitOK            = 0
 	exitInstallFailed = 1
@@ -80,7 +56,6 @@ func run(argv []string, stdout, stderr io.Writer) int {
 	case "serve":
 		return runServe(rest, stdout, stderr)
 	}
-	// No command, or one no `ez` has: the help lists what there is, as before.
 	fmt.Fprint(stderr, topLevelHelp(false))
 	return exitUsage
 }

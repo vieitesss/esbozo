@@ -1,6 +1,3 @@
-// `render` and `check`: what the command line takes, and the files the run
-// reads and writes. The boundary is the ticket's: Go owns the flags, the paths
-// and the exit codes, the core owns what a Scene, a font or a stylesheet means.
 package main
 
 import (
@@ -13,16 +10,12 @@ import (
 	"esbozo/internal/core"
 )
 
-// sceneArguments is what one `render` or `check` run was asked for.
 type sceneArguments struct {
 	scenePath string
 	fontPath  string
 	cssPath   string
 }
 
-// parseSceneArguments reads `<scene> [--font <file>] [--css <stylesheet>]` in
-// either order, and nothing else: a second Scene, a repeated flag, a flag with
-// no value, and a flag the command does not take are all wrong arguments.
 func parseSceneArguments(argv []string, command string) (sceneArguments, bool) {
 	var parsed sceneArguments
 	given := map[string]bool{}
@@ -60,7 +53,6 @@ func parseSceneArguments(argv []string, command string) (sceneArguments, bool) {
 	return parsed, true
 }
 
-// runScene is `render` and `check` over the Scene the arguments name.
 func runScene(command string, argv []string, stdout, stderr io.Writer) int {
 	parsed, ok := parseSceneArguments(argv, command)
 	if !ok {
@@ -74,7 +66,6 @@ func runScene(command string, argv []string, stdout, stderr io.Writer) int {
 		return exitInvalidScene
 	}
 
-	// `render` draws an SVG and writes it; `check` measures and prints only.
 	var answer core.Result
 	var svg string
 	if command == "check" {
@@ -92,8 +83,6 @@ func runScene(command string, argv []string, stdout, stderr io.Writer) int {
 		return exitWriteFailed
 	}
 
-	// A remote font falls back to Kalam without failing, and the CLI says so
-	// before anything else it has to say.
 	for _, note := range answer.Notes {
 		fmt.Fprintln(stderr, note)
 	}
@@ -109,7 +98,6 @@ func runScene(command string, argv []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "cannot name the SVG beside %s: %s\n", parsed.scenePath, err)
 		return exitWriteFailed
 	}
-	// 0666, as `writeFile` writes: the umask decides the rest.
 	if err := os.WriteFile(outputPath, []byte(svg), 0o666); err != nil {
 		fmt.Fprintf(stderr, "cannot write SVG %s: %s\n", outputPath, core.NodeMessage(err, outputPath, false))
 		return exitWriteFailed
@@ -118,9 +106,6 @@ func runScene(command string, argv []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-// svgPathFor is `src/paths.ts`'s rule: the SVG sits beside the Scene, named
-// after the Scene's stem. The Scene is resolved first, so a relative Scene's
-// output lands in the folder the run started in.
 func svgPathFor(scenePath string) (string, error) {
 	resolved, err := filepath.Abs(scenePath)
 	if err != nil {
@@ -129,8 +114,6 @@ func svgPathFor(scenePath string) (string, error) {
 	return filepath.Join(filepath.Dir(resolved), svgFileName(filepath.Base(scenePath))), nil
 }
 
-// sceneStem is `src/paths.ts`'s rule: `.esbozo` or `.json` taken off, in any
-// letter case.
 func sceneStem(name string) string {
 	extension := sceneExtension(name)
 	if extension == "" {

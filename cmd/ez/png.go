@@ -1,6 +1,3 @@
-// `png`: what the command line takes, and the file the run writes. Go owns the
-// flags, the paths and the exit codes; the core owns the palette, the outlines
-// and what a Scene is.
 package main
 
 import (
@@ -13,7 +10,6 @@ import (
 	"esbozo/internal/core"
 )
 
-// pngArguments is what one `png` run was asked for.
 type pngArguments struct {
 	scenePath string
 	theme     string
@@ -24,9 +20,6 @@ type pngArguments struct {
 	fontPath  string
 }
 
-// parsePNGArguments reads the flags in either order, and nothing else: a second
-// Scene, a flag with no value, and a flag `png` does not take are all wrong
-// arguments. A repeated flag takes its last value.
 func parsePNGArguments(argv []string) (pngArguments, bool) {
 	var parsed pngArguments
 	for index := 0; index < len(argv); index++ {
@@ -69,7 +62,6 @@ func parsePNGArguments(argv []string) (pngArguments, bool) {
 	return parsed, true
 }
 
-// runPNG is `png`: the image beside the Scene, named for its theme.
 func runPNG(argv []string, stdout, stderr io.Writer) int {
 	parsed, ok := parsePNGArguments(argv)
 	if !ok {
@@ -96,8 +88,6 @@ func runPNG(argv []string, stdout, stderr io.Writer) int {
 		return exitWriteFailed
 	}
 
-	// A remote font falls back to Kalam without failing, and the CLI says so
-	// before anything else it has to say.
 	for _, note := range image.Notes {
 		fmt.Fprintln(stderr, note)
 	}
@@ -113,7 +103,6 @@ func runPNG(argv []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "cannot name the PNG beside %s: %s\n", parsed.scenePath, err)
 		return exitWriteFailed
 	}
-	// 0666, as `writeFile` writes: the umask decides the rest.
 	if err := os.WriteFile(outputPath, image.PNG, 0o666); err != nil {
 		fmt.Fprintf(stderr, "cannot write PNG %s: %s\n", outputPath, core.NodeMessage(err, outputPath, false))
 		return exitWriteFailed
@@ -122,8 +111,6 @@ func runPNG(argv []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-// pngPathFor is the SVG's rule one suffix further on: `sketch.esbozo` gives
-// `sketch.light.png` and `sketch.dark.png`.
 func pngPathFor(scenePath, theme string) (string, error) {
 	resolved, err := filepath.Abs(scenePath)
 	if err != nil {
