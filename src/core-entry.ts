@@ -68,187 +68,363 @@ declare global {
 };
 
 /**
- * `JSON.parse`, with V8's numbers.
+ * `JSON.parse`, as V8 reads it.
  *
- * goja reads a JSON number as a Go float64 and refuses the ones that overflow
- * it, where V8 reads them as ±Infinity. A Scene file is the one place a person
- * or an agent can write a number that large — `JSON.stringify` writes Infinity
- * as `null`, so no editor can — and `scene.ts` refuses it by name (`labelAt.t
- * must be a finite number, got null`) rather than as JSON it cannot read. The
- * engine stays the parser: it validates the text, decodes the strings and builds
- * the objects, and only a text it refused is read again with those numbers put
- * back.
+ * `src/scene.ts` parses a Scene with `JSON.parse`, and a Scene is the one JSON a
+ * person or an agent writes by hand: what V8 makes of that text is the answer,
+ * down to the line `ez` prints when it refuses. goja's own parse is close, but
+ * not close enough where a Scene reaches it. It refuses a number that overflows
+ * a float64, where V8 reads ±Infinity. It turns a lone UTF-16 surrogate into
+ * U+FFFD, where V8 keeps the code unit, so the check `src/scene.ts` makes for
+ * characters XML cannot represent would never see one. And its refusals are
+ * worded differently.
+ *
+ * A caller that asks for a `reviver` still gets the engine: it walks the
+ * engine's own objects, and the core parses with none. Everything else is read
+ * here, once, left to right, and answered as V8 answers it: the same values, and
+ * for a text V8 refuses, the same `SyntaxError` naming the same place.
  */
 const engineParse = JSON.parse;
 
+/** The three words `JSON.parse` refuses by name instead of by the character it found. */
+const REFUSED_TEXTS = ['NaN', 'Infinity', 'undefined'];
+
 const v8Parse = (text: string, reviver?: unknown): unknown => {
-  try {
+  if (reviver !== undefined) {
     return (engineParse as (text: string, reviver?: unknown) => unknown)(text, reviver);
-  } catch (error) {
-    // A reviver reads the engine's own objects, and the core parses with none.
-    if (reviver !== undefined) {
-      throw error;
-    }
-    const repaired = withOverflowingNumbers(text);
-    if (repaired === null) {
-      throw error;
-    }
-    const parsed = engineParse(repaired.source) as Record<string, unknown>;
-    for (const { path, value } of repaired.overflowed) {
-      if (path.length === 0) {
-        return value;
-      }
-      let holder = parsed;
-      for (const step of path.slice(0, -1)) {
-        holder = holder[String(step)] as Record<string, unknown>;
-      }
-      const slot = String(path[path.length - 1]);
-      // Only where the `0` this walk wrote still stands: a duplicated key that
-      // came later in the text is the value V8 keeps, and is left alone.
-      if (holder[slot] === 0) {
-        holder[slot] = value;
-      }
-    }
-    return parsed;
   }
+  const source = String(text);
+  if (REFUSED_TEXTS.includes(source)) {
+    throw new SyntaxError(`"${source}" is not valid JSON`);
+  }
+  return readJson(source);
 };
 
-(JSON as unknown as { parse: typeof v8Parse }).parse = v8Parse;
-
-/** One number V8 reads as ±Infinity, and where in the text it was written. */
-interface OverflowedNumber {
-  readonly path: readonly (string | number)[];
-  readonly value: number;
+/**
+ * Read this text as V8 reads it. A Scene is the only JSON a person writes, so
+ * this reader stands in for `JSON.parse` around the one parse of it: the
+ * bundle's own JSON, the font table the build measured, stays the engine's,
+ * which reads it several times faster than a reader written in JavaScript can.
+ */
+function readAsV8<T>(read: () => T): T {
+  const engine = JSON as unknown as { parse: typeof v8Parse };
+  const parse = engine.parse;
+  engine.parse = v8Parse;
+  try {
+    return read();
+  } finally {
+    engine.parse = parse;
+  }
 }
 
+/** How much of the text either side of an unexpected token a message quotes, as V8 does. */
+const SNIPPET_SIDE = 10;
+
+/** The text around one offset, quoted as V8 quotes it, with `...` where it was cut. */
+function jsonSnippet(text: string, at: number): string {
+  if (text.length <= SNIPPET_SIDE * 2) {
+    return `"${text}"`;
+  }
+  const start = Math.max(0, at - SNIPPET_SIDE);
+  const stop = Math.min(text.length, at + SNIPPET_SIDE);
+  return `${start > 0 ? '...' : ''}"${text.slice(start, stop)}"${stop < text.length ? '...' : ''}`;
+}
+
+function isDigit(char: string | undefined): boolean {
+  return char !== undefined && char >= '0' && char <= '9';
+}
+
+function isHexDigit(char: string | undefined): boolean {
+  return char !== undefined && '0123456789abcdefABCDEF'.includes(char);
+}
+
+/** What one `\` `…` escape stands for, before the four-hex-digit form. */
+const SIMPLE_ESCAPES: Record<string, string> = {
+  '"': '"',
+  '\\': '\\',
+  '/': '/',
+  b: '\b',
+  f: '\f',
+  n: '\n',
+  r: '\r',
+  t: '\t',
+};
+
 /**
- * A JSON text with every number V8 reads as ±Infinity written as `0`, and the
- * places those numbers were — `null` when there is no such number, or when the
- * walk cannot read the text, because then the engine's own refusal is the
- * answer.
+ * One JSON text, read as `JSON.parse` reads it.
  *
- * This walk finds numbers; it does not judge the text. Whatever it rewrites is
- * parsed by the engine afterwards, which is what refuses a text that is not
- * JSON.
+ * Everything V8 accepts is accepted as V8 makes it: a number that overflows a
+ * float64 is ±Infinity because `Number` says so, a `\uXXXX` escape is the code
+ * unit it names (a lone surrogate included), a duplicated key keeps the value
+ * written last, and `__proto__` is an own property rather than a prototype.
+ * Everything V8 refuses is refused with V8's own message, because that line is
+ * what `ez` prints after `not valid JSON: `.
  */
-function withOverflowingNumbers(
-  text: string,
-): { source: string; overflowed: OverflowedNumber[] } | null {
-  const found: (OverflowedNumber & { start: number; end: number })[] = [];
+function readJson(text: string): unknown {
+  const end = text.length;
   let at = 0;
 
-  const space = (): void => {
-    while (at < text.length && ' \t\n\r'.includes(text[at] as string)) {
+  /** One place in the text, as V8 words it: `position 4 (line 1 column 5)`. */
+  function where(offset: number): string {
+    let line = 1;
+    let lineStart = 0;
+    for (let index = 0; index < offset && index < end; index += 1) {
+      if (text[index] === '\n') {
+        line += 1;
+        lineStart = index + 1;
+      }
+    }
+    return `position ${offset} (line ${line} column ${offset - lineStart + 1})`;
+  }
+
+  /** Refuse the text at `offset` with one of V8's messages that names a place. */
+  function refuse(offset: number, what: string): never {
+    throw new SyntaxError(`${what} in JSON at ${where(offset)}`);
+  }
+
+  function refuseToken(offset: number): never {
+    throw new SyntaxError(
+      `Unexpected token '${text[offset]!}', ${jsonSnippet(text, offset)} is not valid JSON`,
+    );
+  }
+
+  function refuseEnd(): never {
+    throw new SyntaxError('Unexpected end of JSON input');
+  }
+
+  function skipSpace(): void {
+    while (at < end) {
+      const char = text[at];
+      if (char !== ' ' && char !== '\t' && char !== '\n' && char !== '\r') {
+        return;
+      }
       at += 1;
     }
-  };
+  }
 
-  /** One quoted string, quotes and all: the engine decodes what this skips. */
-  const quoted = (): void => {
+  /** One quoted string; a `\uXXXX` escape keeps the code unit it names, lone surrogates too. */
+  function readString(): string {
     at += 1;
-    while (at < text.length) {
-      if (text[at] === '\\') {
-        at += 2;
+    let start = at;
+    let read = '';
+    for (;;) {
+      if (at >= end) {
+        refuse(end, 'Unterminated string');
+      }
+      const char = text[at]!;
+      if (char === '"') {
+        read += text.slice(start, at);
+        at += 1;
+        return read;
+      }
+      if (char === '\\') {
+        read += text.slice(start, at);
+        at += 1;
+        read += readEscape();
+        start = at;
         continue;
       }
-      const char = text[at];
+      if (char < ' ') {
+        refuse(at, 'Bad control character in string literal');
+      }
       at += 1;
-      if (char === '"') {
-        return;
+    }
+  }
+
+  /** One escape, the `\` and the character after it already read. */
+  function readEscape(): string {
+    // A `\` with nothing after it ends the text, and V8 names that as the end of
+    // the text rather than as a string that never closes.
+    if (at >= end) {
+      refuseEnd();
+    }
+    const char = text[at]!;
+    const simple = SIMPLE_ESCAPES[char];
+    if (simple !== undefined) {
+      at += 1;
+      return simple;
+    }
+    if (char !== 'u') {
+      refuse(at, 'Bad escaped character');
+    }
+    at += 1;
+    let code = 0;
+    for (let digit = 0; digit < 4; digit += 1) {
+      const hex = text[at];
+      if (!isHexDigit(hex)) {
+        refuse(at, 'Bad Unicode escape');
+      }
+      code = code * 16 + parseInt(hex!, 16);
+      at += 1;
+    }
+    return String.fromCharCode(code);
+  }
+
+  /** A number by RFC 8259's grammar, valued by `Number`, so overflow is ±Infinity. */
+  function readNumber(): number {
+    const start = at;
+    if (text[at] === '-') {
+      at += 1;
+      if (!isDigit(text[at])) {
+        refuse(at, 'No number after minus sign');
       }
     }
-    throw new Error('the string never closes');
-  };
-
-  const value = (path: (string | number)[]): void => {
-    space();
-    const char = text[at];
-    if (char === '{') {
+    if (text[at] === '0') {
       at += 1;
-      space();
-      if (text[at] === '}') {
-        at += 1;
-        return;
+      // A `0` ends the number there: a digit after it is no number of JSON's,
+      // and V8 names it as one rather than as the delimiter it is not.
+      if (isDigit(text[at])) {
+        refuse(at, 'Unexpected number');
       }
-      for (;;) {
-        space();
-        const start = at;
-        quoted();
-        const key = engineParse(text.slice(start, at)) as string;
-        space();
+    } else {
+      while (isDigit(text[at])) {
         at += 1;
-        value([...path, key]);
-        space();
-        if (text[at] === ',') {
-          at += 1;
-          continue;
-        }
-        at += 1;
-        return;
       }
+    }
+    if (text[at] === '.') {
+      at += 1;
+      if (!isDigit(text[at])) {
+        refuse(at, 'Unterminated fractional number');
+      }
+      while (isDigit(text[at])) {
+        at += 1;
+      }
+    }
+    if (text[at] === 'e' || text[at] === 'E') {
+      at += 1;
+      if (text[at] === '+' || text[at] === '-') {
+        at += 1;
+      }
+      if (!isDigit(text[at])) {
+        refuse(at, 'Exponent part is missing a number');
+      }
+      while (isDigit(text[at])) {
+        at += 1;
+      }
+    }
+    return Number(text.slice(start, at));
+  }
+
+  /** `true`, `false` or `null`, matched a character at a time as V8 matches them. */
+  function readLiteral(): unknown {
+    const literal = text[at] === 't' ? 'true' : text[at] === 'f' ? 'false' : 'null';
+    for (let index = 1; index < literal.length; index += 1) {
+      at += 1;
+      if (at >= end) {
+        refuseEnd();
+      }
+      if (text[at] !== literal[index]) {
+        refuseToken(at);
+      }
+    }
+    at += 1;
+    return literal === 'null' ? null : literal === 'true';
+  }
+
+  function readArray(): unknown[] {
+    at += 1;
+    const array: unknown[] = [];
+    skipSpace();
+    if (text[at] === ']') {
+      at += 1;
+      return array;
+    }
+    for (;;) {
+      array.push(readValue());
+      skipSpace();
+      if (text[at] === ',') {
+        at += 1;
+        continue;
+      }
+      if (text[at] !== ']') {
+        refuse(at, "Expected ',' or ']' after array element");
+      }
+      at += 1;
+      return array;
+    }
+  }
+
+  function readObject(): Record<string, unknown> {
+    at += 1;
+    const object: Record<string, unknown> = {};
+    skipSpace();
+    if (text[at] === '}') {
+      at += 1;
+      return object;
+    }
+    for (let first = true; ; first = false) {
+      skipSpace();
+      if (text[at] !== '"') {
+        // V8 words the first key and a later one differently.
+        refuse(
+          at,
+          first ? "Expected property name or '}'" : 'Expected double-quoted property name',
+        );
+      }
+      const key = readString();
+      skipSpace();
+      if (text[at] !== ':') {
+        refuse(at, "Expected ':' after property name");
+      }
+      at += 1;
+      // A plain assignment is V8's own data property, which is what a Scene's
+      // parse is paid for in bulk; `__proto__` is the one key V8 makes an own
+      // property where an assignment would set the prototype instead.
+      if (key === '__proto__') {
+        Object.defineProperty(object, key, {
+          value: readValue(),
+          writable: true,
+          enumerable: true,
+          configurable: true,
+        });
+      } else {
+        object[key] = readValue();
+      }
+      skipSpace();
+      if (text[at] === ',') {
+        at += 1;
+        continue;
+      }
+      if (text[at] !== '}') {
+        refuse(at, "Expected ',' or '}' after property value");
+      }
+      at += 1;
+      return object;
+    }
+  }
+
+  function readValue(): unknown {
+    skipSpace();
+    if (at >= end) {
+      refuseEnd();
+    }
+    const char = text[at]!;
+    if (char === '{') {
+      return readObject();
     }
     if (char === '[') {
-      at += 1;
-      space();
-      if (text[at] === ']') {
-        at += 1;
-        return;
-      }
-      for (let index = 0; ; index += 1) {
-        value([...path, index]);
-        space();
-        if (text[at] === ',') {
-          at += 1;
-          continue;
-        }
-        at += 1;
-        return;
-      }
+      return readArray();
     }
     if (char === '"') {
-      quoted();
-      return;
+      return readString();
     }
-    if (char === '-' || (char !== undefined && char >= '0' && char <= '9')) {
-      const start = at;
-      while (at < text.length && '+-.0123456789eE'.includes(text[at] as string)) {
-        at += 1;
-      }
-      const number = Number(text.slice(start, at));
-      if (Number.isNaN(number)) {
-        throw new Error('the number does not read as one');
-      }
-      if (!Number.isFinite(number)) {
-        found.push({ path, value: number, start, end: at });
-      }
-      return;
+    if (char === '-' || isDigit(char)) {
+      return readNumber();
     }
     if (char === 't' || char === 'f' || char === 'n') {
-      while (at < text.length && 'abcdefghijklmnopqrstuvwxyz'.includes(text[at] as string)) {
-        at += 1;
-      }
-      return;
+      return readLiteral();
     }
-    throw new Error('this walk cannot read this text');
-  };
-
-  try {
-    value([]);
-  } catch {
-    return null;
-  }
-  if (found.length === 0) {
-    return null;
+    refuseToken(at);
   }
 
-  let source = '';
-  let copied = 0;
-  for (const { start, end } of found) {
-    source += `${text.slice(copied, start)}0`;
-    copied = end;
+  const value = readValue();
+  skipSpace();
+  if (at < end) {
+    // This one names no JSON, because it is about what is not JSON: V8 words it
+    // `… after JSON at position 4 (line 1 column 5)`.
+    throw new SyntaxError(`Unexpected non-whitespace character after JSON at ${where(at)}`);
   }
-  source += text.slice(copied);
-  return { source, overflowed: found };
+  return value;
 }
 
 /**
@@ -266,22 +442,18 @@ const EXIT = {
  * What a command needs: the Scene's exact bytes, and where a `--font` or `--css`
  * flag pointed. An absent flag is `null`, never an empty path.
  *
- * @public The bundle's surface, reached by the host as `__ezCore`: esbuild's
- * global is what makes these exports callable from Go, so nothing in the repo
- * imports them and knip is told not to ask.
+ * The surface is the bundle's, reached by the host as `__ezCore`: esbuild's
+ * global is what makes `begin` and `answer` callable from Go, so nothing in the
+ * repo imports them and only those two are exported.
  */
-export interface Request {
+interface Request {
   readonly source: ArrayBuffer;
   readonly fontPath: string | null;
   readonly cssPath: string | null;
 }
 
-/**
- * What a command made: the SVG, or the lines it refuses with.
- *
- * @public
- */
-export interface Answer {
+/** What a command made: the SVG, or the lines it refuses with. */
+interface Answer {
   readonly ok: boolean;
   readonly exitCode: number;
   readonly svg: string;
@@ -294,11 +466,6 @@ function failed(exitCode: number, problems: readonly string[]): Answer {
   return { ok: false, exitCode, svg: '', problems, notes: [] };
 }
 
-/** The Scene's text, decoded as Node's `bytes.toString('utf8')` decodes it. */
-function textOf(source: ArrayBuffer): string {
-  return globalThis.__ezHost.decodeUtf8(source);
-}
-
 /** A problem as `ez` prints it: `id: message`, or the message alone with no id. */
 function problemLines(problems: readonly { elementId: string | null; message: string }[]): string[] {
   return problems.map((problem) =>
@@ -308,7 +475,8 @@ function problemLines(problems: readonly { elementId: string | null; message: st
 
 function loadScene(source: ArrayBuffer) {
   const bytes = new Uint8Array(source);
-  return { bytes, parsed: parseScene(textOf(source)) };
+  // Decoded as Node's `bytes.toString('utf8')` decodes it.
+  return { bytes, parsed: readAsV8(() => parseScene(globalThis.__ezHost.decodeUtf8(source))) };
 }
 
 async function render(request: Request): Promise<Answer> {
@@ -360,37 +528,39 @@ async function check(request: Request): Promise<Answer> {
 }
 
 /**
- * The command that is running, and what it made. `begin` starts it and `answer`
- * reads it: goja runs the queue of promises when the script that awaited them
- * ends, so the host gives it two calls rather than one promise.
+ * The command that is running, what it made, and what it threw. `begin` starts it
+ * and `answer` reads it: goja runs the queue of promises when the script that
+ * awaited them ends, so the host gives it two calls rather than one promise.
  */
 let settled: Answer | null = null;
+let failure: { error: unknown } | null = null;
 
 /**
  * Start one command over the request the host installed as `__ezRequest`.
+ *
+ * A command this bundle does not have is refused here rather than answered as
+ * `check`: a Scene reported as unmeasurable when nothing measured it is a
+ * refusal about the wrong thing, and the host words it as its own failure.
  *
  * @public
  */
 export function begin(request: Request, kind: 'render' | 'check'): void {
   settled = null;
-  const running = kind === 'render' ? render(request) : check(request);
-  void running.then(
+  failure = null;
+  if (kind !== 'render' && kind !== 'check') {
+    throw new Error(`the core has no command ${String(kind)}`);
+  }
+  void (kind === 'render' ? render(request) : check(request)).then(
     (answer) => {
       settled = answer;
     },
     (error: unknown) => {
-      settled = failed(EXIT.invalidScene, [threw(error)]);
+      // Kept for `answer` to throw: a throw inside the core is the core failing
+      // to run, not a Scene it reads and refuses, and the host tells those apart
+      // by exit code. The error's stack is what names the place it gave up.
+      failure = { error };
     },
   );
-}
-
-/**
- * What a throw inside the core reads like. The stack is here because a host that
- * sees this line has no other way to find where the core gave up.
- */
-function threw(error: unknown): string {
-  const stack = (error as { stack?: unknown } | null)?.stack;
-  return `the core threw: ${typeof stack === 'string' ? stack : String(error)}`;
 }
 
 /**
@@ -399,6 +569,9 @@ function threw(error: unknown): string {
  * @public
  */
 export function answer(): Answer {
+  if (failure !== null) {
+    throw failure.error;
+  }
   if (settled === null) {
     throw new Error('the core has no answer: call begin first');
   }
