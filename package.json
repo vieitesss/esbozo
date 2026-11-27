@@ -14,6 +14,7 @@
     "!dist/ez",
     "!dist/core.js",
     "!dist/font-metrics.json",
+    "!dist/resvg.wasm",
     "fonts",
     "skills"
   ],
