@@ -1,12 +1,4 @@
-/**
- * CLI seam, the bundle: the built binary needs nothing beside it.
- *
- * The Docker image copies `ez` alone — no `node_modules`, no `dist/` — so this
- * proves that is enough: `render` (the core carries its own modules), `png`
- * (resvg's wasm travels inside the binary), and `serve`, whose page files are
- * embedded beside the core. Every run happens in a folder that holds a copy of
- * `ez` and nothing else from the repository.
- */
+/** CLI seam, the bundle: the built binary needs nothing beside it. */
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { cp, readFile, readdir, writeFile } from 'node:fs/promises';
@@ -30,7 +22,6 @@ const SAMPLE_SCENE = {
   ],
 };
 
-/** A folder holding a copy of `dist/ez` and one Scene, and nothing else. */
 async function bundleFolder(): Promise<string> {
   const folder = await tempFolder();
   await cp(join(ROOT, 'dist', 'ez'), join(folder, 'ez'));

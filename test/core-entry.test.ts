@@ -1,10 +1,4 @@
-/**
- * Module seam: the core bundle's two calls — `begin` starts one command and
- * `answer` reads what it made — reached the way the Go host reaches them. A throw
- * inside the core is the core failing, not a Scene it reads and refuses, so the
- * bundle is loaded here the way `scripts/same-bytes.mjs` loads it and asked
- * directly. `pnpm build` writes the bundle this reads.
- */
+/** Module seam: the core bundle's `begin` and `answer` calls. */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -17,13 +11,11 @@ const CORE = join(ROOT, 'dist/core.js');
 const SCENE = join(ROOT, 'test/fixtures/small.json');
 const KALAM = join(ROOT, 'fonts/Kalam-Regular.ttf');
 
-/** `render`'s request, as the host builds it for `__ezCore.begin`. */
 interface RenderRequest {
   source: ArrayBuffer;
   fontPath: string | null;
 }
 
-/** What the bundle answers with, as `internal/core` reads it. */
 interface Answer {
   ok: boolean;
   exitCode: number;
@@ -32,13 +24,11 @@ interface Answer {
   notes: string[];
 }
 
-/** The surface `dist/core.js` leaves on the realm, which Go calls by name. */
 interface Core {
   begin(request: RenderRequest, kind: string): void;
   answer(): Answer;
 }
 
-/** The host the bundle reaches through `globalThis.__ezHost`, answered by Node. */
 interface Host {
   readText(path: string): string;
   readBytes(path: string): ArrayBuffer;
@@ -49,12 +39,10 @@ interface Host {
   bundledFontMetrics(): string;
 }
 
-/** These bytes as the ArrayBuffer the host's answers carry. */
 function arrayBufferOf(bytes: Buffer): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
 
-/** The host every test here starts from: Node's own filesystem, like Go's. */
 function host(): Host {
   const font = readFileSync(KALAM);
   return {
@@ -71,18 +59,15 @@ function host(): Host {
 let core: Core;
 
 before(() => {
-  // The font is read at bundle load, so the host is installed first.
   (globalThis as unknown as { __ezHost: Host }).__ezHost = host();
   runInThisContext(readFileSync(CORE, 'utf8'), { filename: CORE });
   core = (globalThis as unknown as { __ezCore: Core }).__ezCore;
 });
 
-/** The Scene these two edges are asked about, as the host hands it over. */
 function request(): RenderRequest {
   return { source: arrayBufferOf(readFileSync(SCENE)), fontPath: null };
 }
 
-/** Let the microtasks one command awaits run, as goja's queue does. */
 async function settled(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
 }

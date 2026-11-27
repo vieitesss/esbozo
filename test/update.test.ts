@@ -1,15 +1,4 @@
-/**
- * CLI seam: `ez update` re-running the install script the binary carries.
- *
- * `ez update` writes into the folder the binary runs from, so these cases run
- * `dist/ez` itself, not the `EZ_BIN` seam. Every case but the
- * clone runs a copy of the binary in a folder of its own, as an installed `ez`
- * is: `update` sets the script's `--dir` to the folder the binary runs from, so
- * what it installs lands beside the copy and what the test then runs is what the
- * release shipped. The releases are `test/release.ts`'s, the same ones
- * `test/install.test.ts` serves, and the assertions are what a person sees: the
- * exit code, the two streams, and the `ez` left in the folder.
- */
+/** CLI seam: `ez update` re-running the install script the binary carries. */
 import assert from 'node:assert/strict';
 import { chmod, copyFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -18,14 +7,11 @@ import { fileURLToPath } from 'node:url';
 import { release, run, startRelease, type FakeRelease } from './release.ts';
 import { removeTempFolders, tempFolder } from './temp.ts';
 
-/** The built binary, as `pnpm build` leaves it: the clone's own `dist/ez`. */
 const BIN = fileURLToPath(new URL('../dist/ez', import.meta.url));
 
 let server: FakeRelease;
 
 before(async () => {
-  // A Release of this very build: updating to it finds the bytes already in
-  // place, which is what "already on the target" means to the script.
   server = await startRelease(new Map([['/download/v2.0.0', release(await readFile(BIN))]]));
 });
 
@@ -34,7 +20,6 @@ after(async () => {
   await removeTempFolders();
 });
 
-/** A copy of `dist/ez` in a folder of its own, as an installed `ez` sits. */
 async function installed(): Promise<{ folder: string; ez: string }> {
   const folder = join(await tempFolder(), 'bin');
   await mkdir(folder, { recursive: true });
@@ -113,7 +98,6 @@ test('refuses the flags it cannot read itself, before any refusal of the folder'
   ];
 
   for (const { args, says } of cases) {
-    // Docker is where a refusal would print first if the flags were read after it.
     const update = await run(ez, ['update', ...args], {
       ESBOZO_DOCKER: '1',
       ESBOZO_RELEASE_URL: server.url,
@@ -127,8 +111,6 @@ test('refuses the flags it cannot read itself, before any refusal of the folder'
 
 test('refuses in a clone, pointing at git pull and pnpm build instead', async () => {
   const before = await stat(BIN);
-  // Nothing to download, so a refusal that leaked would fail on the fetch rather
-  // than replace the binary this checkout builds.
   const update = await run(BIN, ['update'], { ESBOZO_RELEASE_URL: 'http://127.0.0.1:1' });
 
   assert.notEqual(update.code, 0);

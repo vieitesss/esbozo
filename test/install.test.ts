@@ -1,13 +1,4 @@
-/**
- * Script seam: `scripts/install.sh` against a local fake release.
- *
- * The script is run as a person runs it — `sh scripts/install.sh` with the flags
- * and the environment `ez update` would pass — and what is asserted is what they
- * would see: the exit code, the two streams, the `ez` that ends up in the folder
- * and whether running it prints what the release shipped. The release itself is
- * a folder of bytes served over HTTP on the port the operating system picks, so
- * no test reaches GitHub.
- */
+/** Script seam: `scripts/install.sh` against a local fake release. */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { chmod, lstat, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
@@ -20,10 +11,6 @@ import { removeTempFolders, tempFolder } from './temp.ts';
 
 const INSTALL = fileURLToPath(new URL('../scripts/install.sh', import.meta.url));
 
-/**
- * The shells the target cases run under: `sh` always, and `dash` too when it is
- * installed, because the script is POSIX and dash reads it more strictly.
- */
 const SHELLS =
   spawnSync('sh', ['-c', 'command -v dash'], { stdio: 'ignore' }).status === 0
     ? ['sh', 'dash']
@@ -40,7 +27,6 @@ after(async () => {
   await removeTempFolders();
 });
 
-/** `sh scripts/install.sh` (or `shell`) with `args`, pointed at the fake release. */
 function install(
   args: readonly string[],
   env: NodeJS.ProcessEnv = {},
@@ -49,17 +35,12 @@ function install(
   return run(shell, [INSTALL, ...args], { ESBOZO_RELEASE_URL: server.url, ...env });
 }
 
-/**
- * A release URL nothing answers on: a refusal that came after the download
- * would print the fetch failure instead of the reason it refused.
- */
 async function unreachable(): Promise<string> {
   const gone = await startRelease();
   await gone.close();
   return gone.url;
 }
 
-/** What running one installed `ez` prints, and what it exits with. */
 function runInstalled(file: string): Promise<Run> {
   return run(file, []);
 }
@@ -87,7 +68,6 @@ test('when the folder is not on PATH, prints the line that adds it', async () =>
   assert.equal(off.code, 0, off.stderr);
   assert.ok(off.stdout.includes(`export PATH="${bin}:$PATH"`), off.stdout);
 
-  // A fresh folder: one that already holds ez exits before the PATH check.
   const onBin = join(await tempFolder(), 'bin-on');
   const on = await install(['--dir', onBin], { PATH: `${onBin}:${process.env.PATH}` });
   assert.equal(on.code, 0, on.stderr);

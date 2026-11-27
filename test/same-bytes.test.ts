@@ -1,8 +1,4 @@
-/**
- * Script seam: `scripts/same-bytes.mjs`, the core held to the same bytes in Node
- * and in Go. `pnpm build` writes the bundle the script loads, so this suite puts
- * the comparison in front of every `pnpm check`.
- */
+/** Script seam: `scripts/same-bytes.mjs`, the core held to the same bytes in Node and Go. */
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { join } from 'node:path';

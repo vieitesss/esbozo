@@ -1,10 +1,4 @@
-/**
- * CLI seam, the bundle: `ez bundle` on a temp folder, and the file it writes.
- *
- * The bundle is what a page of someone else's loads instead of the editor's own
- * page, so this is where the file it points at is proved to exist, to parse, and
- * to stay inside its size budget.
- */
+/** CLI seam, the bundle: `ez bundle` on a temp folder, and the file it writes. */
 import assert from 'node:assert/strict';
 import { readdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -81,8 +75,6 @@ test('a bundle that cannot be written is the write-failure exit code', async () 
 });
 
 test('a folder that is a file is not a folder to write into', async () => {
-  // The path is resolved before it is opened, so a file where the folder should be
-  // is the write failing — `ENOTDIR`, not a missing file — and the exit code says so.
   const file = join(await tempFolder('esbozo-bundle-'), 'a-file');
   await writeFile(file, 'not a folder', 'utf8');
   const path = join(file, BUNDLE);
@@ -94,8 +86,6 @@ test('a folder that is a file is not a folder to write into', async () => {
 });
 
 test('a folder reached through a symlink loop is the error the CLI words', async () => {
-  // Go's own text for a loop is `open ...: too many levels of symbolic links`, and
-  // every `ez` message about a file is built around Node's wording instead.
   const folder = await tempFolder('esbozo-bundle-');
   await symlink(join(folder, 'b'), join(folder, 'a'));
   await symlink(join(folder, 'a'), join(folder, 'b'));
