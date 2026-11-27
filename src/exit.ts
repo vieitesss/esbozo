@@ -1,18 +1,12 @@
 /**
- * The codes `ez` exits with: the one place they are defined.
+ * Exit codes for `ez` and `internal/core`'s `Result.ExitCode`:
  *
- *   0  the Scene is clean, was rendered, the PNG or the bundle was written, or
- *      the server stopped
- *   2  wrong arguments (unknown command, missing or extra arguments, bad flag)
- *   3  the Scene could not be read or parsed
- *   4  the output could not be written, the server could not start, or the
- *      editor is not built
- *   5  missing theme values, or a missing or unreadable font
- *   6  a Label that does not fit its Element (see `ez check`)
- *
- * The command line, the core bundle the Go binary runs, and the Scene edits it
- * asks for all refuse with these codes, so they read them here rather than each
- * carrying a copy that could drift.
+ *   0  ok (clean Scene, rendered, PNG/bundle written, or server stopped)
+ *   2  wrong arguments (unknown command, missing/extra arguments, bad flag)
+ *   3  Scene could not be read or parsed
+ *   4  output could not be written, server could not start, or editor not built
+ *   5  missing theme values, or missing/unreadable font
+ *   6  Label does not fit its Element (`ez check`)
  */
 export const EXIT = {
   ok: 0,

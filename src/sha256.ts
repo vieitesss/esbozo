@@ -120,10 +120,8 @@ export function sha256(input: Uint8Array): Uint8Array {
 }
 
 /**
- * The digest the host's own platform makes, where it has one: `internal/core`'s
- * goja runtime does, so the seed of an unseeded Element is not a sha256 walked by
- * a script that has no JIT. A browser has no such host and hashes here, as does
- * Node, whose runtime is fast enough that it never needed one.
+ * Prefer Go's native `crypto/sha256` when running under `internal/core`
+ * because goja has no JIT.
  */
 function hostDigest(bytes: Uint8Array): Uint8Array | null {
   const host = (
