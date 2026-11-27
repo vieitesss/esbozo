@@ -17,11 +17,10 @@ const CORE = join(ROOT, 'dist/core.js');
 const SCENE = join(ROOT, 'test/fixtures/small.json');
 const KALAM = join(ROOT, 'fonts/Kalam-Regular.ttf');
 
-/** One command's request, as the host builds it for `__ezCore.begin`. */
-interface Request {
+/** `render`'s request, as the host builds it for `__ezCore.begin`. */
+interface RenderRequest {
   source: ArrayBuffer;
   fontPath: string | null;
-  cssPath: string | null;
 }
 
 /** What the bundle answers with, as `internal/core` reads it. */
@@ -35,7 +34,7 @@ interface Answer {
 
 /** The surface `dist/core.js` leaves on the realm, which Go calls by name. */
 interface Core {
-  begin(request: Request, kind: string): void;
+  begin(request: RenderRequest, kind: string): void;
   answer(): Answer;
 }
 
@@ -79,8 +78,8 @@ before(() => {
 });
 
 /** The Scene these two edges are asked about, as the host hands it over. */
-function request(): Request {
-  return { source: arrayBufferOf(readFileSync(SCENE)), fontPath: null, cssPath: null };
+function request(): RenderRequest {
+  return { source: arrayBufferOf(readFileSync(SCENE)), fontPath: null };
 }
 
 /** Let the microtasks one command awaits run, as goja's queue does. */

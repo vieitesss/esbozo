@@ -95,18 +95,7 @@ function arrayBufferOf(bytes) {
  * how Go writes a `[]byte`.
  */
 async function answerOf({ kind, theme }, source) {
-  core.begin(
-    {
-      source: arrayBufferOf(source),
-      fontPath: null,
-      cssPath: null,
-      ink: null,
-      paper: null,
-      muted: null,
-      theme,
-    },
-    kind,
-  );
+  core.begin(requestFor(kind, arrayBufferOf(source), theme), kind);
   await new Promise((resolve) => setImmediate(resolve));
   const answer = core.answer();
   return {
@@ -121,6 +110,32 @@ async function answerOf({ kind, theme }, source) {
   };
 }
 
+/**
+ * The request one command takes: `render` a font path, `check` a stylesheet, and
+ * `png` the palette too. A command reads only the fields it takes, so no request
+ * carries a field another command named.
+ */
+function requestFor(kind, scene, theme) {
+  switch (kind) {
+    case 'render':
+      return { source: scene, fontPath: null };
+    case 'check':
+      return { source: scene, fontPath: null, cssPath: null };
+    case 'png':
+      return {
+        source: scene,
+        fontPath: null,
+        cssPath: null,
+        theme,
+        ink: null,
+        paper: null,
+        muted: null,
+      };
+    default:
+      throw new Error(`no request for ${kind}`);
+  }
+}
+
 /** Every fixture Scene, by the name both sides call it. */
 async function fixtures() {
   const names = (await readdir(FIXTURES)).filter((name) => name.endsWith('.json')).sort();
@@ -129,8 +144,8 @@ async function fixtures() {
 
 /**
  * What the Go core answered, written by `TestCoreAnswers`: the test is run rather
- * than reimplemented, because a second caller of `core.Run` would be a second
- * thing to keep right.
+ * than reimplemented, because a second caller of the core's entry points would be
+ * a second thing to keep right.
  */
 function goAnswers() {
   const output = join(scratch, 'go-answers.json');
