@@ -15,7 +15,7 @@ import { expect } from 'e2e';
 import type { App, Screen } from 'e2e';
 import type { Browser } from '@e2e-dev/web';
 import { livePage } from './cdp.ts';
-import { ez, ezShimScript } from '../test/cli.ts';
+import { ez, ezOrThrow, ezShimScript } from '../test/cli.ts';
 import { tempFolder } from '../test/temp.ts';
 
 const run = promisify(execFile);
@@ -1499,7 +1499,7 @@ export async function cliRender(scene: unknown, font?: string): Promise<string> 
  */
 export async function cliRenderBytes(source: string, font?: string): Promise<string> {
   const folder = await sceneFolder(source);
-  await ez(['render', 'scene.json', ...(font === undefined ? [] : ['--font', font])], folder);
+  await ezOrThrow(['render', 'scene.json', ...(font === undefined ? [] : ['--font', font])], folder);
   return readFile(join(folder, 'scene.svg'), 'utf8');
 }
 
@@ -1542,7 +1542,7 @@ const PAGE_FONT = fileURLToPath(new URL('../dist/fonts/Kalam-Regular.ttf', impor
  */
 export async function cliPng(scene: unknown, theme: 'light' | 'dark'): Promise<Buffer> {
   const folder = await sceneFolder(JSON.stringify(scene, null, 2));
-  await ez(
+  await ezOrThrow(
     [
       'png',
       'scene.json',

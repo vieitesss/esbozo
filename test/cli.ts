@@ -91,6 +91,24 @@ export async function ez(
   }
 }
 
+/**
+ * `ez` where a run that failed has to fail the caller: a helper that goes on to
+ * read what a command wrote would otherwise report the file that is not there,
+ * never the command that refused to write it. The error carries the exit code
+ * and what `ez` said, so a broken run reads as itself.
+ */
+export async function ezOrThrow(
+  args: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv = {},
+): Promise<Run> {
+  const left = await ez(args, cwd, env);
+  if (left.code !== 0) {
+    throw new Error(`ez ${args.join(' ')} exited ${left.code}: ${left.stderr || left.stdout}`);
+  }
+  return left;
+}
+
 /** A server `ez serve` is running on, and the folder it serves. */
 export interface Serve {
   readonly url: string;
