@@ -100,16 +100,16 @@ func answered(result Result) answer {
 	return answer{
 		OK:       result.OK,
 		ExitCode: result.ExitCode,
-		Problems: listed(result.Problems),
-		Notes:    listed(result.Notes),
+		Problems: nonNilSlice(result.Problems),
+		Notes:    nonNilSlice(result.Notes),
 	}
 }
 
-func listed(problems []string) []string {
-	if problems == nil {
+func nonNilSlice(items []string) []string {
+	if items == nil {
 		return []string{}
 	}
-	return problems
+	return items
 }
 
 func BenchmarkRenderEveryElement(b *testing.B) {
