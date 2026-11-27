@@ -5,19 +5,12 @@
  * `path-data-parser`, which roughjs parses some fills through, tokenises path
  * data with `String.prototype.match` and takes the capture back off `RegExp.$1`.
  * In V8 the engine keeps `$1` through `$9` for every successful match; in goja
- * `RegExp.$1` is `undefined`, so the first path fill throws `Cannot read
- * property 'length' of undefined`.
- *
- * This file is the bundle's banner, so it runs before any module does. It
- * records each match that a `String` match found and answers `$1` through `$9`
- * from it — the whole of what the parser reads.
+ * `RegExp.$1` is `undefined`, so the first path fill throws.
  *
  * A banner runs in the realm's global scope, so the two names it keeps are held
- * inside a function instead: a `let` or `const` at the top there is a binding
- * the realm keeps, and evaluating the bundle again in that realm — which is how
- * a host reloads one — would throw `Identifier 'lastMatch' has already been
- * declared`. What it installs is on `String.prototype` and `RegExp`, so a
- * closure carries all of it out.
+ * inside a function instead: a top-level `let` or `const` is a binding the realm
+ * keeps, and evaluating the bundle again in that realm — which is how a host
+ * reloads one — would throw `Identifier 'lastMatch' has already been declared`.
  */
 (() => {
   let lastMatch = null;

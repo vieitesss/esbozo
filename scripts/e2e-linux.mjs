@@ -190,10 +190,9 @@ async function nodeVersionCI() {
 }
 
 /**
- * The Go release `go.mod` names, which is the toolchain the image compiles `ez`
- * with. `go.mod` is the one file that says which Go this project builds with —
- * CI's `actions/setup-go` reads it too — so the image takes the number from
- * there instead of pinning a second one beside it.
+ * The Go release `go.mod` names — the one file that says which Go this project
+ * builds with, which CI's `actions/setup-go` reads too — so the image pins no
+ * second number beside it.
  */
 async function goVersionCI() {
   let said;

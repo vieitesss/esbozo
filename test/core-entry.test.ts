@@ -1,10 +1,8 @@
 /**
  * Module seam: the core bundle's two calls — `begin` starts one command and
- * `answer` reads what it made — reached the way the Go host reaches them.
- *
- * Neither edge is a Scene: `ez` passes only the commands it has, and a throw
- * inside the core is the core failing rather than a Scene it read and refused.
- * So the bundle is loaded here as `scripts/same-bytes.mjs` loads it, and asked
+ * `answer` reads what it made — reached the way the Go host reaches them. A throw
+ * inside the core is the core failing, not a Scene it reads and refuses, so the
+ * bundle is loaded here the way `scripts/same-bytes.mjs` loads it and asked
  * directly. `pnpm build` writes the bundle this reads.
  */
 import assert from 'node:assert/strict';

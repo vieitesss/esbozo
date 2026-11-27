@@ -3,11 +3,9 @@
  * from the table `scripts/measure-font.mjs` wrote, and every other font is
  * parsed by opentype.js itself.
  *
- * `scripts/build-core.mjs` resolves this module in place of `opentype.js` for
- * the bundle's own import (`src/layout.ts`) and leaves this module's import of
+ * `scripts/build-core.mjs` resolves this module in place of `opentype.js` for the
+ * bundle's own import (`src/layout.ts`) and leaves this module's import of
  * `opentype.js` alone, which is how the real parser stays reachable from here.
- * The table arrives through the same `__ezHost` seam the font's bytes do, and is
- * read once per runtime, like the bytes.
  */
 import opentype from 'opentype.js';
 import { fontOf, isBundled } from './font-measurements.mjs';
@@ -18,8 +16,7 @@ let table;
 function metrics() {
   if (table === undefined) {
     // The host answers the text `scripts/build-core.mjs` wrote, which is `null`
-    // when the build could not prove a table: `JSON.parse` makes that the null
-    // this module measures nothing from.
+    // when the build could not prove a table.
     table = JSON.parse(globalThis.__ezHost.bundledFontMetrics());
   }
   return table;

@@ -9,9 +9,8 @@
 # serves the page from a folder that holds `dist/` alone.
 #
 # `pnpm build` ends with `go build ./cmd/ez`, so the build stage carries the Go
-# toolchain `go.mod` names. It is copied from its own image rather than
-# downloaded here: one pinned version, and a toolchain that needs nothing from
-# this base.
+# toolchain `go.mod` names, copied from its own image rather than downloaded
+# here.
 ARG GO_VERSION=1.25.5
 
 FROM golang:${GO_VERSION} AS go
@@ -30,8 +29,7 @@ RUN corepack enable && corepack prepare "pnpm@${PNPM_VERSION}" --activate
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 # esbuild reads `tsconfig.json` for the files it builds, and one compiler option
-# in it (`verbatimModuleSyntax`) changes the bytes it writes. Without it here the
-# image carried bundles no checkout builds.
+# in it (`verbatimModuleSyntax`) changes the bytes it writes.
 COPY tsconfig.json tsconfig.base.json ./
 RUN pnpm install --frozen-lockfile
 

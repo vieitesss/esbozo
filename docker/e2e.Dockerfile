@@ -16,8 +16,8 @@
 # `.node-version`, `package.json` and `go.mod`.
 #
 # The worktree's own `pnpm build` also compiles `cmd/ez`, so the image carries
-# the Go toolchain `go.mod` names, copied from its own image: it is a static
-# binary and needs nothing from Ubuntu's packages.
+# the Go toolchain `go.mod` names, copied from its own image: a static binary
+# needs nothing from Ubuntu's packages.
 ARG GO_VERSION
 
 FROM golang:${GO_VERSION} AS go
@@ -48,7 +48,6 @@ RUN set -eux; \
     node --version; npm --version; \
     npm install -g "pnpm@${PNPM_VERSION}"; pnpm --version
 
-# The Go `go.mod` asks for, so `pnpm build` can compile the binary it ends with.
 COPY --from=go /usr/local/go /usr/local/go
 ENV PATH=/usr/local/go/bin:${PATH}
 

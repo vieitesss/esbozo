@@ -3,19 +3,13 @@
  *
  * Parsing Kalam with `opentype.js` costs ~91 ms, and the Layout only ever asks
  * that parse for one number: how wide a line of words is. This module runs the
- * same `parse`, writes down what the Layout reads out of it, and then proves the
- * table against the parser it came from — a character joins the table only when
+ * same `parse`, writes down what the Layout reads out of it, and proves the table
+ * against the parser it came from — a character joins the table only when
  * measuring it from the table gives exactly the number the parse gives.
- *
- * What is written down is deliberately small: the font's metrics and family,
- * the advance of each glyph, which code point names which glyph, and the
- * characters the arithmetic above was verified for. Outlines are not here,
- * because measuring a line never reads one.
  *
  * A font this cannot model — one that kerns, one whose shaping moves a pair of
  * characters, or one with no character map — is refused as a whole, and the core
- * parses it at run time exactly as it does today. The build prints which of the
- * two happened.
+ * parses it at run time exactly as it does today.
  */
 import { fontOf } from './core-host/font-measurements.mjs';
 
@@ -25,7 +19,6 @@ const SIZES = [14, 18, 24, 32];
 /** Characters that sit beside every other in a proof, so words, not letters, are measured. */
 const ANCHORS = ['f', 'i', '.'];
 
-/** What every verified character is measured in, alone and folded into a word. */
 function probesOf(character) {
   return [
     character,
@@ -77,9 +70,8 @@ export function measurementsOf(parse, bytes) {
     glyphCount: font.glyphs.length,
     advances,
     cmap,
-    // Every character, until the proof below says which ones the table answers
-    // for. The facade reads the same runs the core will read, so what is proved
-    // is the very arithmetic `ez` runs.
+    // Every character, until the proof below narrows the table to the ones it
+    // answers for; the facade reads the same runs the core will read.
     plain: [[0, 0x10ffff]],
   };
 

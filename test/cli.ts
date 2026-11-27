@@ -21,9 +21,9 @@ export const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 /**
  * The `ez` one run starts: `EZ_BIN` when it names one, so a suite can be pointed
  * at another build of the same command line (the Go binary), and the built CLI
- * otherwise. A `.js` path is a script and runs under this Node; anything else is
- * executed itself, because a binary is not a script. A relative `EZ_BIN` is read
- * from the folder the run was asked for, as `CLI` already is.
+ * otherwise. A `.js` path runs under this Node; anything else is executed itself,
+ * because a binary is not a script. A relative `EZ_BIN` is read from the folder
+ * the run was asked for.
  */
 function ezCommand(args: readonly string[]): { file: string; argv: string[] } {
   const bin = process.env.EZ_BIN;

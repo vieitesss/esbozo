@@ -1,22 +1,18 @@
 /**
  * The two runtimes, held to the same bytes.
  *
- * `ez` runs the core bundle in goja; the editor and the CLI run the same
- * sources in V8. This compares the two: every Scene in `test/fixtures/` is
- * rendered and checked by `dist/core.js` in Node, and by `internal/core` in Go,
- * and the SVG bytes, the problem lines, the notes and the exit code have to be
- * identical.
+ * `ez` runs the core bundle in goja; the editor and the CLI run the same sources
+ * in V8. This compares the two: every Scene in `test/fixtures/` is rendered and
+ * checked by `dist/core.js` in Node and by `internal/core` in Go, and the SVG
+ * bytes, the problem lines, the notes and the exit code have to be identical.
  *
- * Both sides are the core, so this survives deleting the TypeScript CLI: there
- * is no `dist/cli.js` here, and nothing that only exists for Node. The Go half
- * is `TestCoreAnswers` in `internal/core`, which writes what the core answers;
- * this script runs it and compares the two answers.
+ * Both sides are the core, so this survives deleting the TypeScript CLI: there is
+ * no `dist/cli.js` here. The Go half is `TestCoreAnswers` in `internal/core`,
+ * which writes what the core answers; this script runs it and compares.
  *
- * Usage: node scripts/same-bytes.mjs
- *
- * `pnpm build` writes `dist/core.js`, `dist/font-metrics.json` and the Go test's
- * sources first. Exit `0` when every fixture is identical, `1` otherwise; one
- * line per fixture and a count as the last line.
+ * Usage: node scripts/same-bytes.mjs — after `pnpm build`, which writes
+ * `dist/core.js` and `dist/font-metrics.json`. Exit `0` when every fixture is
+ * identical, `1` otherwise; one line per fixture and a count as the last line.
  */
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -39,10 +35,9 @@ const KALAM_BYTES = readFileSync(KALAM);
 const FONT_METRICS_TEXT = readFileSync(FONT_METRICS, 'utf8');
 
 /**
- * The host the bundle reaches through `globalThis.__ezHost`, answered with
- * Node's own filesystem: the same seven answers `internal/core/host.go` gives the
- * goja runtime. It is installed before the bundle runs, because the font's
- * bytes are read at bundle load.
+ * The host the bundle reaches through `globalThis.__ezHost`, answered with Node's
+ * own filesystem: the same seven answers `internal/core/host.go` gives the goja
+ * runtime.
  */
 globalThis.__ezHost = {
   readText: (path) => readFileSync(String(path), 'utf8'),
@@ -66,9 +61,8 @@ function arrayBufferOf(bytes) {
 
 /**
  * One command's answer, as both sides write it. `begin` starts the command and
- * `answer` reads it, because goja cannot be handed a promise: the macrotask
- * here lets every microtask the command awaits run first, which is what goja
- * does when the awaiting script ends.
+ * `answer` reads it, because goja cannot be handed a promise: the macrotask here
+ * lets every microtask the command awaits run first.
  */
 async function answerOf(kind, source) {
   core.begin({ source: arrayBufferOf(source), fontPath: null, cssPath: null }, kind);
@@ -90,9 +84,9 @@ async function fixtures() {
 }
 
 /**
- * What the Go core answered, written by `TestCoreAnswers`. The test is the Go
- * half of this comparison, so it is run rather than reimplemented: a second
- * caller of `core.Run` would be a second thing to keep right.
+ * What the Go core answered, written by `TestCoreAnswers`: the test is run rather
+ * than reimplemented, because a second caller of `core.Run` would be a second
+ * thing to keep right.
  */
 function goAnswers() {
   const output = join(scratch, 'go-answers.json');

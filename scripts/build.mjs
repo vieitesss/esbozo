@@ -7,9 +7,8 @@
  * differ in two ways only: the page links its stylesheet and font beside itself,
  * while the bundle carries the CSS and takes the font URL from its element.
  *
- * It ends with the core bundle the Go binary embeds (`scripts/build-core.mjs`),
- * because that is the same Scene, Layout and Renderer again, for the runtime that
- * has no Node: one build writes every copy of them.
+ * It ends with the core bundle the Go binary embeds (`scripts/build-core.mjs`)
+ * and the binary itself: one build writes every copy of the core.
  */
 import { execFileSync } from 'node:child_process';
 import { chmod, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -128,18 +127,14 @@ await copyFile('fonts/OFL.txt', 'dist/fonts/OFL.txt');
 await compressPageFiles();
 
 /**
- * The core bundle `ez` carries, which runs the same sources in goja. It is built
- * here so one `pnpm build` writes everything a person runs and everything the
- * binary embeds, and so a change to the Scene, the Layout or the Renderer
- * reaches both.
+ * The core bundle `ez` carries, built here so one `pnpm build` writes every copy
+ * of the Scene, the Layout and the Renderer.
  */
 execFileSync(process.execPath, ['scripts/build-core.mjs'], { stdio: 'inherit' });
 
 /**
- * The one static binary: the bundle above, the font Kalam, and what measuring it
- * yielded, linked by goja into `ez` with the Go toolchain `go.mod` names. Built
- * here so a `pnpm build` writes everything `ez` is, and so the size, a `go vet`
- * or a `go test` is always of the binary this build wrote.
+ * The one static binary: the bundle above, Kalam, and what measuring it yielded,
+ * linked by goja into `ez` with the Go toolchain `go.mod` names.
  *
  * `CGO_ENABLED=0` is what makes it one file that runs anywhere; `GOTOOLCHAIN` is
  * `local` so a toolchain older than `go.mod` fails here instead of downloading

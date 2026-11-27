@@ -2,17 +2,11 @@
  * Build the core bundle the Go binary embeds: the Scene, Layout and Renderer the
  * CLI and the editor run, as one script with no Node API.
  *
- * `scripts/build.mjs` builds what a person runs; this builds what `ez` carries.
- * The two differ in three ways only: the entry point, the module format (an IIFE
- * that leaves its surface on `__ezCore`, because goja has no modules), and the
- * two Node builtins `src/font.ts` imports, which `scripts/core-host/` answers
- * from the host. The font is the same seam: the bundle asks the host for Kalam's
- * bytes instead of carrying a base64 copy of them. Nothing under `src/` changes,
- * so the bundle is today's core.
- *
- * It also measures the bundled font once, here, instead of in every cold start:
- * `dist/font-metrics.json` is what `opentype.js` makes of Kalam, which the core
- * answers its measurements from.
+ * It differs from what `scripts/build.mjs` builds in three ways only: the entry
+ * point, the module format (an IIFE that leaves its surface on `__ezCore`,
+ * because goja has no modules), and the two Node builtins `src/font.ts` imports,
+ * which `scripts/core-host/` answers from the host. It also measures the bundled
+ * font once here, instead of in every cold start.
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -23,14 +17,10 @@ import { measurementsOf } from './measure-font.mjs';
 
 const hostDir = fileURLToPath(new URL('./core-host/', import.meta.url));
 
-/** Where the core's measurement of the bundled font is written for `ez` to embed. */
+/** Where the core's measurement of the bundled font is written. */
 const FONT_METRICS = 'dist/font-metrics.json';
 
-/**
- * The one font the core imports. `ez` embeds this very file, so the bundle takes
- * its bytes from the host instead of shipping a base64 copy of its own, and the
- * measurements above are this file's.
- */
+/** The one font the core imports; the bundle takes its bytes from the host. */
 const BUNDLED_FONT = resolve('fonts/Kalam-Regular.ttf');
 
 /** The host shim that answers the core's `opentype.js` import. */
@@ -50,14 +40,13 @@ const SHIMS = {
 
 /**
  * Answers a Node builtin with its shim, and the bundled font with the bytes the
- * host hands over. A builtin with no shim stays unresolved, and so does any
- * other font, so the build fails loudly instead of shipping a bundle that only
- * works in Node or carries a font the host does not have.
+ * host hands over: an unresolved builtin or font fails the build, rather than
+ * shipping a bundle that only works in Node.
  *
  * `opentype.js` is the same seam one level down: the core's own import is
- * answered by `scripts/core-host/opentype.mjs`, which reads the measurements
- * above and keeps the real parser for every other font — including its own
- * import of it, which is why the shim's importer is left alone.
+ * answered by `scripts/core-host/opentype.mjs`, which keeps the real parser for
+ * every other font — including its own import of it, which is why the shim's
+ * importer is left alone.
  */
 const hostShims = {
   name: 'host-shims',
@@ -85,8 +74,8 @@ const hostShims = {
 };
 
 /**
- * Measure the bundled font, so no cold start has to. A font this cannot model
- * is written as `null`, and the core parses it at run time as it always did.
+ * Measure the bundled font, so no cold start has to. A font this cannot model is
+ * written as `null`, and the core parses it at run time as it always did.
  *
  * The line goes to stderr: `npm pack --json` reads `prepack`'s stdout as the
  * manifest it prints, so a build that writes progress there breaks it.

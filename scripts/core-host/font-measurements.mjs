@@ -1,27 +1,23 @@
 /**
  * The bundled font's measurements, answered from the table the build wrote.
  *
- * `src/layout.ts` measures every Text and Label through a parsed font, and
- * parsing Kalam costs ~91 ms of a cold `ez check`: 1027 glyph objects built so
- * the Layout can ask for a handful of advance widths. `scripts/measure-font.mjs`
- * parses the very same file with the very same library, and this module answers
- * the measurement from what that parse wrote down — the metrics and the family
- * name, the advance of each glyph, and which character names which glyph.
+ * `src/layout.ts` measures every Text and Label through a parsed font, and parsing
+ * Kalam costs ~91 ms of a cold `ez check`: 1027 glyph objects built so the Layout
+ * can ask for a handful of advance widths. `scripts/measure-font.mjs` parses the
+ * very same file with the very same library, and this module answers the
+ * measurement from what that parse wrote down.
  *
- * Nothing outside that table is invented here. A font that is not the bundled
- * one (the bytes' table directory says which font it is), text holding a
- * character the build did not verify, and every glyph outline are answered by a
- * real parse, made on the spot, so `--font` and the PNG path measure and draw
- * exactly as they did before this table existed.
+ * Nothing outside that table is invented here: a font that is not the bundled one,
+ * text holding a character the build did not verify, and every glyph outline are
+ * answered by a real parse made on the spot.
  */
 
 /**
  * Whether these bytes are the bundled font the table was taken from.
  *
  * The table directory carries each table's tag, offset, length and checksum, so
- * two fonts that agree on it and on their length are the same font: comparing
- * the 12-byte header and the records is enough, and costs nothing beside the
- * 427 KB a byte-by-byte compare would walk.
+ * comparing the 12-byte header and the records is enough, beside the 427 KB a
+ * byte-by-byte compare would walk.
  */
 export function isBundled(table, buffer) {
   if (buffer.byteLength !== table.font.byteLength) {
@@ -59,10 +55,9 @@ export function fontOf(table, buffer, parseReal) {
     getEnglishName: (name) => (name === 'fontFamily' ? table.family : parsed().getEnglishName(name)),
     /**
      * `opentype.js`'s own sum, in its own order: for each glyph its advance and
-     * then the kerning with the next one, both scaled by the font size. The
-     * build keeps the table only for a font whose default script kerns nothing,
-     * so the kerning term is exactly zero and adding it would add exactly
-     * nothing — `x += 0 * scale` is `x`.
+     * then the kerning with the next one, both scaled by the font size. The build
+     * keeps the table only for a font whose default script kerns nothing, so the
+     * kerning term is exactly zero.
      */
     getAdvanceWidth: (text, size) => {
       const glyphs = glyphSequence(table, text);
@@ -84,13 +79,8 @@ export function fontOf(table, buffer, parseReal) {
 }
 
 /**
- * The glyphs a line is measured as, or null when the table cannot answer for it.
- *
- * One glyph per character: the build verifies that measuring a character from
- * the table gives the number the parser gives, alone and folded into words, so
- * a character it verified is a character this may name. Any other character is
- * a line the real parser shapes, which is why this answers null rather than a
- * guess.
+ * The glyphs a line is measured as, or null when the table cannot answer for it:
+ * any character the build did not verify is a line the real parser shapes.
  */
 function glyphSequence(table, text) {
   const glyphs = [];

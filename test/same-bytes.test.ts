@@ -1,12 +1,7 @@
 /**
  * Script seam: `scripts/same-bytes.mjs`, the core held to the same bytes in Node
- * and in Go.
- *
- * The comparison is the script's: it renders and checks every Scene in
- * `test/fixtures/` through `dist/core.js` in its own process and through
- * `internal/core` in Go, and fails on the first fixture whose SVG, problem
- * lines, notes or exit code disagree. `pnpm build` writes the bundle the script
- * loads, so this suite puts the comparison in front of every `pnpm check`.
+ * and in Go. `pnpm build` writes the bundle the script loads, so this suite puts
+ * the comparison in front of every `pnpm check`.
  */
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';

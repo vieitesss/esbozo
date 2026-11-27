@@ -2,9 +2,8 @@
  * `node:path`, as the core bundle uses it when a host that is not Node runs it.
  *
  * The core resolves one path: the font a stylesheet's local `@font-face` names,
- * beside that stylesheet. The stylesheet is wherever `--css` pointed, as the
- * command line wrote it, so a relative path has to be resolved against the
- * folder the host's process is in — the one thing a shim cannot know, so it asks.
+ * beside that stylesheet, which the command line may have named relatively — so
+ * the one thing a shim cannot know, the folder the process runs in, it asks for.
  */
 
 /** The folder a path is in, as Node's `dirname` answers it. */
@@ -20,8 +19,7 @@ export function dirname(path) {
 /**
  * A path against a base, as Node's `resolve` answers it: the last absolute part
  * is the base, every part after it is joined on, and a result with no absolute
- * part sits in the host's working folder. An empty part names the folder the
- * parts around it already name, so it adds nothing.
+ * part sits in the host's working folder.
  */
 export function resolve(...parts) {
   let resolved = '';
@@ -43,7 +41,6 @@ export function resolve(...parts) {
   return normalise(resolved);
 }
 
-/** Every `.` folded away and every `..` folded into the segment before it. */
 function normalise(path) {
   const segments = [];
   for (const segment of path.split('/')) {

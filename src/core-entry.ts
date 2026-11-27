@@ -11,9 +11,7 @@
  * return a promise to Go.
  *
  * Nothing here decides what a Scene is: the rules are `scene.ts`, the measuring
- * is `layout.ts` and the drawing is `renderer.ts`, exactly the code the CLI and
- * the editor already run. This file only joins them the way `src/cli.ts` does
- * for `render` and `check`, and hands back what those two print.
+ * is `layout.ts` and the drawing is `renderer.ts`.
  */
 import { chooseFont, layoutFor, readStylesheet } from './font.js';
 import { renderScene } from './renderer.js';
@@ -21,10 +19,7 @@ import { parseScene } from './scene.js';
 import { sha256Hex } from './sha256.js';
 import type { Layout } from './layout.js';
 
-/**
- * What the host lends the bundle. `ez` in Go provides all seven; a host that
- * cannot is a host that cannot run the core.
- */
+/** What the host lends the bundle. */
 interface EzHost {
   readText(path: string): string;
   readBytes(path: string): ArrayBuffer;
@@ -33,20 +28,18 @@ interface EzHost {
   /**
    * The folder the host's process runs in, because a stylesheet's `@font-face`
    * url is resolved beside the stylesheet and the command line may have named it
-   * relatively: `node:path`'s `resolve` needs the host's working folder.
+   * relatively.
    */
   cwd(): string;
   /**
    * The bundled font's bytes, read in place of the `.ttf` import the CLI bundles
-   * as base64: the binary carries that very file, so the bundle keeps only a
-   * stub instead of a second copy of it.
+   * as base64.
    */
   bundledFont(): ArrayBuffer;
   /**
    * What `opentype.js` makes of those very bytes, as JSON, taken by
-   * `scripts/build-core.mjs` so no cold start pays for the parse; the host's
-   * `opentype.js` shim measures from it. `null` when the builder proved no
-   * table, and then the core parses the font as it always did.
+   * `scripts/build-core.mjs`; `null` when the builder proved no table, and then
+   * the core parses the font.
    */
   bundledFontMetrics(): string;
 }
@@ -58,8 +51,7 @@ declare global {
 
 /**
  * `TextEncoder`, the one browser global the core draws on: `src/scene.ts` hashes
- * an Element id's bytes and `src/sha256.ts` hashes a string's. It is installed
- * here rather than in a shim so the bundle keeps no Node API of its own.
+ * an Element id's bytes and `src/sha256.ts` hashes a string's.
  */
 (globalThis as unknown as Record<string, unknown>).TextEncoder = class {
   encode(text = ''): Uint8Array {
@@ -73,16 +65,14 @@ declare global {
  * `src/scene.ts` parses a Scene with `JSON.parse`, and a Scene is the one JSON a
  * person or an agent writes by hand: what V8 makes of that text is the answer,
  * down to the line `ez` prints when it refuses. goja's own parse is close, but
- * not close enough where a Scene reaches it. It refuses a number that overflows
- * a float64, where V8 reads ±Infinity. It turns a lone UTF-16 surrogate into
+ * not close enough where a Scene reaches it: it refuses a number that overflows
+ * a float64, where V8 reads ±Infinity; it turns a lone UTF-16 surrogate into
  * U+FFFD, where V8 keeps the code unit, so the check `src/scene.ts` makes for
- * characters XML cannot represent would never see one. And its refusals are
+ * characters XML cannot represent would never see one; and its refusals are
  * worded differently.
  *
  * A caller that asks for a `reviver` still gets the engine: it walks the
- * engine's own objects, and the core parses with none. Everything else is read
- * here, once, left to right, and answered as V8 answers it: the same values, and
- * for a text V8 refuses, the same `SyntaxError` naming the same place.
+ * engine's own objects, and the core parses with none.
  */
 const engineParse = JSON.parse;
 
@@ -102,9 +92,8 @@ const v8Parse = (text: string, reviver?: unknown): unknown => {
 
 /**
  * Read this text as V8 reads it. A Scene is the only JSON a person writes, so
- * this reader stands in for `JSON.parse` around the one parse of it: the
- * bundle's own JSON, the font table the build measured, stays the engine's,
- * which reads it several times faster than a reader written in JavaScript can.
+ * this reader stands in for `JSON.parse` around the one parse of it: the bundle's
+ * own JSON, the font table the build measured, stays the engine's.
  */
 function readAsV8<T>(read: () => T): T {
   const engine = JSON as unknown as { parse: typeof v8Parse };
@@ -120,7 +109,7 @@ function readAsV8<T>(read: () => T): T {
 /** How much of the text either side of an unexpected token a message quotes, as V8 does. */
 const SNIPPET_SIDE = 10;
 
-/** The text around one offset, quoted as V8 quotes it, with `...` where it was cut. */
+/** The text around one offset, quoted as V8 quotes it. */
 function jsonSnippet(text: string, at: number): string {
   if (text.length <= SNIPPET_SIDE * 2) {
     return `"${text}"`;
@@ -151,14 +140,12 @@ const SIMPLE_ESCAPES: Record<string, string> = {
 };
 
 /**
- * One JSON text, read as `JSON.parse` reads it.
- *
- * Everything V8 accepts is accepted as V8 makes it: a number that overflows a
- * float64 is ±Infinity because `Number` says so, a `\uXXXX` escape is the code
- * unit it names (a lone surrogate included), a duplicated key keeps the value
- * written last, and `__proto__` is an own property rather than a prototype.
- * Everything V8 refuses is refused with V8's own message, because that line is
- * what `ez` prints after `not valid JSON: `.
+ * One JSON text, read as `JSON.parse` reads it: a number that overflows a float64
+ * is ±Infinity because `Number` says so, a `\uXXXX` escape is the code unit it
+ * names (a lone surrogate included), a duplicated key keeps the value written
+ * last, and `__proto__` is an own property rather than a prototype. A refusal is
+ * V8's own message, because that line is what `ez` prints after
+ * `not valid JSON: `.
  */
 function readJson(text: string): unknown {
   const end = text.length;
@@ -372,9 +359,8 @@ function readJson(text: string): unknown {
         refuse(at, "Expected ':' after property name");
       }
       at += 1;
-      // A plain assignment is V8's own data property, which is what a Scene's
-      // parse is paid for in bulk; `__proto__` is the one key V8 makes an own
-      // property where an assignment would set the prototype instead.
+      // A plain assignment makes the own data property V8 makes; `__proto__` is
+      // the one key where that would set the prototype instead.
       if (key === '__proto__') {
         Object.defineProperty(object, key, {
           value: readValue(),
@@ -434,8 +420,8 @@ function readJson(text: string): unknown {
 
 /**
  * The exit codes `render` and `check` use, copied from `EXIT` in `src/cli.ts`
- * because that table is not exported. The Go side owns them for the process; the
- * core answers them so a host prints what the CLI prints.
+ * because that table is not exported; the core answers them so a host prints what
+ * the CLI prints.
  */
 const EXIT = {
   invalidScene: 3,
@@ -448,8 +434,7 @@ const EXIT = {
  * flag pointed. An absent flag is `null`, never an empty path.
  *
  * The surface is the bundle's, reached by the host as `__ezCore`: esbuild's
- * global is what makes `begin` and `answer` callable from Go, so nothing in the
- * repo imports them and only those two are exported.
+ * global is what makes `begin` and `answer` callable from Go.
  */
 interface Request {
   readonly source: ArrayBuffer;
@@ -490,9 +475,7 @@ async function render(request: Request): Promise<Answer> {
     return failed(EXIT.invalidScene, problemLines(parsed.problems));
   }
 
-  // `render` takes no `--css`, so it reads no stylesheet: `src/cli.ts` hands
-  // `loadLayout` an undefined path for it, and the bytes it draws are the same
-  // bytes whether or not a stylesheet exists.
+  // `render` takes no `--css`, so it reads no stylesheet.
   const font = await chooseFont(request.fontPath ?? undefined, null, 'light');
   if (!font.ok) {
     return failed(EXIT.missingThemeOrFont, font.problems);
@@ -561,8 +544,7 @@ export function begin(request: Request, kind: 'render' | 'check'): void {
     },
     (error: unknown) => {
       // Kept for `answer` to throw: a throw inside the core is the core failing
-      // to run, not a Scene it reads and refuses, and the host tells those apart
-      // by exit code. The error's stack is what names the place it gave up.
+      // to run, not a Scene it reads and refuses.
       failure = { error };
     },
   );
