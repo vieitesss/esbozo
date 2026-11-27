@@ -1,11 +1,4 @@
-/**
- * The one seam the CLI tests share: `ez` on Scene files in temporary folders.
- *
- * The CLI suites drive the built CLI the same way: write a Scene to a fresh
- * folder, run `ez`, read what it wrote. Keeping the helpers here means a change
- * to how the CLI is invoked, or to how its exit code is read, cannot make the
- * suites disagree — and `png` goes through here too, so `EZ_BIN` reaches it.
- */
+/** The one seam the CLI tests share: `ez` on Scene files in temporary folders. */
 import { execFile, spawn } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -15,37 +8,19 @@ import { tempFolder } from './temp.ts';
 
 const run = promisify(execFile);
 
-/** The `ez` every suite exercises unless `EZ_BIN` names another: the binary `pnpm build` writes. */
 const CLI = fileURLToPath(new URL('../dist/ez', import.meta.url));
 
-/**
- * The `ez` one run starts: `EZ_BIN` when it names one, so a suite can be pointed
- * at another build of the same command line, and the built binary otherwise. A
- * relative `EZ_BIN` is read from the folder this process runs in, not from the
- * folder the run was asked for.
- *
- * `cli` is the `ez` a caller names when it wants a copy of `dist/` that has
- * nothing else from the repository beside it; `EZ_BIN` still wins, because a run
- * pointed at another `ez` is a run of that one.
- */
 function ezBin(cli: string = CLI): string {
   const bin = process.env.EZ_BIN;
   return bin === undefined || bin === '' ? cli : resolve(bin);
 }
 
-/** One word quoted so a shell reads it back as it is. */
-function quoted(word: string): string {
+function shellQuote(word: string): string {
   return `'${word.split("'").join(`'\\''`)}'`;
 }
 
-/**
- * A shell script that runs `ez` the way a suite does, for a case that needs the
- * command on a `PATH` instead of started from here: a person's copied-out
- * command, or an example server that shells out to it. `EZ_BIN` reaches it all
- * the same.
- */
 export function ezShimScript(): string {
-  return `#!/bin/sh\nexec ${quoted(ezBin())} "$@"\n`;
+  return `#!/bin/sh\nexec ${shellQuote(ezBin())} "$@"\n`;
 }
 
 /** What one `ez` run left behind: its exit code and its two streams. */
@@ -65,11 +40,6 @@ export async function sceneFolder(scene: unknown, name = 'scene.json'): Promise<
   return folder;
 }
 
-/**
- * `ez` with its exit code read, whether it succeeded or not. `env` is added to
- * this process's environment for the one run, so a case can set `NO_COLOR` and
- * still reach the agent's `PATH`.
- */
 export async function ez(
   args: string[],
   cwd: string,
@@ -88,12 +58,6 @@ export async function ez(
   }
 }
 
-/**
- * `ez` where a run that failed has to fail the caller: a helper that goes on to
- * read what a command wrote would otherwise report the file that is not there,
- * never the command that refused to write it. The error carries the exit code
- * and what `ez` said, so a broken run reads as itself.
- */
 export async function ezOrThrow(
   args: string[],
   cwd: string,
@@ -114,7 +78,6 @@ export interface Serve {
   readonly startup: string;
   /** The build that line names. */
   readonly build: string;
-  /** When that build was made, or `null` when the startup line named no time. */
   readonly builtAt: string | null;
   stop(): Promise<void>;
 }
@@ -142,10 +105,6 @@ function readStartup(
  * `ez serve` on `folder`, with the port the operating system picks so tests
  * never fight over one. Resolves once the server prints the line it listens on;
  * the folder is the working directory, as it would be for a person.
- *
- * `cli` is the `ez` to run, so a test can drive a copy of `dist/` that has
- * nothing else from the repository beside it; `EZ_BIN` replaces it the way it
- * replaces `ez`'s.
  */
 export async function startServe(
   folder: string,

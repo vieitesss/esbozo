@@ -436,10 +436,8 @@ test('a Scene that is not JSON exits 3', async () => {
   assert.match(run.stderr, /not valid JSON/);
 });
 
-test('a number JSON cannot hold is refused as V8 refuses it', async () => {
+test('a leading-zero JSON number is refused with V8 wording and position', async () => {
   const folder = await tempFolder();
-  // `01e400` is no JSON number at all: a `0` is a whole number, and the `1`
-  // after it is what V8 names, at the place it names it.
   await writeFile(
     join(folder, 'scene.json'),
     '{ "version": 1, "elements": [{ "id": "a", "type": "rectangle", "x": 01e400, "x": 10, "y": 0, "width": 100, "height": 50 }] }\n',
@@ -456,9 +454,7 @@ test('a number JSON cannot hold is refused as V8 refuses it', async () => {
   assert.equal(existsSync(join(folder, 'scene.svg')), false, 'no SVG for a Scene it cannot read');
 });
 
-test('a refused Scene counts \r and \r\n as V8 counts them', async () => {
-  // V8 counts a lone `\r` as a line break and a `\r\n` pair as one, so the
-  // place it names in a refusal is not a count of `\n`.
+test('a refused Scene counts CR and CRLF line breaks as V8 does', async () => {
   const cases = [
     {
       name: 'CR line endings',

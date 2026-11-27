@@ -60,11 +60,6 @@ const MAIN_GO_UNFORMATTED = MAIN_GO.replace('\tfmt.Println', '    fmt.Println');
 
 const MAIN_GO_VET_BROKEN = MAIN_GO.replace('fmt.Println("hello")', 'fmt.Printf("%d\\n", "hello")');
 
-/**
- * One Go file embedding the files only `pnpm build` writes, so the stand-in has
- * work to do; its name is `assets.go` because that is the file `check:steps`
- * reads the embed list from.
- */
 const MAIN_GO_EMBEDS = `package main
 
 import (
@@ -108,7 +103,6 @@ function commit(cwd: string, message: string): void {
   );
 }
 
-/** `check:steps` as a person runs it: the script, the base and any flag, in the repository. */
 function checkSteps(cwd: string, ...args: string[]) {
   return spawnSync(process.execPath, [SCRIPT, ...args], { cwd, encoding: 'utf8' });
 }
@@ -146,7 +140,6 @@ async function fixture(t: TestContext): Promise<Fixture> {
   return { repo, base, broken, clean };
 }
 
-/** The same three commits as one Go file's edits. */
 async function goFixture(t: TestContext, brokenSource: string): Promise<Fixture> {
   const repo = await mkdtemp(join(tmpdir(), 'esbozo-check-steps-go-'));
   t.after(() => rm(repo, { recursive: true, force: true }));
@@ -173,7 +166,6 @@ async function goFixture(t: TestContext, brokenSource: string): Promise<Fixture>
   return { repo, base, broken, clean };
 }
 
-/** A base and `count` green commits above it, in a folder this test removes. */
 async function greenFixture(
   t: TestContext,
   count: number,
@@ -199,7 +191,6 @@ async function greenFixture(
   return { repo, base, commits };
 }
 
-/** A green commit, and one that embeds files the build writes, in a folder this test removes. */
 async function embedFixture(t: TestContext): Promise<{ repo: string; base: string; embed: string }> {
   const repo = await mkdtemp(join(tmpdir(), 'esbozo-check-steps-embeds-'));
   t.after(() => rm(repo, { recursive: true, force: true }));
@@ -255,7 +246,6 @@ test('check:steps passes a green range and leaves the caller where it was', asyn
   assert.equal(git(repo, 'worktree', 'list', '--porcelain'), worktrees);
 });
 
-/** One shard's verdict lines, as the commit each line names. */
 function checkedCommits(run: { stdout: string }): string[] {
   return run.stdout
     .split('\n')
@@ -274,7 +264,6 @@ test('the shards together check every commit in the range exactly once', async (
     checked.push(checkedCommits(run));
   }
 
-  // Five commits, oldest first, one in every `shards` of them: 2, 2 and 1.
   assert.deepEqual(
     checked.map((shard) => shard.length),
     [2, 2, 1],

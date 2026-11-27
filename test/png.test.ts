@@ -6,9 +6,6 @@
  * IHDR chunk gives the page size on its own, and IDAT is inflated and
  * unfiltered with node:zlib so a single pixel can be sampled from the 8-bit
  * encodings resvg writes without the test requiring one particular colour type.
- *
- * `ez` is `test/cli.ts`'s runner, so this suite runs `dist/ez`, or another build
- * under `EZ_BIN`, and it must answer every assertion here.
  */
 import assert from 'node:assert/strict';
 import { copyFile, readFile, writeFile } from 'node:fs/promises';

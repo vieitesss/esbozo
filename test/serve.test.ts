@@ -38,11 +38,6 @@ const SCENE = {
 const SCENE_SOURCE = JSON.stringify(SCENE, null, 2);
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg"><title>Two boxes</title></svg>';
 
-/**
- * The cases that build an `ez` of their own, in a copy of the sources with a git
- * history of its own: they hold that build's stamp, which `EZ_BIN` — a binary
- * some other build already stamped — cannot answer.
- */
 const SKIP_BUILD = 'this case builds its own ez: set EZ_BIN only against the binary the build wrote';
 
 /** A server to stop at the end of the file, whatever the test asserted. */
@@ -100,10 +95,6 @@ async function rawRequest(server: Serve, path: string, method = 'GET'): Promise<
   });
 }
 
-/**
- * A request that writes its headers exactly as given: an array value goes on the
- * wire as one line per value, which is how a client repeats `accept-encoding`.
- */
 async function repeatedRequest(
   server: Serve,
   path: string,
@@ -240,8 +231,6 @@ test('the page transfers compressed when the client asks, in the best encoding i
 test('a page request that names accept-encoding twice is ranked as one header', async () => {
   const server = await served(await sceneFolder(SCENE));
 
-  // A client may repeat the header instead of folding it into one list: both
-  // lines are the one acceptance the page has to rank.
   for (const [asked, encoding] of [
     [['identity;q=0', 'gzip'], 'gzip'],
     [['deflate', 'br'], 'br'],
@@ -251,7 +240,6 @@ test('a page request that names accept-encoding twice is ranked as one header', 
     assert.equal(answer.headers['content-encoding'], encoding, `${asked.join(' + ')} is answered in ${encoding}`);
   }
 
-  // Repeating the one line that refuses everything is still a refusal.
   const refused = await repeatedRequest(server, '/editor.js', { 'accept-encoding': ['identity;q=0'] });
   assert.equal(refused.status, 406);
 });
@@ -365,12 +353,6 @@ test('the list keeps an .esbozo that will not parse, so opening it says why', as
   assert.equal(opened.body, '{ not json');
 });
 
-/**
- * A kept answer is about the file it was made from. `ez serve` remembers what the
- * listing answered between requests, so an answer that outlived its file would be
- * a server reading a folder nobody has: a Scene edited under it is listed as what
- * it now is, and one put back is listed back.
- */
 test('the list answers about the file on disk now, not the one it read before', async () => {
   const folder = await sceneFolder(SCENE);
   const scenePath = join(folder, 'scene.json');
@@ -380,7 +362,6 @@ test('the list answers about the file on disk now, not the one it read before', 
 
   assert.deepEqual(await listed(), ['scene.json']);
 
-  // The same name, no longer a Scene, in a file of another size.
   await writeFile(scenePath, '{ not a Scene', 'utf8');
   assert.deepEqual(await listed(), []);
 
@@ -388,10 +369,6 @@ test('the list answers about the file on disk now, not the one it read before', 
   assert.deepEqual(await listed(), ['scene.json']);
 });
 
-/**
- * A Scene saved through the API is what the next listing answers about that name:
- * the save replaced the file, so the answer kept for the file before it goes.
- */
 test('the list answers about a Scene the API has just saved', async () => {
   const folder = await sceneFolder(SCENE);
   await writeFile(join(folder, 'broken.json'), '{ not a Scene', 'utf8');
@@ -426,12 +403,6 @@ test('the list names the Scenes at the top level and says the folder is writable
   });
 });
 
-/**
- * Two names that differ only in case are the same letters to the sort, so the case
- * itself decides and the lowercase name comes first — `localeCompare`'s order for
- * ASCII, and the page's order too. A filesystem that folds case cannot hold both
- * names, so it has no order to check.
- */
 test('the list puts a lowercase name before the uppercase one it folds to', async (t) => {
   const folder = await sceneFolder(SCENE);
   if (await foldsCase(folder)) {
@@ -502,8 +473,6 @@ test('a JSON answer carries the text as written, not HTML-escaped', async () => 
   const answer = await request(server, '/api/scenes/a%3Cb%3E%26c.json');
 
   assert.equal(answer.status, 404);
-  // `JSON.stringify` writes `<`, `>` and `&` as they are, and so is the name
-  // here: the body is the text byte for byte, with no newline after it.
   assert.equal(answer.body, '{"error":"no Scene named a<b>&c.json"}');
 });
 
@@ -895,8 +864,6 @@ test('an invalid Scene is refused with the problems as the parser words them', a
   const answer = await request(server, '/api/scenes/broken.json', 'PUT', sent(broken));
 
   assert.equal(answer.status, 400);
-  // The message alone, with no `box1: ` in front of it: what the server answers
-  // is the parser's word for the problem, the way `ez serve` joins them.
   assert.deepEqual(JSON.parse(answer.body), {
     error: 'the Scene is invalid: type must be one of rectangle, ellipse, diamond, arrow, line, text, got "box"',
   });
@@ -909,7 +876,6 @@ test('a write whose scene or svg is null is refused as no write at all', async (
   const server = await served(folder);
   const refusal = { error: 'the body must be { "scene": "<text>", "svg": "<text>" }' };
 
-  // `null` is not a string: the pair has to be two texts, or it is no write.
   for (const body of [
     { scene: JSON.stringify(SCENE), svg: null },
     { scene: null, svg: SVG },
@@ -921,7 +887,6 @@ test('a write whose scene or svg is null is refused as no write at all', async (
   await assertMissing(join(folder, 'null.json'));
   await assertMissing(join(folder, 'null.svg'));
 
-  // The write itself still lands, so nothing above refused the shape it takes.
   assert.equal((await request(server, '/api/scenes/kept.json', 'PUT', sent())).status, 200);
 });
 
@@ -958,8 +923,6 @@ test('a path that is not UTF-8 percent-encoding is refused, and nothing is writt
   const folder = await sceneFolder(SCENE);
   const server = await served(folder);
 
-  // `%ff` is a valid escape of a byte that is no text: the path cannot be read,
-  // so a name made of it would land on disk as a file nothing can open.
   for (const path of ['/api/scenes/%ff.json', '/api/scenes/%c3%28.json']) {
     for (const method of ['GET', 'PUT']) {
       const answer = await rawRequest(server, path, method);
@@ -1148,15 +1111,11 @@ async function committedSources(): Promise<string> {
     'scripts',
     'src',
     'fonts',
-    // The build ends with `go build ./cmd/ez`, so it reads these too.
     'go.mod',
     'go.sum',
-    // Every root `.go` file, because the build compiles them all: one added
-    // later is built here without this list growing.
     ...(await readdir(ROOT)).filter((name) => name.endsWith('.go')),
     'cmd',
     'internal',
-    // `ez skill` serves the skill the binary carries, so the build reads it too.
     'skills',
   ]) {
     await cp(join(ROOT, path), join(folder, path), { recursive: true });

@@ -1,11 +1,4 @@
-/**
- * Script seam: `scripts/check-go.mjs` behind `pnpm check:go`.
- *
- * The Go toolchain is stubbed on `PATH`, so what is asserted is the script's
- * own contract: which step it names when a run fails and the lines the failing
- * tool printed. `deadcode` exits 0 whether or not it found anything, so a run
- * that prints a dead function has to fail the step on the output.
- */
+/** Script seam: `scripts/check-go.mjs` behind `pnpm check:go`. */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -22,10 +15,6 @@ interface Run {
   readonly stderr: string;
 }
 
-/**
- * A `go` that answers `vet` cleanly and prints `line` on `stream` when asked for
- * `deadcode`.
- */
 function makeStubGo(binDir: string, line: string, stream: 'stdout' | 'stderr' = 'stdout'): void {
   mkdirSync(binDir, { recursive: true });
   const goPath = join(binDir, 'go');
@@ -44,7 +33,6 @@ function makeStubGo(binDir: string, line: string, stream: 'stdout' | 'stderr' = 
   chmodSync(goPath, 0o755);
 }
 
-/** A `gofmt` that names `file` as one it would rewrite, so the run stops there. */
 function makeStubGofmt(binDir: string, file: string): void {
   mkdirSync(binDir, { recursive: true });
   const gofmtPath = join(binDir, 'gofmt');
@@ -83,7 +71,6 @@ test('module download chatter on stderr passes the deadcode step', () => {
     const binDir = join(dir, 'bin');
     const chatter = 'go: downloading golang.org/x/tools v0.44.0';
     makeStubGo(binDir, chatter, 'stderr');
-    // The run stops at gofmt, so the stub go never reaches `go test`.
     makeStubGofmt(binDir, 'cmd/ez/main.go');
 
     const run = runCheckGo(binDir);

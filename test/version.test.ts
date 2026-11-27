@@ -1,11 +1,4 @@
-/**
- * CLI seam: `ez --version`, the stamp `pnpm build` embeds in the binary.
- *
- * The stamp is `package.json`'s version for a Release, and
- * `<version>-main+<short sha of HEAD>` for every build the build made itself.
- * A Release is the switch `scripts/version-stamp.mjs` reads, so the Release case
- * writes the stamp there and reads it back rather than building a second binary.
- */
+/** CLI seam: `ez --version`, the stamp `pnpm build` embeds in the binary. */
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';

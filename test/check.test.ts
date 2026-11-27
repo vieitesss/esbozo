@@ -425,8 +425,6 @@ test('an empty @font-face url reads the stylesheet folder and exits 5', async ()
 
   const run = await ez(['check', 'scene.json', '--css', 'theme.css'], folder);
 
-  // `path.resolve` ignores an empty part, so the url names the folder the
-  // stylesheet is in: a failed read of it, not a crash and not exit 4.
   assert.equal(run.code, 5);
   assert.equal(
     run.stderr,
@@ -438,8 +436,6 @@ test('a file error names the call that failed, for --font and --css', async () =
   const folder = await sceneFolder(FITS);
   await mkdir(join(folder, 'adir'));
 
-  // Node words a failed read of a directory without the path, because the read
-  // is what failed; a path it could not open carries the path as it was given.
   for (const [flag, path, message] of [
     ['--font', 'adir', 'cannot read font adir: EISDIR: illegal operation on a directory, read'],
     ['--css', 'adir', 'cannot read stylesheet adir: EISDIR: illegal operation on a directory, read'],
