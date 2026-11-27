@@ -2,8 +2,6 @@
  * The Go half of `pnpm check`: `go vet`, `deadcode`, `gofmt`, `staticcheck`, `go test`, then
  * the CLI suites with `EZ_BIN` naming `dist/ez`, which must be newer than the
  * files it is built from.
- *
- * `test/serve.test.ts` stays out until the save API is ported too.
  */
 import { spawn } from 'node:child_process';
 import { readdir, readFile, stat } from 'node:fs/promises';
@@ -32,6 +30,7 @@ const SUITES = [
   'test/skill-cli.test.ts',
   'test/embed-bundle.test.ts',
   'test/help-cli.test.ts',
+  'test/serve.test.ts',
   'test/version.test.ts',
 ];
 
