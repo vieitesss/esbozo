@@ -789,11 +789,17 @@ export function begin(
  * @public
  */
 export function answer(): Result {
-  if (failure !== null) {
-    throw failure.error;
+  const answered = settled;
+  const failed = failure;
+  // Read once and cleared: a host that keeps its runtime reaches the next command
+  // with nothing of this one left to hand it.
+  settled = null;
+  failure = null;
+  if (failed !== null) {
+    throw failed.error;
   }
-  if (settled === null) {
+  if (answered === null) {
     throw new Error('the core has no answer: call begin first');
   }
-  return settled;
+  return answered;
 }
