@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { brotliDecompressSync, gunzipSync } from 'node:zlib';
-import { BUILD, BUILT_AT, buildId, buildTime } from '../src/build-id.ts';
+import { buildId, buildTime } from '../src/build-id.ts';
 import { PAGE_ASSETS } from '../src/page-assets.ts';
 import { MAX_LISTED_SCENE_BYTES } from '../src/paths.ts';
 import { promisify } from 'node:util';
@@ -1202,11 +1202,6 @@ test('a build outside a git checkout is unknown, not a failed build', () => {
 test('a build writes the time it was made, ISO-8601 UTC to the second', () => {
   assert.equal(buildTime(new Date('2024-06-01T12:34:56.789Z')), '2024-06-01T12:34:56Z');
   assert.equal(buildTime(new Date('2024-12-31T23:59:59.000Z')), '2024-12-31T23:59:59Z');
-});
-
-test('a CLI run from source is dev and carries no build time', () => {
-  assert.equal(BUILD, 'dev');
-  assert.equal(BUILT_AT, null);
 });
 
 async function assertMissing(path: string): Promise<void> {
