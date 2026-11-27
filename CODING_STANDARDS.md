@@ -19,7 +19,7 @@ Judgement-call rules for code and tests. Mechanical checks (lint, unused exports
 - **Browser seam (`tests/*.e2e.ts`):** drive the built editor in a real browser with pointer, role, and keyboard input and assert on the saved Scene, rendered pixels, or `vision: 'only'` visual checks; see `tests/README.md` for scripts, files, and the model-free vs. agent split.
 - **Module seam (`test/*.test.ts`):** reach `Scene`, `Renderer`, `Layout`, or the allow-listed Editor modules (`scripts/check-rules.mjs`) through `test/modules.ts` when a contract cannot be reached from the CLI.
 - **Script seam (`test/*.test.ts`):** run a repository script or harness (`scripts/*.mjs`, packaging, or server helpers) against temporary fixtures.
-- **Go module seam (`internal/*/*_test.go`):** cover a contract `ez` cannot reach or pin from the CLI — the goja↔JS boundary (the strict JSON reader, lone surrogates, number overflow), wazero cache recovery and fallback, and wasm trap messages — beside the Go package that owns it; anything an `ez` command shows is the CLI seam's (`EZ_BIN=… node --test test/*.test.ts`).
+- **Go module seam (`internal/*/*_test.go`):** cover a contract `ez` cannot reach or pin from the CLI — the goja↔JS boundary (the strict JSON reader, lone surrogates, number overflow), wazero cache recovery and fallback, and wasm trap messages — beside the Go package that owns it; anything an `ez` command shows is the CLI seam's (`pnpm test` runs it against the built Go binary; `EZ_BIN` names another `ez`).
 
 ## Invariants and boundaries
 
