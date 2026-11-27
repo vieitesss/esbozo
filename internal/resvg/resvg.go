@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/tetratelabs/wazero"
@@ -198,9 +199,17 @@ func (one *rasteriser) call(name string, params ...uint32) error {
 		arguments[at] = uint64(param)
 	}
 	if _, err := function.Call(one.ctx, arguments...); err != nil {
-		return fmt.Errorf("resvg's %s: %w", name, err)
+		return fmt.Errorf("resvg's %s: %w", name, withoutStackTrace(err))
 	}
 	return nil
+}
+
+// withoutStackTrace drops the wasm stack trace wazero appends to a trap: the
+// frames are the module's, and the message is the one line saying why the PNG
+// could not be drawn.
+func withoutStackTrace(err error) error {
+	message, _, _ := strings.Cut(err.Error(), "\nwasm stack trace:")
+	return errors.New(message)
 }
 
 // result reads what one call left in the reserved stack area: the value, and the

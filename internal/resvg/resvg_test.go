@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -95,6 +96,31 @@ func TestRasteriseWithoutAWritableCache(t *testing.T) {
 	}
 	if want := triangle(t); !bytes.Equal(got, want) {
 		t.Fatalf("PNG %d bytes, Node's %d; %s", len(got), len(want), firstDifference(got, want))
+	}
+}
+
+// TestRasteriseReportsATrapInOneLine: resvg's module traps when its canvas
+// cannot be held, and `ez png` prints the reason it failed as one line. wazero
+// appends its own wasm stack trace to a trap — the module's frames, worth nothing
+// to someone whose Scene is simply too big — so that goes.
+func TestRasteriseReportsATrapInOneLine(t *testing.T) {
+	// 100,000² px is 40 GB of canvas: resvg's allocator gives up, and the module
+	// traps on the unreachable that failure leaves it in.
+	const huge = `<svg xmlns="http://www.w3.org/2000/svg" width="100000" height="100000"` +
+		` viewBox="0 0 100000 100000"><rect x="2" y="2" width="44" height="20" fill="#123456"/></svg>`
+
+	// A rasteriser of this test's own: resvg's allocator stays broken once it has
+	// given up, so the one PNG is the last this module draws.
+	one, err := newRasteriser("")
+	if err != nil {
+		t.Fatalf("cannot start the rasteriser: %v", err)
+	}
+	defer func() { _ = one.runtime.Close(one.ctx) }()
+
+	if _, err := one.rasterise(huge, optionsJSON); err == nil {
+		t.Fatal("resvg drew a 100,000 × 100,000 canvas")
+	} else if strings.Contains(err.Error(), "\n") {
+		t.Fatalf("the trap reaches the CLI over several lines: %v", err)
 	}
 }
 
