@@ -11,22 +11,31 @@
  * This file is the bundle's banner, so it runs before any module does. It
  * records each match that a `String` match found and answers `$1` through `$9`
  * from it — the whole of what the parser reads.
+ *
+ * A banner runs in the realm's global scope, so the two names it keeps are held
+ * inside a function instead: a `let` or `const` at the top there is a binding
+ * the realm keeps, and evaluating the bundle again in that realm — which is how
+ * a host reloads one — would throw `Identifier 'lastMatch' has already been
+ * declared`. What it installs is on `String.prototype` and `RegExp`, so a
+ * closure carries all of it out.
  */
-let lastMatch = null;
+(() => {
+  let lastMatch = null;
 
-const builtinMatch = String.prototype.match;
+  const builtinMatch = String.prototype.match;
 
-String.prototype.match = function recordMatch(pattern) {
-  const found = builtinMatch.call(this, pattern);
-  if (pattern instanceof RegExp && found !== null && found !== undefined) {
-    lastMatch = found;
+  String.prototype.match = function recordMatch(pattern) {
+    const found = builtinMatch.call(this, pattern);
+    if (pattern instanceof RegExp && found !== null && found !== undefined) {
+      lastMatch = found;
+    }
+    return found;
+  };
+
+  for (let group = 1; group <= 9; group += 1) {
+    Object.defineProperty(RegExp, `$${group}`, {
+      configurable: true,
+      get: () => (lastMatch === null ? undefined : lastMatch[group]),
+    });
   }
-  return found;
-};
-
-for (let group = 1; group <= 9; group += 1) {
-  Object.defineProperty(RegExp, `$${group}`, {
-    configurable: true,
-    get: () => (lastMatch === null ? undefined : lastMatch[group]),
-  });
-}
+})();
