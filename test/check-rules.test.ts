@@ -355,6 +355,40 @@ test('a selector is not copy a person reads', async () => {
   });
 });
 
+test('an Avoid term in a Go comment is a finding, with its line', async () => {
+  const line = await finding({
+    'internal/core/core.go': [
+      'package core',
+      '',
+      '// The drawing the host hands over is one Scene.',
+      'type In struct{}',
+    ].join('\n'),
+  });
+
+  assert.match(line, /^internal\/core\/core\.go:3: avoid term "drawing" in comment /);
+});
+
+test('an Avoid term as a Go identifier is a finding too', async () => {
+  const line = await finding({
+    'cmd/ez/scene.go': ['package main', '', 'func writeShape(path string) {}'].join('\n'),
+  });
+
+  assert.match(line, /^cmd\/ez\/scene\.go:3: avoid term "shape" in identifier "writeShape"$/);
+});
+
+test('a Go string is not a name, and `Node` is the runtime rather than an Element', async () => {
+  await quiet({
+    'internal/resvg/resvg.go': [
+      'package resvg',
+      '',
+      'const api = "render_drawing_to_document"',
+      '',
+      '// NodeMessage is a file error as `Node` words it.',
+      'func NodeMessage() string { return api }',
+    ].join('\n'),
+  });
+});
+
 // Rule 3: a test that reaches past the seam it is testing.
 
 test('a markup regex in a test is a finding', async () => {

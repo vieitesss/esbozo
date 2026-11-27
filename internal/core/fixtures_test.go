@@ -8,7 +8,7 @@ import (
 )
 
 // answer is one command's answer, as `scripts/same-bytes.mjs` compares it. An
-// empty list is `[]` rather than `null`, so both sides write the same shape, and
+// empty list is `[]` rather than `null`, so both sides write the same JSON, and
 // a field the command did not make is empty: `png` is `null` for `render` and
 // `check`, and `svg` is `""` for `png`.
 type answer struct {
