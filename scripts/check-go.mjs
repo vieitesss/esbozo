@@ -38,19 +38,19 @@ const SUITES = [
 function run(command, args, env = process.env) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], env });
-    let out = '';
+    /** What the tool wrote to stdout: the answer a step judges, as opposed to what it echoed. */
+    let stdout = '';
 
     child.stdout.setEncoding('utf8').on('data', (chunk) => {
-      out += chunk;
+      stdout += chunk;
       process.stdout.write(chunk);
     });
     child.stderr.setEncoding('utf8').on('data', (chunk) => {
-      out += chunk;
       process.stderr.write(chunk);
     });
 
     child.on('error', reject);
-    child.on('close', (code, signal) => resolve({ status: code ?? (signal ? 1 : 0), out }));
+    child.on('close', (code, signal) => resolve({ status: code ?? (signal ? 1 : 0), stdout }));
   });
 }
 
@@ -91,10 +91,11 @@ async function main() {
 
   const dead = await run('go', ['tool', 'deadcode', './cmd/ez']);
   if (dead.status !== 0) return failed('deadcode', dead.status);
-  if (dead.out.trim() !== '') return failed('deadcode', 1);
+  // A cold module cache prints its downloads to stderr; only stdout names a dead function.
+  if (dead.stdout.trim() !== '') return failed('deadcode', 1);
 
   const gofmt = await run('gofmt', ['-l', ...GOFMT_PATHS]);
-  const unformatted = gofmt.out
+  const unformatted = gofmt.stdout
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => line !== '');
