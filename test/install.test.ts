@@ -10,72 +10,25 @@
  */
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { chmod, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { createServer, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
-import { arch, platform } from 'node:process';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { gzipSync } from 'node:zlib';
+import { EZ, startRelease, type FakeRelease } from './release.ts';
 import { removeTempFolders, tempFolder } from './temp.ts';
 
 const INSTALL = fileURLToPath(new URL('../scripts/install.sh', import.meta.url));
 
-/** The asset the script asks for on this machine. */
-const OS = platform === 'darwin' ? 'darwin' : 'linux';
-const ARCH = arch === 'x64' ? 'x64' : 'arm64';
-const ASSET = `ez-${OS}-${ARCH}.gz`;
-
-/** A tiny shell script standing in for `ez`: running it says which release it is. */
-const EZ = (version: string): string => `#!/bin/sh\necho "ez ${version}"\n`;
-
-/** One release folder served to the script: a `SHA256SUMS` and the asset. */
-function release(version: string, options: { sums?: string } = {}): Map<string, Buffer> {
-  const body = gzipSync(EZ(version));
-  const digest = options.sums ?? createHash('sha256').update(body).digest('hex');
-  return new Map([
-    ['SHA256SUMS', Buffer.from(`${digest}  ${ASSET}\n`)],
-    [ASSET, body],
-  ]);
-}
-
-/** Every folder the run can ask for: latest, the Main build, and two Releases. */
-const RELEASES = new Map<string, Map<string, Buffer>>([
-  ['/latest/download', release('9.9.9')],
-  ['/download/main', release('9.9.9-main+abc1234')],
-  ['/download/v1.2.3', release('1.2.3')],
-  ['/download/v0.0.9', release('0.0.9', { sums: '0'.repeat(64) })],
-]);
-
-/** Every file the fake release serves, by the path the script asks for. */
-const FILES = new Map<string, Buffer>();
-for (const [prefix, files] of RELEASES) {
-  for (const [name, body] of files) {
-    FILES.set(`${prefix}/${name}`, body);
-  }
-}
-
-let server: Server;
+let server: FakeRelease;
 let releaseUrl: string;
 
 before(async () => {
-  server = createServer((request, response) => {
-    const file = FILES.get(request.url ?? '');
-    if (file === undefined) {
-      response.writeHead(404).end();
-      return;
-    }
-    response.writeHead(200, { 'content-length': file.length });
-    response.end(file);
-  });
-  await new Promise<void>((listening) => server.listen(0, '127.0.0.1', listening));
-  releaseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  server = await startRelease();
+  releaseUrl = server.url;
 });
 
 after(async () => {
-  await new Promise<void>((closed) => server.close(() => closed()));
+  await server.close();
   await removeTempFolders();
 });
 
