@@ -203,7 +203,7 @@ func (session *Session) run(kind string, source []byte, fields map[string]interf
 		return err
 	}
 	for name, value := range fields {
-		if err := request.Set(name, optional(value)); err != nil {
+		if err := request.Set(name, emptyStringAsNil(value)); err != nil {
 			return err
 		}
 	}
@@ -244,7 +244,7 @@ func callableOf(vm *goja.Runtime, name string) (goja.Callable, error) {
 	return callable, nil
 }
 
-func optional(value interface{}) interface{} {
+func emptyStringAsNil(value interface{}) interface{} {
 	if text, isText := value.(string); isText && text == "" {
 		return nil
 	}
