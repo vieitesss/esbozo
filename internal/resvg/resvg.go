@@ -111,7 +111,8 @@ func (one *rasteriser) rasterise(svg, options string) ([]byte, error) {
 		return nil, fmt.Errorf("resvg's memory cannot hold %d bytes of options", len(options))
 	}
 
-	if err := one.call("resvg_new", retptr, svgHandle, optionsPtr, uint32(len(options)), 0); err != nil {
+	const noCustomFontBuffers uint32 = 0
+	if err := one.call("resvg_new", retptr, svgHandle, optionsPtr, uint32(len(options)), noCustomFontBuffers); err != nil {
 		return nil, err
 	}
 	svgObject, err := one.result(retptr)
