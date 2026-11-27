@@ -52,7 +52,12 @@ FROM node:22-slim AS runtime
 
 ENV NODE_ENV=production
 WORKDIR /app
-COPY --from=build /app/dist ./dist
+# Only the files `serve` opens: the CLI, the page's own files beside the
+# compressed variants the server sends, and the font. `dist/` also holds `ez`,
+# resvg's wasm, the editor bundle `ez bundle` copies out and the font's
+# measurements — 19.7 MB that no request the image answers reads.
+COPY --from=build /app/dist/cli.js /app/dist/editor.* ./dist/
+COPY --from=build /app/dist/fonts ./dist/fonts
 COPY LICENSE ./
 
 # The folder the Scenes live in, owned by the user the server runs as, so a
