@@ -5,10 +5,16 @@
  * in V8. This compares the two: every Scene in `test/fixtures/` is rendered and
  * checked by `dist/core.js` in Node and by `internal/core` in Go, and the SVG
  * bytes, the problem lines, the notes and the exit code have to be identical.
+ * `png` runs in both themes too, and its bytes have to be identical as well: the
+ * SVG comparison cannot see a rasteriser at all, and a PNG that came out the same
+ * in both themes would mean the theme never arrived.
  *
  * Both sides are the core, so this survives deleting the TypeScript CLI: there is
  * no `dist/cli.js` here. The Go half is `TestCoreAnswers` in `internal/core`,
  * which writes what the core answers; this script runs it and compares.
+ *
+ * The two rasterisers behind them are the real ones: Node calls
+ * `@resvg/resvg-wasm` here, and Go runs the same `index_bg.wasm` in wazero.
  *
  * Usage: node scripts/same-bytes.mjs — after `pnpm build`, which writes
  * `dist/core.js` and `dist/font-metrics.json`. Exit `0` when every fixture is
@@ -21,23 +27,38 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInThisContext } from 'node:vm';
+import { initWasm, Resvg } from '@resvg/resvg-wasm';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const CORE = join(ROOT, 'dist/core.js');
 const FIXTURES = join(ROOT, 'test/fixtures');
 const KALAM = join(ROOT, 'fonts/Kalam-Regular.ttf');
 const FONT_METRICS = join(ROOT, 'dist/font-metrics.json');
+const RESVG_WASM = join(ROOT, 'node_modules/@resvg/resvg-wasm/index_bg.wasm');
 
-/** The commands compared, in the order a fixture's answers carry them. */
-const KINDS = ['render', 'check'];
+/** The commands compared on every fixture, and the request each one carries. */
+const KINDS = [
+  { label: 'render', kind: 'render', theme: null },
+  { label: 'check', kind: 'check', theme: null },
+  { label: 'pngLight', kind: 'png', theme: 'light' },
+  { label: 'pngDark', kind: 'png', theme: 'dark' },
+];
 
 const KALAM_BYTES = readFileSync(KALAM);
 const FONT_METRICS_TEXT = readFileSync(FONT_METRICS, 'utf8');
 
 /**
+ * The real rasteriser, started before any fixture runs: the host answers `png`
+ * synchronously, as Go's does, so the module is loaded once here rather than
+ * awaited inside the call.
+ */
+await initWasm(readFileSync(RESVG_WASM));
+
+/**
  * The host the bundle reaches through `globalThis.__ezHost`, answered with Node's
- * own filesystem: the same seven answers `internal/core/host.go` gives the goja
- * runtime.
+ * own filesystem: the same answers `internal/core/host.go` gives the goja
+ * runtime, except that `rasterise` is resvg's own module in V8 rather than in
+ * wazero.
  */
 globalThis.__ezHost = {
   readText: (path) => readFileSync(String(path), 'utf8'),
@@ -47,6 +68,14 @@ globalThis.__ezHost = {
   cwd: () => process.cwd(),
   bundledFont: () => arrayBufferOf(KALAM_BYTES),
   bundledFontMetrics: () => FONT_METRICS_TEXT,
+  rasterise: (svg, options) => {
+    const resvg = new Resvg(String(svg), JSON.parse(String(options)));
+    try {
+      return arrayBufferOf(Buffer.from(resvg.render().asPng()));
+    } finally {
+      resvg.free();
+    }
+  },
 };
 
 // The bundle is an IIFE that leaves its surface on `__ezCore`, which a script
@@ -62,16 +91,18 @@ function arrayBufferOf(bytes) {
 /**
  * One command's answer, as both sides write it. `begin` starts the command and
  * `answer` reads it, because goja cannot be handed a promise: the macrotask here
- * lets every microtask the command awaits run first.
+ * lets every microtask the command awaits run first. A PNG is base64, which is
+ * how Go writes a `[]byte`.
  */
-async function answerOf(kind, source) {
-  core.begin({ source: arrayBufferOf(source), fontPath: null, cssPath: null }, kind);
+async function answerOf({ kind, theme }, source) {
+  core.begin({ source: arrayBufferOf(source), fontPath: null, cssPath: null, theme }, kind);
   await new Promise((resolve) => setImmediate(resolve));
   const answer = core.answer();
   return {
     ok: answer.ok,
     exitCode: answer.exitCode,
     svg: answer.svg,
+    png: answer.png === null || answer.png === undefined ? null : Buffer.from(answer.png).toString('base64'),
     problems: [...answer.problems],
     notes: [...answer.notes],
   };
@@ -126,6 +157,13 @@ function answerDifferences(label, go, node) {
         `first difference at byte ${firstDifference(go.svg, node.svg)}`,
     );
   }
+  if (go.png !== node.png) {
+    const [one, other] = [go.png ?? '', node.png ?? ''];
+    found.push(
+      `${label}: PNG ${one.length} base64 characters, the bundle's ${other.length}, ` +
+        `first difference at character ${firstDifference(one, other)}`,
+    );
+  }
   for (const field of ['problems', 'notes']) {
     const [one, other] = [go[field], node[field]];
     if (one.length !== other.length || one.some((line, at) => line !== other[at])) {
@@ -146,7 +184,7 @@ try {
   for (const scene of scenes) {
     const node = { fixture: scene.name };
     for (const kind of KINDS) {
-      node[kind] = await answerOf(kind, scene.source);
+      node[kind.label] = await answerOf(kind, scene.source);
     }
 
     const emitted = goByFixture.get(scene.name);
@@ -158,7 +196,7 @@ try {
 
     let differences = [];
     for (const kind of KINDS) {
-      differences = differences.concat(answerDifferences(kind, emitted[kind], node[kind]));
+      differences = differences.concat(answerDifferences(kind.label, emitted[kind.label], node[kind.label]));
     }
     if (differences.length === 0) {
       process.stdout.write(`PASS ${scene.name}\n`);

@@ -4,11 +4,11 @@
  *
  * `ez` in Go embeds this file and runs it in goja, so the bundle carries no
  * Node API: what it needs from the host arrives through `globalThis.__ezHost`
- * (read a file, decode bytes, hand over the bundled font and its measurements),
- * and the paths it hands back are resolved by the host. The surface is
- * synchronous for the caller — `begin` starts one command and `answer` gives
- * what it made — because a JS engine that does not own the event loop cannot
- * return a promise to Go.
+ * (read a file, decode bytes, hand over the bundled font and its measurements,
+ * rasterise an SVG), and the paths it hands back are resolved by the host. The
+ * surface is synchronous for the caller — `begin` starts one command and
+ * `answer` gives what it made — because a JS engine that does not own the
+ * event loop cannot return a promise to Go.
  *
  * Nothing here decides what a Scene is: the rules are `scene.ts`, the measuring
  * is `layout.ts` and the drawing is `renderer.ts`.
@@ -16,6 +16,8 @@
 import { chooseFont, layoutFor, readStylesheet } from './font.js';
 import { renderScene } from './renderer.js';
 import { parseScene } from './scene.js';
+import { renderPng } from './png.js';
+import type { PngOptions, Theme } from './png.js';
 import { sha256Hex } from './sha256.js';
 import type { Layout } from './layout.js';
 
@@ -42,6 +44,12 @@ interface EzHost {
    * the core parses the font.
    */
   bundledFontMetrics(): string;
+  /**
+   * One SVG in, PNG bytes out, with resvg's own module: `ez` runs those bytes in
+   * wazero (`internal/resvg`), so `scripts/core-host/resvg-wasm.mjs` hands the
+   * SVG and the module's options document here instead of to a JS engine.
+   */
+  rasterise(svg: string, options: string): ArrayBuffer;
 }
 
 declare global {
@@ -419,9 +427,9 @@ function readJson(text: string): unknown {
 }
 
 /**
- * The exit codes `render` and `check` use, copied from `EXIT` in `src/cli.ts`
- * because that table is not exported; the core answers them so a host prints what
- * the CLI prints.
+ * The exit codes `render`, `check` and `png` use, copied from `EXIT` in
+ * `src/cli.ts` because that table is not exported; the core answers them so a
+ * host prints what the CLI prints.
  */
 const EXIT = {
   invalidScene: 3,
@@ -440,20 +448,28 @@ interface Request {
   readonly source: ArrayBuffer;
   readonly fontPath: string | null;
   readonly cssPath: string | null;
+  /** The palette `png` draws in; `render` and `check` have none. */
+  readonly theme: Theme | null;
+  /** The colour `--ink` overrides, and `null` when the flag was not given. */
+  readonly ink: string | null;
+  readonly paper: string | null;
+  readonly muted: string | null;
 }
 
-/** What a command made: the SVG, or the lines it refuses with. */
+/** What a command made: the SVG, the PNG, or the lines it refuses with. */
 interface Answer {
   readonly ok: boolean;
   readonly exitCode: number;
   readonly svg: string;
+  /** The image `png` drew, and `null` for any other command. */
+  readonly png: Uint8Array | null;
   readonly problems: readonly string[];
   /** Lines the command prints on stderr but does not fail on, such as a remote font. */
   readonly notes: readonly string[];
 }
 
 function failed(exitCode: number, problems: readonly string[]): Answer {
-  return { ok: false, exitCode, svg: '', problems, notes: [] };
+  return { ok: false, exitCode, svg: '', png: null, problems, notes: [] };
 }
 
 /** A problem as `ez` prints it: `id: message`, or the message alone with no id. */
@@ -483,7 +499,7 @@ async function render(request: Request): Promise<Answer> {
 
   const layout: Layout = layoutFor(font.value);
   const svg = renderScene(parsed.scene, layout, sha256Hex(bytes));
-  return { ok: true, exitCode: 0, svg, problems: [], notes: font.notes };
+  return { ok: true, exitCode: 0, svg, png: null, problems: [], notes: font.notes };
 }
 
 async function check(request: Request): Promise<Answer> {
@@ -512,7 +528,54 @@ async function check(request: Request): Promise<Answer> {
   if (overflowed.length > 0) {
     return { ...failed(EXIT.labelOverflow, overflowed), notes: font.notes };
   }
-  return { ok: true, exitCode: 0, svg: '', problems: [], notes: font.notes };
+  return { ok: true, exitCode: 0, svg: '', png: null, problems: [], notes: font.notes };
+}
+
+/**
+ * `png`: `src/png.ts` owns everything — the palette, the font, the outlines —
+ * and the host owns resvg, so this hands the Scene over and answers the image.
+ */
+async function png(request: Request): Promise<Answer> {
+  const theme = request.theme;
+  if (theme === null) {
+    throw new Error('png needs a theme: the host decides light or dark, not the core');
+  }
+
+  const { parsed } = loadScene(request.source);
+  if (!parsed.ok) {
+    return failed(EXIT.invalidScene, problemLines(parsed.problems));
+  }
+
+  const rendered = await renderPng(parsed.scene, pngOptions(theme, request));
+  if (!rendered.ok) {
+    return failed(EXIT.missingThemeOrFont, rendered.problems);
+  }
+  return { ok: true, exitCode: 0, svg: '', png: rendered.png, problems: [], notes: rendered.notes };
+}
+
+/**
+ * What `png` was asked for: the theme, and the flags the host actually gave. An
+ * absent flag is an absent key rather than one holding `undefined`, which is
+ * what `PngOptions` — and every options type here — insists on.
+ */
+function pngOptions(theme: Theme, request: Request): PngOptions {
+  const options: PngOptions = { theme };
+  if (request.cssPath !== null) {
+    options.cssPath = request.cssPath;
+  }
+  if (request.ink !== null) {
+    options.ink = request.ink;
+  }
+  if (request.paper !== null) {
+    options.paper = request.paper;
+  }
+  if (request.muted !== null) {
+    options.muted = request.muted;
+  }
+  if (request.fontPath !== null) {
+    options.fontPath = request.fontPath;
+  }
+  return options;
 }
 
 /**
@@ -532,13 +595,14 @@ let failure: { error: unknown } | null = null;
  *
  * @public
  */
-export function begin(request: Request, kind: 'render' | 'check'): void {
+export function begin(request: Request, kind: 'render' | 'check' | 'png'): void {
   settled = null;
   failure = null;
-  if (kind !== 'render' && kind !== 'check') {
+  if (kind !== 'render' && kind !== 'check' && kind !== 'png') {
     throw new Error(`the core has no command ${String(kind)}`);
   }
-  void (kind === 'render' ? render(request) : check(request)).then(
+  const running = kind === 'render' ? render(request) : kind === 'check' ? check(request) : png(request);
+  void running.then(
     (answer) => {
       settled = answer;
     },

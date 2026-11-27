@@ -8,19 +8,24 @@ import (
 )
 
 // answer is one command's answer, as `scripts/same-bytes.mjs` compares it. An
-// empty list is `[]` rather than `null`, so both sides write the same shape.
+// empty list is `[]` rather than `null`, so both sides write the same shape, and
+// a field the command did not make is `null`: `png` for `render` and `check`,
+// `svg` for `png`.
 type answer struct {
 	OK       bool     `json:"ok"`
 	ExitCode int      `json:"exitCode"`
 	SVG      string   `json:"svg"`
+	PNG      []byte   `json:"png"`
 	Problems []string `json:"problems"`
 	Notes    []string `json:"notes"`
 }
 
 type fixtureAnswers struct {
-	Fixture string `json:"fixture"`
-	Render  answer `json:"render"`
-	Check   answer `json:"check"`
+	Fixture  string `json:"fixture"`
+	Render   answer `json:"render"`
+	Check    answer `json:"check"`
+	PNGLight answer `json:"pngLight"`
+	PNGDark  answer `json:"pngDark"`
 }
 
 type answers struct {
@@ -30,7 +35,9 @@ type answers struct {
 // TestCoreAnswers writes what the Go core answers for every fixture Scene, for
 // `scripts/same-bytes.mjs` to hold to what the same bundle answers in Node. The
 // two halves stay two halves — one runtime cannot be compared with itself — so
-// this writes and the script judges.
+// this writes and the script judges. `png` runs in both themes, because a
+// rasteriser the SVG comparison cannot see and a theme that never arrived would
+// both pass a single-theme comparison.
 func TestCoreAnswers(t *testing.T) {
 	out := os.Getenv("EZ_SAME_BYTES_OUT")
 	if out == "" {
@@ -52,8 +59,10 @@ func TestCoreAnswers(t *testing.T) {
 			t.Fatal(err)
 		}
 		fixture := fixtureAnswers{Fixture: filepath.Base(path)}
-		fixture.Render = runAnswer(t, Render, source)
-		fixture.Check = runAnswer(t, Check, source)
+		fixture.Render = runAnswer(t, Render, source, "")
+		fixture.Check = runAnswer(t, Check, source, "")
+		fixture.PNGLight = runAnswer(t, Png, source, "light")
+		fixture.PNGDark = runAnswer(t, Png, source, "dark")
 		written.Fixtures = append(written.Fixtures, fixture)
 	}
 
@@ -68,9 +77,9 @@ func TestCoreAnswers(t *testing.T) {
 
 // runAnswer runs one command, failing the test rather than writing a half answer
 // the comparison would then have to explain.
-func runAnswer(t *testing.T, command Command, source []byte) answer {
+func runAnswer(t *testing.T, command Command, source []byte, theme string) answer {
 	t.Helper()
-	ran, err := Run(command, source, Options{})
+	ran, err := Run(command, source, Options{Theme: theme})
 	if err != nil {
 		t.Fatalf("%s: %v", command, err)
 	}
@@ -78,6 +87,7 @@ func runAnswer(t *testing.T, command Command, source []byte) answer {
 		OK:       ran.OK,
 		ExitCode: ran.ExitCode,
 		SVG:      ran.SVG,
+		PNG:      ran.PNG,
 		Problems: listed(ran.Problems),
 		Notes:    listed(ran.Notes),
 	}

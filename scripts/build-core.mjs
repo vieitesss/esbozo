@@ -7,7 +7,8 @@
  * because goja has no modules), and the two Node builtins `src/font.ts` imports,
  * which `scripts/core-host/` answers from the host. It also measures the bundled
  * font once here, instead of in every cold start, and copies resvg's WebAssembly
- * module beside the bundle for `internal/resvg` to run in wazero.
+ * module beside the bundle for `internal/resvg` to run in wazero, which is also
+ * why the core's import of that package is answered by a host shim.
  */
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -26,6 +27,13 @@ const BUNDLED_FONT = resolve('fonts/Kalam-Regular.ttf');
 
 /** The host shim that answers the core's `opentype.js` import. */
 const OPENTYPE_SHIM = resolve(hostDir, 'opentype.mjs');
+
+/**
+ * The host shim that answers the core's `@resvg/resvg-wasm` import, for both the
+ * module and the wasm it loads: `ez` runs those bytes in wazero, so the bundle
+ * carries neither.
+ */
+const RESVG_SHIM = resolve(hostDir, 'resvg-wasm.mjs');
 
 /**
  * resvg's WebAssembly build, which `internal/resvg` runs in wazero to make a
@@ -54,7 +62,9 @@ const SHIMS = {
  * `opentype.js` is the same seam one level down: the core's own import is
  * answered by `scripts/core-host/opentype.mjs`, which keeps the real parser for
  * every other font — including its own import of it, which is why the shim's
- * importer is left alone.
+ * importer is left alone. `@resvg/resvg-wasm` is that seam too, answered whole:
+ * `ez` runs the module in wazero, so neither the glue nor its wasm belongs in
+ * the bundle.
  */
 const hostShims = {
   name: 'host-shims',
@@ -78,6 +88,9 @@ const hostShims = {
       }
       return { path: OPENTYPE_SHIM };
     });
+    bundle.onResolve({ filter: /^@resvg\/resvg-wasm(\/index_bg\.wasm)?$/ }, () => ({
+      path: RESVG_SHIM,
+    }));
   },
 };
 

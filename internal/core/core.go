@@ -12,14 +12,16 @@ import (
 	"github.com/dop251/goja"
 )
 
-// Answer is what `ez render` or `ez check` made.
+// Answer is what `ez render`, `ez check` or `ez png` made.
 type Answer struct {
 	// OK is whether the command succeeded; when it is false, ExitCode says why.
 	OK bool
 	// ExitCode is the code `ez` exits with, as `EXIT` in the TS CLI defines it.
 	ExitCode int
-	// SVG is the rendering `render` wrote, and is empty for `check`.
+	// SVG is the rendering `render` wrote, and is empty for `check` and `png`.
 	SVG string
+	// PNG is the image `png` drew, and is nil for any other command.
+	PNG []byte
 	// Problems are the lines `ez` prints on stderr when it refuses.
 	Problems []string
 	// Notes are lines it prints without failing, such as a remote font warning.
@@ -33,6 +35,14 @@ type Options struct {
 	FontPath string
 	// CSSPath is `--css`: the stylesheet the palette and the font come from.
 	CSSPath string
+	// Theme is `--theme`: the palette `png` draws in, `light` or `dark`.
+	Theme string
+	// Ink, Paper and Muted are `--ink`, `--paper` and `--muted`: the colours
+	// `png` draws with, overriding what the stylesheet or the built-in theme
+	// declares.
+	Ink   string
+	Paper string
+	Muted string
 }
 
 // Command is a command the core runs, as `begin` in `src/core-entry.ts` takes
@@ -44,11 +54,13 @@ const (
 	Render Command = "render"
 	// Check is `ez check`: the lines a Scene's Labels overflow with.
 	Check Command = "check"
+	// Png is `ez png`: the image the Scene draws to, in one theme.
+	Png Command = "png"
 )
 
 // Run answers one command over a Scene's bytes.
 func Run(command Command, source []byte, options Options) (Answer, error) {
-	if command != Render && command != Check {
+	if command != Render && command != Check && command != Png {
 		return Answer{}, fmt.Errorf("the core has no command %q", command)
 	}
 
@@ -65,6 +77,18 @@ func Run(command Command, source []byte, options Options) (Answer, error) {
 		return Answer{}, err
 	}
 	if err := request.Set("cssPath", optional(options.CSSPath)); err != nil {
+		return Answer{}, err
+	}
+	if err := request.Set("theme", optional(options.Theme)); err != nil {
+		return Answer{}, err
+	}
+	if err := request.Set("ink", optional(options.Ink)); err != nil {
+		return Answer{}, err
+	}
+	if err := request.Set("paper", optional(options.Paper)); err != nil {
+		return Answer{}, err
+	}
+	if err := request.Set("muted", optional(options.Muted)); err != nil {
 		return Answer{}, err
 	}
 
@@ -114,13 +138,21 @@ func answerOf(value goja.Value) (Answer, error) {
 	if !ok {
 		return Answer{}, fmt.Errorf("the core answered with %s, not an object", value.ExportType())
 	}
-	return Answer{
+	answer := Answer{
 		OK:       object.Get("ok").ToBoolean(),
 		ExitCode: int(object.Get("exitCode").ToInteger()),
 		SVG:      object.Get("svg").String(),
 		Problems: linesOf(object.Get("problems")),
 		Notes:    linesOf(object.Get("notes")),
-	}, nil
+	}
+	if png := object.Get("png"); png != nil && !goja.IsNull(png) && !goja.IsUndefined(png) {
+		bytes, err := bytesOf(png)
+		if err != nil {
+			return Answer{}, fmt.Errorf("the core's image: %w", err)
+		}
+		answer.PNG = bytes
+	}
+	return answer, nil
 }
 
 func linesOf(value goja.Value) []string {
