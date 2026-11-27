@@ -12,18 +12,20 @@ import (
 
 const placeList = "top, bottom, left, right, center, top-left, top-right, bottom-left, bottom-right"
 
-// anchorUsageLine, snapUsageLine, skillUsageLine and bundleUsageLine are
-// `USAGE_LINE.anchor`, `USAGE_LINE.snap`, `USAGE_LINE.skill` and
-// `USAGE_LINE.bundle` in `src/help.ts`, word for word: what a command prints when
-// it refuses the arguments it was given.
-const (
-	anchorUsageLine = "usage: ez anchor <scene> <element> <start|end> <place>\n" +
+// usageLine is `USAGE_LINE` in `src/help.ts`, word for word: what a command prints
+// when it refuses the arguments it was given.
+var usageLine = map[string]string{
+	"render": "usage: ez render <scene> [--font <file>]",
+	"check":  "usage: ez check <scene> [--font <file>] [--css <stylesheet>]",
+	"png": "usage: ez png <scene> --theme light|dark [--css <stylesheet>]" +
+		" [--ink <colour>] [--paper <colour>] [--muted <colour>] [--font <file>]",
+	"anchor": "usage: ez anchor <scene> <element> <start|end> <place>\n" +
 		"       ez anchor <scene> --all\n" +
-		`  place: ` + placeList + `, a pair of fractions "fx,fy", or none`
-	snapUsageLine   = "usage: ez snap <scene> <element> <start|end> <target|off>"
-	skillUsageLine  = "usage: ez skill [install [--dir <path>]]"
-	bundleUsageLine = "usage: ez bundle <dir>"
-)
+		`  place: ` + placeList + `, a pair of fractions "fx,fy", or none`,
+	"snap":   "usage: ez snap <scene> <element> <start|end> <target|off>",
+	"skill":  "usage: ez skill [install [--dir <path>]]",
+	"bundle": "usage: ez bundle <dir>",
+}
 
 var cssSubsetLines = []string{
 	"  `:root` and `html` declarations are the light theme; dark is those values",

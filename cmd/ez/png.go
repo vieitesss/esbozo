@@ -13,10 +13,6 @@ import (
 	"esbozo/internal/core"
 )
 
-// pngUsageLine is `USAGE_LINE.png` in `src/help.ts`, word for word.
-const pngUsageLine = "usage: ez png <scene> --theme light|dark [--css <stylesheet>]" +
-	" [--ink <colour>] [--paper <colour>] [--muted <colour>] [--font <file>]"
-
 // pngArguments is what one `png` run was asked for.
 type pngArguments struct {
 	scenePath string
@@ -78,7 +74,7 @@ func parsePngArguments(argv []string) (pngArguments, bool) {
 func runPng(argv []string, stdout, stderr io.Writer) int {
 	parsed, ok := parsePngArguments(argv)
 	if !ok {
-		fmt.Fprintln(stderr, pngUsageLine)
+		fmt.Fprintln(stderr, usageLine["png"])
 		return exitUsage
 	}
 

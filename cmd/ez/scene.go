@@ -13,11 +13,6 @@ import (
 	"esbozo/internal/core"
 )
 
-var usageLine = map[string]string{
-	"render": "usage: ez render <scene> [--font <file>]",
-	"check":  "usage: ez check <scene> [--font <file>] [--css <stylesheet>]",
-}
-
 // sceneArguments is what one `render` or `check` run was asked for.
 type sceneArguments struct {
 	scenePath string

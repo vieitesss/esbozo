@@ -23,7 +23,7 @@ func runBundle(argv []string, stdout, stderr io.Writer) int {
 		folder = argv[0]
 	}
 	if folder == "" || strings.HasPrefix(folder, "--") {
-		fmt.Fprintln(stderr, bundleUsageLine)
+		fmt.Fprintln(stderr, usageLine["bundle"])
 		return exitUsage
 	}
 

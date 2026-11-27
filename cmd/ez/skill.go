@@ -84,7 +84,7 @@ func homeFolder() (string, error) {
 func runSkill(argv []string, stdout, stderr io.Writer) int {
 	parsed, ok := parseSkillArguments(argv)
 	if !ok {
-		fmt.Fprintln(stderr, skillUsageLine)
+		fmt.Fprintln(stderr, usageLine["skill"])
 		return exitUsage
 	}
 	if !parsed.install {

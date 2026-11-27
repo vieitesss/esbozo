@@ -95,7 +95,7 @@ func withoutWord(argv []string, word string) []string {
 func runAnchor(argv []string, stdout, stderr io.Writer) int {
 	parsed, ok := parseAnchorArguments(argv)
 	if !ok {
-		fmt.Fprintln(stderr, anchorUsageLine)
+		fmt.Fprintln(stderr, usageLine["anchor"])
 		return exitUsage
 	}
 	return editScene("anchor", parsed.scenePath, func(source []byte) (core.Edited, error) {
@@ -107,7 +107,7 @@ func runAnchor(argv []string, stdout, stderr io.Writer) int {
 func runSnap(argv []string, stdout, stderr io.Writer) int {
 	parsed, ok := parseSnapArguments(argv)
 	if !ok {
-		fmt.Fprintln(stderr, snapUsageLine)
+		fmt.Fprintln(stderr, usageLine["snap"])
 		return exitUsage
 	}
 	return editScene("snap", parsed.scenePath, func(source []byte) (core.Edited, error) {
