@@ -148,12 +148,12 @@ export function snapEditOf(words: SnapWords): Outcome<SnapEdit> {
 }
 
 /** The end a word names, or null where it names none. */
-function parseEnd(word: string | undefined): End | null {
+function parseEnd(word: string): End | null {
   return ENDS.find((candidate) => candidate === word) ?? null;
 }
 
 /** Why a word is no end: a Shaft has a start and an end, and nothing between. */
-function endMessage(word: string | undefined): string {
+function endMessage(word: string): string {
   return `an end is start or end, got ${JSON.stringify(word)}`;
 }
 
@@ -205,11 +205,6 @@ export function anchorScene(scene: Scene, edit: AnchorEdit): Outcome<Change> {
   return edit.all ? freezeEnds(scene) : placeEnd(scene, edit);
 }
 
-/** The Scene with the edit one `ez snap` run asked for. */
-export function snapScene(scene: Scene, edit: SnapEdit): Outcome<Change> {
-  return snapEnd(scene, edit);
-}
-
 /** The Scene with one end anchored at a named place, or its Anchor dropped. */
 function placeEnd(scene: Scene, request: AnchorEdit & { all: false }): Outcome<Change> {
   const found = findShaft(scene, request.elementId);
@@ -236,8 +231,11 @@ function placeEnd(scene: Scene, request: AnchorEdit & { all: false }): Outcome<C
   };
 }
 
-/** The Scene with one end attached to an Element, or written free with `off`. */
-function snapEnd(scene: Scene, request: SnapEdit): Outcome<Change> {
+/**
+ * The Scene with the edit one `ez snap` run asked for: one end attached to an
+ * Element, or written free with `off`.
+ */
+export function snapScene(scene: Scene, request: SnapEdit): Outcome<Change> {
   const found = findShaft(scene, request.elementId);
   if (!found.ok) {
     return found;
