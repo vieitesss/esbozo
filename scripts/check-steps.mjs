@@ -10,12 +10,6 @@
  *
  * Usage: pnpm check:steps <base> [--shard I/N]
  *
- * A range long enough to dominate a run is split across jobs: `--shard 2/4`
- * checks every fourth commit of the range, the second of them, and four shards
- * together check each commit exactly once. The range itself is still found from
- * the whole history, oldest first, so a shard is a slice of one order and not a
- * slice of the history.
- *
  * The caller's working tree, index and branch are never touched. The commits are
  * checked in one detached temporary worktree, with this checkout's
  * `node_modules` symlinked in so nothing is installed, and both are removed
@@ -44,10 +38,6 @@ const MANIFEST = ['package.json', 'pnpm-lock.yaml'];
 
 const USAGE = 'Usage: pnpm check:steps <base> [--shard I/N]  (base must be a commit HEAD descends from)';
 
-/**
- * The shard `--shard I/N` asks for: `{ kind: 'absent' }`, `{ kind: 'malformed' }`,
- * or the 1-based `index` and `count` of a shard this range can be split into.
- */
 function readShard(args) {
   const at = args.indexOf('--shard');
   if (at === -1) return { kind: 'absent' };
@@ -111,7 +101,6 @@ async function standInForBuiltEmbeds(tree) {
   }
 }
 
-/** The Go half of `pnpm check` in one commit's tree. */
 async function goChecks(tree) {
   if (!(await present(join(tree, 'go.mod')))) return null;
 

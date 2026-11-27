@@ -1,4 +1,3 @@
-# Each argument reaches the command as one word, so one that holds a space stays one.
 set positional-arguments
 
 # List the recipes.

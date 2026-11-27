@@ -46,17 +46,8 @@ const ROOT = process.argv[2] ?? fileURLToPath(new URL('..', import.meta.url));
 /** Where the rules look: the sources, the suites, and the scripts a person runs. */
 const ROOTS = ['src', 'test', 'tests', 'scripts'];
 
-/** Where rule 2 reads Go: the two packages `ez` is built from. */
 const GO_ROOTS = ['cmd', 'internal'];
-
-/**
- * The Go names that spell the runtime, not an Element: `NodeMessage` builds the
- * message Node itself prints. Named one at a time, because a pattern that guessed
- * would excuse the Elements too.
- */
 const RUNTIME_NAMES = new Set(['NodeMessage', 'NodeMkdirMessage', 'nodeMessage']);
-
-/** The files the rules read: the TypeScript and JavaScript of `ROOTS`, the Go of `GO_ROOTS`. */
 const WATCHED = /^(?:(?:src|test|tests|scripts)\/.*\.(?:ts|tsx|js|mjs|cjs)|(?:cmd|internal)\/.*\.go)$/;
 
 /** The modules that ship to a browser, so no Node builtin may reach them. */
@@ -313,14 +304,6 @@ function avoidTerms(file) {
   }
 }
 
-/**
- * Rule 2 in Go: an Avoid term as an identifier or in a comment.
- *
- * Read by hand rather than by the compiler above, because Go is not TypeScript:
- * a comment is the prose of the file, an identifier is a name, and a string is
- * neither — it holds the wasm module's own export names and the message a person
- * is handed, and this module chose neither word.
- */
 function avoidTermsInGo(file) {
   for (const token of goTokens(file.text)) {
     if (RUNTIME_NAMES.has(token.text)) continue;
@@ -761,31 +744,23 @@ function copyRuns(text) {
   return runs;
 }
 
-/** The Avoid term this text holds, if it holds one; `prose` says the text is a comment. */
-function avoidTermIn(text, prose = false) {
+function avoidTermIn(text, isComment = false) {
   const found = words(text);
   for (const term of terms) {
     const wanted = term.split(' ');
     for (let at = 0; at + wanted.length <= found.length; at += 1) {
       if (!wanted.every((word, step) => same(found[at + step].word, word))) continue;
-      if (wanted.length === 1 && term === 'node' && namesRuntime(text, found[at], prose)) continue;
+      if (wanted.length === 1 && term === 'node' && namesRuntime(text, found[at], isComment)) continue;
       return term;
     }
   }
   return undefined;
 }
 
-/**
- * Whether a `node` is the runtime in prose (the proper noun `Node`), or is
- * followed by a version, `-compatible`, `.js`, `runtime` or the `node:` builtin
- * scheme. The avoided term is the lowercase `node` a name is made of, so a name
- * keeps its finding.
- */
-function namesRuntime(text, word, prose) {
-  if (prose && text.slice(word.at, word.end) === 'Node') return true;
+function namesRuntime(text, word, isComment) {
+  if (isComment && text.slice(word.at, word.end) === 'Node') return true;
   const rest = text.slice(word.end);
   if (/^\s*(?:\d|-compatible|\.js|runtime|:)/i.test(rest)) return true;
-  // `node scripts/build.mjs`: the runtime in front of a module's file.
   return /^\s+\S+\.m?js\b/.test(rest);
 }
 

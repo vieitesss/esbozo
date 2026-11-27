@@ -1,16 +1,3 @@
-/**
- * Build what a person runs: the `ez` binary, the editor page, and the bundle
- * that puts the editor on someone else's page.
- *
- * The two browser bundles share the Scene and the Renderer with the Go binary's
- * core, and none needs a node builtin, so they build from the same sources. The
- * page and the bundle differ in two ways only: the page links its stylesheet and
- * font beside itself, while the bundle carries the CSS and takes the font URL
- * from its element.
- *
- * It ends with the core bundle the Go binary embeds (`scripts/build-core.mjs`)
- * and the binary itself: one build writes every copy of the core.
- */
 import { execFileSync } from 'node:child_process';
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { brotliCompressSync, gzipSync } from 'node:zlib';
@@ -19,11 +6,6 @@ import { buildId, buildTime } from '../src/build-id.ts';
 import { gitAnswer } from './git.mjs';
 import { PAGE_ASSETS } from '../src/page-assets.ts';
 
-/**
- * What `ez serve` names as the build it is, and when that build ran, computed
- * once: the binary is stamped with this pair, and so are the files `assets.go`
- * embeds, so the two cannot name two different builds.
- */
 const buildStamp = { id: buildId(gitAnswer), at: buildTime(new Date()) };
 
 /**
@@ -98,36 +80,11 @@ await copyFile('fonts/Kalam-Regular.ttf', 'dist/fonts/Kalam-Regular.ttf');
 await copyFile('fonts/OFL.txt', 'dist/fonts/OFL.txt');
 await compressPageFiles();
 
-/**
- * The core bundle `ez` carries, built here so one `pnpm build` writes every copy
- * of the Scene, the Layout and the Renderer.
- */
 execFileSync(process.execPath, ['scripts/build-core.mjs'], { stdio: 'inherit' });
-
-/**
- * The stamp `ez --version` prints, embedded by `assets.go`: `scripts/version-stamp.mjs`
- * is its one writer, so the version suite can write a Release stamp without
- * building the binary again.
- */
 execFileSync(process.execPath, ['scripts/version-stamp.mjs', 'dist/version'], { stdio: 'inherit' });
-
-/**
- * The same pair, written beside the version so that `assets.go` embeds them and
- * the binary reads nothing at run time. The startup line and `/api/health` end
- * with this pair, so a server someone finds running can say whether it is the
- * one they started.
- */
 await writeFile('dist/build-id', `${buildStamp.id}\n`);
 await writeFile('dist/built-at', `${buildStamp.at}\n`);
 
-/**
- * The one static binary: the bundle above, Kalam, and what measuring it yielded,
- * linked by goja into `ez` with the Go toolchain `go.mod` names.
- *
- * `CGO_ENABLED=0` is what makes it one file that runs anywhere; `GOTOOLCHAIN` is
- * `local` so a toolchain older than `go.mod` fails here instead of downloading
- * another one behind the build's back.
- */
 execFileSync('go', ['build', '-ldflags=-s -w', '-o', 'dist/ez', './cmd/ez'], {
   stdio: 'inherit',
   env: { ...process.env, GOTOOLCHAIN: 'local', CGO_ENABLED: '0' },
