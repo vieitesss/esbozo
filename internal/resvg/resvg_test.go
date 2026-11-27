@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -70,6 +71,30 @@ func triangle(t *testing.T) []byte {
 		t.Fatal(err)
 	}
 	return png
+}
+
+// TestRasteriseWithoutAWritableCache: a cache directory that cannot be created
+// must cost seconds, never the PNG. wazero fails the compile outright when it
+// cannot save its result, so an unwritable cache has to be given up before the
+// compile rather than by it — and `ez png` has to draw on a machine whose home
+// is read-only.
+func TestRasteriseWithoutAWritableCache(t *testing.T) {
+	blocked := filepath.Join(t.TempDir(), "cache")
+	if err := os.WriteFile(blocked, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	one, err := newRasteriser(filepath.Join(blocked, "wazero"))
+	if err != nil {
+		t.Fatalf("a cache directory that cannot exist stops the rasteriser: %v", err)
+	}
+	got, err := one.rasterise(triangleSVG(t), optionsJSON)
+	if err != nil {
+		t.Fatalf("cannot rasterise without a cache: %v", err)
+	}
+	if want := triangle(t); !bytes.Equal(got, want) {
+		t.Fatalf("PNG %d bytes, Node's %d; %s", len(got), len(want), firstDifference(got, want))
+	}
 }
 
 // firstDifference says where two byte strings part company, because a PNG that

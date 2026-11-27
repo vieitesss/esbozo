@@ -19,6 +19,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/tetratelabs/wazero"
@@ -51,8 +53,20 @@ var (
 // shared is the one rasteriser, made on the first PNG and never before: nothing
 // that does not draw a PNG pays for compiling the module.
 func shared() (*rasteriser, error) {
-	sharedOnce.Do(func() { sharedModule, sharedErr = newRasteriser() })
+	sharedOnce.Do(func() { sharedModule, sharedErr = newRasteriser(cacheDir()) })
 	return sharedModule, sharedErr
+}
+
+// cacheDir is where wazero keeps resvg's module compiled between runs. Compiling
+// it costs ~2.6 s and reading a warm entry ~53 ms, so `ez png` pays for the
+// compile once rather than once per PNG. Empty when the platform names no cache
+// directory, which costs that time and nothing else.
+func cacheDir() string {
+	base, err := os.UserCacheDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(base, "esbozo", "wazero")
 }
 
 // rasteriser is the one module and the state of the call in flight. resvg keeps
@@ -66,13 +80,17 @@ type rasteriser struct {
 	heap    *heap
 }
 
-func newRasteriser() (*rasteriser, error) {
+func newRasteriser(dir string) (*rasteriser, error) {
 	ctx := context.Background()
 	one := &rasteriser{ctx: ctx}
 
 	// NewRuntimeConfig picks wazero's compiler engine when the platform has one
 	// and the interpreter when it does not, so this builds anywhere.
-	one.runtime = wazero.NewRuntimeWithConfig(ctx, wazero.NewRuntimeConfig())
+	config := wazero.NewRuntimeConfig()
+	if cache := compilationCache(dir); cache != nil {
+		config = config.WithCompilationCache(cache)
+	}
+	one.runtime = wazero.NewRuntimeWithConfig(ctx, config)
 	if err := one.installWbg(); err != nil {
 		_ = one.runtime.Close(ctx)
 		return nil, err
@@ -211,6 +229,36 @@ func (one *rasteriser) free(pointer uint32, size int) {
 
 func (one *rasteriser) memory() api.Memory {
 	return one.module.Memory()
+}
+
+// compilationCache is wazero's store of compiled code in dir, or nil when dir
+// cannot hold one. Every failure here is swallowed on purpose: a cache only ever
+// buys time, and the PNG has to be drawn anyway. A directory that exists but
+// refuses a write is the case worth naming, because wazero fails the compile
+// outright when it cannot save the result, so it has to be given up beforehand.
+func compilationCache(dir string) wazero.CompilationCache {
+	if dir == "" || ensureWritable(dir) != nil {
+		return nil
+	}
+	cache, err := wazero.NewCompilationCacheWithDir(dir)
+	if err != nil {
+		return nil
+	}
+	return cache
+}
+
+// ensureWritable makes dir and proves a file can be written in it: only a real
+// write tells a read-only directory from a writable one.
+func ensureWritable(dir string) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	probe, err := os.CreateTemp(dir, "probe")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(probe.Name()) }()
+	return probe.Close()
 }
 
 // kind is what a heap object is, as far as the imports need to tell them apart.
