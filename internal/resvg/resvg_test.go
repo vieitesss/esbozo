@@ -90,6 +90,7 @@ func TestRasteriseWithoutAWritableCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a cache directory that cannot exist stops the rasteriser: %v", err)
 	}
+	defer func() { _ = one.runtime.Close(one.ctx) }()
 	got, err := one.rasterise(triangleSVG(t), optionsJSON)
 	if err != nil {
 		t.Fatalf("cannot rasterise without a cache: %v", err)
