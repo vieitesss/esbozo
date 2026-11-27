@@ -263,8 +263,8 @@ func NodeMkdirMessage(err error, dir string) string {
 	return nodeMessage(syscall.ENOTDIR, pathErr.Path, "mkdir")
 }
 
-// nodeMessage is Node's wording for one file error, made by `call`, so every file
-// error has one owner and one shape: `CODE: reason, call 'path'`.
+// The wording below is Node's for one file error, made by `call`, so every file
+// error comes from one place: `CODE: reason, call 'path'`.
 func nodeMessage(err error, path, call string) string {
 	switch {
 	case errors.Is(err, fs.ErrNotExist):

@@ -24,11 +24,11 @@ type pngArguments struct {
 	fontPath  string
 }
 
-// parsePngArguments reads the flags in either order, and nothing else: a second
+// parsePNGArguments reads the flags in either order, and nothing else: a second
 // Scene, a flag with no value, and a flag `png` does not take are all wrong
 // arguments. A repeated flag takes its last value, as `parsePngArguments` in
 // `src/cli.ts` lets it.
-func parsePngArguments(argv []string) (pngArguments, bool) {
+func parsePNGArguments(argv []string) (pngArguments, bool) {
 	var parsed pngArguments
 	for index := 0; index < len(argv); index++ {
 		argument := argv[index]
@@ -70,9 +70,9 @@ func parsePngArguments(argv []string) (pngArguments, bool) {
 	return parsed, true
 }
 
-// runPng is `png`: the image beside the Scene, named for its theme.
-func runPng(argv []string, stdout, stderr io.Writer) int {
-	parsed, ok := parsePngArguments(argv)
+// runPNG is `png`: the image beside the Scene, named for its theme.
+func runPNG(argv []string, stdout, stderr io.Writer) int {
+	parsed, ok := parsePNGArguments(argv)
 	if !ok {
 		fmt.Fprintln(stderr, usageLine["png"])
 		return exitUsage

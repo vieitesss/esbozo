@@ -57,7 +57,7 @@ func run(argv []string, stdout, stderr io.Writer) int {
 	case "render", "check":
 		return runScene(command, rest, stdout, stderr)
 	case "png":
-		return runPng(rest, stdout, stderr)
+		return runPNG(rest, stdout, stderr)
 	case "anchor":
 		return runAnchor(rest, stdout, stderr)
 	case "snap":

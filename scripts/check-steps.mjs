@@ -4,8 +4,9 @@
  * Review kept finding a commit that only went green once the next one landed —
  * an export `knip` reported until a later import pointed at it — so the branch
  * is walked oldest first and each commit gets the static half of `pnpm check`:
- * `typecheck`, `lint`, `knip` and `check-rules`. The node tests and the build
- * are left out: they are slow, and none of them is what a single commit broke.
+ * `typecheck`, `lint`, `knip`, `check-rules`, and the Go half, `go vet` and
+ * `gofmt`. The node tests, `go test`, the CLI suites and the build are left
+ * out: they are slow, and none of them is what a single commit broke.
  *
  * Usage: pnpm check:steps <base>
  *
@@ -23,12 +24,19 @@
  * fails, and `2` for a missing base or a base `HEAD` does not descend from.
  */
 import { spawn } from 'node:child_process';
-import { lstat, mkdtemp, rm, symlink, unlink } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 /** The static half of `pnpm check`, in the order `pnpm check` runs them. */
 const CHECKS = ['typecheck', 'lint', 'knip', 'check-rules'];
+
+/**
+ * The files the root Go package embeds that `pnpm build` writes and git does not
+ * carry: `go vet` resolves `//go:embed` patterns, so they are stood in for empty.
+ * A new built embed is red here until it is listed.
+ */
+const BUILT_EMBEDS = ['dist/core.js', 'dist/embed.js', 'dist/font-metrics.json', 'dist/resvg.wasm', 'dist/version'];
 
 /** The two files whose change makes this checkout's modules the wrong ones. */
 const MANIFEST = ['package.json', 'pnpm-lock.yaml'];
@@ -70,6 +78,34 @@ async function unlinkModules(tree) {
   const modules = join(tree, 'node_modules');
   const info = await lstat(modules).catch(() => null);
   if (info?.isSymbolicLink()) await unlink(modules);
+}
+
+async function standInForBuiltEmbeds(tree) {
+  for (const path of BUILT_EMBEDS) {
+    const file = join(tree, path);
+    if (await present(file)) continue;
+    await mkdir(dirname(file), { recursive: true });
+    await writeFile(file, '');
+  }
+}
+
+/** The Go half of `pnpm check` in one commit's tree. */
+async function goChecks(tree) {
+  if (!(await present(join(tree, 'go.mod')))) return null;
+
+  await standInForBuiltEmbeds(tree);
+  const vet = await run('go', ['vet', './...'], tree);
+  if (vet.status !== 0) return { name: 'go vet', ...vet };
+
+  const files = (await git(tree, ['ls-files', '--', '*.go'])).trim().split('\n');
+  const goFiles = files.filter((file) => file !== '');
+  // `gofmt -l` with no file reads stdin and waits.
+  if (goFiles.length === 0) return null;
+
+  const gofmt = await run('gofmt', ['-l', ...goFiles], tree);
+  if (gofmt.status !== 0) return { name: 'gofmt', ...gofmt };
+  if (gofmt.out.trim() === '') return null;
+  return { name: 'gofmt', status: 1, out: `not formatted: ${gofmt.out.trim()}`, err: '' };
 }
 
 async function main() {
@@ -148,6 +184,8 @@ async function main() {
         const result = await run('pnpm', ['run', '--config.verify-deps-before-run=false', check], tree);
         if (result.status !== 0) broke = { name: check, ...result };
       }
+
+      if (broke === null) broke = await goChecks(tree);
 
       if (broke === null) {
         process.stdout.write(`${sha} ${subject}: ok\n`);

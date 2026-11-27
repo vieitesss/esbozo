@@ -8,12 +8,14 @@ Words used here (Scene, Element, Label, Text, Snap, Grid) are defined in [GLOSSA
 
 ## Install
 
-Needs Node 22.22.3 or newer and pnpm. In a clone of this repository:
+Needs Node 22.22.3 or newer, pnpm, Go (the version `go.mod` names) and `just`; if `just` is missing, install it from https://github.com/casey/just. In a clone of this repository:
 
 ```sh
-pnpm install && pnpm build
+just setup && just build
 node dist/cli.js check scene.esbozo
 ```
+
+Run `just` to see every recipe and what it does.
 
 Everywhere below, `ez` stands for `node dist/cli.js` (or for the `ez` bin, if you link the package into your path).
 

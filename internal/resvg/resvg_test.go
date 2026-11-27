@@ -15,12 +15,12 @@ import (
 // does.
 const optionsJSON = `{"background":"rgb(255,255,248)","fitTo":{"mode":"original"}}`
 
-// TestRasteriseMatchesTheNodeModule: the PNG has to be the module's own bytes.
+// TestRasteriseMatchesTheModule: the PNG has to be the module's own bytes.
 //
 // `testdata/triangle.png` was written by the real `@resvg/resvg-wasm` in Node from
 // `testdata/triangle.svg` and `optionsJSON`, so this compares against what the CLI
 // gets for free rather than a hash this package made itself.
-func TestRasteriseMatchesTheNodeModule(t *testing.T) {
+func TestRasteriseMatchesTheModule(t *testing.T) {
 	want := triangle(t)
 
 	got, err := Rasterise(triangleSVG(t), optionsJSON)

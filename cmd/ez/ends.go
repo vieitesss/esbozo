@@ -56,8 +56,8 @@ func parseSnapArguments(argv []string) (snapArguments, bool) {
 	}, true
 }
 
-// fourWords is the shape `anchor` and `snap` share: four words, none of them empty
-// and none of them a flag.
+// fourWords is the four words `anchor` and `snap` share: none of them empty and
+// none of them a flag.
 func fourWords(argv []string) bool {
 	if len(argv) != 4 {
 		return false

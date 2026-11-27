@@ -20,6 +20,30 @@ interface PackManifest {
   files: { path: string }[];
 }
 
+/**
+ * Every `dist/` file the package publishes, named one at a time, because
+ * `package.json` ships the whole folder: a build output that is not on this list
+ * is a file `npm pack` would carry without anyone deciding to — `dist/resvg.wasm`
+ * did, until `package.json` named it out.
+ */
+const PUBLISHED_DIST = [
+  'dist/cli.js',
+  'dist/editor.css',
+  'dist/editor.css.br',
+  'dist/editor.css.gz',
+  'dist/editor.html',
+  'dist/editor.html.br',
+  'dist/editor.html.gz',
+  'dist/editor.js',
+  'dist/editor.js.br',
+  'dist/editor.js.gz',
+  'dist/embed.js',
+  'dist/fonts/Kalam-Regular.ttf',
+  'dist/fonts/OFL.txt',
+  'dist/fonts/OFL.txt.br',
+  'dist/fonts/OFL.txt.gz',
+];
+
 test('the published package carries Kalam and its OFL licence', async () => {
   const { stdout } = await run('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], { cwd: ROOT });
   const [manifest] = JSON.parse(stdout) as PackManifest[];
@@ -34,4 +58,17 @@ test('the published package carries Kalam and its OFL licence', async () => {
   assert.ok(paths.includes('dist/editor.js.gz'), 'the gzip page is published');
   assert.ok(paths.includes('fonts/Kalam-Regular.ttf'), 'the bundled font is published');
   assert.ok(paths.includes('fonts/OFL.txt'), 'Kalam’s OFL licence is published');
+});
+
+test('the packed dist/ is exactly the files the build publishes', async () => {
+  const { stdout } = await run('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], { cwd: ROOT });
+  const [manifest] = JSON.parse(stdout) as PackManifest[];
+  assert.ok(manifest !== undefined, 'npm pack printed no manifest');
+
+  const packed = manifest.files
+    .map((file) => file.path)
+    .filter((path) => path.startsWith('dist/'))
+    .sort();
+
+  assert.deepEqual(packed, PUBLISHED_DIST);
 });

@@ -294,6 +294,22 @@ test('the runtime keeps its own name: Node 22, Node-compatible and Node.js are n
   });
 });
 
+test('a name with the runtime word inside it is still a name: makeNode is a finding', async () => {
+  const line = await finding({
+    'src/scene.ts': 'export function makeNode(): number {\n  return 1;\n}\n',
+  });
+
+  assert.match(line, /^src\/scene\.ts:1: avoid term "node" in name "makeNode"$/);
+});
+
+test('copy that capitalises the runtime word is still copy: Add Node is a finding', async () => {
+  const line = await finding({
+    'src/editor/menu.ts': 'export const title = "Add Node";\n',
+  });
+
+  assert.match(line, /^src\/editor\/menu\.ts:1: avoid term "node" in copy "Add Node"$/);
+});
+
 test('an unreadable GLOSSARY.md fails the check loudly, rather than quietly checking nothing', async () => {
   const folder = await mkdtemp(join(tmpdir(), 'esbozo-rules-'));
   folders.push(folder);
@@ -352,6 +368,54 @@ test('a name that holds an Avoid term inside one word is quiet: node_modules is 
 test('a selector is not copy a person reads', async () => {
   await quiet({
     'tests/editor.e2e.ts': "const board = 'esbozo-editor .board';\n",
+  });
+});
+
+test('an Avoid term in a Go comment is a finding, with its line', async () => {
+  const line = await finding({
+    'internal/core/core.go': [
+      'package core',
+      '',
+      '// The drawing the host hands over is one Scene.',
+      'type In struct{}',
+    ].join('\n'),
+  });
+
+  assert.match(line, /^internal\/core\/core\.go:3: avoid term "drawing" in comment /);
+});
+
+test('a Go identifier with the runtime word inside it is still a name, one finding each', async () => {
+  const run = await check({
+    'cmd/ez/scene.go': ['package main', '', 'var renderNode = 3', 'type Node struct{}'].join('\n'),
+  });
+
+  assert.equal(run.code, 1, run.all);
+  assert.deepEqual(run.found, [
+    'cmd/ez/scene.go:3: avoid term "node" in identifier "renderNode"',
+    'cmd/ez/scene.go:4: avoid term "node" in identifier "Node"',
+  ]);
+});
+
+test('a Go comment names the runtime by its proper noun, with no version after it', async () => {
+  await quiet({
+    'internal/core/host.go': [
+      'package core',
+      '',
+      '// The message Node prints when a file is missing.',
+      'const api = 1',
+    ].join('\n'),
+  });
+});
+
+test('a Go string is not a name, and NodeMessage is the runtime, not an Element', async () => {
+  await quiet({
+    'internal/resvg/resvg.go': [
+      'package resvg',
+      '',
+      'const api = "the drawing the module exports"',
+      '',
+      'func NodeMessage() string { return api }',
+    ].join('\n'),
   });
 });
 
