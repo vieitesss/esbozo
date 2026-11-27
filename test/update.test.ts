@@ -8,11 +8,15 @@ import { release, run, startRelease, type FakeRelease } from './release.ts';
 import { removeTempFolders, tempFolder } from './temp.ts';
 
 const BIN = fileURLToPath(new URL('../dist/ez', import.meta.url));
+const CURRENT_BUILD_VERSION = '2.0.0';
+const UNREACHABLE_RELEASE_URL = 'http://127.0.0.1:1';
 
 let server: FakeRelease;
 
 before(async () => {
-  server = await startRelease(new Map([['/download/v2.0.0', release(await readFile(BIN))]]));
+  server = await startRelease(
+    new Map([[`/download/v${CURRENT_BUILD_VERSION}`, release(await readFile(BIN))]]),
+  );
 });
 
 after(async () => {
@@ -68,7 +72,7 @@ test('when the folder already holds the target, says so and leaves it alone', as
   const { ez } = await installed();
   const before = await stat(ez);
 
-  const update = await run(ez, ['update', '--version', '2.0.0'], {
+  const update = await run(ez, ['update', '--version', CURRENT_BUILD_VERSION], {
     ESBOZO_RELEASE_URL: server.url,
   });
 
@@ -87,7 +91,7 @@ test('the upgrade alias updates like update', async () => {
   assert.deepEqual(await run(ez, []), { code: 0, stdout: 'ez 9.9.9\n', stderr: '' });
 });
 
-test('refuses the flags it cannot read itself, before any refusal of the folder', async () => {
+test('refuses bad flags before Docker or folder checks', async () => {
   const { ez } = await installed();
   const cases = [
     { args: ['--version'], says: 'a --version with no version' },
@@ -111,7 +115,7 @@ test('refuses the flags it cannot read itself, before any refusal of the folder'
 
 test('refuses in a clone, pointing at git pull and pnpm build instead', async () => {
   const before = await stat(BIN);
-  const update = await run(BIN, ['update'], { ESBOZO_RELEASE_URL: 'http://127.0.0.1:1' });
+  const update = await run(BIN, ['update'], { ESBOZO_RELEASE_URL: UNREACHABLE_RELEASE_URL });
 
   assert.notEqual(update.code, 0);
   assert.match(update.stderr, /clone/);
@@ -123,7 +127,7 @@ test('updates a folder that is no dist, even beside an esbozo go.mod', async () 
   const { folder, ez } = await installed();
   await writeFile(join(dirname(folder), 'go.mod'), 'module esbozo\n', 'utf8');
 
-  const update = await run(ez, ['update', '--version', '2.0.0'], {
+  const update = await run(ez, ['update', '--version', CURRENT_BUILD_VERSION], {
     ESBOZO_RELEASE_URL: server.url,
   });
 
