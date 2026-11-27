@@ -775,6 +775,23 @@ test('an invalid Scene is refused and nothing is written', async () => {
   await assertMissing(join(folder, 'odd.json'));
 });
 
+test('an invalid Scene is refused with the problems as the parser words them', async () => {
+  const folder = await sceneFolder(SCENE);
+  const server = await served(folder);
+  const broken = { version: 1, elements: [{ id: 'box1', type: 'box', x: 0, y: 0, width: 100, height: 50 }] };
+
+  const answer = await request(server, '/api/scenes/broken.json', 'PUT', sent(broken));
+
+  assert.equal(answer.status, 400);
+  // The message alone, with no `box1: ` in front of it: what the server answers
+  // is the parser's word for the problem, the way `src/serve.ts` joins them.
+  assert.deepEqual(JSON.parse(answer.body), {
+    error: 'the Scene is invalid: type must be one of rectangle, ellipse, diamond, arrow, line, text, got "box"',
+  });
+  await assertMissing(join(folder, 'broken.json'));
+  await assertMissing(join(folder, 'broken.svg'));
+});
+
 test('a write whose scene or svg is null is refused as no write at all', async () => {
   const folder = await sceneFolder(SCENE);
   const server = await served(folder);

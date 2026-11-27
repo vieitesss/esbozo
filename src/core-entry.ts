@@ -598,11 +598,17 @@ async function check(request: CheckRequest): Promise<Result> {
 /**
  * `parse`: what the parser `ez check` uses says about a Scene, and nothing more —
  * no font is measured and no Label fitted, so a host can tell a Scene from any
- * other JSON without paying for a Layout.
+ * other JSON without paying for a Layout. The problems are each one's message
+ * alone, because `src/serve.ts` words an invalid Scene that way.
  */
 async function parseOnly(request: ParseRequest): Promise<Result> {
   const { parsed } = loadScene(request.source);
-  return parsed.ok ? ok() : refused(EXIT.invalidScene, problemLines(parsed.problems));
+  return parsed.ok
+    ? ok()
+    : refused(
+        EXIT.invalidScene,
+        parsed.problems.map((problem) => problem.message),
+      );
 }
 
 /**
