@@ -1,0 +1,1 @@
+{ "version": 1, "elements": [{ "id": "a", "type": "rectangle", "x": 40, "y": 40, "width": 200, "height": 80, "label": "hi\uD800there" }] }

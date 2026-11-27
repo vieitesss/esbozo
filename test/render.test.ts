@@ -436,6 +436,26 @@ test('a Scene that is not JSON exits 3', async () => {
   assert.match(run.stderr, /not valid JSON/);
 });
 
+test('a number JSON cannot hold is refused as V8 refuses it', async () => {
+  const folder = await tempFolder();
+  // `01e400` is no JSON number at all: a `0` is a whole number, and the `1`
+  // after it is what V8 names, at the place it names it.
+  await writeFile(
+    join(folder, 'scene.json'),
+    '{ "version": 1, "elements": [{ "id": "a", "type": "rectangle", "x": 01e400, "x": 10, "y": 0, "width": 100, "height": 50 }] }\n',
+    'utf8',
+  );
+
+  const run = await ez(['render', 'scene.json'], folder);
+
+  assert.equal(run.code, 3);
+  assert.equal(
+    run.stderr,
+    'not valid JSON: Unexpected number in JSON at position 69 (line 1 column 70)\n',
+  );
+  assert.equal(existsSync(join(folder, 'scene.svg')), false, 'no SVG for a Scene it cannot read');
+});
+
 test('a missing Scene exits 3', async () => {
   const folder = await tempFolder();
 
