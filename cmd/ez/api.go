@@ -1,7 +1,6 @@
 // The Scene API's two reading routes: the list of Scenes one folder offers, and
 // one Scene's own bytes, as `src/serve.ts` answers them and `docs/save-api.md`
-// states them. The write is item c's: until it lands, a method this file does
-// not answer says what the TS server says about one it refuses.
+// states them. The write the same route takes is `write.go`'s.
 package main
 
 import (
@@ -137,11 +136,11 @@ func cannotList(err error) bool {
 		errors.Is(err, syscall.EISDIR)
 }
 
-// serveScene answers `/api/scenes/<name>` with the Scene's own bytes, exactly as
-// they are on disk. As `docs/save-api.md` orders them: the name first, then
-// whether it stays in the folder, then the method, and only then whether there is
-// a Scene to read.
-func serveScene(response http.ResponseWriter, request *http.Request, folder, encodedName string, session *core.Session) {
+// serveScene answers `/api/scenes/<name>`: the Scene's own bytes exactly as they
+// are on disk, or the write `PUT` and `POST` spell. As `docs/save-api.md` orders
+// them: the name first, then whether it stays in the folder, then the method, and
+// only then what the method asks of the file.
+func serveScene(response http.ResponseWriter, request *http.Request, folder, encodedName string, readOnly bool, session *core.Session, writes *writeQueue) {
 	name, err := url.PathUnescape(encodedName)
 	if err != nil {
 		sendJSON(response, http.StatusBadRequest, problem{"the Scene name is not valid percent-encoding"})
@@ -158,8 +157,10 @@ func serveScene(response http.ResponseWriter, request *http.Request, folder, enc
 		return
 	}
 
-	// The write `PUT` and `POST` spell is item c's: a method this server does not
-	// take yet answers with the line the TS server sends for one it refuses.
+	if request.Method == http.MethodPut || request.Method == http.MethodPost {
+		serveWrite(response, request, folder, name, readOnly, session, writes)
+		return
+	}
 	if request.Method != http.MethodGet {
 		sendJSON(response, http.StatusMethodNotAllowed, problem{"use GET, PUT or POST"})
 		return
