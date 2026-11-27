@@ -8,7 +8,13 @@
  * `gofmt`. The node tests, `go test`, the CLI suites and the build are left
  * out: they are slow, and none of them is what a single commit broke.
  *
- * Usage: pnpm check:steps <base>
+ * Usage: pnpm check:steps <base> [--shard I/N]
+ *
+ * A range long enough to dominate a run is split across jobs: `--shard 2/4`
+ * checks every fourth commit of the range, the second of them, and four shards
+ * together check each commit exactly once. The range itself is still found from
+ * the whole history, oldest first, so a shard is a slice of one order and not a
+ * slice of the history.
  *
  * The caller's working tree, index and branch are never touched. The commits are
  * checked in one detached temporary worktree, with this checkout's
@@ -21,7 +27,8 @@
  * One line per commit — `<sha> <subject>: ok`, or the name of the first check
  * that failed with that check's output printed underneath — and the run carries
  * on, so one pass names every commit that is not green. Exit `1` when any commit
- * fails, and `2` for a missing base or a base `HEAD` does not descend from.
+ * fails, and `2` for a missing base, a base `HEAD` does not descend from, or a
+ * shard that is not `I/N` with `1 <= I <= N`.
  */
 import { spawn } from 'node:child_process';
 import { lstat, mkdir, mkdtemp, rm, symlink, unlink, writeFile } from 'node:fs/promises';
@@ -35,7 +42,22 @@ const CHECKS = ['typecheck', 'lint', 'knip', 'check-rules'];
 /** The two files whose change makes this checkout's modules the wrong ones. */
 const MANIFEST = ['package.json', 'pnpm-lock.yaml'];
 
-const USAGE = 'Usage: pnpm check:steps <base>  (base must be a commit HEAD descends from)';
+const USAGE = 'Usage: pnpm check:steps <base> [--shard I/N]  (base must be a commit HEAD descends from)';
+
+/**
+ * The shard `--shard I/N` asks for: `{ kind: 'absent' }`, `{ kind: 'malformed' }`,
+ * or the 1-based `index` and `count` of a shard this range can be split into.
+ */
+function readShard(args) {
+  const at = args.indexOf('--shard');
+  if (at === -1) return { kind: 'absent' };
+  const match = /^(\d+)\/(\d+)$/.exec(args[at + 1] ?? '');
+  if (match === null) return { kind: 'malformed' };
+  const index = Number(match[1]);
+  const count = Number(match[2]);
+  if (index < 1 || count < 1 || index > count) return { kind: 'malformed' };
+  return { kind: 'shard', index, count };
+}
 
 /** One command, its two streams collected, resolved with what it exited with. */
 function run(command, args, cwd) {
@@ -109,10 +131,11 @@ async function goChecks(tree) {
 }
 
 async function main() {
-  const [base] = process.argv.slice(2);
+  const [base, ...rest] = process.argv.slice(2);
   const root = process.cwd();
+  const shard = readShard(rest);
 
-  if (base === undefined || base.startsWith('-')) {
+  if (base === undefined || base.startsWith('-') || shard.kind === 'malformed') {
     process.stderr.write(`${USAGE}\n`);
     process.exitCode = 2;
     return;
@@ -136,7 +159,8 @@ async function main() {
     .map((line) => {
       const [sha, subject] = line.split('\0');
       return { sha, subject };
-    });
+    })
+    .filter((_, at) => shard.kind === 'absent' || at % shard.count === shard.index - 1);
 
   const scratch = await mkdtemp(join(tmpdir(), 'esbozo-check-steps-'));
   const tree = join(scratch, 'tree');
