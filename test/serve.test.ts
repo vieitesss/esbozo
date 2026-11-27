@@ -287,7 +287,6 @@ test('the build compresses every text page file beside itself, and serves those 
 test('the page is all that is served: nothing else in the built folder is', async () => {
   const server = await served(await sceneFolder(SCENE));
 
-  // The CLI bundle sits beside the page, and it is not a page file.
   assert.equal((await request(server, '/cli.js')).status, 404);
   assert.equal((await request(server, '/package.json')).status, 404);
   assert.equal((await request(server, '/whatever.txt')).status, 404);

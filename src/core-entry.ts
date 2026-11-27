@@ -45,8 +45,8 @@ interface EzHost {
    */
   cwd(): string;
   /**
-   * The bundled font's bytes, read in place of the `.ttf` import the CLI bundles
-   * as base64.
+   * The bundled font's bytes, which the `.ttf` import reads: the bundle resolves
+   * that import to a host shim, so `ez` supplies the file.
    */
   bundledFont(): ArrayBuffer;
   /**

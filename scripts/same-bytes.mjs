@@ -1,8 +1,8 @@
 /**
  * The two runtimes, held to the same bytes.
  *
- * `ez` runs the core bundle in goja; the editor and the CLI run the same sources
- * in V8. This compares the two: every Scene in `test/fixtures/` is rendered and
+ * `ez` runs the core bundle in goja; the editor runs the same sources in V8.
+ * This compares the two: every Scene in `test/fixtures/` is rendered and
  * checked by `dist/core.js` in Node and by `internal/core` in Go, and the SVG
  * bytes, the problem lines, the notes and the exit code have to be identical.
  * `png` runs in both themes too, and its bytes have to be identical as well: the

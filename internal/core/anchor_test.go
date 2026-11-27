@@ -9,7 +9,7 @@ import (
 // Scene that is not is read as `Buffer.toString('utf8')` reads it — one U+FFFD for
 // each maximal subpart of a sequence that encodes no character, so a truncated
 // character counts once and a stray byte counts once. `anchor` writes that text
-// back, so the file the two CLIs write has to be the same bytes.
+// back, so the file `ez anchor` writes has to be those bytes.
 func TestAnchorReplacesBrokenUtf8TheWayBufferDoes(t *testing.T) {
 	cases := []struct {
 		name  string

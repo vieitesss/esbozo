@@ -27,7 +27,7 @@ pnpm build
 Run the main verification commands from the repository root:
 
 - `pnpm check` runs typecheck, lint, knip, custom rules, Go checks, and the Node test suite.
-- `pnpm e2e` runs the model-free browser suites in Chromium.
+- `pnpm e2e <file>` runs the model-free browser suites in Chromium, `--all` runs them all, and a bare `pnpm e2e` refuses locally ([why](../tests/README.md)).
 - `pnpm check:steps <base>` runs the static checks on every commit in `<base>..HEAD`.
 
 ## Git hooks

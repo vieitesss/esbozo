@@ -19,7 +19,7 @@ import (
 type Result struct {
 	// OK is whether the command succeeded; when it is false, ExitCode says why.
 	OK bool
-	// ExitCode is the code `ez` exits with, as `EXIT` in the TS CLI defines it.
+	// ExitCode is the code `ez` exits with, as `EXIT` in `src/exit.ts` defines it.
 	ExitCode int
 	// Problems are the lines `ez` prints on stderr when it refuses.
 	Problems []string

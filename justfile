@@ -9,7 +9,7 @@ default:
 setup:
     pnpm install
 
-# Build the TS CLI, the editor page and bundle, and the Go binary `dist/ez`.
+# Build the editor page and bundle, and the Go binary `dist/ez`.
 build:
     pnpm build
 

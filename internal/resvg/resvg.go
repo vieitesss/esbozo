@@ -1,5 +1,5 @@
-// Package resvg rasterises an SVG with the same resvg build the TypeScript CLI
-// runs.
+// Package resvg rasterises an SVG with the same resvg build the core runs in
+// Node.
 //
 // `src/png.ts` turns the words into outlines before resvg sees the SVG. This side
 // takes one SVG string and the module's options JSON — the whole of what
