@@ -132,11 +132,9 @@ func svgPathFor(scenePath string) (string, error) {
 // sceneStem is `src/paths.ts`'s rule: `.esbozo` or `.json` taken off, in any
 // letter case.
 func sceneStem(name string) string {
-	folded := strings.ToLower(name)
-	for _, extension := range []string{".esbozo", ".json"} {
-		if strings.HasSuffix(folded, extension) {
-			return name[:len(name)-len(extension)]
-		}
+	extension := sceneExtension(name)
+	if extension == "" {
+		return name
 	}
-	return name
+	return name[:len(name)-len(extension)]
 }

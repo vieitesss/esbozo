@@ -18,6 +18,7 @@ import (
 	"syscall"
 
 	"esbozo"
+	"esbozo/internal/core"
 )
 
 // defaultPort is `DEFAULT_PORT` in `src/cli.ts`: the port a person finds `ez
@@ -126,7 +127,15 @@ func runServe(argv []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return exitWriteFailed
 	}
-	server := &http.Server{Handler: handler()}
+	// One core runtime for as long as the server runs: no request pays for a
+	// runtime of its own, and the lock inside the session keeps them one at a time.
+	session, err := core.Open()
+	if err != nil {
+		_ = listening.Close()
+		fmt.Fprintf(stderr, "ez could not run serve: %s\n", err)
+		return exitWriteFailed
+	}
+	server := &http.Server{Handler: handler(root, parsed.readOnly, session)}
 
 	// SIGINT and SIGTERM stop the server, as `src/cli.ts` listens for them; a
 	// signal is the way a person ends a server they started, not a failure.
@@ -189,12 +198,15 @@ func buildLine() string {
 }
 
 // handler is what a request meets, before any route: a path with a dot segment
-// or broken percent-encoding, then the health route, then a page file.
-func handler() http.Handler {
-	return http.HandlerFunc(answer)
+// or broken percent-encoding, then the health route, then the Scene routes, then
+// a page file. `session` is the one core runtime every request answers in.
+func handler(folder string, readOnly bool, session *core.Session) http.Handler {
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		answer(response, request, folder, readOnly, session)
+	})
 }
 
-func answer(response http.ResponseWriter, request *http.Request) {
+func answer(response http.ResponseWriter, request *http.Request, folder string, readOnly bool, session *core.Session) {
 	raw := request.RequestURI
 	if raised := rawPathProblem(raw); raised != "" {
 		sendJSON(response, http.StatusBadRequest, problem{raised})
@@ -207,6 +219,14 @@ func answer(response http.ResponseWriter, request *http.Request) {
 			return
 		}
 		sendJSON(response, http.StatusOK, health{Build: esbozo.Build, BuiltAt: esbozo.BuiltAt})
+		return
+	}
+	if pathname == scenesAPI || pathname == scenesAPI+"/" {
+		serveListing(response, request, folder, readOnly, session)
+		return
+	}
+	if strings.HasPrefix(pathname, scenesAPI+"/") {
+		serveScene(response, request, folder, strings.TrimPrefix(pathname, scenesAPI+"/"), session)
 		return
 	}
 	servePageFile(response, request, pathname)
