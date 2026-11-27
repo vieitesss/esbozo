@@ -18,19 +18,29 @@ import (
 	"esbozo"
 )
 
+// usageUpdate is the line `ez update` prints for flags it cannot read. It is not
+// `usageLine`'s: the TS CLI has no `update`, so no `src/help.ts` words exist to
+// hold this to.
+const usageUpdate = "usage: ez update [--main | --version <X.Y.Z>]"
+
 // runUpdate is `update`, and `upgrade` as its alias: the carried installer, on
 // the folder this binary runs from, with the flags this run was given.
 func runUpdate(argv []string, stdout, stderr io.Writer) int {
+	tag, ok := updateTag(argv)
+	if !ok {
+		fmt.Fprintln(stderr, usageUpdate)
+		return exitUsage
+	}
 	folder, err := ezFolder()
 	if err != nil {
 		fmt.Fprintf(stderr, "ez update: cannot find the folder ez runs from: %s\n", err)
 		return exitInstallFailed
 	}
-	if refused := updateRefusal(argv, folder); refused != "" {
+	if refused := updateRefusal(tag, folder); refused != "" {
 		fmt.Fprint(stderr, refused)
 		return exitInstallFailed
 	}
-	return runInstallScript(argv, folder, stdout, stderr)
+	return runInstallScript(tag, folder, stdout, stderr)
 }
 
 // ezFolder is the folder the running binary sits in, symlinks resolved: the
@@ -51,7 +61,7 @@ func ezFolder() (string, error) {
 // updateRefusal is what to print instead of updating this folder, and why: a
 // clone is rebuilt, an image is pulled, and a folder nothing may write to takes
 // the installer with a `--dir` of its own. An empty answer is no refusal.
-func updateRefusal(argv []string, folder string) string {
+func updateRefusal(tag string, folder string) string {
 	if isClone(folder) {
 		return fmt.Sprintf(
 			"ez update: %s is built in a clone of esbozo, so an update would replace a build\n"+
@@ -62,7 +72,7 @@ func updateRefusal(argv []string, folder string) string {
 		return fmt.Sprintf(
 			"ez update: this ez runs in a Docker image, where writing %s would change this container only\n"+
 				"  docker pull ghcr.io/vieitesss/esbozo:%s\n",
-			folder, updateTag(argv))
+			folder, tag)
 	}
 	if !writableFolder(folder) {
 		return fmt.Sprintf(
@@ -99,22 +109,54 @@ func inDocker() bool {
 	return os.Getenv("ESBOZO_DOCKER") != ""
 }
 
-// updateTag is the tag the flags name — the Main build, that Release, or the
-// latest one — so the line printed is the pull that would replace this image.
-func updateTag(argv []string) string {
-	tag := "latest"
+// updateTag reads this command's own flags, once, before any refusal is judged:
+// the tag they name — the Main build, that Release, or the latest one — which is
+// also the `docker pull` tag a refusal in Docker prints. `ok` is false for the
+// flags `ez update` does not take — an unknown one, `--dir`, which it sets
+// itself, a `--version` with nothing after it or with no `X.Y.Z` in it, and
+// `--main` with `--version` — so what reaches the script is always one channel
+// it reads the same way.
+func updateTag(argv []string) (tag string, ok bool) {
+	main, version := false, ""
 	for index := 0; index < len(argv); index++ {
 		switch argv[index] {
 		case "--main":
-			tag = "main"
+			main = true
 		case "--version":
-			if index+1 < len(argv) {
-				tag = argv[index+1]
-				index++
+			if index+1 >= len(argv) || !isVersion(argv[index+1]) {
+				return "", false
 			}
+			version = argv[index+1]
+			index++
+		default:
+			return "", false
 		}
 	}
-	return tag
+	switch {
+	case main && version != "":
+		return "", false
+	case main:
+		return "main", true
+	case version != "":
+		return version, true
+	}
+	return "latest", true
+}
+
+// isVersion reports whether s is the `X.Y.Z` `--version` takes: three parts of
+// digits and nothing else, so a tag that is a path — `1.2.3/../main` — is refused
+// here rather than fetched as the Release it resolves to.
+func isVersion(s string) bool {
+	parts := strings.Split(s, ".")
+	if len(parts) != 3 {
+		return false
+	}
+	for _, part := range parts {
+		if part == "" || strings.Trim(part, "0123456789") != "" {
+			return false
+		}
+	}
+	return true
 }
 
 // writableFolder writes a probe into folder and takes it away again, because only
@@ -132,12 +174,17 @@ func writableFolder(folder string) bool {
 }
 
 // runInstallScript runs the carried `scripts/install.sh` as `sh` reads it from
-// stdin, with the flags this run was given and `--dir` last, so the folder this
+// stdin, with the tag this run was given and `--dir` last, so the folder this
 // binary runs from is where it installs whatever a `--dir` of the caller's would
 // have asked for. The environment is inherited — `ESBOZO_RELEASE_URL` reaches the
 // script that way — and the two streams and the exit code are the script's own.
-func runInstallScript(argv []string, folder string, stdout, stderr io.Writer) int {
-	args := append([]string{"-s", "--"}, argv...)
+func runInstallScript(tag string, folder string, stdout, stderr io.Writer) int {
+	args := []string{"-s", "--"}
+	if tag == "main" {
+		args = append(args, "--main")
+	} else if tag != "latest" {
+		args = append(args, "--version", tag)
+	}
 	args = append(args, "--dir", folder)
 	command := exec.Command("sh", args...)
 	command.Stdin = bytes.NewReader(esbozo.InstallScript)

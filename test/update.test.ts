@@ -122,6 +122,29 @@ test('the upgrade alias updates like update', async () => {
   assert.deepEqual(await run(ez, []), { code: 0, stdout: 'ez 9.9.9\n', stderr: '' });
 });
 
+test('refuses the flags it cannot read itself, before any refusal of the folder', async () => {
+  const { ez } = await installed();
+  const cases = [
+    { args: ['--version'], says: 'a --version with no version' },
+    { args: ['--version', '1.2.3/../main'], says: 'a --version that is not X.Y.Z' },
+    { args: ['--dir', 'x'], says: 'a --dir, which ez update sets itself' },
+    { args: ['--main', '--version', '1.2.3'], says: 'both channels at once' },
+    { args: ['--upgrade'], says: 'an unknown flag' },
+  ];
+
+  for (const { args, says } of cases) {
+    // Docker is where a refusal would print first if the flags were read after it.
+    const update = await run(ez, ['update', ...args], {
+      ESBOZO_DOCKER: '1',
+      ESBOZO_RELEASE_URL: releaseUrl,
+    });
+
+    assert.equal(update.code, 2, `${says}: ${update.stderr}`);
+    assert.match(update.stderr, /usage: ez update/, says);
+    assert.equal(update.stdout, '', says);
+  }
+});
+
 test('refuses in a clone, pointing at git pull and pnpm build instead', async () => {
   const before = await stat(BIN);
   // Nothing to download, so a refusal that leaked would fail on the fetch rather
