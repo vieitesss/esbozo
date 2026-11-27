@@ -90,6 +90,19 @@ test('a bundle that cannot be written is the write-failure exit code', async () 
   assert.equal((await ez(['bundle', missing], ROOT)).code, 4);
 });
 
+test('a folder that is a file is not a folder to write into', async () => {
+  // The path is resolved before it is opened, so a file where the folder should be
+  // is the write failing — `ENOTDIR`, not a missing file — and the exit code says so.
+  const file = join(await tempFolder('esbozo-bundle-'), 'a-file');
+  await writeFile(file, 'not a folder', 'utf8');
+  const path = join(file, BUNDLE);
+
+  const run = await ez(['bundle', file], ROOT);
+  assert.equal(run.code, 4, run.stderr);
+  assert.equal(run.stdout, '');
+  assert.equal(run.stderr, `cannot write ${path}: ENOTDIR: not a directory, open '${path}'\n`);
+});
+
 test('the packed tarball installs, and both of its bins run the editor it bundles', async () => {
   // Packing runs `prepack`, which rebuilds `dist` where it runs. So it runs on a
   // copy of the sources, with this repository's `node_modules` linked in: the
