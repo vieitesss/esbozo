@@ -115,18 +115,21 @@ func runSnap(argv []string, stdout, stderr io.Writer) int {
 	}, stdout, stderr)
 }
 
-// editScene reads the Scene a command names, has the core edit it, and writes the
-// answer over the file. The core refuses a Scene its own parser turns down, so
-// nothing is written until the answer is a Scene the parser reads back.
+// editScene has the core edit the Scene a command names, and writes the answer over
+// the file. The core judges the command's words before it parses the Scene, so a
+// Scene that cannot be read still has its words refused first — and a Scene the
+// core never saw is the read error the host prints. The core refuses a Scene its own
+// parser turns down, so nothing is written until the answer reads back.
 func editScene(
 	command, scenePath string,
 	edit func(source []byte) (core.Edited, error),
 	stdout, stderr io.Writer,
 ) int {
-	source, err := os.ReadFile(scenePath)
-	if err != nil {
-		fmt.Fprintf(stderr, "cannot read Scene %s: %s\n", scenePath, core.NodeMessage(err, scenePath, true))
-		return exitInvalidScene
+	// A read that failed leaves nothing to edit, whatever bytes it handed over on the
+	// way: the error is what a person sees, and a Scene is only a Scene read whole.
+	source, readErr := os.ReadFile(scenePath)
+	if readErr != nil {
+		source = nil
 	}
 
 	edited, err := edit(source)
@@ -139,6 +142,10 @@ func editScene(
 	}
 	if !edited.OK {
 		return edited.ExitCode
+	}
+	if readErr != nil {
+		fmt.Fprintf(stderr, "cannot read Scene %s: %s\n", scenePath, core.NodeMessage(readErr, scenePath, true))
+		return exitInvalidScene
 	}
 
 	// 0666, as `writeFile` writes: the umask decides the rest.

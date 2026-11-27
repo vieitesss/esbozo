@@ -469,19 +469,24 @@ interface PngRequest extends CheckRequest {
 
 /**
  * `anchor`'s request: the Scene, and the words the command line typed. `--all`
- * names no Element, end or place, and each is `null` when it is set.
+ * names no Element, end or place, and each is `null` when it is set. A `source`
+ * of `null` is a host that could not read the Scene: the words are still judged,
+ * and no Scene is edited.
  */
 interface AnchorRequest {
-  readonly source: ArrayBuffer;
+  readonly source: ArrayBuffer | null;
   readonly all: boolean;
   readonly elementId: string | null;
   readonly end: string | null;
   readonly place: string | null;
 }
 
-/** `snap`'s request: the Scene, the Element and end it names, and the target or `off`. */
+/**
+ * `snap`'s request: the Scene, the Element and end it names, and the target or
+ * `off` — with `null` for a Scene its host could not read.
+ */
 interface SnapRequest {
-  readonly source: ArrayBuffer;
+  readonly source: ArrayBuffer | null;
   readonly elementId: string;
   readonly end: string;
   readonly target: string;
@@ -516,6 +521,20 @@ function failed(exitCode: number, problems: readonly string[]): Answer {
   };
 }
 
+/** An answer that succeeds and edits no Scene: no text to save, no lines to print. */
+function unchanged(): Answer {
+  return {
+    ok: true,
+    exitCode: 0,
+    svg: '',
+    png: null,
+    scene: '',
+    lines: [],
+    problems: [],
+    notes: [],
+  };
+}
+
 /** A problem as `ez` prints it: `id: message`, or the message alone with no id. */
 function problemLines(problems: readonly { elementId: string | null; message: string }[]): string[] {
   return problems.map((problem) =>
@@ -543,16 +562,7 @@ async function render(request: RenderRequest): Promise<Answer> {
 
   const layout: Layout = layoutFor(font.value);
   const svg = renderScene(parsed.scene, layout, sha256Hex(bytes));
-  return {
-    ok: true,
-    exitCode: 0,
-    svg,
-    png: null,
-    scene: '',
-    lines: [],
-    problems: [],
-    notes: font.notes,
-  };
+  return { ...unchanged(), svg, notes: font.notes };
 }
 
 async function check(request: CheckRequest): Promise<Answer> {
@@ -581,16 +591,7 @@ async function check(request: CheckRequest): Promise<Answer> {
   if (overflowed.length > 0) {
     return { ...failed(EXIT.labelOverflow, overflowed), notes: font.notes };
   }
-  return {
-    ok: true,
-    exitCode: 0,
-    svg: '',
-    png: null,
-    scene: '',
-    lines: [],
-    problems: [],
-    notes: font.notes,
-  };
+  return { ...unchanged(), notes: font.notes };
 }
 
 /**
@@ -612,16 +613,7 @@ async function png(request: PngRequest): Promise<Answer> {
   if (!rendered.ok) {
     return failed(EXIT.missingThemeOrFont, rendered.problems);
   }
-  return {
-    ok: true,
-    exitCode: 0,
-    svg: '',
-    png: rendered.png,
-    scene: '',
-    lines: [],
-    problems: [],
-    notes: rendered.notes,
-  };
+  return { ...unchanged(), png: rendered.png, notes: rendered.notes };
 }
 
 /**
@@ -659,6 +651,11 @@ async function anchor(request: AnchorRequest): Promise<Answer> {
   if (!edit.ok) {
     return failed(edit.exitCode, [edit.message]);
   }
+  // No Scene to edit: the host could not read one and asks only whether the words
+  // stand, so that its own message about the read is the one a person sees.
+  if (request.source === null) {
+    return unchanged();
+  }
   const { parsed } = loadScene(request.source);
   if (!parsed.ok) {
     return failed(EXIT.invalidScene, problemLines(parsed.problems));
@@ -675,6 +672,9 @@ async function snap(request: SnapRequest): Promise<Answer> {
   });
   if (!edit.ok) {
     return failed(edit.exitCode, [edit.message]);
+  }
+  if (request.source === null) {
+    return unchanged();
   }
   const { parsed } = loadScene(request.source);
   if (!parsed.ok) {
@@ -708,16 +708,7 @@ function saved(edit: Outcome<Change>): Answer {
   if (!checked.ok) {
     return failed(EXIT.invalidScene, problemLines(checked.problems));
   }
-  return {
-    ok: true,
-    exitCode: 0,
-    svg: '',
-    png: null,
-    scene: text,
-    lines: edit.value.lines,
-    problems: [],
-    notes: [],
-  };
+  return { ...unchanged(), scene: text, lines: edit.value.lines };
 }
 
 /**

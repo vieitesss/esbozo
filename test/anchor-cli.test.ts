@@ -328,6 +328,12 @@ test('a Scene it cannot read still has the words judged first', async () => {
   const read = await ez(['anchor', 'missing.json', 'a-b', 'end', 'top'], folder);
   assert.equal(read.code, 3, read.stderr);
   assert.match(read.stderr, /^cannot read Scene missing\.json: ENOENT/);
+
+  // A folder is a read that fails after it has handed over no bytes at all: the
+  // failure is what a person sees, not a Scene the parse could make of them.
+  const folderScene = await ez(['anchor', '.', 'a-b', 'end', 'top'], folder);
+  assert.equal(folderScene.code, 3, folderScene.stderr);
+  assert.equal(folderScene.stderr, 'cannot read Scene .: EISDIR: illegal operation on a directory, read\n');
 });
 
 test('ez --help names both anchor commands', async () => {

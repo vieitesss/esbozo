@@ -153,7 +153,8 @@ func PNG(source []byte, options PNGOptions) (Image, error) {
 }
 
 // Anchor answers `ez anchor` over a Scene's bytes: the Scene the command would
-// save, and the lines it prints once it has.
+// save, and the lines it prints once it has. A nil source is a Scene the host
+// could not read, and answers only whether the command's words stand.
 func Anchor(source []byte, options AnchorOptions) (Edited, error) {
 	answer, err := run("anchor", source, map[string]interface{}{
 		"all":       options.All,
@@ -168,7 +169,8 @@ func Anchor(source []byte, options AnchorOptions) (Edited, error) {
 }
 
 // Snap answers `ez snap` over a Scene's bytes: the Scene the command would save,
-// and the lines it prints once it has.
+// and the lines it prints once it has. A nil source is a Scene the host could not
+// read, and answers only whether the command's words stand.
 func Snap(source []byte, options SnapOptions) (Edited, error) {
 	answer, err := run("snap", source, map[string]interface{}{
 		"elementId": options.ElementID,
@@ -200,7 +202,13 @@ func run(kind string, source []byte, fields map[string]interface{}) (*goja.Objec
 	}
 
 	request := vm.NewObject()
-	if err := request.Set("source", vm.NewArrayBuffer(source)); err != nil {
+	// No Scene at all is null, not an empty one: the command judges its words and
+	// edits nothing.
+	if source == nil {
+		if err := request.Set("source", goja.Null()); err != nil {
+			return nil, err
+		}
+	} else if err := request.Set("source", vm.NewArrayBuffer(source)); err != nil {
 		return nil, err
 	}
 	for name, value := range fields {
