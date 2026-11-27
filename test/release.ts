@@ -22,7 +22,7 @@ const ARCH = arch === 'x64' ? 'x64' : 'arm64';
 const ASSET = `ez-${OS}-${ARCH}.gz`;
 
 /** A tiny shell script standing in for `ez`: running it says which release it is. */
-export const EZ = (version: string): string => `#!/bin/sh\necho "ez ${version}"\n`;
+export const fakeEz = (version: string): string => `#!/bin/sh\necho "ez ${version}"\n`;
 
 /** One release folder served to the script: a `SHA256SUMS` and the asset. */
 export function release(
@@ -58,10 +58,10 @@ export function run(
 /** Every release folder the run can ask for, by the path the script asks for. */
 function defaults(): Map<string, Map<string, Buffer>> {
   return new Map<string, Map<string, Buffer>>([
-    ['/latest/download', release(Buffer.from(EZ('9.9.9')))],
-    ['/download/main', release(Buffer.from(EZ('9.9.9-main+abc1234')))],
-    ['/download/v1.2.3', release(Buffer.from(EZ('1.2.3')))],
-    ['/download/v0.0.9', release(Buffer.from(EZ('0.0.9')), { sums: '0'.repeat(64) })],
+    ['/latest/download', release(Buffer.from(fakeEz('9.9.9')))],
+    ['/download/main', release(Buffer.from(fakeEz('9.9.9-main+abc1234')))],
+    ['/download/v1.2.3', release(Buffer.from(fakeEz('1.2.3')))],
+    ['/download/v0.0.9', release(Buffer.from(fakeEz('0.0.9')), { sums: '0'.repeat(64) })],
   ]);
 }
 

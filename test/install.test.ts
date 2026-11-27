@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import type { Run } from './cli.ts';
-import { EZ, release, run, startRelease, type FakeRelease } from './release.ts';
+import { fakeEz, release, run, startRelease, type FakeRelease } from './release.ts';
 import { removeTempFolders, tempFolder } from './temp.ts';
 
 const INSTALL = fileURLToPath(new URL('../scripts/install.sh', import.meta.url));
@@ -71,7 +71,7 @@ test('when no flag is given, installs the latest Release with an esbozo symlink 
   const run = await install(['--dir', bin], { ESBOZO_INSTALL_DIR: join(folder, 'elsewhere') });
 
   assert.equal(run.code, 0, run.stderr);
-  assert.equal(await readFile(join(bin, 'ez'), 'utf8'), EZ('9.9.9'));
+  assert.equal(await readFile(join(bin, 'ez'), 'utf8'), fakeEz('9.9.9'));
   assert.deepEqual(await runInstalled(join(bin, 'ez')), { code: 0, stdout: 'ez 9.9.9\n', stderr: '' });
   assert.deepEqual(await runInstalled(join(bin, 'esbozo')), {
     code: 0,
@@ -122,11 +122,11 @@ test('reads a SHA256SUMS written in binary mode or with CRLF endings', async () 
     new Map([
       [
         '/download/v1.0.1',
-        release(Buffer.from(EZ('1.0.1')), { line: (digest, asset) => `${digest} *${asset}\n` }),
+        release(Buffer.from(fakeEz('1.0.1')), { line: (digest, asset) => `${digest} *${asset}\n` }),
       ],
       [
         '/download/v1.0.2',
-        release(Buffer.from(EZ('1.0.2')), { line: (digest, asset) => `${digest}  ${asset}\r\n` }),
+        release(Buffer.from(fakeEz('1.0.2')), { line: (digest, asset) => `${digest}  ${asset}\r\n` }),
       ],
     ]),
   );
@@ -259,13 +259,13 @@ test('when the checksum does not match, refuses and leaves the existing install 
   const bin = join(await tempFolder(), 'bin');
   const installed = join(bin, 'ez');
   await mkdir(bin, { recursive: true });
-  await writeFile(installed, EZ('0.0.0'));
+  await writeFile(installed, fakeEz('0.0.0'));
   await chmod(installed, 0o755);
 
   const run = await install(['--dir', bin, '--version', '0.0.9']);
 
   assert.notEqual(run.code, 0);
   assert.match(run.stderr, /checksum mismatch/);
-  assert.equal(await readFile(installed, 'utf8'), EZ('0.0.0'));
+  assert.equal(await readFile(installed, 'utf8'), fakeEz('0.0.0'));
   assert.deepEqual(await runInstalled(installed), { code: 0, stdout: 'ez 0.0.0\n', stderr: '' });
 });
