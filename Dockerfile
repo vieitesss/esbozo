@@ -20,6 +20,12 @@ FROM node:22-slim AS build
 COPY --from=go /usr/local/go /usr/local/go
 ENV PATH=/usr/local/go/bin:${PATH}
 
+# Go on Linux builds its root pool from files alone, and `node:22-slim` carries
+# no `/etc/ssl` at all, so `go build` cannot verify proxy.golang.org and stops
+# with "x509: certificate signed by unknown authority". The `go` stage has the
+# bundle; the toolchain copy above does not take it.
+COPY --from=go /etc/ssl/certs /etc/ssl/certs
+
 # The pnpm this repository's lockfile was written with: corepack would stop and
 # ask for a version otherwise. Bump both together.
 ARG PNPM_VERSION=11.24.0
