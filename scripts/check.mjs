@@ -1,5 +1,5 @@
 /**
- * Run the five `pnpm check` steps in order, streaming their output live and
+ * Run the six `pnpm check` steps in order, streaming their output live and
  * printing a one-line summary (`check: ok (...)` or
  * `check: FAILED at <step> — <error>`) as the script's own last line. Through
  * `pnpm check`, pnpm appends its own `[ELIFECYCLE] Command failed...` footer
@@ -8,7 +8,11 @@
  */
 import { spawn } from 'node:child_process';
 
-const STEPS = ['typecheck', 'lint', 'knip', 'check-rules', 'test'];
+/**
+ * In this order, because `check:go` runs the CLI suites against `dist/ez` and
+ * the `test` step's build is what writes it.
+ */
+const STEPS = ['typecheck', 'lint', 'knip', 'check-rules', 'test', 'check:go'];
 
 const ANSI_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-9;?]*[ -/]*[@-~]`, 'g');
 
