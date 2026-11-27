@@ -68,7 +68,7 @@ function request(): RenderRequest {
   return { source: arrayBufferOf(readFileSync(SCENE)), fontPath: null };
 }
 
-async function settled(): Promise<void> {
+async function drainMicrotasks(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
 }
 
@@ -85,7 +85,7 @@ test('a throw inside the core comes back a throw, not a refused Scene', async ()
   };
   try {
     core.begin(request(), 'render');
-    await settled();
+    await drainMicrotasks();
     assert.throws(() => core.answer(), /the host gave up/);
   } finally {
     installed.decodeUtf8 = decode;
