@@ -1,10 +1,4 @@
-// Package core runs the bundled TypeScript core in goja, so that a Scene is
-// parsed, measured and drawn by the same code the CLI and the editor run.
-//
-// No Scene rule lives on this side: Go passes a Scene's bytes and the flags one
-// command takes, and reads back the SVG text, the PNG bytes or the lines `ez`
-// prints. Every command has its own entry point, its own options and its own
-// answer, so no command hands another one's flags over.
+// Package core runs the bundled TypeScript core in goja.
 package core
 
 import (
@@ -14,100 +8,71 @@ import (
 	"github.com/dop251/goja"
 )
 
-// Result is what a command answered about a Scene: whether it ran, the code `ez`
-// exits with, and the lines it prints.
+// Result is the common outcome of a core command.
 type Result struct {
-	// OK is whether the command succeeded; when it is false, ExitCode says why.
 	OK bool
-	// ExitCode is the code `ez` exits with, as `EXIT` in `src/exit.ts` defines it.
+	// ExitCode matches EXIT in src/exit.ts.
 	ExitCode int
-	// Problems are the lines `ez` prints on stderr when it refuses.
+	// Problems are stderr lines printed on refusal.
 	Problems []string
-	// Notes are lines it prints without failing, such as a remote font warning.
+	// Notes are non-fatal warning lines.
 	Notes []string
 }
 
-// Rendered is `ez render`'s answer: the SVG the Scene draws to.
 type Rendered struct {
 	Result
-	// SVG is the rendering `render` writes.
 	SVG string
 }
 
-// Image is `ez png`'s answer: the image the Scene draws to, in one theme.
 type Image struct {
 	Result
-	// PNG is the image `png` drew.
 	PNG []byte
 }
 
-// Edited is `ez anchor` and `ez snap`'s answer: the Scene they would save, and
-// the lines they print once they have.
+// Edited holds the serialised Scene to save and the stdout lines to print after saving.
 type Edited struct {
 	Result
-	// Scene is the serialised Scene to write over the file the command read.
 	Scene string
-	// Lines are the lines the command prints after saving it.
 	Lines []string
 }
 
-// RenderOptions are `ez render`'s flags; an empty field is a flag that was not
-// given.
+// RenderOptions configures Render; empty fields are omitted.
 type RenderOptions struct {
-	// FontPath is `--font`: the font to measure and draw with.
 	FontPath string
 }
 
-// CheckOptions are `ez check`'s flags; an empty field is a flag that was not
-// given.
+// CheckOptions configures Check; empty fields are omitted.
 type CheckOptions struct {
-	// FontPath is `--font`: the font to measure with.
 	FontPath string
-	// CSSPath is `--css`: the stylesheet the palette and the font come from.
-	CSSPath string
+	CSSPath  string
 }
 
-// PNGOptions are `ez png`'s flags; an empty field is a flag that was not given.
+// PNGOptions configures PNG; empty fields are omitted.
 type PNGOptions struct {
-	// FontPath is `--font`: the font to measure and draw with.
 	FontPath string
-	// CSSPath is `--css`: the stylesheet the palette and the font come from.
-	CSSPath string
-	// Theme is `--theme`: the palette `png` draws in, `light` or `dark`.
+	CSSPath  string
+	// Theme is "light" or "dark".
 	Theme string
-	// Ink, Paper and Muted are `--ink`, `--paper` and `--muted`: the colours
-	// `png` draws with, overriding what the stylesheet or the built-in theme
-	// declares.
 	Ink   string
 	Paper string
 	Muted string
 }
 
-// AnchorOptions are the words `ez anchor` was given: every Snapped end that
-// carries no Anchor, or one end and the place to put its Anchor at.
+// AnchorOptions configures Anchor. When All is true, ElementID, End, and Place are ignored.
 type AnchorOptions struct {
-	// All is `--all`: freeze every Snapped end that carries no Anchor.
-	All bool
-	// ElementID is the arrow or line the command names, and empty for `--all`.
+	All       bool
 	ElementID string
-	// End is the `start|end` word, and Place the place word, as the command line
-	// typed them: their meaning is the core's, not the host's.
-	End   string
-	Place string
+	End       string
+	Place     string
 }
 
-// SnapOptions are the words `ez snap` was given: the end to attach, and the
-// Element to attach it to or `off`.
+// SnapOptions configures Snap; Target is an Element id or "off".
 type SnapOptions struct {
-	// ElementID is the arrow or line the command names.
 	ElementID string
-	// End is the `start|end` word, and Target the Element to attach to or `off`,
-	// as the command line typed them.
-	End    string
-	Target string
+	End       string
+	Target    string
 }
 
-// Render answers `ez render` over a Scene's bytes.
 func Render(source []byte, options RenderOptions) (Rendered, error) {
 	var rendered Rendered
 	err := runOnce("render", source, map[string]interface{}{"fontPath": options.FontPath},
@@ -118,8 +83,6 @@ func Render(source []byte, options RenderOptions) (Rendered, error) {
 	return rendered, err
 }
 
-// Check answers `ez check` over a Scene's bytes: the lines its Labels overflow
-// with.
 func Check(source []byte, options CheckOptions) (Result, error) {
 	var result Result
 	err := runOnce("check", source, map[string]interface{}{
@@ -132,7 +95,6 @@ func Check(source []byte, options CheckOptions) (Result, error) {
 	return result, err
 }
 
-// PNG answers `ez png` over a Scene's bytes: the image the Scene draws to.
 func PNG(source []byte, options PNGOptions) (Image, error) {
 	var image Image
 	err := runOnce("png", source, map[string]interface{}{
@@ -158,9 +120,7 @@ func PNG(source []byte, options PNGOptions) (Image, error) {
 	return image, err
 }
 
-// Anchor answers `ez anchor` over a Scene's bytes: the Scene the command would
-// save, and the lines it prints once it has. A nil source is a Scene the host
-// could not read, and answers only whether the command's words stand.
+// Anchor runs ez anchor. A nil source validates options without editing a Scene.
 func Anchor(source []byte, options AnchorOptions) (Edited, error) {
 	var edited Edited
 	err := runOnce("anchor", source, map[string]interface{}{
@@ -175,9 +135,7 @@ func Anchor(source []byte, options AnchorOptions) (Edited, error) {
 	return edited, err
 }
 
-// Snap answers `ez snap` over a Scene's bytes: the Scene the command would save,
-// and the lines it prints once it has. A nil source is a Scene the host could not
-// read, and answers only whether the command's words stand.
+// Snap runs ez snap. A nil source validates options without editing a Scene.
 func Snap(source []byte, options SnapOptions) (Edited, error) {
 	var edited Edited
 	err := runOnce("snap", source, map[string]interface{}{
@@ -191,7 +149,6 @@ func Snap(source []byte, options SnapOptions) (Edited, error) {
 	return edited, err
 }
 
-// editedOf reads the Scene text and the lines an editing command answered with.
 func editedOf(answer *goja.Object) Edited {
 	return Edited{
 		Result: resultOf(answer),
@@ -200,20 +157,12 @@ func editedOf(answer *goja.Object) Edited {
 	}
 }
 
-// Session is one core runtime, and the lock that lets one command use it at a
-// time. `ez serve` opens one session and answers every request in it, so no
-// request compiles or starts the core again; a one-shot command runs in a runtime
-// of its own, opened and thrown away inside its single call.
-//
-// What a session holds is the runtime and never an answer: nothing a command made
-// outlives it.
+// Session holds a reusable goja runtime serialised for concurrent use.
 type Session struct {
 	mu sync.Mutex
 	vm *goja.Runtime
 }
 
-// Open opens a session: one core runtime, ready to answer commands one at a time
-// for as long as the host that opened it keeps it.
 func Open() (*Session, error) {
 	vm, err := newRuntime()
 	if err != nil {
@@ -222,9 +171,7 @@ func Open() (*Session, error) {
 	return &Session{vm: vm}, nil
 }
 
-// Parse answers what the parser `ez check` uses says about a Scene's bytes, and
-// nothing more: no font is measured and no Label fitted, so a host can tell a
-// Scene from any other JSON without paying for a Layout.
+// Parse validates a Scene without measuring fonts or running Layout.
 func (session *Session) Parse(source []byte) (Result, error) {
 	var result Result
 	err := session.run("parse", source, nil, func(answer *goja.Object) error {
@@ -234,8 +181,6 @@ func (session *Session) Parse(source []byte) (Result, error) {
 	return result, err
 }
 
-// runOnce answers one command in a runtime of its own: one opened here and thrown
-// away with the answer, down the same path a session the host keeps takes.
 func runOnce(kind string, source []byte, fields map[string]interface{}, read func(*goja.Object) error) error {
 	session, err := Open()
 	if err != nil {
@@ -244,20 +189,12 @@ func runOnce(kind string, source []byte, fields map[string]interface{}, read fun
 	return session.run(kind, source, fields, read)
 }
 
-// run answers one command: `begin` starts `kind` over the Scene and the fields
-// `fields` names, `answer` reads what it settled on, and `read` decodes that answer
-// before `run` returns. Nothing the runtime made outlives the call, so a session
-// the host keeps — behind this lock, when more than one command shares it — is only
-// ever touched from inside here. Only the fields a command takes are in its
-// request, so no command reads a field another one named.
 func (session *Session) run(kind string, source []byte, fields map[string]interface{}, read func(*goja.Object) error) error {
 	session.mu.Lock()
 	defer session.mu.Unlock()
 	vm := session.vm
 
 	request := vm.NewObject()
-	// No Scene at all is null, not an empty one: the command judges its words and
-	// edits nothing.
 	if source == nil {
 		if err := request.Set("source", goja.Null()); err != nil {
 			return err
@@ -266,7 +203,7 @@ func (session *Session) run(kind string, source []byte, fields map[string]interf
 		return err
 	}
 	for name, value := range fields {
-		if err := request.Set(name, optional(value)); err != nil {
+		if err := request.Set(name, emptyStringAsNil(value)); err != nil {
 			return err
 		}
 	}
@@ -295,7 +232,6 @@ func (session *Session) run(kind string, source []byte, fields map[string]interf
 	return read(object)
 }
 
-// callableOf is a function the bundle left on `__ezCore`.
 func callableOf(vm *goja.Runtime, name string) (goja.Callable, error) {
 	surface, ok := vm.Get("__ezCore").(*goja.Object)
 	if !ok {
@@ -308,16 +244,13 @@ func callableOf(vm *goja.Runtime, name string) (goja.Callable, error) {
 	return callable, nil
 }
 
-// optional turns an absent flag into the null the core tests for, and leaves a
-// flag that is either given or not — `--all` — as it is.
-func optional(value interface{}) interface{} {
+func emptyStringAsNil(value interface{}) interface{} {
 	if text, isText := value.(string); isText && text == "" {
 		return nil
 	}
 	return value
 }
 
-// resultOf reads the fields every command answers with.
 func resultOf(answer *goja.Object) Result {
 	return Result{
 		OK:       answer.Get("ok").ToBoolean(),

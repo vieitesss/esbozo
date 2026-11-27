@@ -10,16 +10,8 @@ import (
 	"testing"
 )
 
-// The options `src/png.ts` hands resvg: the Scene's paper as the background, no
-// scaling, spelled out as JSON so the test goes in through the same door the core
-// does.
 const optionsJSON = `{"background":"rgb(255,255,248)","fitTo":{"mode":"original"}}`
 
-// TestRasteriseMatchesTheModule: the PNG has to be the module's own bytes.
-//
-// `testdata/triangle.png` was written by the real `@resvg/resvg-wasm` in Node from
-// `testdata/triangle.svg` and `optionsJSON`, so this compares against what the CLI
-// gets for free rather than a hash this package made itself.
 func TestRasteriseMatchesTheModule(t *testing.T) {
 	want := triangle(t)
 
@@ -32,10 +24,6 @@ func TestRasteriseMatchesTheModule(t *testing.T) {
 	}
 }
 
-// TestRasteriseRefusesAndRecovers: the module is started once and reused, so an
-// SVG resvg cannot parse must come back as its own message, and the next Scene
-// must still draw. A call sequence that leaves the heap or the shadow stack dirty
-// would pass the test above and fail here.
 func TestRasteriseRefusesAndRecovers(t *testing.T) {
 	want := triangle(t)
 
@@ -54,7 +42,6 @@ func TestRasteriseRefusesAndRecovers(t *testing.T) {
 	}
 }
 
-// triangleSVG is the SVG `testdata/triangle.png` was made from.
 func triangleSVG(t *testing.T) string {
 	t.Helper()
 	svg, err := os.ReadFile("testdata/triangle.svg")
@@ -64,7 +51,6 @@ func triangleSVG(t *testing.T) string {
 	return string(svg)
 }
 
-// triangle is that SVG as Node's module wrote it.
 func triangle(t *testing.T) []byte {
 	t.Helper()
 	png, err := os.ReadFile("testdata/triangle.png")
@@ -74,10 +60,6 @@ func triangle(t *testing.T) []byte {
 	return png
 }
 
-// TestRasteriseWithoutAWritableCache: a cache directory that cannot exist must
-// cost seconds, never the PNG, so `ez png` draws on a machine whose home is
-// read-only. wazero fails the compile outright when it cannot save its result, so
-// an unwritable cache has to be given up before the compile rather than by it.
 func TestRasteriseWithoutAWritableCache(t *testing.T) {
 	blocked := filepath.Join(t.TempDir(), "cache")
 	if err := os.WriteFile(blocked, nil, 0o600); err != nil {
@@ -98,18 +80,11 @@ func TestRasteriseWithoutAWritableCache(t *testing.T) {
 	}
 }
 
-// TestRasteriseReportsATrapInOneLine: resvg's module traps when its canvas cannot
-// be held, and `ez png` prints the reason as one line. wazero appends its own wasm
-// stack trace to a trap — the module's frames, worth nothing to someone whose Scene
-// is simply too big — so that goes.
 func TestRasteriseReportsATrapInOneLine(t *testing.T) {
-	// 100,000² px is 40 GB of canvas: resvg's allocator gives up, and the module
-	// traps on the unreachable that failure leaves it in.
 	const huge = `<svg xmlns="http://www.w3.org/2000/svg" width="100000" height="100000"` +
 		` viewBox="0 0 100000 100000"><rect x="2" y="2" width="44" height="20" fill="#123456"/></svg>`
 
-	// A rasteriser of this test's own: resvg's allocator stays broken once it has
-	// given up, so this is the last PNG this module draws.
+	// Use a dedicated rasteriser: a trap in resvg's allocator poisons the wasm module instance.
 	one, err := newRasteriser("")
 	if err != nil {
 		t.Fatalf("cannot start the rasteriser: %v", err)
@@ -123,15 +98,9 @@ func TestRasteriseReportsATrapInOneLine(t *testing.T) {
 	}
 }
 
-// TestRasterisePastABrokenCache: a cache entry wazero cannot read costs the
-// seconds it was meant to save, never the PNG, and the user never has to delete
-// it by hand. A crash mid-write leaves an entry truncated; something else in the
-// cache directory leaves it nonsense.
 func TestRasterisePastABrokenCache(t *testing.T) {
 	want := triangle(t)
 
-	// One real cold start, so the broken entries below are wazero's own work in the
-	// places wazero puts them.
 	cached := filepath.Join(t.TempDir(), "wazero")
 	one, err := newRasteriser(cached)
 	if err != nil {
@@ -169,7 +138,6 @@ func TestRasterisePastABrokenCache(t *testing.T) {
 	}
 }
 
-// brokenCache is a copy of the cache at root, its every entry holding contents.
 func brokenCache(t *testing.T, root string, contents []byte) string {
 	t.Helper()
 	saved := entries(t, root)
@@ -189,7 +157,6 @@ func brokenCache(t *testing.T, root string, contents []byte) string {
 	return dir
 }
 
-// entries is every file saved under root, as a path relative to it.
 func entries(t *testing.T, root string) []string {
 	t.Helper()
 	var saved []string
@@ -210,7 +177,6 @@ func entries(t *testing.T, root string) []string {
 	return saved
 }
 
-// firstDifference says where two byte strings part company.
 func firstDifference(one, other []byte) string {
 	end := min(len(one), len(other))
 	for at := range end {

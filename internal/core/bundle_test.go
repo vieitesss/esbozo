@@ -8,10 +8,6 @@ import (
 	"esbozo"
 )
 
-// TestBundleRunsTwiceInOneRuntime pins that a second evaluation in one realm
-// leaves the global scope as it found it: the banner runs there, so a `let` or
-// `const` at its top would be a name the realm already has, and a `SyntaxError`
-// instead of a core.
 func TestBundleRunsTwiceInOneRuntime(t *testing.T) {
 	vm := goja.New()
 	if err := installHost(vm); err != nil {

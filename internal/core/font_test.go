@@ -9,8 +9,6 @@ import (
 	"esbozo"
 )
 
-// A Scene whose words hold the two ligatures Kalam carries, centred text and a
-// label narrow enough to wrap: an advance the table got wrong changes the SVG.
 const advanceScene = `{
   "version": 1,
   "title": "Advances",
@@ -23,14 +21,6 @@ const advanceScene = `{
   ]
 }`
 
-// The bundled font measured at build time and the same font parsed at run time
-// must draw the same Scene.
-//
-// The core measures from the table only for the bundled font's bytes. A copy with
-// one byte appended is the same font — the parser ignores what follows its last
-// table — so that copy makes the core parse, which is what makes this a
-// comparison rather than a tautology. A table the build refused is `null`, and
-// then both sides parse and this fails here rather than passing quietly.
 func TestRenderMatchesRuntimeFontParse(t *testing.T) {
 	table := string(esbozo.FontMetrics)
 	if table == "" || table == "null" {
@@ -56,7 +46,8 @@ func TestRenderMatchesRuntimeFontParse(t *testing.T) {
 	}
 }
 
-// copyOfBundledFont writes the bundled font with one byte appended.
+// opentype.js ignores trailing bytes past the last sfnt table, so appending a
+// byte forces a runtime parse without changing the font.
 func copyOfBundledFont(t *testing.T) string {
 	t.Helper()
 	bytes, err := os.ReadFile(filepath.Join("..", "..", "fonts", "Kalam-Regular.ttf"))
@@ -70,8 +61,6 @@ func copyOfBundledFont(t *testing.T) string {
 	return path
 }
 
-// whereFirst says where two SVGs part company, which a failing byte comparison
-// cannot say for itself.
 func whereFirst(one, other string) string {
 	for at := 0; at < len(one) && at < len(other); at++ {
 		if one[at] != other[at] {

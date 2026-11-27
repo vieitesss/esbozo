@@ -5,11 +5,6 @@ import (
 	"testing"
 )
 
-// TestAnchorReplacesBrokenUtf8TheWayBufferDoes: a Scene file is UTF-8 text, and a
-// Scene that is not is read as `Buffer.toString('utf8')` reads it — one U+FFFD for
-// each maximal subpart of a sequence that encodes no character, so a truncated
-// character counts once and a stray byte counts once. `anchor` writes that text
-// back, so the file `ez anchor` writes has to be those bytes.
 func TestAnchorReplacesBrokenUtf8TheWayBufferDoes(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -53,8 +48,6 @@ func TestAnchorReplacesBrokenUtf8TheWayBufferDoes(t *testing.T) {
 	}
 }
 
-// sceneWithLabel is that Scene: a box whose Label is `label`'s bytes as they are,
-// and an arrow Snapped to it, so `anchor` has an Anchor to place.
 func sceneWithLabel(label string) []byte {
 	return []byte(`{"version":1,"elements":[` +
 		`{"id":"box","type":"rectangle","x":40,"y":40,"width":120,"height":80,"label":"` + label + `"},` +

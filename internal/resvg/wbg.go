@@ -1,14 +1,3 @@
-// The wasm-bindgen ABI resvg's module imports, as far as the PNG path reaches.
-//
-// wasm-bindgen hands JS values to the wasm as small integers and expects the JS
-// side to keep the values themselves. This file is that side in Go: `heap` holds
-// the values and the imports below are the ones resvg actually calls.
-//
-// The list is the module's own import list. The eight array and iterator imports
-// and `__wbindgen_string_new` are reached only by code this path does not run —
-// `imagesToResolve`, and custom font buffers, which `src/png.ts` never passes
-// because it turns words into outlines — and they fail loudly rather than answer
-// wrongly.
 package resvg
 
 import (
@@ -35,14 +24,11 @@ func (one *rasteriser) installWbg() error {
 		{"__wbindgen_string_get", one.stringGet},
 		{"__wbindgen_throw", one.throw},
 
-		// A JS string out of the module answers `imagesToResolve`, which this path
-		// never calls: the SVG goes in, and only an error or a PNG comes back.
+		// wazero requires every declared wasm import to be bound at instantiation;
+		// the imports below are only reached by imagesToResolve and custom font buffers.
 		{"__wbindgen_string_new", func(context.Context, api.Module, uint32, uint32) uint32 {
 			panic(notReached("__wbindgen_string_new"))
 		}},
-
-		// Array and iterator protocol: only resvg's custom-font path walks a
-		// fontBuffers array, and none is passed.
 		{"__wbg_values_839f3396d5aac002", func(context.Context, api.Module, uint32) uint32 {
 			panic(notReached("__wbg_values_839f3396d5aac002"))
 		}},
@@ -105,8 +91,7 @@ func (one *rasteriser) dropRef(_ context.Context, _ api.Module, handle uint32) {
 	one.heap.drop(handle)
 }
 
-// copyOf is `new Uint8Array(view)`: the PNG leaves the module's memory as a copy,
-// which is why the bytes survive the shadow stack moving on.
+// Memory.Read aliases wasm linear memory; copy before __wbg_renderedimage_free reclaims the buffer.
 func (one *rasteriser) copyOf(_ context.Context, module api.Module, handle uint32) uint32 {
 	source := one.held(handle)
 	if source.kind != jsView {
@@ -129,9 +114,7 @@ func (one *rasteriser) isUint8Array(_ context.Context, _ api.Module, handle uint
 	return 0
 }
 
-// stringGet writes the string's bytes into the module's memory and its pointer
-// and length into the result area the glue passed. A handle that is not a string
-// is `undefined`: zero pointer, zero length.
+// wasm-bindgen __wbindgen_string_get ABI: write (ptr, len) to retptr, or (0, 0) for a non-string handle.
 func (one *rasteriser) stringGet(_ context.Context, module api.Module, retptr, handle uint32) {
 	var pointer, length uint32
 	if source := one.held(handle); source.kind == jsString {
