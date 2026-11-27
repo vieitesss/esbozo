@@ -386,6 +386,27 @@ test('the list names the Scenes at the top level and says the folder is writable
   });
 });
 
+/**
+ * Two names that differ only in case are the same letters to the sort, so the case
+ * itself decides and the lowercase name comes first — `localeCompare`'s order for
+ * ASCII, and the page's order too. A filesystem that folds case cannot hold both
+ * names, so it has no order to check.
+ */
+test('the list puts a lowercase name before the uppercase one it folds to', async (t) => {
+  const folder = await sceneFolder(SCENE);
+  if (await foldsCase(folder)) {
+    t.skip('this filesystem treats a.json and A.json as one file');
+    return;
+  }
+  await writeFile(join(folder, 'a.json'), SCENE_SOURCE, 'utf8');
+  await writeFile(join(folder, 'A.json'), SCENE_SOURCE, 'utf8');
+
+  const server = await served(folder);
+  const listed = JSON.parse((await request(server, '/api/scenes')).body) as { scenes: string[] };
+
+  assert.deepEqual(listed.scenes, ['a.json', 'A.json', 'scene.json']);
+});
+
 test('the list offers only names the API opens', async () => {
   const folder = await tempFolder();
   // A valid Scene, so the hidden-file rule is what keeps it out of the list.

@@ -76,15 +76,18 @@ func listScenes(folder string, session *core.Session) ([]string, error) {
 		}
 	}
 	// `localeCompare`, as `src/serve.ts` sorts: a name's case decides nothing
-	// until two names are the same letters, and then the bytes do. `localeCompare`
-	// is ICU's, so names outside ASCII keep an order no Go sort can copy without a
-	// collation package; these ones match it.
+	// until two names are the same letters, and then it decides in the lowercase
+	// name's favour. Two names that fold to one string first disagree at a letter's
+	// case, so comparing them as they are and reading the answer backwards is that
+	// order — `'a'` sorts before `'A'`. (`localeCompare` is ICU's, so names outside
+	// ASCII keep an order no Go sort can copy without a collation package; these
+	// ones match it.)
 	sort.Slice(names, func(left, right int) bool {
 		one, other := strings.ToLower(names[left]), strings.ToLower(names[right])
 		if one != other {
 			return one < other
 		}
-		return names[left] < names[right]
+		return names[left] > names[right]
 	})
 	return names, nil
 }
