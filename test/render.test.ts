@@ -456,6 +456,42 @@ test('a number JSON cannot hold is refused as V8 refuses it', async () => {
   assert.equal(existsSync(join(folder, 'scene.svg')), false, 'no SVG for a Scene it cannot read');
 });
 
+test('a refused Scene counts \r and \r\n as V8 counts them', async () => {
+  // V8 counts a lone `\r` as a line break and a `\r\n` pair as one, so the
+  // place it names in a refusal is not a count of `\n`.
+  const cases = [
+    {
+      name: 'CR line endings',
+      text: '{\r  "a": 1,\r  "b": 01\r}',
+      place: 'position 20 (line 3 column 9)',
+    },
+    {
+      name: 'CRLF line endings',
+      text: '{\r\n  "a": 1,\r\n  "b": 01\r\n}',
+      place: 'position 22 (line 3 column 9)',
+    },
+    {
+      name: 'mixed line endings',
+      text: '{\n  "a": 1,\r  "b": 01\n}',
+      place: 'position 20 (line 3 column 9)',
+    },
+  ];
+
+  for (const one of cases) {
+    const folder = await tempFolder();
+    await writeFile(join(folder, 'scene.json'), one.text, 'utf8');
+
+    const run = await ez(['render', 'scene.json'], folder);
+
+    assert.equal(run.code, 3, one.name);
+    assert.equal(
+      run.stderr,
+      `not valid JSON: Unexpected number in JSON at ${one.place}\n`,
+      one.name,
+    );
+  }
+});
+
 test('a missing Scene exits 3', async () => {
   const folder = await tempFolder();
 
