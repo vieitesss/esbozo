@@ -44,6 +44,8 @@ COPY src ./src
 COPY fonts ./fonts
 COPY go.mod go.sum assets.go ./
 COPY cmd ./cmd
+# `assets.go` embeds the skill `ez skill` prints, so `go build` fails without it.
+COPY skills ./skills
 COPY internal ./internal
 RUN pnpm build
 
