@@ -60,6 +60,25 @@ const MAIN_GO_UNFORMATTED = MAIN_GO.replace('\tfmt.Println', '    fmt.Println');
 
 const MAIN_GO_VET_BROKEN = MAIN_GO.replace('fmt.Println("hello")', 'fmt.Printf("%d\\n", "hello")');
 
+/** One Go file embedding the files only `pnpm build` writes, so the stand-in has work to do. */
+const MAIN_GO_EMBEDS = `package main
+
+import (
+\t_ "embed"
+\t"fmt"
+)
+
+//go:embed dist/version
+var version string
+
+//go:embed dist/embed.js
+var bundle []byte
+
+func main() {
+\tfmt.Print(version, len(bundle))
+}
+`;
+
 /** One git command in the fixture, its answer returned or the test stopped. */
 function git(cwd: string, ...args: string[]): string {
   const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
@@ -150,6 +169,28 @@ async function goFixture(t: TestContext, brokenSource: string): Promise<Fixture>
   return { repo, base, broken, clean };
 }
 
+/** A green commit, and one that embeds files the build writes, in a folder this test removes. */
+async function embedFixture(t: TestContext): Promise<{ repo: string; base: string; embed: string }> {
+  const repo = await mkdtemp(join(tmpdir(), 'esbozo-check-steps-embeds-'));
+  t.after(() => rm(repo, { recursive: true, force: true }));
+
+  git(repo, 'init', '--quiet', '--initial-branch=main');
+  await writeFile(join(repo, 'package.json'), PACKAGE_JSON);
+  await writeFile(join(repo, 'check.mjs'), CHECK);
+  await writeFile(join(repo, 'go.mod'), GO_MOD);
+  await writeFile(join(repo, 'main.go'), MAIN_GO);
+  git(repo, 'add', '--all');
+  commit(repo, 'the Go is clean');
+  const base = git(repo, 'rev-parse', 'HEAD');
+
+  await writeFile(join(repo, 'main.go'), MAIN_GO_EMBEDS);
+  git(repo, 'add', '--all');
+  commit(repo, 'embed what the build writes');
+  const embed = git(repo, 'rev-parse', 'HEAD');
+
+  return { repo, base, embed };
+}
+
 test('a base that is not a commit HEAD descends from is a usage error', async (t) => {
   const { repo } = await fixture(t);
   const run = checkSteps(repo, 'no-such-commit');
@@ -192,6 +233,13 @@ test('a commit gofmt would rewrite fails on its own, and the range carries on', 
     run.stdout.split('\n').filter((line) => /^[0-9a-f]{40} .*: /.test(line)),
     [`${broken} break the Go: gofmt`, `${clean} put it back: ok`],
   );
+});
+
+test('a commit that embeds a file only the build writes is green on its own', async (t) => {
+  const { repo, base, embed } = await embedFixture(t);
+  const run = checkSteps(repo, base);
+  assert.equal(run.status, 0, run.stdout + run.stderr);
+  assert.equal(run.stdout.trim(), `${embed} embed what the build writes: ok`);
 });
 
 test('a commit go vet refuses fails on its own, and the range carries on', async (t) => {
