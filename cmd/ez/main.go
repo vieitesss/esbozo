@@ -58,6 +58,8 @@ func run(argv []string, stdout, stderr io.Writer) int {
 		return exitOK
 	}
 	switch command {
+	case "render", "check":
+		return runScene(command, rest, stdout, stderr)
 	case "--help":
 		fmt.Fprint(stdout, topLevelHelp(shouldBold(stdout)))
 		return exitOK
