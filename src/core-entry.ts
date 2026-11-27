@@ -88,7 +88,8 @@ declare global {
  * a float64, where V8 reads ±Infinity; it turns a lone UTF-16 surrogate into
  * U+FFFD, where V8 keeps the code unit, so the check `src/scene.ts` makes for
  * characters XML cannot represent would never see one; and its refusals are
- * worded differently.
+ * worded differently. So the engine answers where its answer is V8's, and
+ * `readJson` answers everywhere the two part company.
  *
  * A caller that asks for a `reviver` still gets the engine: it walks the
  * engine's own objects, and the core parses with none.
@@ -98,6 +99,13 @@ const engineParse = JSON.parse;
 /** The three words `JSON.parse` refuses by name instead of by the character it found. */
 const REFUSED_TEXTS = ['NaN', 'Infinity', 'undefined'];
 
+/**
+ * A `\uXXXX` escape that names a UTF-16 surrogate. Keeping the code unit, a lone
+ * one included, is V8's reading; goja's `JSON.parse` reads one as U+FFFD, so a
+ * text holding one is read by `readJson` instead of the engine.
+ */
+const SURROGATE_ESCAPE = /\\u[dD][89a-fA-F]/;
+
 const v8Parse = (text: string, reviver?: unknown): unknown => {
   if (reviver !== undefined) {
     return (engineParse as (text: string, reviver?: unknown) => unknown)(text, reviver);
@@ -106,7 +114,20 @@ const v8Parse = (text: string, reviver?: unknown): unknown => {
   if (REFUSED_TEXTS.includes(source)) {
     throw new SyntaxError(`"${source}" is not valid JSON`);
   }
-  return readJson(source);
+  if (SURROGATE_ESCAPE.test(source)) {
+    return readJson(source);
+  }
+  try {
+    // The engine's own parser is a native one, and it answers as V8 does wherever
+    // the two can be compared — which is what makes a Scene cheap to read, where
+    // `readJson` walks the text a character at a time. What it cannot answer is a
+    // refusal, V8's words and V8's position, or a number too large for a float64,
+    // which V8 reads as ±Infinity and it reads as nothing at all; so a refusal is
+    // the reader's to word, and the reader is asked for it.
+    return engineParse(source);
+  } catch {
+    return readJson(source);
+  }
 };
 
 /**

@@ -60,6 +60,48 @@ func TestParseAnswersWhatTheParserSays(t *testing.T) {
 	}
 }
 
+// A Scene whose Label carries a lone UTF-16 surrogate as a `\u` escape. Keeping
+// the code unit is the reading of V8's that goja's own `JSON.parse` cannot take —
+// it turns a lone surrogate into U+FFFD — and `src/scene.ts` refuses a character
+// XML cannot represent, so that swap would let the Scene through.
+const loneSurrogateScene = `{"version":1,"elements":[{"id":"a","type":"rectangle","x":0,"y":0,"width":100,"height":50,"label":"before\ud800after"}]}`
+
+// TestCheckKeepsALoneSurrogateEscape holds reading a text no engine of this host
+// reads as V8 reads it to V8's reading: the Scene is refused, because the Label's
+// code unit is one XML cannot carry.
+func TestCheckKeepsALoneSurrogateEscape(t *testing.T) {
+	checked, err := Check([]byte(loneSurrogateScene), CheckOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"a: label must not contain characters XML cannot represent"}
+	if checked.OK || checked.ExitCode != 3 || !sameLines(checked.Problems, want) {
+		t.Fatalf("a Scene with a lone surrogate answered ok=%v exit=%d %v, want exit 3 %v",
+			checked.OK, checked.ExitCode, checked.Problems, want)
+	}
+}
+
+// A Scene whose `x` is a number too large for a float64, which V8 reads as
+// ±Infinity and `src/scene.ts` refuses as a number that is not finite.
+const overflowingNumberScene = `{"version":1,"elements":[{"id":"a","type":"rectangle","x":1e400,"y":0,"width":100,"height":50,"label":"big"}]}`
+
+// TestCheckReadsANumberTooLargeForAFloat64AsV8Does holds reading the same text to
+// V8's reading of it: goja's own `JSON.parse` refuses the number where V8 reads
+// Infinity, and the refusal of a Scene is about the Scene, not the host.
+func TestCheckReadsANumberTooLargeForAFloat64AsV8Does(t *testing.T) {
+	checked, err := Check([]byte(overflowingNumberScene), CheckOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"a: x must be a finite number, got null"}
+	if checked.OK || checked.ExitCode != 3 || !sameLines(checked.Problems, want) {
+		t.Fatalf("a Scene with a number too large for a float64 answered ok=%v exit=%d %v, want exit 3 %v",
+			checked.OK, checked.ExitCode, checked.Problems, want)
+	}
+}
+
 // TestWarmSessionAnswersLikeFreshRuntimes holds one runtime used over and over to
 // what a runtime of its own answers each time: a session is a way to skip the
 // start-up cost, never a pair of hands that remembers the last command.
