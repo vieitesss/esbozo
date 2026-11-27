@@ -2,13 +2,17 @@
 //
 // The surface is `src/cli.ts`'s, and this file decides what each command is
 // given and what it exits with; what a Scene, a font or a stylesheet means is
-// the core's, which `render` and `check` hand bytes and get text back from.
+// the core's, which `render`, `check` and `png` hand bytes and get text or an
+// image back from. `png` draws its image with resvg's own WebAssembly module in
+// wazero, behind that same core.
 //
 // Surface (the commands marked * are not ported yet):
 //
 //	ez render <scene> [--font <file>]
 //	ez check <scene> [--font <file>] [--css <stylesheet>]
-//	ez anchor* / snap* / png* / serve* / bundle* / skill*
+//	ez png <scene> --theme light|dark [--css <stylesheet>] [--ink <colour>]
+//	      [--paper <colour>] [--muted <colour>] [--font <file>]
+//	ez anchor* / snap* / serve* / bundle* / skill*
 package main
 
 import (
@@ -45,10 +49,12 @@ func run(argv []string, stdout, stderr io.Writer) int {
 	switch command {
 	case "render", "check":
 		return runScene(command, rest, stdout, stderr)
+	case "png":
+		return runPng(rest, stdout, stderr)
 	case "--help":
 		fmt.Fprint(stdout, topLevelHelp(shouldBold(stdout)))
 		return exitOK
-	case "anchor", "snap", "png", "serve", "bundle", "skill":
+	case "anchor", "snap", "serve", "bundle", "skill":
 		fmt.Fprintf(stderr, "ez %s is not yet ported to Go\n", command)
 		return exitUsage
 	}
