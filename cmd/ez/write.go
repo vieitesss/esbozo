@@ -143,17 +143,19 @@ func parseSceneWrite(body []byte) (sceneWrite, bool) {
 	return sceneWrite{Scene: scene, Svg: svg}, true
 }
 
-// jsonString is one field of a write body, when it is there and is a string.
+// jsonString is one field of a write body, when it is there and is a string. A
+// field that is JSON `null` is no string, though Go would unmarshal it into one
+// as its zero value.
 func jsonString(fields map[string]json.RawMessage, name string) (string, bool) {
 	written, present := fields[name]
 	if !present {
 		return "", false
 	}
-	var text string
-	if err := json.Unmarshal(written, &text); err != nil {
+	var text *string
+	if err := json.Unmarshal(written, &text); err != nil || text == nil {
 		return "", false
 	}
-	return text, true
+	return *text, true
 }
 
 // svgFileName is `svgFileName` in `src/paths.ts`: the SVG of a Scene is its

@@ -775,6 +775,27 @@ test('an invalid Scene is refused and nothing is written', async () => {
   await assertMissing(join(folder, 'odd.json'));
 });
 
+test('a write whose scene or svg is null is refused as no write at all', async () => {
+  const folder = await sceneFolder(SCENE);
+  const server = await served(folder);
+  const refusal = { error: 'the body must be { "scene": "<text>", "svg": "<text>" }' };
+
+  // `null` is not a string: the pair has to be two texts, or it is no write.
+  for (const body of [
+    { scene: JSON.stringify(SCENE), svg: null },
+    { scene: null, svg: SVG },
+  ]) {
+    const answer = await request(server, '/api/scenes/null.json', 'PUT', body);
+    assert.equal(answer.status, 400, `${JSON.stringify(body)} answered ${answer.status}`);
+    assert.deepEqual(JSON.parse(answer.body), refusal, JSON.stringify(body));
+  }
+  await assertMissing(join(folder, 'null.json'));
+  await assertMissing(join(folder, 'null.svg'));
+
+  // The write itself still lands, so nothing above refused the shape it takes.
+  assert.equal((await request(server, '/api/scenes/kept.json', 'PUT', sent())).status, 200);
+});
+
 test('a request path with a dot segment is refused before it is normalised', async () => {
   const folder = await sceneFolder(SCENE);
   const server = await served(folder);
