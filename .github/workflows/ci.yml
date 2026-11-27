@@ -4,6 +4,12 @@
 # `screenshots.e2e.ts`, which `pnpm e2e:shots` runs alone; `pnpm e2e:agent` is
 # run by hand, where a key is.
 #
+# Three jobs, because one job ran the two-minute `pnpm check`, the browser
+# suites and the twenty-minute per-commit walk one after another. Each job owns
+# one thing that goes red on its own, and none waits on another: a red
+# `pnpm check` cannot hide a commit verdict, because `steps` never waited for it
+# and no longer can.
+#
 # Two things it also does, both about a red run nobody can look at afterwards.
 # It keeps its own evidence: a run that failed, and a run that only ended green
 # because a retry passed, uploads `.e2e/` with the replay cache left out, so the
@@ -11,12 +17,27 @@
 # And it checks every commit, not only the tip: `pnpm check:steps` gives each
 # commit the static half of `pnpm check` on its own, because a commit that is
 # green only with the next one on top is not the green step `AGENTS.md` calls
-# for.
+# for. That walk is split into four shards, `--shard 1/4` to `4/4`, so its
+# commits are checked four at a time instead of one after another.
 name: check
 
+# Both triggers stay. A pull request from a fork is checked on `pull_request`,
+# since nobody pushed its commits here; a pull request from this repository is
+# checked once, by the `push` run of the head commit it points at, which GitHub
+# shows on the pull request. The `push` trigger is not optional either way:
+# `.githooks/pre-push` (`scripts/main-ci-guard.mjs`) refuses a merge into `main`
+# whose merged branch head has no completed, successful `check` run, and the
+# push of that branch is where the run comes from.
 on:
   push:
   pull_request:
+
+# A branch's runs share a group and the newest cancels the rest: each is walked
+# from the merge base with `main`. A `main` run gets its own group, neither
+# cancelled nor queued: it walks from `github.event.before`, its own push only.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
+  cancel-in-progress: true
 
 # Plain text in the log: the runner sets `CI`, which makes the test reporters
 # colour their output, and a failed run is read as text through
@@ -29,14 +50,22 @@ env:
   GOTOOLCHAIN: local
 
 jobs:
+  # Every job carries this gate, written out in each one. A `pull_request` run
+  # for a pull request from this repository is all-skipped: its head commit was
+  # pushed here, so the `push` run above already checked it, and running it
+  # again is the duplicate this workflow stopped paying for. A fork's pull
+  # request has no push run, so it is the one thing a `pull_request` event is
+  # still needed for.
+  #
+  #   if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository }}
+
+  # `pnpm check` itself: typecheck, lint, knip, the rules, the node tests and the
+  # Go half, which build the binary on the way.
   check:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-        with:
-          # `pnpm check:steps` walks commits, so it needs the one it starts from
-          # and every commit between that one and the tip.
-          fetch-depth: 0
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
@@ -54,47 +83,28 @@ jobs:
       # After the browser, not before it: `pnpm check` runs the node tests, and
       # `test/probe-editor.test.ts` launches a browser of its own.
       - run: pnpm check
+
+  # The browser suites, on the same install and browser; `pnpm e2e` builds
+  # first itself. The flaky read and the evidence upload live here because both
+  # are about this job's report.
+  e2e:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      # `pnpm build` compiles `cmd/ez` with it.
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: pnpm install --frozen-lockfile
+      - name: Install the browser the suite launches
+        run: pnpm exec e2e-web install chromium --with-deps
       - run: pnpm e2e
-      # After the browser checks, so a red commit verdict can never skip one of
-      # them, and before the evidence, which is read only once both have run.
-      #
-      # The commit every commit is checked from, one rule per event. A red
-      # `pnpm check` must not hide it: this run is where each commit's own
-      # verdict is read, so the step runs whether or not the tip was green. A
-      # tag push carries no branch commit of its own, so it is left out here
-      # rather than on the step below, where a merge base could still go red.
-      - name: Find the commit to walk from
-        id: base
-        if: ${{ !cancelled() && (github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/')) }}
-        env:
-          EVENT: ${{ github.event_name }}
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-          PUSH_BEFORE: ${{ github.event.before }}
-          REF: ${{ github.ref }}
-        run: |
-          case "$EVENT" in
-            # What the pull request would land on.
-            pull_request) base="$PR_BASE" ;;
-            push)
-              if [ "$REF" = refs/heads/main ]; then
-                # Main's tip before this push, so only what was pushed is walked.
-                base="$PUSH_BEFORE"
-              else
-                # Where this branch left main, so a branch that is behind main
-                # still walks the commits it added instead of exiting 2.
-                base="$(git merge-base origin/main HEAD)"
-              fi
-              ;;
-            *) base='' ;;
-          esac
-          # All zeros is the push that created the ref: nothing came before it.
-          if [[ "$base" =~ ^0+$ ]]; then base=''; fi
-          echo "sha=$base" >> "$GITHUB_OUTPUT"
-      # Static checks only, so no browser: `!cancelled()` still gives each commit
-      # its verdict when `pnpm check` or `pnpm e2e` above already failed.
-      - name: Check every commit on its own
-        if: ${{ !cancelled() && steps.base.outputs.sha != '' }}
-        run: pnpm check:steps "${{ steps.base.outputs.sha }}"
       # A test a retry passed is green for the run, and its first attempt's
       # error lives only in the report: nothing else in the log says it.
       - name: Read whether a retry passed a test
@@ -132,3 +142,67 @@ jobs:
           # A red run is read within the week; the cache is not evidence.
           retention-days: 7
           if-no-files-found: ignore
+
+  # Every commit on its own, a quarter of the range per shard, four shards at
+  # once. Static checks only, so no browser: `pnpm check:steps` runs
+  # `typecheck`, `lint`, `knip`, `check-rules`, `go vet` and `gofmt`.
+  steps:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository }}
+    runs-on: ubuntu-latest
+    strategy:
+      # A red shard says nothing about the other three, and a cancelled shard
+      # leaves its commits with no verdict at all.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # `pnpm check:steps` walks commits, so it needs the one it starts from
+          # and every commit between that one and the tip.
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      # `go vet` and `gofmt` are half of what each commit is asked.
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: pnpm install --frozen-lockfile
+      # The commit every commit is checked from, one rule per event. A red
+      # `pnpm check` must not hide it, and cannot: this job and the `check` job
+      # are independent, so nothing above it can be red. A tag push carries no
+      # branch commit of its own, so it is left out here rather than on the step
+      # below, where a merge base could still go red.
+      - name: Find the commit to walk from
+        id: base
+        if: ${{ github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/') }}
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          REF: ${{ github.ref }}
+        run: |
+          case "$EVENT" in
+            # What the pull request would land on.
+            pull_request) base="$PR_BASE" ;;
+            push)
+              if [ "$REF" = refs/heads/main ]; then
+                # Main's tip before this push, so only what was pushed is walked.
+                base="$PUSH_BEFORE"
+              else
+                # Where this branch left main, so a branch that is behind main
+                # still walks the commits it added instead of exiting 2.
+                base="$(git merge-base origin/main HEAD)"
+              fi
+              ;;
+            *) base='' ;;
+          esac
+          # All zeros is the push that created the ref: nothing came before it.
+          if [[ "$base" =~ ^0+$ ]]; then base=''; fi
+          echo "sha=$base" >> "$GITHUB_OUTPUT"
+      - name: Check this shard of the commits
+        if: ${{ steps.base.outputs.sha != '' }}
+        run: pnpm check:steps "${{ steps.base.outputs.sha }}" --shard ${{ matrix.shard }}/4
