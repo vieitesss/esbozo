@@ -15,12 +15,12 @@ function ezBin(cli: string = CLI): string {
   return bin === undefined || bin === '' ? cli : resolve(bin);
 }
 
-function quoted(word: string): string {
+function shellQuote(word: string): string {
   return `'${word.split("'").join(`'\\''`)}'`;
 }
 
 export function ezShimScript(): string {
-  return `#!/bin/sh\nexec ${quoted(ezBin())} "$@"\n`;
+  return `#!/bin/sh\nexec ${shellQuote(ezBin())} "$@"\n`;
 }
 
 /** What one `ez` run left behind: its exit code and its two streams. */
