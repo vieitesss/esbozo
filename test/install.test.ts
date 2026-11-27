@@ -108,8 +108,11 @@ test('when the folder is not on PATH, prints the line that adds it', async () =>
   assert.equal(off.code, 0, off.stderr);
   assert.ok(off.stdout.includes(`export PATH="${bin}:$PATH"`), off.stdout);
 
-  const on = await install(['--dir', bin], { PATH: `${bin}:${process.env.PATH}` });
+  // A fresh folder: one that already holds ez exits before the PATH check.
+  const onBin = join(await tempFolder(), 'bin-on');
+  const on = await install(['--dir', onBin], { PATH: `${onBin}:${process.env.PATH}` });
   assert.equal(on.code, 0, on.stderr);
+  assert.match(on.stdout, /installed ez/, 'the PATH check was reached');
   assert.ok(!on.stdout.includes('export PATH='), on.stdout);
 });
 
