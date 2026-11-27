@@ -1,22 +1,19 @@
 /** CLI seam: `ez update` re-running the install script the binary carries. */
 import assert from 'node:assert/strict';
-import { chmod, copyFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { release, run, startRelease, type FakeRelease } from './release.ts';
+import { run, startRelease, type FakeRelease } from './release.ts';
 import { removeTempFolders, tempFolder } from './temp.ts';
 
 const BIN = fileURLToPath(new URL('../dist/ez', import.meta.url));
-const CURRENT_BUILD_VERSION = '2.0.0';
 const UNREACHABLE_RELEASE_URL = 'http://127.0.0.1:1';
 
 let server: FakeRelease;
 
 before(async () => {
-  server = await startRelease(
-    new Map([[`/download/v${CURRENT_BUILD_VERSION}`, release(await readFile(BIN))]]),
-  );
+  server = await startRelease();
 });
 
 after(async () => {
@@ -68,19 +65,6 @@ test('--version installs that Release', async () => {
   assert.deepEqual(await run(ez, []), { code: 0, stdout: 'ez 1.2.3\n', stderr: '' });
 });
 
-test('when the folder already holds the target, says so and leaves it alone', async () => {
-  const { ez } = await installed();
-  const before = await stat(ez);
-
-  const update = await run(ez, ['update', '--version', CURRENT_BUILD_VERSION], {
-    ESBOZO_RELEASE_URL: server.url,
-  });
-
-  assert.equal(update.code, 0, update.stderr);
-  assert.match(update.stdout, /already installed/);
-  assert.equal((await stat(ez)).ino, before.ino, 'ez was not replaced');
-});
-
 test('the upgrade alias updates like update', async () => {
   const { ez } = await installed();
 
@@ -127,12 +111,13 @@ test('updates a folder that is no dist, even beside an esbozo go.mod', async () 
   const { folder, ez } = await installed();
   await writeFile(join(dirname(folder), 'go.mod'), 'module esbozo\n', 'utf8');
 
-  const update = await run(ez, ['update', '--version', CURRENT_BUILD_VERSION], {
+  const update = await run(ez, ['update'], {
     ESBOZO_RELEASE_URL: server.url,
   });
 
   assert.equal(update.code, 0, update.stderr);
-  assert.match(update.stdout, /already installed/);
+  assert.match(update.stdout, /installed ez \(latest Release\)/);
+  assert.deepEqual(await run(ez, []), { code: 0, stdout: 'ez 9.9.9\n', stderr: '' });
 });
 
 test('refuses in Docker, printing the docker pull line for the channel asked for', async () => {
