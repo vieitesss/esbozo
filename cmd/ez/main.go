@@ -2,8 +2,8 @@
 //
 // The surface is `src/cli.ts`'s, and this file decides what each command is
 // given and what it exits with; what a Scene, a font or a stylesheet means is
-// the core's, which `render`, `check` and `png` hand bytes and get text or an
-// image back from.
+// the core's, which `render`, `check`, `png`, `anchor` and `snap` hand bytes and
+// get text or an image back from.
 //
 // Surface (the commands marked * are not ported yet):
 //
@@ -11,7 +11,10 @@
 //	ez check <scene> [--font <file>] [--css <stylesheet>]
 //	ez png <scene> --theme light|dark [--css <stylesheet>] [--ink <colour>]
 //	      [--paper <colour>] [--muted <colour>] [--font <file>]
-//	ez anchor* / snap* / serve* / bundle* / skill*
+//	ez anchor <scene> <element> <start|end> <place>
+//	ez anchor <scene> --all
+//	ez snap <scene> <element> <start|end> <target|off>
+//	ez serve* / bundle* / skill*
 package main
 
 import (
@@ -50,10 +53,14 @@ func run(argv []string, stdout, stderr io.Writer) int {
 		return runScene(command, rest, stdout, stderr)
 	case "png":
 		return runPng(rest, stdout, stderr)
+	case "anchor":
+		return runAnchor(rest, stdout, stderr)
+	case "snap":
+		return runSnap(rest, stdout, stderr)
 	case "--help":
 		fmt.Fprint(stdout, topLevelHelp(shouldBold(stdout)))
 		return exitOK
-	case "anchor", "snap", "serve", "bundle", "skill":
+	case "serve", "bundle", "skill":
 		fmt.Fprintf(stderr, "ez %s is not yet ported to Go\n", command)
 		return exitUsage
 	}

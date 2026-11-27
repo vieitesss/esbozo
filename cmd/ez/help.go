@@ -12,6 +12,16 @@ import (
 
 const placeList = "top, bottom, left, right, center, top-left, top-right, bottom-left, bottom-right"
 
+// anchorUsageLine and snapUsageLine are `USAGE_LINE.anchor` and `USAGE_LINE.snap`
+// in `src/help.ts`, word for word: what `anchor` and `snap` print when they refuse
+// the arguments they were given.
+const (
+	anchorUsageLine = "usage: ez anchor <scene> <element> <start|end> <place>\n" +
+		"       ez anchor <scene> --all\n" +
+		`  place: ` + placeList + `, a pair of fractions "fx,fy", or none`
+	snapUsageLine = "usage: ez snap <scene> <element> <start|end> <target|off>"
+)
+
 var cssSubsetLines = []string{
 	"  `:root` and `html` declarations are the light theme; dark is those values",
 	"  overridden by `@media (prefers-color-scheme: dark)` blocks and by `:root.dark`,",
