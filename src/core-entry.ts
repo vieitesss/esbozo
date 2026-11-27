@@ -438,18 +438,26 @@ const EXIT = {
 } as const;
 
 /**
- * What a command needs: the Scene's exact bytes, where a `--font` or `--css` flag
- * pointed, and for `png` the theme and the colours its flags named. An absent
- * flag is `null`, never an empty path.
+ * What `render` needs: the Scene's exact bytes, and where a `--font` flag pointed.
+ * An absent flag is `null`, never an empty path.
  *
- * The surface is the bundle's, reached by the host as `__ezCore`: esbuild's
- * global is what makes `begin` and `answer` callable from Go.
+ * Each command has its own request, so no command reads a field another one
+ * named. The surface is the bundle's, reached by the host as `__ezCore`:
+ * esbuild's global is what makes `begin` and `answer` callable from Go.
  */
-interface Request {
+interface RenderRequest {
   readonly source: ArrayBuffer;
   readonly fontPath: string | null;
+}
+
+/** `check`'s request: the font, and where a `--css` flag pointed. */
+interface CheckRequest extends RenderRequest {
   readonly cssPath: string | null;
-  /** The palette `png` draws in; `render` and `check` have none. */
+}
+
+/** `png`'s request: the stylesheet and the font, the palette and its colours. */
+interface PngRequest extends CheckRequest {
+  /** The palette `png` draws in, and `null` when the flag was not given. */
   readonly theme: Theme | null;
   /** The colour `--ink` overrides, and `null` when the flag was not given. */
   readonly ink: string | null;
@@ -486,7 +494,7 @@ function loadScene(source: ArrayBuffer) {
   return { bytes, parsed: readAsV8(() => parseScene(globalThis.__ezHost.decodeUtf8(source))) };
 }
 
-async function render(request: Request): Promise<Answer> {
+async function render(request: RenderRequest): Promise<Answer> {
   const { bytes, parsed } = loadScene(request.source);
   if (!parsed.ok) {
     return failed(EXIT.invalidScene, problemLines(parsed.problems));
@@ -503,7 +511,7 @@ async function render(request: Request): Promise<Answer> {
   return { ok: true, exitCode: 0, svg, png: null, problems: [], notes: font.notes };
 }
 
-async function check(request: Request): Promise<Answer> {
+async function check(request: CheckRequest): Promise<Answer> {
   const { parsed } = loadScene(request.source);
   if (!parsed.ok) {
     return failed(EXIT.invalidScene, problemLines(parsed.problems));
@@ -536,7 +544,7 @@ async function check(request: Request): Promise<Answer> {
  * `png`: `src/png.ts` owns the palette, the font and the outlines, and the host
  * owns resvg, so this hands the Scene over and answers the image.
  */
-async function png(request: Request): Promise<Answer> {
+async function png(request: PngRequest): Promise<Answer> {
   const theme = request.theme;
   if (theme === null) {
     throw new Error('png needs a theme: the host decides light or dark, not the core');
@@ -559,7 +567,7 @@ async function png(request: Request): Promise<Answer> {
  * is an absent key rather than one holding `undefined`, which `PngOptions` and
  * `exactOptionalPropertyTypes` refuse.
  */
-function pngOptions(theme: Theme, request: Request): PngOptions {
+function pngOptions(theme: Theme, request: PngRequest): PngOptions {
   const options: PngOptions = { theme };
   if (request.cssPath !== null) {
     options.cssPath = request.cssPath;
@@ -588,7 +596,8 @@ let settled: Answer | null = null;
 let failure: { error: unknown } | null = null;
 
 /**
- * Start one command over `request`, as the host built it.
+ * Start one command over `request`, as the host built it: `render`'s fields for
+ * `render`, `check`'s for `check`, `png`'s for `png`.
  *
  * A command this bundle does not have is refused here rather than answered as
  * `check`: a Scene reported as unmeasurable when nothing measured it is a
@@ -596,13 +605,25 @@ let failure: { error: unknown } | null = null;
  *
  * @public
  */
-export function begin(request: Request, kind: 'render' | 'check' | 'png'): void {
+export function begin(request: RenderRequest | CheckRequest | PngRequest, kind: string): void {
   settled = null;
   failure = null;
-  if (kind !== 'render' && kind !== 'check' && kind !== 'png') {
-    throw new Error(`the core has no command ${String(kind)}`);
+  // The host builds the request for the kind it names, so each branch reads only
+  // the fields `begin` was handed for it.
+  let running: Promise<Answer>;
+  switch (kind) {
+    case 'render':
+      running = render(request as RenderRequest);
+      break;
+    case 'check':
+      running = check(request as CheckRequest);
+      break;
+    case 'png':
+      running = png(request as PngRequest);
+      break;
+    default:
+      throw new Error(`the core has no command ${String(kind)}`);
   }
-  const running = kind === 'render' ? render(request) : kind === 'check' ? check(request) : png(request);
   void running.then(
     (answer) => {
       settled = answer;
