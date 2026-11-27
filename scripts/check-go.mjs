@@ -3,8 +3,7 @@
  * the CLI suites with `EZ_BIN` naming `dist/ez`, which must be newer than the
  * files it is built from.
  *
- * `test/help-cli.test.ts` stays out until the Go binary answers the commands it
- * names.
+ * `test/serve.test.ts` stays out until the save API is ported too.
  */
 import { spawn } from 'node:child_process';
 import { readdir, readFile, stat } from 'node:fs/promises';
@@ -32,6 +31,7 @@ const SUITES = [
   'test/anchor-cli.test.ts',
   'test/skill-cli.test.ts',
   'test/embed-bundle.test.ts',
+  'test/help-cli.test.ts',
   'test/version.test.ts',
 ];
 
