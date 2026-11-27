@@ -25,12 +25,13 @@ export const EZ = (version: string): string => `#!/bin/sh\necho "ez ${version}"\
 /** One release folder served to the script: a `SHA256SUMS` and the asset. */
 export function release(
   body: Buffer,
-  options: { sums?: string } = {},
+  options: { sums?: string; line?: (digest: string, asset: string) => string } = {},
 ): Map<string, Buffer> {
   const archive = gzipSync(body);
   const digest = options.sums ?? createHash('sha256').update(archive).digest('hex');
+  const line = options.line ?? ((sum: string, asset: string) => `${sum}  ${asset}\n`);
   return new Map([
-    ['SHA256SUMS', Buffer.from(`${digest}  ${ASSET}\n`)],
+    ['SHA256SUMS', Buffer.from(line(digest, ASSET))],
     [ASSET, archive],
   ]);
 }

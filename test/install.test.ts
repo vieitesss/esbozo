@@ -14,7 +14,7 @@ import { chmod, lstat, mkdir, readFile, readdir, rm, stat, symlink, writeFile } 
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { EZ, startRelease, type FakeRelease } from './release.ts';
+import { EZ, release, startRelease, type FakeRelease } from './release.ts';
 import { removeTempFolders, tempFolder } from './temp.ts';
 
 const INSTALL = fileURLToPath(new URL('../scripts/install.sh', import.meta.url));
@@ -133,6 +133,44 @@ test('--version installs that Release', async () => {
 
   assert.equal(run.code, 0, run.stderr);
   assert.deepEqual(await runInstalled(join(bin, 'ez')), { code: 0, stdout: 'ez 1.2.3\n', stderr: '' });
+});
+
+test('reads a SHA256SUMS written in binary mode or with CRLF endings', async () => {
+  const odd = await startRelease(
+    new Map([
+      [
+        '/download/v1.0.1',
+        release(Buffer.from(EZ('1.0.1')), { line: (digest, asset) => `${digest} *${asset}\n` }),
+      ],
+      [
+        '/download/v1.0.2',
+        release(Buffer.from(EZ('1.0.2')), { line: (digest, asset) => `${digest}  ${asset}\r\n` }),
+      ],
+    ]),
+  );
+
+  try {
+    for (const shell of SHELLS) {
+      for (const version of ['1.0.1', '1.0.2']) {
+        const bin = join(await tempFolder(), 'bin');
+
+        const run = await install(
+          ['--dir', bin, '--version', version],
+          { ESBOZO_RELEASE_URL: odd.url },
+          shell,
+        );
+
+        assert.equal(run.code, 0, `${version}: ${run.stderr}`);
+        assert.deepEqual(await runInstalled(join(bin, 'ez')), {
+          code: 0,
+          stdout: `ez ${version}\n`,
+          stderr: '',
+        });
+      }
+    }
+  } finally {
+    await odd.close();
+  }
 });
 
 test('refuses --main with --version, naming both', async () => {

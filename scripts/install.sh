@@ -132,7 +132,12 @@ staged="$dir/.ez-install.$$"
 trap 'rm -rf "$work"; rm -f "$staged"' EXIT INT TERM
 
 fetch "$release/SHA256SUMS" "$work/SHA256SUMS" || fail "cannot download $release/SHA256SUMS"
-expected=$(awk -v name="$asset" '$2 == name { print $1 }' "$work/SHA256SUMS")
+# A sums line names the asset after two spaces, or after a `*` in binary mode,
+# and one written on Windows ends in a CR. Both name the same asset.
+expected=$(awk -v name="$asset" '
+  { sub(/\r$/, "", $2); sub(/^\*/, "", $2) }
+  $2 == name { print $1 }
+' "$work/SHA256SUMS")
 [ -n "$expected" ] || fail "$release/SHA256SUMS names no $asset"
 
 fetch "$release/$asset" "$work/$asset" || fail "cannot download $release/$asset"
