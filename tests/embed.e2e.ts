@@ -1531,6 +1531,43 @@ test('an element the page takes off and puts back takes the keys again', async (
   }
 });
 
+test('a Label left with Escape keeps the keys, so the next tool key still answers', async ({
+  app,
+  browser,
+  screen,
+}) => {
+  const embed = await startEmbed(await bundleFolder(), { l: LABEL_SOURCE });
+  try {
+    const ui: Ui = { app, browser, screen };
+    await app.open(`${embed.url}/label-kalam.html`);
+    await expect(screen.getByRole('status')).toHaveText('saved');
+
+    // The field the Label is typed into holds the focus while it is open.
+    await doubleClickScene(ui, { x: 100, y: 80 });
+    const label = screen.getByRole('textbox', { name: 'Label' });
+    await label.pressSequentially('Orders');
+    await label.press('Escape');
+
+    // Escape takes the field off the page, and the field was where the focus
+    // was: the editor is the one that takes it back, without a press.
+    expect(
+      await browser.evaluate(
+        () => document.activeElement === document.querySelector('esbozo-editor'),
+      ),
+      'the editor holds the focus again',
+    ).toBe(true);
+
+    // So the next tool key is the editor's, and the Tool it names is in hand.
+    await browser.keyboard.press('a');
+    await expect(screen.getByRole('button', { name: 'Arrow', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  } finally {
+    await embed.stop();
+  }
+});
+
 test('two elements on one page share no font, no Scene, no Grid and no keystroke', async ({ app, browser, screen }) => {
   const embed = await startEmbed(await bundleFolder(), { a: WORDS_SOURCE, b: WORDS_SOURCE });
   try {
