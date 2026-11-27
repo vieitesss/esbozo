@@ -112,7 +112,9 @@ async function answerOf({ kind, theme }, source) {
   return {
     ok: answer.ok,
     exitCode: answer.exitCode,
-    svg: answer.svg,
+    // A field the command did not make is empty, as `internal/core` writes it:
+    // `render` alone answers an SVG, and `png` alone an image.
+    svg: answer.svg ?? '',
     png: answer.png === null || answer.png === undefined ? null : Buffer.from(answer.png).toString('base64'),
     problems: [...answer.problems],
     notes: [...answer.notes],

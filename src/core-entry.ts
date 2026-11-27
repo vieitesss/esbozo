@@ -22,6 +22,7 @@ import type { PngOptions, Theme } from './png.js';
 import { sha256Hex } from './sha256.js';
 import type { AnchorWords, Change, Outcome } from './ends.js';
 import type { Layout } from './layout.js';
+import type { Scene } from './scene.js';
 
 /** What the host lends the bundle. */
 interface EzHost {
@@ -492,47 +493,49 @@ interface SnapRequest {
   readonly target: string;
 }
 
-/** What a command made: the SVG, the PNG, the Scene text, or the lines it refuses with. */
-interface Answer {
+/**
+ * What every command answers: whether it ran, the code to exit with, and the
+ * lines it carries. Each command answers this beside the one thing it made, so
+ * no answer holds a field its command does not make.
+ */
+interface Result {
   readonly ok: boolean;
   readonly exitCode: number;
-  readonly svg: string;
-  /** The image `png` drew, and `null` for any other command. */
-  readonly png: Uint8Array | null;
-  /** The Scene text `anchor` and `snap` save, and `''` for any other command. */
-  readonly scene: string;
-  /** The lines `anchor` and `snap` print once they have saved it. */
-  readonly lines: readonly string[];
+  /** Why the command refused, as `ez` prints them. */
   readonly problems: readonly string[];
   /** Lines the command prints on stderr but does not fail on, such as a remote font. */
   readonly notes: readonly string[];
 }
 
-function failed(exitCode: number, problems: readonly string[]): Answer {
-  return {
-    ok: false,
-    exitCode,
-    svg: '',
-    png: null,
-    scene: '',
-    lines: [],
-    problems,
-    notes: [],
-  };
+/** `render`'s answer: the Scene's SVG, and `''` where it refused. */
+interface Rendered extends Result {
+  readonly svg: string;
 }
 
-/** An answer that succeeds and edits no Scene: no text to save, no lines to print. */
-function unchanged(): Answer {
-  return {
-    ok: true,
-    exitCode: 0,
-    svg: '',
-    png: null,
-    scene: '',
-    lines: [],
-    problems: [],
-    notes: [],
-  };
+/** `png`'s answer: the image it drew, and `null` where it refused. */
+interface Image extends Result {
+  readonly png: Uint8Array | null;
+}
+
+/** `anchor` and `snap`'s answer: the Scene text to save, and the lines to print. */
+interface Edited extends Result {
+  readonly scene: string;
+  readonly lines: readonly string[];
+}
+
+/** An answer that ran and found nothing to say. */
+function ok(): Result {
+  return { ok: true, exitCode: 0, problems: [], notes: [] };
+}
+
+/** An answer that refused: the code to exit with, and the lines to print. */
+function refused(exitCode: number, problems: readonly string[]): Result {
+  return { ok: false, exitCode, problems, notes: [] };
+}
+
+/** An editing command that saved nothing: no Scene text to write, no line to print. */
+function nothingSaved(result: Result): Edited {
+  return { ...result, scene: '', lines: [] };
 }
 
 /** A problem as `ez` prints it: `id: message`, or the message alone with no id. */
@@ -548,36 +551,36 @@ function loadScene(source: ArrayBuffer) {
   return { bytes, parsed: readAsV8(() => parseScene(globalThis.__ezHost.decodeUtf8(source))) };
 }
 
-async function render(request: RenderRequest): Promise<Answer> {
+async function render(request: RenderRequest): Promise<Rendered> {
   const { bytes, parsed } = loadScene(request.source);
   if (!parsed.ok) {
-    return failed(EXIT.invalidScene, problemLines(parsed.problems));
+    return { ...refused(EXIT.invalidScene, problemLines(parsed.problems)), svg: '' };
   }
 
   // `render` takes no `--css`, so it reads no stylesheet.
   const font = await chooseFont(request.fontPath ?? undefined, null, 'light');
   if (!font.ok) {
-    return failed(EXIT.missingThemeOrFont, font.problems);
+    return { ...refused(EXIT.missingThemeOrFont, font.problems), svg: '' };
   }
 
   const layout: Layout = layoutFor(font.value);
   const svg = renderScene(parsed.scene, layout, sha256Hex(bytes));
-  return { ...unchanged(), svg, notes: font.notes };
+  return { ...ok(), svg, notes: font.notes };
 }
 
-async function check(request: CheckRequest): Promise<Answer> {
+async function check(request: CheckRequest): Promise<Result> {
   const { parsed } = loadScene(request.source);
   if (!parsed.ok) {
-    return failed(EXIT.invalidScene, problemLines(parsed.problems));
+    return refused(EXIT.invalidScene, problemLines(parsed.problems));
   }
 
   const stylesheet = await readStylesheet(request.cssPath ?? undefined);
   if (!stylesheet.ok) {
-    return failed(EXIT.missingThemeOrFont, stylesheet.problems);
+    return refused(EXIT.missingThemeOrFont, stylesheet.problems);
   }
   const font = await chooseFont(request.fontPath ?? undefined, stylesheet.value, 'light');
   if (!font.ok) {
-    return failed(EXIT.missingThemeOrFont, font.problems);
+    return refused(EXIT.missingThemeOrFont, font.problems);
   }
 
   const layout = layoutFor(font.value);
@@ -589,16 +592,16 @@ async function check(request: CheckRequest): Promise<Answer> {
     }
   }
   if (overflowed.length > 0) {
-    return { ...failed(EXIT.labelOverflow, overflowed), notes: font.notes };
+    return { ...refused(EXIT.labelOverflow, overflowed), notes: font.notes };
   }
-  return { ...unchanged(), notes: font.notes };
+  return { ...ok(), notes: font.notes };
 }
 
 /**
  * `png`: `src/png.ts` owns the palette, the font and the outlines, and the host
  * owns resvg, so this hands the Scene over and answers the image.
  */
-async function png(request: PngRequest): Promise<Answer> {
+async function png(request: PngRequest): Promise<Image> {
   const theme = request.theme;
   if (theme === null) {
     throw new Error('png needs a theme: the host decides light or dark, not the core');
@@ -606,14 +609,14 @@ async function png(request: PngRequest): Promise<Answer> {
 
   const { parsed } = loadScene(request.source);
   if (!parsed.ok) {
-    return failed(EXIT.invalidScene, problemLines(parsed.problems));
+    return { ...refused(EXIT.invalidScene, problemLines(parsed.problems)), png: null };
   }
 
   const rendered = await renderPng(parsed.scene, pngOptions(theme, request));
   if (!rendered.ok) {
-    return failed(EXIT.missingThemeOrFont, rendered.problems);
+    return { ...refused(EXIT.missingThemeOrFont, rendered.problems), png: null };
   }
-  return { ...unchanged(), png: rendered.png, notes: rendered.notes };
+  return { ...ok(), png: rendered.png, notes: rendered.notes };
 }
 
 /**
@@ -645,42 +648,42 @@ function pngOptions(theme: Theme, request: PngRequest): PngOptions {
  * `anchor`: one end's Anchor placed on its target's outline, or every Snapped end
  * frozen where it draws — the Scene text to save, and the line a person reads.
  */
-async function anchor(request: AnchorRequest): Promise<Answer> {
-  // The words first, as the CLI judges them before it reads the Scene.
-  const edit = anchorEditOf(anchorWords(request));
-  if (!edit.ok) {
-    return failed(edit.exitCode, [edit.message]);
-  }
-  // No Scene to edit: the host could not read one and asks only whether the words
-  // stand, so that its own message about the read is the one a person sees.
-  if (request.source === null) {
-    return unchanged();
-  }
-  const { parsed } = loadScene(request.source);
-  if (!parsed.ok) {
-    return failed(EXIT.invalidScene, problemLines(parsed.problems));
-  }
-  return saved(anchorScene(parsed.scene, edit.value));
+async function anchor(request: AnchorRequest): Promise<Edited> {
+  return saveEnd(anchorEditOf(anchorWords(request)), request.source, anchorScene);
 }
 
 /** `snap`: one end attached to an Element, or written free with `off`. */
-async function snap(request: SnapRequest): Promise<Answer> {
-  const edit = snapEditOf({
+async function snap(request: SnapRequest): Promise<Edited> {
+  const words = snapEditOf({
     elementId: request.elementId,
     end: request.end,
     target: request.target,
   });
-  if (!edit.ok) {
-    return failed(edit.exitCode, [edit.message]);
+  return saveEnd(words, request.source, snapScene);
+}
+
+/**
+ * The pipeline `anchor` and `snap` share: judge the words, answer a Scene the host
+ * could not read without editing one, and otherwise save what the words edit.
+ */
+async function saveEnd<Edit>(
+  words: Outcome<Edit>,
+  source: ArrayBuffer | null,
+  apply: (scene: Scene, edit: Edit) => Outcome<Change>,
+): Promise<Edited> {
+  if (!words.ok) {
+    return nothingSaved(refused(words.exitCode, [words.message]));
   }
-  if (request.source === null) {
-    return unchanged();
+  // No Scene to edit: the host could not read one and asks only whether the words
+  // stand, so that its own message about the read is the one a person sees.
+  if (source === null) {
+    return nothingSaved(ok());
   }
-  const { parsed } = loadScene(request.source);
+  const { parsed } = loadScene(source);
   if (!parsed.ok) {
-    return failed(EXIT.invalidScene, problemLines(parsed.problems));
+    return nothingSaved(refused(EXIT.invalidScene, problemLines(parsed.problems)));
   }
-  return saved(snapScene(parsed.scene, edit.value));
+  return saved(apply(parsed.scene, words.value));
 }
 
 /** The words `anchor`'s request carries; `--all` names no Element, end or place. */
@@ -699,16 +702,16 @@ function anchorWords(request: AnchorRequest): AnchorWords {
  * the problems the parser finds in what serialising made — `saveScene`'s check,
  * so no command hands a host a Scene the parser turns down.
  */
-function saved(edit: Outcome<Change>): Answer {
+function saved(edit: Outcome<Change>): Edited {
   if (!edit.ok) {
-    return failed(edit.exitCode, [edit.message]);
+    return nothingSaved(refused(edit.exitCode, [edit.message]));
   }
   const text = serialiseScene(edit.value.scene);
   const checked = parseScene(text);
   if (!checked.ok) {
-    return failed(EXIT.invalidScene, problemLines(checked.problems));
+    return nothingSaved(refused(EXIT.invalidScene, problemLines(checked.problems)));
   }
-  return { ...unchanged(), scene: text, lines: edit.value.lines };
+  return { ...ok(), scene: text, lines: edit.value.lines };
 }
 
 /**
@@ -716,7 +719,7 @@ function saved(edit: Outcome<Change>): Answer {
  * and `answer` reads it: goja runs the queue of promises when the script that
  * awaited them ends, so the host gives it two calls rather than one promise.
  */
-let settled: Answer | null = null;
+let settled: Result | null = null;
 let failure: { error: unknown } | null = null;
 
 /**
@@ -737,7 +740,7 @@ export function begin(
   failure = null;
   // The host builds the request for the kind it names, so each branch reads only
   // the fields `begin` was handed for it.
-  let running: Promise<Answer>;
+  let running: Promise<Result>;
   switch (kind) {
     case 'render':
       running = render(request as RenderRequest);
@@ -774,7 +777,7 @@ export function begin(
  *
  * @public
  */
-export function answer(): Answer {
+export function answer(): Result {
   if (failure !== null) {
     throw failure.error;
   }
