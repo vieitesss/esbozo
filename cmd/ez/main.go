@@ -16,6 +16,7 @@
 //	ez snap <scene> <element> <start|end> <target|off>
 //	ez skill [install [--dir <path>]]
 //	ez bundle <dir>
+//	ez update [--main | --version <X.Y.Z>]
 //	ez serve*
 //	ez --version
 package main
@@ -66,6 +67,8 @@ func run(argv []string, stdout, stderr io.Writer) int {
 		return runSkill(rest, stdout, stderr)
 	case "bundle":
 		return runBundle(rest, stdout, stderr)
+	case "update", "upgrade":
+		return runUpdate(rest, stdout, stderr)
 	case "--help":
 		fmt.Fprint(stdout, topLevelHelp(shouldBold(stdout)))
 		return exitOK
