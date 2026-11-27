@@ -129,10 +129,11 @@ func readBody(request *http.Request) ([]byte, error) {
 	return body, nil
 }
 
-// parseSceneWrite is `sceneWrite` in `src/scenes-api.ts`: a write body, and
-// false for a body that is not the JSON object above. The keys are read exactly
-// as written — `{"Scene": …}` is no write, as the property read in TS makes it
-// — and a field that is not a string is no write either.
+// parseSceneWrite reads a write body: the two texts `SceneWrite` in
+// `src/scenes-api.ts` describes, the Scene to store and the SVG drawn beside it.
+// A body that is not the JSON object above is no write. The keys are read
+// exactly as written — `{"Scene": …}` is no write, as the property read in TS
+// makes it — and a field that is not a string is no write either.
 func parseSceneWrite(body []byte) (sceneWrite, bool) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(body, &fields); err != nil {

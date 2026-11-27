@@ -1,16 +1,13 @@
 /**
- * Module seam: the listing the save API sends, as the page reads it — and the write
- * it takes back.
+ * Module seam: the listing the save API sends, as the page reads it.
  *
  * The page has no other guard: a server that answers 200 with anything else has
  * to reach the status line, not become a folder the editor shows as writable. So
- * every field is checked here, and a wrong type is no listing at all. The write
- * is the same contract from the other end: what the editor sends is exactly what
- * the server stores, in both directions.
+ * every field is checked here, and a wrong type is no listing at all.
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { listingOf, sceneWrite, problemIn, Refusal } from '../src/scenes-api.ts';
+import { listingOf, problemIn, Refusal } from '../src/scenes-api.ts';
 
 test('a listing reads back as its folder, its Scenes and whether writes are refused', () => {
   const listing = { folder: 'sketches', readOnly: true, scenes: ['a.json', 'b.json'] };
@@ -38,23 +35,6 @@ test('a body that is not a listing is nothing, never a writable folder', () => {
     JSON.stringify({ folder: 'f', readOnly: false, scenes: [1] }),
   ]) {
     assert.equal(listingOf(body), null, `${body} is not a listing`);
-  }
-});
-
-test('a write reads back as the Scene and the SVG it carries', () => {
-  const written = { scene: '{"version":1}', svg: '<svg></svg>' };
-  assert.deepEqual(sceneWrite(JSON.stringify(written)), written);
-
-  for (const body of [
-    'not json at all',
-    'null',
-    '[]',
-    JSON.stringify({ scene: '{}' }),
-    JSON.stringify({ svg: '<svg></svg>' }),
-    JSON.stringify({ scene: {}, svg: '<svg></svg>' }),
-    JSON.stringify({ scene: '{}', svg: 1 }),
-  ]) {
-    assert.equal(sceneWrite(body), null, `${body} is not a write`);
   }
 });
 

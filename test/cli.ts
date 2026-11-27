@@ -16,7 +16,7 @@ import { tempFolder } from './temp.ts';
 const run = promisify(execFile);
 
 /** The `ez` every suite exercises unless `EZ_BIN` names another: the binary `pnpm build` writes. */
-export const CLI = fileURLToPath(new URL('../dist/ez', import.meta.url));
+const CLI = fileURLToPath(new URL('../dist/ez', import.meta.url));
 
 /**
  * The `ez` one run starts: `EZ_BIN` when it names one, so a suite can be pointed
@@ -28,10 +28,9 @@ export const CLI = fileURLToPath(new URL('../dist/ez', import.meta.url));
  * nothing else from the repository beside it; `EZ_BIN` still wins, because a run
  * pointed at another `ez` is a run of that one.
  */
-function ezCommand(args: readonly string[], cli: string = CLI): { file: string; argv: string[] } {
+function ezBin(cli: string = CLI): string {
   const bin = process.env.EZ_BIN;
-  const file = bin === undefined || bin === '' ? cli : resolve(bin);
-  return { file, argv: [...args] };
+  return bin === undefined || bin === '' ? cli : resolve(bin);
 }
 
 /** One word quoted so a shell reads it back as it is. */
@@ -46,8 +45,7 @@ function quoted(word: string): string {
  * the same.
  */
 export function ezShimScript(): string {
-  const { file, argv } = ezCommand([]);
-  return `#!/bin/sh\nexec ${[file, ...argv].map(quoted).join(' ')} "$@"\n`;
+  return `#!/bin/sh\nexec ${quoted(ezBin())} "$@"\n`;
 }
 
 /** What one `ez` run left behind: its exit code and its two streams. */
@@ -77,9 +75,8 @@ export async function ez(
   cwd: string,
   env: NodeJS.ProcessEnv = {},
 ): Promise<Run> {
-  const { file, argv } = ezCommand(args);
   try {
-    const { stdout, stderr } = await run(file, argv, { cwd, env: { ...process.env, ...env } });
+    const { stdout, stderr } = await run(ezBin(), [...args], { cwd, env: { ...process.env, ...env } });
     return { code: 0, stdout, stderr };
   } catch (error) {
     const failed = error as { code?: unknown; stdout?: string; stderr?: string };
@@ -91,6 +88,24 @@ export async function ez(
   }
 }
 
+/**
+ * `ez` where a run that failed has to fail the caller: a helper that goes on to
+ * read what a command wrote would otherwise report the file that is not there,
+ * never the command that refused to write it. The error carries the exit code
+ * and what `ez` said, so a broken run reads as itself.
+ */
+export async function ezOrThrow(
+  args: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv = {},
+): Promise<Run> {
+  const left = await ez(args, cwd, env);
+  if (left.code !== 0) {
+    throw new Error(`ez ${args.join(' ')} exited ${left.code}: ${left.stderr || left.stdout}`);
+  }
+  return left;
+}
+
 /** A server `ez serve` is running on, and the folder it serves. */
 export interface Serve {
   readonly url: string;
@@ -99,7 +114,7 @@ export interface Serve {
   readonly startup: string;
   /** The build that line names. */
   readonly build: string;
-  /** When that build was made, or `null` when the CLI ran from source. */
+  /** When that build was made, or `null` when the startup line named no time. */
   readonly builtAt: string | null;
   stop(): Promise<void>;
 }
@@ -137,8 +152,7 @@ export async function startServe(
   args: readonly string[] = [],
   cli: string = CLI,
 ): Promise<Serve> {
-  const command = ezCommand(['serve', folder, '--port', '0', ...args], cli);
-  const child = spawn(command.file, command.argv, {
+  const child = spawn(ezBin(cli), ['serve', folder, '--port', '0', ...args], {
     cwd: folder,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
