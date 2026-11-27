@@ -49,6 +49,15 @@ const ROOTS = ['src', 'test', 'tests', 'scripts'];
 /** The Go tree rule 2 reads by hand: the two packages `ez` is built from. */
 const GO_ROOTS = ['cmd', 'internal'];
 
+/**
+ * The Go names that spell the runtime rather than an Element: `NodeMessage`
+ * builds the message Node itself prints, so the `Node` in that one name is the
+ * proper noun. Named one at a time, because telling a runtime from an Element is
+ * a person's judgement, and a pattern that guessed it would excuse the Elements
+ * too.
+ */
+const RUNTIME_NAMES = new Set(['NodeMessage']);
+
 /** The files the rules read: the TypeScript and JavaScript of `ROOTS`, the Go of `GO_ROOTS`. */
 const WATCHED = /^(?:(?:src|test|tests|scripts)\/.*\.(?:ts|tsx|js|mjs|cjs)|(?:cmd|internal)\/.*\.go)$/;
 
@@ -273,9 +282,9 @@ function nodeImports(file) {
  * An entry with a parenthetical qualifier — `label (for free-standing text)` —
  * is one sense of the word, so no mechanical rule can tell the senses apart.
  * Every such entry is left to a person; the rest are matched whole, word by
- * word, with the plain inflections a name takes (`shapes`, `shaped`). `Node`
- * followed by a version, `-compatible`, `.js` or `runtime` names the runtime,
- * not an Element, so it is not the term.
+ * word, with the plain inflections a name takes (`shapes`, `shaped`). The runtime
+ * is not an Element: `Node` followed by a version, `-compatible`, `.js` or
+ * `runtime` names it, and in prose so does the bare proper noun.
  */
 function avoidTerms(file) {
   const { path, source, report } = file;
@@ -313,10 +322,17 @@ function avoidTerms(file) {
  * TypeScript: a comment is the prose of the file, an identifier is a name, and a
  * string is neither — it holds the wasm module's own export names and the
  * message a person is handed, and this module chose neither word.
+ *
+ * A comment is prose, so the runtime's proper noun is quiet in one; an identifier
+ * is a name, so a `Node` inside one is the term however it is capitalised.
+ * `NodeMessage` is the one name the module gives the runtime's own words, and it
+ * is allowed by name, because telling a runtime from an Element is a person's
+ * judgement rather than a pattern's.
  */
 function avoidTermsInGo(file) {
   for (const token of goTokens(file.text)) {
-    const hit = avoidTermIn(token.text);
+    if (RUNTIME_NAMES.has(token.text)) continue;
+    const hit = avoidTermIn(token.text, token.kind === 'comment');
     if (hit === undefined) continue;
     file.report(token.at, `avoid term "${hit}" in ${token.kind} "${token.text.trim()}"`);
   }
@@ -755,17 +771,19 @@ function copyRuns(text) {
   return runs;
 }
 
-/** The Avoid term this text holds, if it holds one. */
-function avoidTermIn(text) {
+/** The Avoid term this text holds, if it holds one. `prose` says the text is a
+ * comment, the one place a person writes about the runtime instead of naming
+ * something in the code. */
+function avoidTermIn(text, prose = false) {
   const found = words(text);
   for (const term of terms) {
     const wanted = term.split(' ');
     for (let at = 0; at + wanted.length <= found.length; at += 1) {
       if (!wanted.every((word, step) => same(found[at + step].word, word))) continue;
-      // `Node` with a capital is the platform, and `Node 22`, `Node-compatible`,
-      // `Node.js` and the `Node runtime` are the same reading: the runtime the
-      // code runs on, not an Element.
-      if (wanted.length === 1 && term === 'node' && namesRuntime(text, found[at])) continue;
+      // `Node` with a capital is the platform in prose, and `Node 22`,
+      // `Node-compatible`, `Node.js` and the `Node runtime` are the same reading
+      // anywhere: the runtime the code runs on, not an Element.
+      if (wanted.length === 1 && term === 'node' && namesRuntime(text, found[at], prose)) continue;
       return term;
     }
   }
@@ -773,14 +791,14 @@ function avoidTermIn(text) {
 }
 
 /**
- * Whether a `node` is the runtime's name rather than an Element's: written
- * `Node`, the proper noun this repository spells the JavaScript runtime with and
- * the way a Go comment about the module `ez` ports says it, or followed by a
- * version, `-compatible`, `.js` or `runtime`. The avoided term is the lowercase
- * `node` a name is made of.
+ * Whether a `node` is the runtime's name rather than an Element's: in prose,
+ * written `Node`, the proper noun this repository spells the JavaScript runtime
+ * with and the way a Go comment about the module `ez` ports says it; or, in any
+ * text, followed by a version, `-compatible`, `.js` or `runtime`. The avoided
+ * term is the lowercase `node` a name is made of, so a name keeps its finding.
  */
-function namesRuntime(text, word) {
-  if (text.slice(word.at, word.end) === 'Node') return true;
+function namesRuntime(text, word, prose) {
+  if (prose && text.slice(word.at, word.end) === 'Node') return true;
   const rest = text.slice(word.end);
   // A version, `-compatible`, `.js`, `runtime`, or the `node:` builtin scheme.
   if (/^\s*(?:\d|-compatible|\.js|runtime|:)/i.test(rest)) return true;
