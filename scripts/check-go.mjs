@@ -29,6 +29,10 @@ const SUITES = [
   'test/check.test.ts',
   'test/exits.test.ts',
   'test/png.test.ts',
+  'test/anchor-cli.test.ts',
+  'test/skill-cli.test.ts',
+  'test/embed-bundle.test.ts',
+  'test/version.test.ts',
 ];
 
 function run(command, args, env = process.env) {
