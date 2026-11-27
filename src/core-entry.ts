@@ -484,6 +484,14 @@ interface SnapRequest {
 }
 
 /**
+ * `parse`'s request: the Scene alone, because nothing is measured or drawn from
+ * it.
+ */
+interface ParseRequest {
+  readonly source: ArrayBuffer;
+}
+
+/**
  * What every command answers: whether it ran, the code to exit with, and the
  * lines it carries. Each command answers this beside the one thing it made, so
  * no answer holds a field its command does not make.
@@ -585,6 +593,16 @@ async function check(request: CheckRequest): Promise<Result> {
     return { ...refused(EXIT.labelOverflow, overflowed), notes: font.notes };
   }
   return { ...ok(), notes: font.notes };
+}
+
+/**
+ * `parse`: what the parser `ez check` uses says about a Scene, and nothing more —
+ * no font is measured and no Label fitted, so a host can tell a Scene from any
+ * other JSON without paying for a Layout.
+ */
+async function parseOnly(request: ParseRequest): Promise<Result> {
+  const { parsed } = loadScene(request.source);
+  return parsed.ok ? ok() : refused(EXIT.invalidScene, problemLines(parsed.problems));
 }
 
 /**
@@ -723,7 +741,7 @@ let failure: { error: unknown } | null = null;
  * @public
  */
 export function begin(
-  request: RenderRequest | CheckRequest | PngRequest | AnchorRequest | SnapRequest,
+  request: RenderRequest | CheckRequest | PngRequest | AnchorRequest | SnapRequest | ParseRequest,
   kind: string,
 ): void {
   settled = null;
@@ -737,6 +755,9 @@ export function begin(
       break;
     case 'check':
       running = check(request as CheckRequest);
+      break;
+    case 'parse':
+      running = parseOnly(request as ParseRequest);
       break;
     case 'png':
       running = png(request as PngRequest);
