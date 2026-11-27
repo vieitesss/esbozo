@@ -126,7 +126,7 @@ func svgPathFor(scenePath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(filepath.Dir(resolved), sceneStem(filepath.Base(scenePath))+".svg"), nil
+	return filepath.Join(filepath.Dir(resolved), svgFileName(filepath.Base(scenePath))), nil
 }
 
 // sceneStem is `src/paths.ts`'s rule: `.esbozo` or `.json` taken off, in any
