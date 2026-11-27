@@ -4,9 +4,8 @@ package main
 
 import "os"
 
-// isTerminal answers false on a platform whose terminal settings are not asked
-// for yet: the help is then the plain text Node prints to a pipe, which is what
-// every command that is not a terminal gets anyway.
+// isTerminal answers false: this platform's terminal settings are not asked for
+// yet, so its help is the plain text Node prints to a pipe.
 func isTerminal(file *os.File) bool {
 	return false
 }

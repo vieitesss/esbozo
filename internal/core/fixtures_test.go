@@ -17,28 +17,20 @@ type answer struct {
 	Notes    []string `json:"notes"`
 }
 
-// fixtureAnswers is one Scene answered by both commands.
 type fixtureAnswers struct {
 	Fixture string `json:"fixture"`
 	Render  answer `json:"render"`
 	Check   answer `json:"check"`
 }
 
-// answers is what this test writes, in the order the fixtures are read.
 type answers struct {
 	Fixtures []fixtureAnswers `json:"fixtures"`
 }
 
-// TestCoreAnswers writes what the Go core answers for every fixture Scene.
-//
-// `scripts/same-bytes.mjs` is the comparison: it renders and checks the same
-// Scenes in Node with the same bundle, and holds the SVG bytes, the problem
-// lines, the notes and the exit codes to these. The two halves have to stay two
-// halves — one runtime cannot be compared with itself — so this writes and the
-// script judges.
-//
-// Without `EZ_SAME_BYTES_OUT` there is nothing to write to, and the script that
-// sets it is the only caller that can judge the result.
+// TestCoreAnswers writes what the Go core answers for every fixture Scene, for
+// `scripts/same-bytes.mjs` to hold to what the same bundle answers in Node. The
+// two halves stay two halves — one runtime cannot be compared with itself — so
+// this writes and the script judges.
 func TestCoreAnswers(t *testing.T) {
 	out := os.Getenv("EZ_SAME_BYTES_OUT")
 	if out == "" {
@@ -99,10 +91,8 @@ func listed(problems []string) []string {
 	return problems
 }
 
-// BenchmarkRenderEveryElement is what one command costs with nothing warm: Run
-// starts a goja runtime each time, so every iteration pays the cold start the
-// binary pays. It is the measurement `ez`'s cost is reported from, and it needs
-// the built bundle, like every other test in this package.
+// BenchmarkRenderEveryElement measures a cold Run: every iteration starts a goja
+// runtime, as every `ez` command does.
 func BenchmarkRenderEveryElement(b *testing.B) {
 	source, err := os.ReadFile("../../test/fixtures/every-element.json")
 	if err != nil {

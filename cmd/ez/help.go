@@ -1,12 +1,6 @@
-// Help text for the `ez` command line: the top-level overview and what each
-// command takes.
-//
-// The words are `src/help.ts`'s, written out again here while both CLIs exist:
-// T7 deletes the TypeScript one, and until then a test that holds the two
-// command lines to the same help is what keeps them from drifting.
-//
-// Plain text first. Section headings are bold only when writing to a terminal
-// and `NO_COLOR` is unset; piped output and stderr stay plain text.
+// Help text for the `ez` command line: the words are `src/help.ts`'s, written
+// out again here while both CLIs exist, and a test holds the two to the same
+// help. Section headings are bold only for a terminal without `NO_COLOR`.
 package main
 
 import (
@@ -18,7 +12,6 @@ import (
 
 const placeList = "top, bottom, left, right, center, top-left, top-right, bottom-left, bottom-right"
 
-// cssSubsetLines describes what `--css` reads, as `ez --help` prints it.
 var cssSubsetLines = []string{
 	"  `:root` and `html` declarations are the light theme; dark is those values",
 	"  overridden by `@media (prefers-color-scheme: dark)` blocks and by `:root.dark`,",
@@ -28,7 +21,7 @@ var cssSubsetLines = []string{
 	"  Palette colours must be opaque.",
 }
 
-// exitCodeRows is the exit table, as both the help and `src/cli.ts` define it.
+// exitCodeRows is the exit table, as `src/cli.ts` defines it.
 var exitCodeRows = [][2]string{
 	{"0", "the Scene is clean, was rendered, the PNG or the bundle was written, or the server stopped"},
 	{"2", "wrong arguments (unknown command, missing or extra arguments, bad flag)"},
@@ -38,7 +31,6 @@ var exitCodeRows = [][2]string{
 	{"6", "a Label that does not fit its Element (see `ez check`)"},
 }
 
-// commandGroups is the command list, in the order `ez --help` prints it.
 var commandGroups = []struct {
 	heading string
 	rows    [][2]string
@@ -61,7 +53,6 @@ var commandGroups = []struct {
 	}},
 }
 
-// examples is the last section of the top-level help.
 var examples = []string{
 	"  ez check diagram.esbozo",
 	"  ez png diagram.esbozo --theme light",
@@ -69,17 +60,14 @@ var examples = []string{
 	"  ez serve ./diagrams",
 }
 
-// commandHelpSpec is one command's help, as `ez <command> --help` prints it.
 type commandHelpSpec struct {
-	summary string
-	usage   []string
-	// optionsHeading is the section the options print under, `FLAGS` by default.
+	summary        string
+	usage          []string
 	optionsHeading string
 	options        [][2]string
 	example        string
 }
 
-// commandHelpSpecs is every topic `ez help` and `ez <command> --help` knows.
 var commandHelpSpecs = map[string]commandHelpSpec{
 	"render": {
 		summary: "Write <name>.svg beside the Scene and print its path.",
@@ -162,8 +150,6 @@ var commandHelpSpecs = map[string]commandHelpSpec{
 	},
 }
 
-// helpTopicFor is the command help `ez <command> --help` asks for: the topic
-// when `rest` is that one flag, and "" when the command has no help.
 func helpTopicFor(command string, rest []string) string {
 	if command == "skill" && len(rest) == 2 && rest[0] == "install" && rest[1] == "--help" {
 		return "skill install"
@@ -177,7 +163,6 @@ func helpTopicFor(command string, rest []string) string {
 	return command
 }
 
-// heading is a section name, bold when the stream takes colour.
 func heading(text string, bold bool) string {
 	if !bold {
 		return text
@@ -185,8 +170,6 @@ func heading(text string, bold bool) string {
 	return "\x1b[1m" + text + "\x1b[0m"
 }
 
-// alignedRows is a two-column table: `  left…  right`, the left padded to the
-// widest left no narrower than minWidth.
 func alignedRows(rows [][2]string, minWidth int) []string {
 	width := minWidth
 	for _, row := range rows {
@@ -201,12 +184,10 @@ func alignedRows(rows [][2]string, minWidth int) []string {
 	return lines
 }
 
-// section is a heading over its body lines, which is how every help block reads.
 func section(title string, body []string, bold bool) string {
 	return strings.Join(append([]string{heading(title, bold)}, body...), "\n")
 }
 
-// topLevelHelp is `ez --help`, and what `ez` with no command prints.
 func topLevelHelp(bold bool) string {
 	commandWidth := 0
 	for _, group := range commandGroups {
@@ -231,7 +212,6 @@ func topLevelHelp(bold bool) string {
 	return strings.Join(sections, "\n\n") + "\n"
 }
 
-// commandHelp is `ez <command> --help`, and `ez help <command>` after it.
 func commandHelp(topic string, bold bool) string {
 	spec := commandHelpSpecs[topic]
 	usage := make([]string, len(spec.usage))
@@ -250,9 +230,6 @@ func commandHelp(topic string, bold bool) string {
 	return strings.Join(sections, "\n\n") + "\n"
 }
 
-// runHelp is `ez help [command [subcommand]]`: the top-level help alone, or the
-// same help `ez <command> --help` prints. A name no command has is an unknown
-// command, and answers as any other unknown command does.
 func runHelp(argv []string, stdout, stderr io.Writer) int {
 	if len(argv) == 0 {
 		fmt.Fprint(stdout, topLevelHelp(shouldBold(stdout)))
@@ -268,10 +245,8 @@ func runHelp(argv []string, stdout, stderr io.Writer) int {
 }
 
 // shouldBold is `shouldBold` in `src/help.ts`: a terminal that `NO_COLOR` has
-// not turned off. Node asks the operating system whether the stream is a TTY,
-// which a file's mode cannot answer — `/dev/null` is a character device too —
-// and reads `NO_COLOR` as set unless the variable is absent, so an empty value
-// turns bold off there and here.
+// not turned off. Node reads `NO_COLOR` as set unless the variable is absent, so
+// an empty value turns bold off there and here.
 func shouldBold(stream io.Writer) bool {
 	file, isFile := stream.(*os.File)
 	if !isFile || !isTerminal(file) {

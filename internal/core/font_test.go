@@ -10,9 +10,7 @@ import (
 )
 
 // A Scene whose words hold the two ligatures Kalam carries, centred text and a
-// label narrow enough to wrap: the numbers `src/layout.ts` gets from the font
-// decide where a centred line starts and where a wrapped one breaks, so an
-// advance the table got wrong changes the SVG.
+// label narrow enough to wrap: an advance the table got wrong changes the SVG.
 const advanceScene = `{
   "version": 1,
   "title": "Advances",
@@ -28,16 +26,11 @@ const advanceScene = `{
 // The bundled font measured at build time and the same font parsed at run time
 // must draw the same Scene.
 //
-// `scripts/build-core.mjs` writes the table `ez` measures with, and the core
-// measures from it only for the bundled font's bytes. A font path naming a copy
-// with one byte appended is that same font — the parser ignores what follows its
-// last table, so every number stays — and the bytes are not the bundled ones, so
-// the core parses instead. That copy is what makes this a comparison rather than
-// a tautology, and the Scene is the one the table's numbers move.
-//
-// The test also says which of the two happened: a table the build refused is
-// `null`, and then both sides parse and this proves nothing, so a build that
-// stopped writing measurements fails here rather than passing quietly.
+// The core measures from the table only for the bundled font's bytes. A copy with
+// one byte appended is the same font — the parser ignores what follows its last
+// table — so that copy makes the core parse, which is what makes this a
+// comparison rather than a tautology. A table the build refused is `null`, and
+// then both sides parse and this fails here rather than passing quietly.
 func TestRenderMatchesRuntimeFontParse(t *testing.T) {
 	table := string(esbozo.FontMetrics)
 	if table == "" || table == "null" {
@@ -63,9 +56,7 @@ func TestRenderMatchesRuntimeFontParse(t *testing.T) {
 	}
 }
 
-// copyOfBundledFont writes the bundled font with one byte appended, which the
-// parser reads as the same font and the core does not recognise as the one its
-// table was taken from.
+// copyOfBundledFont writes the bundled font with one byte appended.
 func copyOfBundledFont(t *testing.T) string {
 	t.Helper()
 	bytes, err := os.ReadFile(filepath.Join("..", "..", "fonts", "Kalam-Regular.ttf"))
@@ -79,8 +70,8 @@ func copyOfBundledFont(t *testing.T) string {
 	return path
 }
 
-// whereFirst says where two SVGs part company, which is the one thing a failing
-// byte comparison cannot say for itself.
+// whereFirst says where two SVGs part company, which a failing byte comparison
+// cannot say for itself.
 func whereFirst(one, other string) string {
 	for at := 0; at < len(one) && at < len(other); at++ {
 		if one[at] != other[at] {

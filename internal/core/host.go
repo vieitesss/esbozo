@@ -13,9 +13,6 @@ import (
 )
 
 // newRuntime is one fresh goja runtime with the core bundle evaluated in it.
-//
-// Every `ez` call starts a fresh runtime, so nothing carries over from one
-// command to the next; `ez serve` will keep one behind a lock.
 func newRuntime() (*goja.Runtime, error) {
 	vm := goja.New()
 	if err := installHost(vm); err != nil {
@@ -31,20 +28,14 @@ func newRuntime() (*goja.Runtime, error) {
 	return vm, nil
 }
 
-// installHost is the whole of what the core is allowed to ask its host for: read
-// a file, turn text into bytes and back, say where the process runs, hand over
-// the bundled font, and hand over what measuring it yields.
+// installHost is the whole of what the core is allowed to ask its host for.
 //
 // `src/font.ts` reads the font and the stylesheet through `node:fs/promises`, and
 // `src/scene.ts` and `src/sha256.ts` hash with `TextEncoder`; the bundle reaches
 // those through `globalThis.__ezHost` and a `TextEncoder` the entry defines, so
-// no Node API ever ships inside it. `bundledFont` is the same seam for the `.ttf`
-// `src/font.ts` imports: the binary embeds Kalam anyway, so the bundle asks for
-// those bytes rather than carrying a base64 copy. `bundledFontMetrics` is that
-// seam one step further — the parse of those bytes, taken at build time — and is
-// the JSON text `null` when the build could not prove one, which the shim reads
-// as no table at all. A failed read throws, because the core's own error
-// messages are built from the exception's `message`.
+// no Node API ever ships inside it. `bundledFont` and `bundledFontMetrics` are
+// the same seam for what the binary already carries. A failed read throws,
+// because the core's own error messages are built from the exception's `message`.
 func installHost(vm *goja.Runtime) error {
 	host := vm.NewObject()
 
@@ -86,9 +77,8 @@ func installHost(vm *goja.Runtime) error {
 		return err
 	}
 
-	// The folder this process runs in: a stylesheet's `@font-face` url is
-	// resolved beside the stylesheet, which the command line may have named
-	// relatively, and only the host knows where that is.
+	// A stylesheet's `@font-face` url is resolved beside the stylesheet, which the
+	// command line may have named relatively: only the host knows where that is.
 	if err := host.Set("cwd", func(call goja.FunctionCall) goja.Value {
 		folder, err := os.Getwd()
 		if err != nil {
@@ -99,16 +89,14 @@ func installHost(vm *goja.Runtime) error {
 		return err
 	}
 
-	// The bundled font, handed over rather than copied: NewArrayBuffer wraps the
-	// slice, so the core reads the binary's own bytes.
+	// NewArrayBuffer wraps the slice, so the core reads the binary's own bytes.
 	if err := host.Set("bundledFont", func(call goja.FunctionCall) goja.Value {
 		return vm.ToValue(vm.NewArrayBuffer(esbozo.Kalam))
 	}); err != nil {
 		return err
 	}
 
-	// The measurements of those bytes, as `scripts/build-core.mjs` took them: the
-	// core reads the table instead of parsing 427 KB of font on every cold start.
+	// What `scripts/build-core.mjs` measured, so no cold start parses the font.
 	if err := host.Set("bundledFontMetrics", func(call goja.FunctionCall) goja.Value {
 		return vm.ToValue(string(esbozo.FontMetrics))
 	}); err != nil {
@@ -118,7 +106,6 @@ func installHost(vm *goja.Runtime) error {
 	return vm.Set("__ezHost", host)
 }
 
-// bytesOf reads an ArrayBuffer or a byte slice out of a JS value.
 func bytesOf(value goja.Value) ([]byte, error) {
 	switch bytes := value.Export().(type) {
 	case goja.ArrayBuffer:
@@ -133,12 +120,7 @@ func bytesOf(value goja.Value) ([]byte, error) {
 // prints about a file is built around Node's: `cannot read font x: ENOENT: no
 // such file or directory, open 'x'`. Go already carries the code and the reason;
 // what Node adds is the call that made it, which is `open` for a path it could
-// not open and `read` for the read of a directory that failed. Anything else
-// keeps Go's own wording.
-//
-// Both the core's reads, which the host makes on its behalf, and the command
-// line's own reads and writes say it through here, so one path cannot drift
-// from the other.
+// not open and `read` for the read of a directory that failed.
 func NodeMessage(err error, path string, reading bool) string {
 	switch {
 	case errors.Is(err, fs.ErrNotExist):

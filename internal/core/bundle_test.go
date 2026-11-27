@@ -8,15 +8,10 @@ import (
 	"esbozo"
 )
 
-// TestBundleRunsTwiceInOneRuntime is what a host that keeps a runtime asks of
-// the bundle: evaluating it again in the same realm leaves the global scope as
-// it found it.
-//
-// `ez serve` will hold one runtime and run the bundle behind a lock, and a
-// second evaluation is how a hosted bundle is reloaded. The bundle's own bodies
-// are an IIFE, so the only top-level bindings are the banner's: a `let` or
-// `const` there is a name the realm already has on the second run, and a
-// `SyntaxError` instead of a core.
+// TestBundleRunsTwiceInOneRuntime pins that a second evaluation in one realm
+// leaves the global scope as it found it: the banner runs there, so a `let` or
+// `const` at its top would be a name the realm already has, and a `SyntaxError`
+// instead of a core.
 func TestBundleRunsTwiceInOneRuntime(t *testing.T) {
 	vm := goja.New()
 	if err := installHost(vm); err != nil {

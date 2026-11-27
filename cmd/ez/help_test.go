@@ -6,10 +6,9 @@ import (
 	"testing"
 )
 
-// TestHelpIsPlainOnACharacterDeviceThatIsNoTerminal is the first half of what
-// finding 1 asks: `/dev/null` is a character device, which is as far as a file's
-// mode gets, and it is no terminal — Node's `isTTY` says so, and `node
-// dist/cli.js --help > /dev/null` is plain text. `ez --help > /dev/null` too.
+// TestHelpIsPlainOnACharacterDeviceThatIsNoTerminal: `/dev/null` is a character
+// device, which is as far as a file's mode gets, and it is no terminal —
+// `node dist/cli.js --help > /dev/null` is plain text, so `ez --help` too.
 func TestHelpIsPlainOnACharacterDeviceThatIsNoTerminal(t *testing.T) {
 	unsetenv(t, "NO_COLOR")
 	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
@@ -26,9 +25,8 @@ func TestHelpIsPlainOnACharacterDeviceThatIsNoTerminal(t *testing.T) {
 	}
 }
 
-// TestNoColorTurnsBoldOffWhenItIsSetEmpty is the second half: Node turns bold off
-// when `NO_COLOR` is there at all, an empty value included, so a terminal is
-// bold only while the variable is unset.
+// TestNoColorTurnsBoldOffWhenItIsSetEmpty: Node turns bold off when `NO_COLOR` is
+// there at all, an empty value included.
 func TestNoColorTurnsBoldOffWhenItIsSetEmpty(t *testing.T) {
 	unsetenv(t, "NO_COLOR")
 	terminal := askTerminal(t)
@@ -39,12 +37,7 @@ func TestNoColorTurnsBoldOffWhenItIsSetEmpty(t *testing.T) {
 	}
 }
 
-// askTerminal is a terminal to ask the helper about, or a skip. A pty master is
-// one, and the help is never written to it, so no slave side is opened.
-//
-// It is also the check that this test can say anything: `NO_COLOR` is unset by
-// the caller, so a terminal that is not bold here is not the stream this half is
-// about, and a run that skips says so.
+// askTerminal is a pty master, which is a terminal, or a skip.
 func askTerminal(t *testing.T) *os.File {
 	t.Helper()
 	const ptmx = "/dev/ptmx"
@@ -59,7 +52,6 @@ func askTerminal(t *testing.T) *os.File {
 	return master
 }
 
-// unsetenv removes `name` for this test and puts back what was there.
 func unsetenv(t *testing.T, name string) {
 	t.Helper()
 	was, had := os.LookupEnv(name)

@@ -1,9 +1,9 @@
 // Package core runs the bundled TypeScript core in goja, so that a Scene is
 // parsed, measured and drawn by the same code the CLI and the editor run.
 //
-// The boundary is deliberate: Go passes a Scene's bytes and the paths `--font`
-// and `--css` name, and reads back either SVG text or the lines `ez` prints. No
-// Scene rule lives on this side.
+// No Scene rule lives on this side: Go passes a Scene's bytes and the paths
+// `--font` and `--css` name, and reads back either SVG text or the lines `ez`
+// prints.
 package core
 
 import (
@@ -36,8 +36,7 @@ type Options struct {
 }
 
 // Command is a command the core runs, as `begin` in `src/core-entry.ts` takes
-// it. A command `ez` cannot be asked for is not one of these, and `Run` says so
-// rather than handing the core a name it does not have.
+// it; `Run` refuses a name the core does not have rather than passing it on.
 type Command string
 
 const (
@@ -47,8 +46,7 @@ const (
 	Check Command = "check"
 )
 
-// Run answers one command over a Scene's bytes: `render` for the SVG text,
-// `check` for the overflow lines.
+// Run answers one command over a Scene's bytes.
 func Run(command Command, source []byte, options Options) (Answer, error) {
 	if command != Render && command != Check {
 		return Answer{}, fmt.Errorf("the core has no command %q", command)
@@ -90,9 +88,7 @@ func Run(command Command, source []byte, options Options) (Answer, error) {
 	return answerOf(value)
 }
 
-// callableOf is a function the bundle left on `__ezCore`, called with goja
-// values: the host passes a request as an object rather than as a script built
-// from one.
+// callableOf is a function the bundle left on `__ezCore`.
 func callableOf(vm *goja.Runtime, name string) (goja.Callable, error) {
 	surface, ok := vm.Get("__ezCore").(*goja.Object)
 	if !ok {
@@ -127,7 +123,6 @@ func answerOf(value goja.Value) (Answer, error) {
 	}, nil
 }
 
-// linesOf reads a JS array of strings as Go strings.
 func linesOf(value goja.Value) []string {
 	object, ok := value.(*goja.Object)
 	if !ok {

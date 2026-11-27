@@ -9,22 +9,6 @@
 //	ez render <scene> [--font <file>]
 //	ez check <scene> [--font <file>] [--css <stylesheet>]
 //	ez anchor* / snap* / png* / serve* / bundle* / skill*
-//
-// `render` writes `<name>.svg` beside the Scene and prints that path. `check`
-// reports what is wrong with a Scene and prints nothing when it is clean, so a
-// script can rely on the exit code alone.
-//
-// Exit codes — the one place they are defined:
-//
-//	0  the Scene is clean or was rendered
-//	2  wrong arguments (unknown command, missing or extra arguments, bad flag)
-//	3  the Scene could not be read or parsed
-//	4  the output could not be written, or the core could not run
-//	5  missing theme values, or a missing or unreadable font
-//	6  a Label that does not fit its Element (see `ez check`)
-//
-// Problems are plain text, one per line, on stderr, and name the Element they
-// belong to: `a: width must be at least 1 pixel, got 0`.
 package main
 
 import (
@@ -34,8 +18,7 @@ import (
 )
 
 // The codes the commands decide for themselves, as `EXIT` in `src/cli.ts`
-// defines them. 5 and 6 are the core's: it answers with the code it refuses a
-// Scene with.
+// defines them; 5 and 6 are the core's, which it refuses a Scene with.
 const (
 	exitOK           = 0
 	exitUsage        = 2
@@ -47,8 +30,6 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
-// run is the command line, over the streams a run reads and writes: the exit
-// code it answers with is the code the process exits with.
 func run(argv []string, stdout, stderr io.Writer) int {
 	command, rest := "", []string(nil)
 	if len(argv) > 0 {
