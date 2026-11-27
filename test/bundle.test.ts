@@ -1,15 +1,15 @@
 /**
- * CLI seam, the bundle: the built binary needs nothing but `dist/`.
+ * CLI seam, the bundle: the built binary needs nothing beside it.
  *
- * The Docker image copies `dist/` alone — no `node_modules` — so this proves
- * that is enough: `render` (the core carries its own modules), `png` (resvg's
- * wasm travels inside the binary), and `serve`, whose page files are embedded
- * beside the core. Every run happens in a folder that holds `dist/` and nothing
- * else from the repository.
+ * The Docker image copies `ez` alone — no `node_modules`, no `dist/` — so this
+ * proves that is enough: `render` (the core carries its own modules), `png`
+ * (resvg's wasm travels inside the binary), and `serve`, whose page files are
+ * embedded beside the core. Every run happens in a folder that holds a copy of
+ * `ez` and nothing else from the repository.
  */
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { cp, readFile, writeFile } from 'node:fs/promises';
+import { cp, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -30,11 +30,12 @@ const SAMPLE_SCENE = {
   ],
 };
 
-/** A folder holding a copy of `dist/` and one Scene, and nothing else. */
+/** A folder holding a copy of `dist/ez` and one Scene, and nothing else. */
 async function bundleFolder(): Promise<string> {
   const folder = await tempFolder();
-  await cp(join(ROOT, 'dist'), join(folder, 'dist'), { recursive: true });
+  await cp(join(ROOT, 'dist', 'ez'), join(folder, 'ez'));
   await writeFile(join(folder, 'scene.json'), JSON.stringify(SAMPLE_SCENE, null, 2), 'utf8');
+  assert.deepEqual((await readdir(folder)).sort(), ['ez', 'scene.json']);
   return folder;
 }
 
@@ -47,7 +48,7 @@ after(async () => {
 
 test('the bundled binary renders and draws a PNG with no node_modules beside it', async () => {
   const folder = await bundleFolder();
-  const cli = join(folder, 'dist', 'ez');
+  const cli = join(folder, 'ez');
 
   const rendered = await run(cli, ['render', 'scene.json'], { cwd: folder });
   assert.match(rendered.stdout, /scene\.svg\n$/, 'render prints the path it wrote');
@@ -65,7 +66,7 @@ test('the bundled binary renders and draws a PNG with no node_modules beside it'
 
 test('the bundled binary serves the page and the folder with no node_modules beside it', async () => {
   const folder = await bundleFolder();
-  const server = await startServe(folder, [], join(folder, 'dist', 'ez'));
+  const server = await startServe(folder, [], join(folder, 'ez'));
   running.push(server);
 
   const listing = await fetch(`${server.url}/api/scenes`);

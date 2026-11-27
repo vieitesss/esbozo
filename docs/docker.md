@@ -16,7 +16,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t esbozo .
 
 Add `--push` to send both to a registry, or `--load` for the current platform only (a multi-platform image exists in the builder's cache, not in the local image store). `.github/workflows/docker.yml` runs that command on pushes to `main` and on pull requests, keeping the layers in the GitHub Actions cache (`type=gha`), because a machine without buildx cannot check the other architecture itself.
 
-The runtime stage carries the binary `pnpm build` wrote and the licence, and nothing else. `ez` is one static file of 20 MB with the editor page and the compressed variants it sends, Kalam, resvg's wasm and the core embedded in it by `assets.go`, so no request it answers reads a file beside it. The base image is still `node:22-slim`, which nothing in the container runs. `test/bundle.test.ts` holds that split: it renders, draws a PNG and serves the page from a folder that holds `dist/` alone.
+The runtime stage carries the binary `pnpm build` wrote and the licence, and nothing else. `ez` is one static file of 20 MB with the editor page and the compressed variants it sends, Kalam, resvg's wasm and the core embedded in it by `assets.go`, so no request it answers reads a file beside it. The base image is still `node:22-slim`, which nothing in the container runs. `test/bundle.test.ts` holds that split: it renders, draws a PNG and serves the page from a folder that holds `ez` alone.
 
 ## Run
 

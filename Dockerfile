@@ -6,7 +6,7 @@
 # static file: the core, the page, the font and resvg's wasm are embedded in it
 # by `assets.go`, so the second stage carries no `node_modules` and no `dist/`.
 # `test/bundle.test.ts` holds that split honest: it renders, draws a PNG and
-# serves the page from a folder that holds `dist/` alone.
+# serves the page from a folder that holds `ez` alone.
 #
 # `pnpm build` ends with `go build ./cmd/ez`, so the build stage carries the Go
 # toolchain `go.mod` names, copied from its own image rather than downloaded
