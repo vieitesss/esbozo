@@ -7,8 +7,11 @@
  * `ez` proves it arrives as its exit code and what it said.
  */
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import { ez, ezOrThrow, sceneFolder } from './cli.ts';
+import { removeTempFolders } from './temp.ts';
+
+after(removeTempFolders);
 
 test('a refused ez render is its exit code and what it said, not the file it never wrote', async () => {
   const folder = await sceneFolder({ version: 1 });
