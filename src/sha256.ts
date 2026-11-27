@@ -40,6 +40,10 @@ export async function sha256HexAsync(text: string): Promise<string> {
 }
 
 export function sha256(input: Uint8Array): Uint8Array {
+  const hosted = hostDigest(input);
+  if (hosted !== null) {
+    return hosted;
+  }
   const message = pad(input);
   const words = new Uint32Array(64);
 
@@ -113,6 +117,20 @@ export function sha256(input: Uint8Array): Uint8Array {
     view.setUint32(index * 4, word);
   }
   return digest;
+}
+
+/**
+ * The digest the host's own platform makes, where it has one: `internal/core`'s
+ * goja runtime does, so the seed of an unseeded Element is not a sha256 walked by
+ * a script that has no JIT. A browser has no such host and hashes here, as does
+ * Node, whose runtime is fast enough that it never needed one.
+ */
+function hostDigest(bytes: Uint8Array): Uint8Array | null {
+  const host = (
+    globalThis as unknown as { readonly __ezHost?: { sha256?(input: Uint8Array): ArrayBuffer } }
+  ).__ezHost;
+  const digest = host?.sha256;
+  return digest === undefined ? null : new Uint8Array(digest(bytes));
 }
 
 function pad(input: Uint8Array): Uint8Array {

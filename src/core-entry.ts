@@ -32,6 +32,13 @@ interface EzHost {
   encodeUtf8(text: string): ArrayBuffer;
   decodeUtf8(bytes: ArrayBuffer): string;
   /**
+   * The platform's own sha256 of these bytes, which `src/sha256.ts` prefers to its
+   * own reading: a Scene's unseeded Elements each seed themselves from a digest of
+   * their id, and Go's `crypto/sha256` answers that where a script would hash 64
+   * bytes at a time through a round of bit arithmetic.
+   */
+  sha256(bytes: Uint8Array): ArrayBuffer;
+  /**
    * The folder the host's process runs in, because a stylesheet's `@font-face`
    * url is resolved beside the stylesheet and the command line may have named it
    * relatively.

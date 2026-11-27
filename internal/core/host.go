@@ -1,6 +1,7 @@
 package core
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -55,10 +56,10 @@ func newRuntime() (*goja.Runtime, error) {
 // installHost is the whole of what the core is allowed to ask its host for.
 //
 // `src/font.ts` reads the font and the stylesheet through `node:fs/promises`, and
-// `src/scene.ts` and `src/sha256.ts` hash with `TextEncoder`; the bundle reaches
-// those through `globalThis.__ezHost` and a `TextEncoder` the entry defines, so
-// no Node API ever ships inside it. `bundledFont` and `bundledFontMetrics` are
-// the same seam for what the binary already carries, and `rasterise` is resvg's
+// `src/sha256.ts` hashes a Scene and an Element id; the bundle reaches those
+// through `globalThis.__ezHost` and a `TextEncoder` the entry defines, so no Node
+// API ever ships inside it. `bundledFont` and `bundledFontMetrics` are the same
+// seam for what the binary already carries, and `rasterise` is resvg's
 // `render().asPng()`, which `scripts/core-host/resvg-wasm.mjs` calls. A failed
 // read or a refused SVG throws, because the core's own error messages are built
 // from the exception's `message`.
@@ -89,6 +90,20 @@ func installHost(vm *goja.Runtime) error {
 
 	if err := host.Set("encodeUtf8", func(call goja.FunctionCall) goja.Value {
 		return vm.ToValue(vm.NewArrayBuffer([]byte(call.Argument(0).String())))
+	}); err != nil {
+		return err
+	}
+
+	// The platform's digest, which `src/sha256.ts` takes where a host has one: a
+	// Scene's unseeded Elements seed themselves from a sha256 of their id, and Go's
+	// is the same digest the script's would be.
+	if err := host.Set("sha256", func(call goja.FunctionCall) goja.Value {
+		bytes, err := bytesOf(call.Argument(0))
+		if err != nil {
+			panic(vm.NewGoError(err))
+		}
+		digest := sha256.Sum256(bytes)
+		return vm.ToValue(vm.NewArrayBuffer(digest[:]))
 	}); err != nil {
 		return err
 	}

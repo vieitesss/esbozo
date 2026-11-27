@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -97,6 +98,100 @@ func TestWarmSessionAnswersLikeFreshRuntimes(t *testing.T) {
 				command.name, warm.OK, warm.ExitCode, warm.Problems, alone.OK, alone.ExitCode, alone.Problems)
 		}
 	}
+}
+
+// TestASeedIsHashedByTheHost holds the seed an unseeded Element takes to the
+// platform's digest. `src/sha256.ts` can walk its own sha256, and a Scene of
+// hundreds of Elements walks it once per Element inside a script; a host with a
+// digest of its own answers that instead, and the script's is left unread.
+//
+// What a Scene that writes every seed asks for is nothing, and what a Scene that
+// writes none asks for is one digest per Element: `internal/core`'s host is the
+// only digest a session has.
+func TestASeedIsHashedByTheHost(t *testing.T) {
+	session, err := Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Count what the core asks the host for, around the host's own answer.
+	counting := `globalThis.__ezDigests = 0;
+		globalThis.__ezHost.sha256 = ((real) => (bytes) => {
+			globalThis.__ezDigests += 1;
+			return real(bytes);
+		})(globalThis.__ezHost.sha256);`
+	if _, err := session.vm.RunString(counting); err != nil {
+		t.Fatal(err)
+	}
+	digests := func() int64 {
+		value, err := session.vm.RunString(`globalThis.__ezDigests`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return value.ToInteger()
+	}
+
+	// Three Elements, no seed written: three seeds to make.
+	if _, err := session.Parse(writtenScene(3)); err != nil {
+		t.Fatal(err)
+	}
+	if made := digests(); made != 3 {
+		t.Fatalf("a Scene of 3 unseeded Elements asked the host for %d digests, want 3: the script is hashing seeds itself",
+			made)
+	}
+
+	// The same Scene with a seed on every Element: nothing left to make.
+	seeded := []byte(`{"version":1,"elements":[
+		{"id":"a","type":"rectangle","x":0,"y":0,"width":10,"height":10,"seed":1},
+		{"id":"b","type":"rectangle","x":0,"y":20,"width":10,"height":10,"seed":2}]}`)
+	if _, err := session.Parse(seeded); err != nil {
+		t.Fatal(err)
+	}
+	if made := digests(); made != 3 {
+		t.Fatalf("a Scene whose Elements all write their seed asked the host for %d more digests, want none",
+			made-3)
+	}
+}
+
+// BenchmarkParse measures one Scene parsed in a session already warm, as the
+// listing parses a folder's Scenes in the session `ez serve` keeps, beside the
+// same Scene parsed by a command that opens its runtime, as `ez check` does.
+func BenchmarkParse(b *testing.B) {
+	source := writtenScene(200)
+	b.Run("warm", func(b *testing.B) {
+		session, err := Open()
+		if err != nil {
+			b.Fatal(err)
+		}
+		for b.Loop() {
+			if _, err := session.Parse(source); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	b.Run("once", func(b *testing.B) {
+		for b.Loop() {
+			if _, err := Check(source, CheckOptions{}); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+}
+
+// writtenScene is a Scene of `elements` labelled rectangles as an agent writes
+// one: every Element spelled out, and none of them carrying a seed.
+func writtenScene(elements int) []byte {
+	var source strings.Builder
+	source.WriteString(`{"version":1,"elements":[`)
+	for index := range elements {
+		if index > 0 {
+			source.WriteString(",")
+		}
+		fmt.Fprintf(&source,
+			`{"id":"r%d","type":"rectangle","x":%d,"y":%d,"width":120,"height":60,"label":"label %d"}`,
+			index, (index%10)*40, (index/10)*40, index)
+	}
+	source.WriteString(`]}`)
+	return []byte(source.String())
 }
 
 // TestSessionAnswersOneCommandAtATime is the lock: many commands over one session
