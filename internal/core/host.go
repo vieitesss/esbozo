@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"sync"
 	"syscall"
 
 	"github.com/dop251/goja"
@@ -13,17 +14,37 @@ import (
 	"esbozo/internal/resvg"
 )
 
+// compiled is the core bundle, compiled once for the process: a `*goja.Program`
+// is safe to run in many runtimes, so every command need not compile 333 kB of
+// it again.
+var compiled struct {
+	once    sync.Once
+	program *goja.Program
+	err     error
+}
+
+// program is the core bundle as a program, compiled on first use.
+func program() (*goja.Program, error) {
+	compiled.once.Do(func() {
+		compiled.program, compiled.err = goja.Compile("core.js", string(esbozo.CoreBundle), false)
+		if compiled.err != nil {
+			compiled.err = fmt.Errorf("the core bundle does not compile: %w", compiled.err)
+		}
+	})
+	return compiled.program, compiled.err
+}
+
 // newRuntime is one fresh goja runtime with the core bundle evaluated in it.
 func newRuntime() (*goja.Runtime, error) {
 	vm := goja.New()
 	if err := installHost(vm); err != nil {
 		return nil, err
 	}
-	program, err := goja.Compile("core.js", string(esbozo.CoreBundle), false)
+	source, err := program()
 	if err != nil {
-		return nil, fmt.Errorf("the core bundle does not compile: %w", err)
+		return nil, err
 	}
-	if _, err := vm.RunProgram(program); err != nil {
+	if _, err := vm.RunProgram(source); err != nil {
 		return nil, fmt.Errorf("the core bundle does not run: %w", err)
 	}
 	return vm, nil
