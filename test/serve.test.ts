@@ -39,11 +39,11 @@ const SCENE_SOURCE = JSON.stringify(SCENE, null, 2);
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg"><title>Two boxes</title></svg>';
 
 /**
- * The cases that build a CLI of their own, in a copy of the sources with a git
- * history of its own: they hold the TypeScript build's stamp, which `EZ_BIN` — a
- * binary some other build already stamped — cannot answer.
+ * The cases that build an `ez` of their own, in a copy of the sources with a git
+ * history of its own: they hold that build's stamp, which `EZ_BIN` — a binary
+ * some other build already stamped — cannot answer.
  */
-const SKIP_BUILD = 'this case builds its own CLI: set EZ_BIN only against the binary the build wrote';
+const SKIP_BUILD = 'this case builds its own ez: set EZ_BIN only against the binary the build wrote';
 
 /** A server to stop at the end of the file, whatever the test asserted. */
 const running: Serve[] = [];
@@ -1116,7 +1116,7 @@ test(
     const built = Date.now();
     await run('node', ['scripts/build.mjs'], { cwd: source });
 
-    const server = await startServe(await sceneFolder(SCENE), [], join(source, 'dist', 'cli.js'));
+    const server = await startServe(await sceneFolder(SCENE), [], join(source, 'dist', 'ez'));
     running.push(server);
 
     assert.equal(server.build, commit, 'the stamped id is the commit the build was made from');
