@@ -11,14 +11,14 @@
 # dependencies at run time (`scripts/e2e-linux-container.sh`), so a source change
 # costs a copy, and the host's macOS `node_modules` is masked out of the mount.
 #
-# `NODE_VERSION` and `PNPM_VERSION` have no defaults on purpose: a default here
-# is a second place to bump, and the two numbers live in `.node-version` and
-# `package.json`.
+# `NODE_VERSION`, `PNPM_VERSION` and `GO_VERSION` have no defaults on purpose: a
+# default here is a second place to bump, and the three numbers live in
+# `.node-version`, `package.json` and `go.mod`.
 #
 # The worktree's own `pnpm build` also compiles `cmd/ez`, so the image carries
 # the Go toolchain `go.mod` names, copied from its own image: it is a static
 # binary and needs nothing from Ubuntu's packages.
-ARG GO_VERSION=1.25.5
+ARG GO_VERSION
 
 FROM golang:${GO_VERSION} AS go
 
