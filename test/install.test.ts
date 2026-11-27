@@ -9,8 +9,8 @@
  * no test reaches GitHub.
  */
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
-import { chmod, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { execFile, spawnSync } from 'node:child_process';
+import { chmod, lstat, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +18,15 @@ import { EZ, startRelease, type FakeRelease } from './release.ts';
 import { removeTempFolders, tempFolder } from './temp.ts';
 
 const INSTALL = fileURLToPath(new URL('../scripts/install.sh', import.meta.url));
+
+/**
+ * The shells the target cases run under: `sh` always, and `dash` too when it is
+ * installed, because the script is POSIX and dash reads it more strictly.
+ */
+const SHELLS =
+  spawnSync('sh', ['-c', 'command -v dash'], { stdio: 'ignore' }).status === 0
+    ? ['sh', 'dash']
+    : ['sh'];
 
 let server: FakeRelease;
 let releaseUrl: string;
@@ -39,17 +48,31 @@ interface Run {
   readonly stderr: string;
 }
 
-/** `sh scripts/install.sh` with `args`, pointed at the fake release. */
-function install(args: readonly string[], env: NodeJS.ProcessEnv = {}): Promise<Run> {
+/** `sh scripts/install.sh` (or `shell`) with `args`, pointed at the fake release. */
+function install(
+  args: readonly string[],
+  env: NodeJS.ProcessEnv = {},
+  shell = 'sh',
+): Promise<Run> {
   const options = {
     env: { ...process.env, ESBOZO_RELEASE_URL: releaseUrl, ...env },
   };
   return new Promise((ended) => {
-    execFile('sh', [INSTALL, ...args], options, (error, stdout, stderr) => {
+    execFile(shell, [INSTALL, ...args], options, (error, stdout, stderr) => {
       const code = error === null ? 0 : typeof error.code === 'number' ? error.code : -1;
       ended({ code, stdout, stderr });
     });
   });
+}
+
+/**
+ * A release URL nothing answers on: a refusal that came after the download
+ * would print the fetch failure instead of the reason it refused.
+ */
+async function unreachable(): Promise<string> {
+  const gone = await startRelease();
+  await gone.close();
+  return gone.url;
 }
 
 /** What running one installed `ez` prints, and what it exits with. */
@@ -130,6 +153,60 @@ test('refuses an unknown flag, naming it', async () => {
   assert.notEqual(run.code, 0);
   assert.match(run.stderr, /--nope/);
   assert.equal(await stat(join(bin, 'ez')).catch(() => null), null, 'nothing is installed');
+});
+
+test('refuses when ez is a folder, or a symlink to one, naming it', async () => {
+  const bin = join(await tempFolder(), 'bin');
+  await mkdir(join(bin, 'ez'), { recursive: true });
+  await mkdir(join(bin, 'other'), { recursive: true });
+  const dead = await unreachable();
+
+  for (const shell of SHELLS) {
+    const run = await install(['--dir', bin], { ESBOZO_RELEASE_URL: dead }, shell);
+
+    assert.equal(run.code, 1, run.stderr);
+    assert.ok(run.stderr.includes(join(bin, 'ez')), run.stderr);
+    assert.equal(run.stdout, '', 'nothing is printed as installed');
+    assert.deepEqual(await readdir(join(bin, 'ez')), [], 'the folder is left untouched');
+  }
+
+  await rm(join(bin, 'ez'), { recursive: true });
+  await symlink('other', join(bin, 'ez'));
+
+  const linked = await install(['--dir', bin], { ESBOZO_RELEASE_URL: dead });
+
+  assert.equal(linked.code, 1, linked.stderr);
+  assert.ok(linked.stderr.includes(join(bin, 'ez')), linked.stderr);
+  assert.deepEqual(await readdir(join(bin, 'other')), [], 'the folder is left untouched');
+});
+
+test('refuses an esbozo that is not a symlink, and replaces one that is', async () => {
+  const bin = join(await tempFolder(), 'bin');
+  await mkdir(join(bin, 'esbozo'), { recursive: true });
+  const dead = await unreachable();
+
+  for (const shell of SHELLS) {
+    const run = await install(['--dir', bin], { ESBOZO_RELEASE_URL: dead }, shell);
+
+    assert.equal(run.code, 1, run.stderr);
+    assert.ok(run.stderr.includes(join(bin, 'esbozo')), run.stderr);
+    assert.equal(run.stdout, '', 'nothing is printed as installed');
+    assert.deepEqual(await readdir(join(bin, 'esbozo')), [], 'the folder is left untouched');
+    assert.equal(await stat(join(bin, 'ez')).catch(() => null), null, 'nothing is installed');
+  }
+
+  await rm(join(bin, 'esbozo'), { recursive: true });
+  await symlink('gone', join(bin, 'esbozo'));
+
+  const run = await install(['--dir', bin]);
+
+  assert.equal(run.code, 0, run.stderr);
+  assert.equal((await lstat(join(bin, 'esbozo'))).isSymbolicLink(), true, 'still a symlink');
+  assert.deepEqual(await runInstalled(join(bin, 'esbozo')), {
+    code: 0,
+    stdout: 'ez 9.9.9\n',
+    stderr: '',
+  });
 });
 
 test('when the target is already installed, says so and leaves it alone', async () => {

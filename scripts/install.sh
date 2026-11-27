@@ -117,6 +117,16 @@ fi
 mkdir -p "$dir" || fail "cannot create $dir"
 [ -w "$dir" ] || fail "cannot write to $dir"
 
+# A folder where `ez` goes takes the staged binary inside it and leaves the
+# folder without an `ez`; an `esbozo` that is not a symlink gets `ez` linked
+# inside it. Both are refused before anything is fetched.
+if [ -d "$dir/ez" ]; then
+  fail "$dir/ez is a folder: move it away and install again"
+fi
+if [ -e "$dir/esbozo" ] && [ ! -L "$dir/esbozo" ]; then
+  fail "$dir/esbozo is not a symlink: move it away and install again"
+fi
+
 work=$(mktemp -d) || fail 'cannot make a temporary folder'
 staged="$dir/.ez-install.$$"
 trap 'rm -rf "$work"; rm -f "$staged"' EXIT INT TERM
