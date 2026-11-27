@@ -45,6 +45,24 @@ const CHECK = `import { existsSync } from 'node:fs';
 process.exit(existsSync('broken') ? 1 : 0);
 `;
 
+/** A one-package Go module, formatted and vet-clean. */
+const GO_MOD = 'module fixture\n\ngo 1.21\n';
+
+const MAIN_GO = `package main
+
+import "fmt"
+
+func main() {
+\tfmt.Println("hello")
+}
+`;
+
+/** The same file indented with spaces, which is what `gofmt` would rewrite. */
+const MAIN_GO_UNFORMATTED = MAIN_GO.replace('\tfmt.Println', '    fmt.Println');
+
+/** The same file, which compiles and which `go vet` refuses: a `%d` given a string. */
+const MAIN_GO_VET_BROKEN = MAIN_GO.replace('fmt.Println("hello")', 'fmt.Printf("%d\\n", "hello")');
+
 /** One git command in the fixture, its answer returned or the test stopped. */
 function git(cwd: string, ...args: string[]): string {
   const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
@@ -108,6 +126,33 @@ async function fixture(t: TestContext): Promise<Fixture> {
   return { repo, base, broken, clean };
 }
 
+/** The same three commits, as one Go file's edits: clean, broken, clean again. */
+async function goFixture(t: TestContext, brokenSource: string): Promise<Fixture> {
+  const repo = await mkdtemp(join(tmpdir(), 'esbozo-check-steps-go-'));
+  t.after(() => rm(repo, { recursive: true, force: true }));
+
+  git(repo, 'init', '--quiet', '--initial-branch=main');
+  await writeFile(join(repo, 'package.json'), PACKAGE_JSON);
+  await writeFile(join(repo, 'check.mjs'), CHECK);
+  await writeFile(join(repo, 'go.mod'), GO_MOD);
+  await writeFile(join(repo, 'main.go'), MAIN_GO);
+  git(repo, 'add', '--all');
+  commit(repo, 'the Go is clean');
+  const base = git(repo, 'rev-parse', 'HEAD');
+
+  await writeFile(join(repo, 'main.go'), brokenSource);
+  git(repo, 'add', '--all');
+  commit(repo, 'break the Go');
+  const broken = git(repo, 'rev-parse', 'HEAD');
+
+  await writeFile(join(repo, 'main.go'), MAIN_GO);
+  git(repo, 'add', '--all');
+  commit(repo, 'put it back');
+  const clean = git(repo, 'rev-parse', 'HEAD');
+
+  return { repo, base, broken, clean };
+}
+
 test('a base that is not a commit HEAD descends from is a usage error', async (t) => {
   const { repo } = await fixture(t);
   const run = checkSteps(repo, 'no-such-commit');
@@ -140,4 +185,24 @@ test('check:steps passes a green range and leaves the caller where it was', asyn
   assert.equal(git(repo, 'rev-parse', 'HEAD'), head);
   assert.equal(git(repo, 'status', '--porcelain'), status);
   assert.equal(git(repo, 'worktree', 'list', '--porcelain'), worktrees);
+});
+
+test('a commit gofmt would rewrite fails on its own, and the range carries on', async (t) => {
+  const { repo, base, broken, clean } = await goFixture(t, MAIN_GO_UNFORMATTED);
+  const run = checkSteps(repo, base);
+  assert.equal(run.status, 1, run.stdout + run.stderr);
+  assert.deepEqual(
+    run.stdout.split('\n').filter((line) => /^[0-9a-f]{40} .*: /.test(line)),
+    [`${broken} break the Go: gofmt`, `${clean} put it back: ok`],
+  );
+});
+
+test('a commit go vet refuses fails on its own, and the range carries on', async (t) => {
+  const { repo, base, broken, clean } = await goFixture(t, MAIN_GO_VET_BROKEN);
+  const run = checkSteps(repo, base);
+  assert.equal(run.status, 1, run.stdout + run.stderr);
+  assert.deepEqual(
+    run.stdout.split('\n').filter((line) => /^[0-9a-f]{40} .*: /.test(line)),
+    [`${broken} break the Go: go vet`, `${clean} put it back: ok`],
+  );
 });
