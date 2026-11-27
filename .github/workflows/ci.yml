@@ -32,16 +32,12 @@ on:
   push:
   pull_request:
 
-# One run per ref, the newest: a second push to a branch cancels the run the
-# first one started, whose verdict would only be about commits the branch has
-# already moved past. `main` is the exception and is never cancelled, because
-# nothing else would check what the cancelled run was checking: a branch push is
-# walked from the merge base with `main`, so the newer run covers the same
-# commits, while a `main` push is walked from `github.event.before`, so
-# cancelling it drops that push's commits and their tip from every job here.
+# A branch's runs share a group and the newest cancels the rest: each is walked
+# from the merge base with `main`. A `main` run gets its own group, neither
+# cancelled nor queued: it walks from `github.event.before`, its own push only.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
+  cancel-in-progress: true
 
 # Plain text in the log: the runner sets `CI`, which makes the test reporters
 # colour their output, and a failed run is read as text through
