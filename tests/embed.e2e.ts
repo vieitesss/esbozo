@@ -1542,14 +1542,11 @@ test('a Label left with Escape keeps the keys, so the next tool key still answer
     await app.open(`${embed.url}/label-kalam.html`);
     await expect(screen.getByRole('status')).toHaveText('saved');
 
-    // The field the Label is typed into holds the focus while it is open.
     await doubleClickScene(ui, { x: 100, y: 80 });
     const label = screen.getByRole('textbox', { name: 'Label' });
     await label.pressSequentially('Orders');
     await label.press('Escape');
 
-    // Escape takes the field off the page, and the field was where the focus
-    // was: the editor is the one that takes it back, without a press.
     expect(
       await browser.evaluate(
         () => document.activeElement === document.querySelector('esbozo-editor'),
@@ -1557,7 +1554,6 @@ test('a Label left with Escape keeps the keys, so the next tool key still answer
       'the editor holds the focus again',
     ).toBe(true);
 
-    // So the next tool key is the editor's, and the Tool it names is in hand.
     await browser.keyboard.press('a');
     await expect(screen.getByRole('button', { name: 'Arrow', exact: true })).toHaveAttribute(
       'aria-pressed',

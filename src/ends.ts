@@ -1,31 +1,9 @@
-/**
- * The Scene edits `ez anchor` and `ez snap` make, and the words they take.
- *
- * Arguments, files and exit codes belong to whoever runs a command: `cmd/ez`,
- * through the core bundle. So this module knows only a
- * Scene — which end a word names, the fractions a place means, the point an
- * Anchor draws at, and the one line a person reads — and carries no Node API,
- * because the bundle runs these same edits inside goja.
- */
 import { anchorOf, anchorPoint, pointOnOutline } from './geometry.js';
 import { isOutlined, snapTargetId, elementsById } from './scene.js';
 import { drawnGeometry } from './renderer.js';
 import type { Anchor, ArrowOrLineElement, Element, OutlinedElement, Point, Scene } from './scene.js';
 import { EXIT } from './exit.js';
 
-/*
- * An Anchor names a place on a Snap target's box, so the names below exist on
- * the command line only: the Scene always stores fractions, and a person who
- * wants a corner of a rounded box or of an ellipse gets the point where the box
- * corner's line to the centre meets the outline, because those shapes have no
- * corner where their box has one.
- */
-
-/**
- * The places an Anchor takes on the command line: names for the middle of a
- * side, the middle of the box, and its four corners. A Scene never holds a name,
- * only the fractions these stand for.
- */
 const SIDE_PLACES: Readonly<Record<string, Anchor>> = {
   top: { x: 0.5, y: 0 },
   bottom: { x: 0.5, y: 1 },
@@ -34,7 +12,6 @@ const SIDE_PLACES: Readonly<Record<string, Anchor>> = {
   center: { x: 0.5, y: 0.5 },
 };
 
-/** A name for a corner of the box, as fractions of it. */
 const CORNER_PLACES: Readonly<Record<string, Anchor>> = {
   'top-left': { x: 0, y: 0 },
   'top-right': { x: 1, y: 0 },
@@ -42,28 +19,20 @@ const CORNER_PLACES: Readonly<Record<string, Anchor>> = {
   'bottom-right': { x: 1, y: 1 },
 };
 
-/** Every place a person can name, in the order the help lists them. */
 const PLACE_WORDS = [...Object.keys(SIDE_PLACES), ...Object.keys(CORNER_PLACES)];
 
-/** Which end of an arrow or line a command names: its first point, or its last. */
 const ENDS = ['start', 'end'] as const;
 type End = (typeof ENDS)[number];
 
-/**
- * What a command says to anchor an end at, before the target's outline is known:
- * a place on the box, a corner of it, or no Anchor at all.
- */
 type Place =
   | { readonly kind: 'none' }
   | { readonly kind: 'spot'; readonly anchor: Anchor; readonly corner: boolean };
 
-/** What a command made of a Scene: the Scene to save, and the lines a person reads. */
 export interface Change {
   readonly scene: Scene;
   readonly lines: readonly string[];
 }
 
-/** A command's answer: what it made, or the message and exit code it refused with. */
 export type Outcome<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly message: string; readonly exitCode: number };
@@ -72,10 +41,6 @@ function refusal(message: string, exitCode: number): { ok: false; message: strin
   return { ok: false, message, exitCode };
 }
 
-/**
- * What one `ez anchor` run says before the Scene is read: every unanchored end,
- * or one end and the place to put its Anchor at.
- */
 export type AnchorWords =
   | { readonly all: true }
   | {
@@ -85,7 +50,6 @@ export type AnchorWords =
       readonly place: string;
     };
 
-/** One end anchored at a named place, or with its Anchor dropped. */
 export type AnchorEdit =
   | { readonly all: true }
   | {
@@ -95,23 +59,18 @@ export type AnchorEdit =
       readonly place: Place;
     };
 
-/** What one `ez snap` run says: one end, and the Element to attach it to or `off`. */
 export interface SnapWords {
   readonly elementId: string;
   readonly end: string;
-  /** The Element to attach to, or `off`: an end that remembers no Snap. */
   readonly target: string;
 }
 
-/** One end attached to an Element, or written free with `off`. */
 export interface SnapEdit {
   readonly elementId: string;
   readonly end: End;
-  /** The Element to attach to, or null for `off`: an end that remembers no Snap. */
   readonly target: string | null;
 }
 
-/** The edit `ez anchor`'s words ask for, or the message they are refused with. */
 export function anchorEditOf(words: AnchorWords): Outcome<AnchorEdit> {
   if (words.all) {
     return { ok: true, value: { all: true } };
@@ -130,7 +89,6 @@ export function anchorEditOf(words: AnchorWords): Outcome<AnchorEdit> {
   };
 }
 
-/** The edit `ez snap`'s words ask for, or the message they are refused with. */
 export function snapEditOf(words: SnapWords): Outcome<SnapEdit> {
   const end = parseEnd(words.end);
   if (end === null) {
@@ -142,17 +100,14 @@ export function snapEditOf(words: SnapWords): Outcome<SnapEdit> {
   };
 }
 
-/** The end a word names, or null where it names none. */
 function parseEnd(word: string): End | null {
   return ENDS.find((candidate) => candidate === word) ?? null;
 }
 
-/** Why a word is no end: a Shaft has a start and an end, and nothing between. */
 function endMessage(word: string): string {
   return `an end is start or end, got ${JSON.stringify(word)}`;
 }
 
-/** The place a word names: a name, a pair of fractions, or `none`. */
 function parsePlace(word: string): Outcome<Place> {
   if (word === 'none') {
     return { ok: true, value: { kind: 'none' } };
@@ -173,7 +128,6 @@ function parsePlace(word: string): Outcome<Place> {
       EXIT.usage,
     );
   }
-  // A fraction outside the box is the one thing `ez check` refuses about an Anchor.
   for (const [axis, value] of [
     ['x', anchor.x],
     ['y', anchor.y],
@@ -185,7 +139,6 @@ function parsePlace(word: string): Outcome<Place> {
   return { ok: true, value: { kind: 'spot', anchor, corner: false } };
 }
 
-/** A pair of fractions written `fx,fy`, or null where the word is not one. */
 function pairOfFractions(word: string): Anchor | null {
   const parts = word.split(',');
   if (parts.length !== 2) {
@@ -195,12 +148,10 @@ function pairOfFractions(word: string): Anchor | null {
   return x === undefined || y === undefined || Number.isNaN(x) || Number.isNaN(y) ? null : { x, y };
 }
 
-/** The Scene with the edit one `ez anchor` run asked for. */
 export function anchorScene(scene: Scene, edit: AnchorEdit): Outcome<Change> {
   return edit.all ? freezeEnds(scene) : placeEnd(scene, edit);
 }
 
-/** The Scene with one end anchored at a named place, or its Anchor dropped. */
 function placeEnd(scene: Scene, request: AnchorEdit & { all: false }): Outcome<Change> {
   const found = findShaft(scene, request.elementId);
   if (!found.ok) {
@@ -226,10 +177,6 @@ function placeEnd(scene: Scene, request: AnchorEdit & { all: false }): Outcome<C
   };
 }
 
-/**
- * The Scene with the edit one `ez snap` run asked for: one end attached to an
- * Element, or written free with `off`.
- */
 export function snapScene(scene: Scene, request: SnapEdit): Outcome<Change> {
   const found = findShaft(scene, request.elementId);
   if (!found.ok) {
@@ -253,8 +200,6 @@ export function snapScene(scene: Scene, request: SnapEdit): Outcome<Change> {
         EXIT.invalidScene,
       );
     }
-    // The same place the editor's drop takes: the outline point nearest the spot
-    // the end is drawn at now, not the target's centre.
     const [atStart, atEnd] = drawnEnds(element, elementsById(scene.elements));
     const anchor = anchorOf(target, request.end === 'start' ? atStart : atEnd);
     stored = { ...drawnAt(point, target, anchor), snap: request.target };
@@ -269,10 +214,6 @@ export function snapScene(scene: Scene, request: SnapEdit): Outcome<Change> {
   };
 }
 
-/**
- * Every Snapped end that carries no Anchor, given the Anchor of the spot it
- * draws at today, so freezing it moves no ink.
- */
 function freezeEnds(scene: Scene): Outcome<Change> {
   const byId = elementsById(scene.elements);
   const lines: string[] = [];
@@ -307,11 +248,6 @@ function freezeEnds(scene: Scene): Outcome<Change> {
   return { ok: true, value: { scene: { ...scene, elements }, lines } };
 }
 
-/**
- * Both ends a Shaft draws, each Snap resolved onto its target's outline: the
- * Renderer answers them canonically, so a Snap frozen here reads the very ends
- * the page draws.
- */
 function drawnEnds(
   element: ArrowOrLineElement,
   byId: ReadonlyMap<string, Element>,
@@ -323,7 +259,6 @@ function drawnEnds(
   return ends;
 }
 
-/** The arrow or line an id names, or why the Scene has no such Shaft. */
 function findShaft(scene: Scene, id: string): Outcome<ArrowOrLineElement> {
   const element = scene.elements.find((candidate) => candidate.id === id);
   if (element === undefined) {
@@ -338,7 +273,6 @@ function findShaft(scene: Scene, id: string): Outcome<ArrowOrLineElement> {
   return { ok: true, value: element };
 }
 
-/** The outlined Element an end Snaps to, or why it can hold no Anchor. */
 function snappedTarget(
   scene: Scene,
   element: ArrowOrLineElement,
@@ -358,12 +292,10 @@ function snappedTarget(
   return { ok: true, value: target };
 }
 
-/** Where an end sits among its Shaft's points: the first one, or the last. */
 function endIndex(element: ArrowOrLineElement, end: End): number {
   return end === 'start' ? 0 : element.points.length - 1;
 }
 
-/** The Anchor a named place means on this outline: fractions the Renderer draws there. */
 function placeOn(place: Place & { kind: 'spot' }, outline: OutlinedElement): Anchor {
   if (!place.corner) {
     return place.anchor;
@@ -375,20 +307,17 @@ function placeOn(place: Place & { kind: 'spot' }, outline: OutlinedElement): Anc
   return anchorOf(outline, pointOnOutline(outline, corner));
 }
 
-/** The end stored where its Anchor draws it, so the file's numbers read true. */
 function drawnAt(point: Point, target: OutlinedElement, anchor: Anchor): Point {
   const drawn = anchorPoint(target, anchor);
   return { ...point, x: drawn.x, y: drawn.y, anchor };
 }
 
-/** The same point with no Anchor: the Renderer aims the end again. */
 function withoutAnchor(point: Point): Point {
   const cleared = { ...point };
   delete cleared.anchor;
   return cleared;
 }
 
-/** The Scene with one of a Shaft's points replaced. */
 function withPoint(scene: Scene, element: ArrowOrLineElement, index: number, point: Point): Scene {
   const points = element.points.map((candidate, at) => (at === index ? point : candidate));
   const changed = { ...element, points } as ArrowOrLineElement;
@@ -398,7 +327,6 @@ function withPoint(scene: Scene, element: ArrowOrLineElement, index: number, poi
   };
 }
 
-/** The one line a command prints about the end it changed. */
 function changedLine(id: string, end: End, point: Point): string {
   const snap = typeof point.snap === 'string' ? point.snap : 'off';
   const anchor =

@@ -1331,7 +1331,6 @@ export function hasXmlInvalidChars(text: string): boolean {
     if (!allowed) {
       return true;
     }
-    // A character above U+FFFF is two code units, and both are read here at once.
     if (code >= 0x10000) {
       at += 1;
     }
