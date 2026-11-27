@@ -35,9 +35,25 @@ type Options struct {
 	CSSPath string
 }
 
+// Command is a command the core runs, as `begin` in `src/core-entry.ts` takes
+// it. A command `ez` cannot be asked for is not one of these, and `Run` says so
+// rather than handing the core a name it does not have.
+type Command string
+
+const (
+	// Render is `ez render`: the SVG the Scene draws to.
+	Render Command = "render"
+	// Check is `ez check`: the lines a Scene's Labels overflow with.
+	Check Command = "check"
+)
+
 // Run answers one command over a Scene's bytes: `render` for the SVG text,
 // `check` for the overflow lines.
-func Run(kind string, source []byte, options Options) (Answer, error) {
+func Run(command Command, source []byte, options Options) (Answer, error) {
+	if command != Render && command != Check {
+		return Answer{}, fmt.Errorf("the core has no command %q", command)
+	}
+
 	vm, err := newRuntime()
 	if err != nil {
 		return Answer{}, err
@@ -53,20 +69,40 @@ func Run(kind string, source []byte, options Options) (Answer, error) {
 	if err := request.Set("cssPath", optional(options.CSSPath)); err != nil {
 		return Answer{}, err
 	}
-	if err := vm.Set("__ezRequest", request); err != nil {
-		return Answer{}, err
-	}
 
-	// Two calls, not one: goja runs the queue of promises when the script that
+	// Two calls, not one: goja runs the queue of promises when the call that
 	// awaited them ends, so `begin` settles the answer and `answer` reads it.
-	if _, err := vm.RunString(fmt.Sprintf(`__ezCore.begin(__ezRequest, %q)`, kind)); err != nil {
+	begin, err := callableOf(vm, "begin")
+	if err != nil {
 		return Answer{}, err
 	}
-	value, err := vm.RunString(`__ezCore.answer()`)
+	if _, err := begin(goja.Undefined(), request, vm.ToValue(string(command))); err != nil {
+		return Answer{}, err
+	}
+	answer, err := callableOf(vm, "answer")
+	if err != nil {
+		return Answer{}, err
+	}
+	value, err := answer(goja.Undefined())
 	if err != nil {
 		return Answer{}, err
 	}
 	return answerOf(value)
+}
+
+// callableOf is a function the bundle left on `__ezCore`, called with goja
+// values: the host passes a request as an object rather than as a script built
+// from one.
+func callableOf(vm *goja.Runtime, name string) (goja.Callable, error) {
+	surface, ok := vm.Get("__ezCore").(*goja.Object)
+	if !ok {
+		return nil, fmt.Errorf("the core bundle left no __ezCore")
+	}
+	callable, ok := goja.AssertFunction(surface.Get(name))
+	if !ok {
+		return nil, fmt.Errorf("the core bundle has no __ezCore.%s", name)
+	}
+	return callable, nil
 }
 
 // optional turns an absent flag into the null the core tests for.

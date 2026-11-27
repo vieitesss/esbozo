@@ -60,8 +60,8 @@ func TestCoreAnswers(t *testing.T) {
 			t.Fatal(err)
 		}
 		fixture := fixtureAnswers{Fixture: filepath.Base(path)}
-		fixture.Render = runAnswer(t, "render", source)
-		fixture.Check = runAnswer(t, "check", source)
+		fixture.Render = runAnswer(t, Render, source)
+		fixture.Check = runAnswer(t, Check, source)
 		written.Fixtures = append(written.Fixtures, fixture)
 	}
 
@@ -76,11 +76,11 @@ func TestCoreAnswers(t *testing.T) {
 
 // runAnswer runs one command, failing the test rather than writing a half answer
 // the comparison would then have to explain.
-func runAnswer(t *testing.T, kind string, source []byte) answer {
+func runAnswer(t *testing.T, command Command, source []byte) answer {
 	t.Helper()
-	ran, err := Run(kind, source, Options{})
+	ran, err := Run(command, source, Options{})
 	if err != nil {
-		t.Fatalf("%s: %v", kind, err)
+		t.Fatalf("%s: %v", command, err)
 	}
 	return answer{
 		OK:       ran.OK,
@@ -110,7 +110,7 @@ func BenchmarkRenderEveryElement(b *testing.B) {
 	}
 
 	for b.Loop() {
-		ran, err := Run("render", source, Options{})
+		ran, err := Run(Render, source, Options{})
 		if err != nil {
 			b.Fatal(err)
 		}

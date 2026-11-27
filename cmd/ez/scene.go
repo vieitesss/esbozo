@@ -88,7 +88,7 @@ func runScene(command string, argv []string, stdout, stderr io.Writer) int {
 		return exitInvalidScene
 	}
 
-	answer, err := core.Run(command, source, core.Options{
+	answer, err := core.Run(core.Command(command), source, core.Options{
 		FontPath: parsed.fontPath,
 		CSSPath:  parsed.cssPath,
 	})

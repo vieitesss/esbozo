@@ -7,9 +7,10 @@ import (
 )
 
 // TestRunRefusesACommandTheCoreDoesNotHave is the host's half of the boundary:
-// a command the bundle does not have is an error here, and `ez` reports the core
-// it could not run (exit 4). An answer instead would be a refusal about a Scene
-// that nothing read, printed with exit 3.
+// `Run` names the two commands `ez` has, and answers any other with an error, so
+// `ez` reports a core it could not run (exit 4) rather than a refusal about a
+// Scene that nothing read, printed with exit 3. The bundle refuses an unknown
+// kind as well; `test/core-entry.test.ts` holds that half.
 func TestRunRefusesACommandTheCoreDoesNotHave(t *testing.T) {
 	source, err := os.ReadFile("../../test/fixtures/small.json")
 	if err != nil {
