@@ -438,8 +438,9 @@ const EXIT = {
 } as const;
 
 /**
- * What a command needs: the Scene's exact bytes, and where a `--font` or `--css`
- * flag pointed. An absent flag is `null`, never an empty path.
+ * What a command needs: the Scene's exact bytes, where a `--font` or `--css` flag
+ * pointed, and for `png` the theme and the colours its flags named. An absent
+ * flag is `null`, never an empty path.
  *
  * The surface is the bundle's, reached by the host as `__ezCore`: esbuild's
  * global is what makes `begin` and `answer` callable from Go.
