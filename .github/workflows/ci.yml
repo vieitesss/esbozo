@@ -54,10 +54,6 @@ jobs:
       # After the browser, not before it: `pnpm check` runs the node tests, and
       # `test/probe-editor.test.ts` launches a browser of its own.
       - run: pnpm check
-      # The Go half of the port. After `pnpm check`, whose `pnpm test` builds the
-      # bundle both read.
-      - run: go vet ./...
-      - run: go test ./...
       - run: pnpm e2e
       # After the browser checks, so a red commit verdict can never skip one of
       # them, and before the evidence, which is read only once both have run.
@@ -94,9 +90,10 @@ jobs:
           # All zeros is the push that created the ref: nothing came before it.
           if [[ "$base" =~ ^0+$ ]]; then base=''; fi
           echo "sha=$base" >> "$GITHUB_OUTPUT"
-      # Static checks only — typecheck, lint, knip, check-rules — so it needs no
-      # browser of its own. `!cancelled()` is what gives each commit its verdict
-      # even when `pnpm check` or `pnpm e2e` above already failed.
+      # Static checks only — typecheck, lint, knip, check-rules, and the Go
+      # half's vet and gofmt — so it needs no browser of its own. `!cancelled()`
+      # is what gives each commit its verdict even when `pnpm check` or
+      # `pnpm e2e` above already failed.
       - name: Check every commit on its own
         if: ${{ !cancelled() && steps.base.outputs.sha != '' }}
         run: pnpm check:steps "${{ steps.base.outputs.sha }}"
