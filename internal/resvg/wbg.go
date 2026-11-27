@@ -6,10 +6,11 @@
 // the imports below are the ones resvg actually calls.
 //
 // The list is the module's own import list, so nothing is missing from the
-// module's point of view; the eight array and iterator imports are reached only
-// by code this path does not run — `imagesToResolve`, and custom font buffers,
-// which `src/png.ts` never passes because it draws words as outlines — and they
-// fail loudly rather than answer wrongly.
+// module's point of view; `__wbindgen_string_new` and the eight array and
+// iterator imports are reached only by code this path does not run —
+// `imagesToResolve`, and custom font buffers, which `src/png.ts` never passes
+// because it turns words into outlines — and they fail loudly rather than answer
+// wrongly.
 package resvg
 
 import (
@@ -36,8 +37,13 @@ func (one *rasteriser) installWbg() error {
 		{"__wbg_new_63b92bc8671ed464", one.copyOf},
 		{"__wbg_instanceof_Uint8Array_2b3bbecd033d19f6", one.isUint8Array},
 		{"__wbindgen_string_get", one.stringGet},
-		{"__wbindgen_string_new", one.stringNew},
 		{"__wbindgen_throw", one.throw},
+
+		// A JS string out of the module answers `imagesToResolve`, which this path
+		// never calls: the SVG goes in, and only an error or a PNG comes back.
+		{"__wbindgen_string_new", func(context.Context, api.Module, uint32, uint32) uint32 {
+			panic(notReached("__wbindgen_string_new"))
+		}},
 
 		// Array and iterator protocol: only resvg's custom-font path walks a
 		// fontBuffers array, and none is passed.
@@ -151,10 +157,6 @@ func (one *rasteriser) stringGet(_ context.Context, module api.Module, retptr, h
 	if !module.Memory().Write(retptr, result) {
 		panic(fmt.Errorf("resvg asked for a string result at %d, past the end of its memory", retptr))
 	}
-}
-
-func (one *rasteriser) stringNew(_ context.Context, module api.Module, pointer, length uint32) uint32 {
-	return one.heap.add(&object{kind: jsString, text: readText(module, pointer, length)})
 }
 
 func (one *rasteriser) throw(_ context.Context, module api.Module, pointer, length uint32) {
