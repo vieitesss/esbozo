@@ -12,8 +12,8 @@
  */
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { chmod, copyFile, mkdir, readFile, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { chmod, copyFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { release, startRelease, type FakeRelease } from './release.ts';
@@ -155,6 +155,18 @@ test('refuses in a clone, pointing at git pull and pnpm build instead', async ()
   assert.match(update.stderr, /clone/);
   assert.match(update.stderr, /git pull && pnpm build/);
   assert.equal((await stat(BIN)).size, before.size, 'dist/ez was not replaced');
+});
+
+test('updates a folder that is no dist, even beside an esbozo go.mod', async () => {
+  const { folder, ez } = await installed();
+  await writeFile(join(dirname(folder), 'go.mod'), 'module esbozo\n', 'utf8');
+
+  const update = await run(ez, ['update', '--version', '2.0.0'], {
+    ESBOZO_RELEASE_URL: releaseUrl,
+  });
+
+  assert.equal(update.code, 0, update.stderr);
+  assert.match(update.stdout, /already installed/);
 });
 
 test('refuses in Docker, printing the docker pull line for the channel asked for', async () => {

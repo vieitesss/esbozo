@@ -84,10 +84,14 @@ func updateRefusal(tag string, folder string) string {
 	return ""
 }
 
-// isClone reports whether folder is the `dist/` of a checkout: the repository's
-// `go.mod` sits beside it. A release lands in a folder of its own with no module
-// beside it, so anything else that happens to hold Go files is not called one.
+// isClone reports whether folder is the `dist/` of a checkout: it is named `dist`
+// and the repository's `go.mod` sits beside it. A release lands in a folder of
+// its own with no module beside it, and a `bin/` beside one was installed there,
+// so neither is called a clone.
 func isClone(folder string) bool {
+	if filepath.Base(folder) != "dist" {
+		return false
+	}
 	module, err := os.ReadFile(filepath.Join(filepath.Dir(folder), "go.mod"))
 	if err != nil {
 		return false
