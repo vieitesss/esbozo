@@ -366,6 +366,47 @@ test('the list keeps an .esbozo that will not parse, so opening it says why', as
   assert.equal(opened.body, '{ not json');
 });
 
+/**
+ * A kept answer is about the file it was made from. `ez serve` remembers what the
+ * listing answered between requests, so an answer that outlived its file would be
+ * a server reading a folder nobody has: a Scene edited under it is listed as what
+ * it now is, and one put back is listed back.
+ */
+test('the list answers about the file on disk now, not the one it read before', async () => {
+  const folder = await sceneFolder(SCENE);
+  const scenePath = join(folder, 'scene.json');
+  const server = await served(folder);
+  const listed = async (): Promise<string[]> =>
+    (JSON.parse((await request(server, '/api/scenes')).body) as { scenes: string[] }).scenes;
+
+  assert.deepEqual(await listed(), ['scene.json']);
+
+  // The same name, no longer a Scene, in a file of another size.
+  await writeFile(scenePath, '{ not a Scene', 'utf8');
+  assert.deepEqual(await listed(), []);
+
+  await writeFile(scenePath, SCENE_SOURCE, 'utf8');
+  assert.deepEqual(await listed(), ['scene.json']);
+});
+
+/**
+ * A Scene saved through the API is what the next listing answers about that name:
+ * the save replaced the file, so the answer kept for the file before it goes.
+ */
+test('the list answers about a Scene the API has just saved', async () => {
+  const folder = await sceneFolder(SCENE);
+  await writeFile(join(folder, 'broken.json'), '{ not a Scene', 'utf8');
+  const server = await served(folder);
+  const listed = async (): Promise<string[]> =>
+    (JSON.parse((await request(server, '/api/scenes')).body) as { scenes: string[] }).scenes;
+
+  assert.deepEqual(await listed(), ['scene.json']);
+
+  const saved = await request(server, '/api/scenes/broken.json', 'PUT', sent());
+  assert.equal(saved.status, 200);
+  assert.deepEqual(await listed(), ['broken.json', 'scene.json']);
+});
+
 test('the list names the Scenes at the top level and says the folder is writable', async () => {
   const folder = await tempFolder();
   await writeFile(join(folder, 'b.json'), SCENE_SOURCE, 'utf8');

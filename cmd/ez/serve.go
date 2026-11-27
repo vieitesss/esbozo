@@ -200,17 +200,19 @@ func buildLine() string {
 
 // handler is what a request meets, before any route: a path with a dot segment
 // or broken percent-encoding, then the health route, then the Scene routes, then
-// a page file. `session` is the one core runtime every request answers in, and
-// the write queues are the run's, so two writes of one Scene are one after the
-// other however many requests arrive.
+// a page file. `session` is the one core runtime every request answers in, the
+// write queues are the run's, so two writes of one Scene are one after the other
+// however many requests arrive, and the listing cache is the run's too, so a
+// folder listed twice is parsed once.
 func handler(folder string, readOnly bool, session *core.Session) http.Handler {
 	writes := newWriteQueue()
+	listed := newListingCache()
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		answer(response, request, folder, readOnly, session, writes)
+		answer(response, request, folder, readOnly, session, writes, listed)
 	})
 }
 
-func answer(response http.ResponseWriter, request *http.Request, folder string, readOnly bool, session *core.Session, writes *writeQueue) {
+func answer(response http.ResponseWriter, request *http.Request, folder string, readOnly bool, session *core.Session, writes *writeQueue, listed *listingCache) {
 	raw := request.RequestURI
 	if raised := rawPathProblem(raw); raised != "" {
 		sendJSON(response, http.StatusBadRequest, problem{raised})
@@ -226,11 +228,11 @@ func answer(response http.ResponseWriter, request *http.Request, folder string, 
 		return
 	}
 	if pathname == scenesAPI || pathname == scenesAPI+"/" {
-		serveListing(response, request, folder, readOnly, session)
+		serveListing(response, request, folder, readOnly, session, listed)
 		return
 	}
 	if strings.HasPrefix(pathname, scenesAPI+"/") {
-		serveScene(response, request, folder, strings.TrimPrefix(pathname, scenesAPI+"/"), readOnly, session, writes)
+		serveScene(response, request, folder, strings.TrimPrefix(pathname, scenesAPI+"/"), readOnly, session, writes, listed)
 		return
 	}
 	servePageFile(response, request, pathname)

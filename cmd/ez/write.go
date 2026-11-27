@@ -44,7 +44,7 @@ func (refusal writeRefused) Error() string { return refusal.message }
 // serveWrite takes one write, in the order `docs/save-api.md` gives the checks:
 // the folder's mode, then how the body announces itself, then its size, its form
 // and the Scene inside it, and only then the folder's files.
-func serveWrite(response http.ResponseWriter, request *http.Request, folder, name string, readOnly bool, session *core.Session, writes *writeQueue) {
+func serveWrite(response http.ResponseWriter, request *http.Request, folder, name string, readOnly bool, session *core.Session, writes *writeQueue, cache *listingCache) {
 	if readOnly {
 		sendJSON(response, http.StatusForbidden, problem{"this folder is served read-only"})
 		return
@@ -88,6 +88,9 @@ func serveWrite(response http.ResponseWriter, request *http.Request, folder, nam
 	err = writes.run(queueKey(name), func() error {
 		return writePair(scenePath, svgPath, written)
 	})
+	// Whatever the write left on disk, the answer the listing kept about this name
+	// was made from the file it replaced.
+	cache.forget(scenePath)
 	if err != nil {
 		var refusal writeRefused
 		if errors.As(err, &refusal) {
