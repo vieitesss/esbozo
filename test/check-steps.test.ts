@@ -45,7 +45,6 @@ const CHECK = `import { existsSync } from 'node:fs';
 process.exit(existsSync('broken') ? 1 : 0);
 `;
 
-/** A one-package Go module, formatted and vet-clean. */
 const GO_MOD = 'module fixture\n\ngo 1.21\n';
 
 const MAIN_GO = `package main
@@ -57,10 +56,8 @@ func main() {
 }
 `;
 
-/** The same file indented with spaces, which is what `gofmt` would rewrite. */
 const MAIN_GO_UNFORMATTED = MAIN_GO.replace('\tfmt.Println', '    fmt.Println');
 
-/** The same file, which compiles and which `go vet` refuses: a `%d` given a string. */
 const MAIN_GO_VET_BROKEN = MAIN_GO.replace('fmt.Println("hello")', 'fmt.Printf("%d\\n", "hello")');
 
 /** One git command in the fixture, its answer returned or the test stopped. */
@@ -126,7 +123,7 @@ async function fixture(t: TestContext): Promise<Fixture> {
   return { repo, base, broken, clean };
 }
 
-/** The same three commits, as one Go file's edits: clean, broken, clean again. */
+/** The same three commits as one Go file's edits. */
 async function goFixture(t: TestContext, brokenSource: string): Promise<Fixture> {
   const repo = await mkdtemp(join(tmpdir(), 'esbozo-check-steps-go-'));
   t.after(() => rm(repo, { recursive: true, force: true }));

@@ -1,22 +1,10 @@
 /**
- * The Go half of `pnpm check`: the `ez` binary is Go, and the CLI suites can be
- * pointed at the built one, so both are checked here.
+ * The Go half of `pnpm check`: `go vet`, `gofmt`, `staticcheck`, `go test`, then
+ * the CLI suites with `EZ_BIN` naming `dist/ez`, which must be newer than the
+ * files it is built from.
  *
- * In order: `go vet ./...`, then `gofmt -l` over the Go tree — any name it
- * prints is a file that is not formatted — then `go tool staticcheck ./...`, the
- * acronym casing `gofmt` cannot see, then `go test ./...`, and last the CLI
- * suites with `EZ_BIN` naming the built binary. That last one needs `dist/ez`
- * to exist and to be newer than everything it is built from: `pnpm build`
- * writes it, and `pnpm check` runs this after the step whose build does, so the
- * binary the suites drive answers for this tree. Run on its own on a tree that
- * moved on, it fails and says so rather than testing yesterday's binary.
- *
- * `test/help-cli.test.ts` is left out on purpose: its usage-errors case names
- * `anchor`, `snap`, `bundle` and `skill`, which the Go binary does not answer
- * until T4 ports them. T4 puts it back in the list below.
- *
- * Exit status is the first failing step's, and the step is named on stderr, so
- * `scripts/check.mjs` can report it as `check: FAILED at check:go — ...`.
+ * `test/help-cli.test.ts` stays out until the Go binary answers the commands it
+ * names.
  */
 import { spawn } from 'node:child_process';
 import { readdir, readFile, stat } from 'node:fs/promises';
@@ -28,7 +16,7 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 /** The binary the suites drive, and the one `pnpm build` writes. */
 const BIN = join(ROOT, 'dist', 'ez');
 
-/** The Go tree `dist/ez` is compiled from, and the packages it holds. */
+/** The directories `dist/ez` is compiled from; the root package's files come from `linkedIn`. */
 const BIN_TREE = ['cmd', 'internal'];
 
 /** The Go tree `gofmt` reads: both packages, and the file the root one is. */
@@ -43,7 +31,6 @@ const SUITES = [
   'test/png.test.ts',
 ];
 
-/** One command, its output streamed through and collected, and its exit status. */
 function run(command, args, env = process.env) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], env });
@@ -63,13 +50,11 @@ function run(command, args, env = process.env) {
   });
 }
 
-/** Name the step that failed and leave with its status. */
 function failed(step, status) {
   process.stderr.write(`check:go: FAILED at ${step}\n`);
   process.exitCode = status === 0 ? 1 : status;
 }
 
-/** Every file under a directory of the tree, at any depth, as a whole path. */
 async function everyFile(dir) {
   const entries = await readdir(join(ROOT, dir), { recursive: true, withFileTypes: true });
   return entries.filter((entry) => entry.isFile()).map((entry) => join(entry.parentPath, entry.name));
@@ -77,8 +62,7 @@ async function everyFile(dir) {
 
 /**
  * The files `dist/ez` is built from outside the Go tree: the module it is
- * compiled against, and the files `assets.go` embeds — read from its `//go:embed`
- * lines, so the list cannot fall behind the binary's own.
+ * compiled against, and what `assets.go` embeds, read from its `//go:embed` lines.
  */
 async function linkedIn() {
   const assets = await readFile(join(ROOT, 'assets.go'), 'utf8');
@@ -86,10 +70,6 @@ async function linkedIn() {
   return ['assets.go', 'go.mod', 'go.sum', ...embedded].map((file) => join(ROOT, file));
 }
 
-/**
- * The first file `dist/ez` is built from that changed after it was built, if any:
- * the change the CLI suites would test yesterday's answer to.
- */
 async function stale(built) {
   const tree = await Promise.all(BIN_TREE.map(everyFile));
   const sources = [...tree.flat(), ...(await linkedIn())];

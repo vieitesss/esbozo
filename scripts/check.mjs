@@ -8,10 +8,7 @@
  */
 import { spawn } from 'node:child_process';
 
-/**
- * In this order, because `check:go` runs the CLI suites against `dist/ez` and
- * the `test` step's build is what writes it.
- */
+/** In this order: `check:go` drives `dist/ez`, which the `test` step's build writes. */
 const STEPS = ['typecheck', 'lint', 'knip', 'check-rules', 'test', 'check:go'];
 
 const ANSI_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-9;?]*[ -/]*[@-~]`, 'g');

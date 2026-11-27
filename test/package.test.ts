@@ -21,11 +21,10 @@ interface PackManifest {
 }
 
 /**
- * Every `dist/` file the package publishes, named here one at a time: the bundle,
- * the page and its stylesheet, each with the two compressions `ez serve` sends,
- * and the font copies whose licences travel beside them. A build output that is
- * not on this list is a file `npm pack` would ship without anyone deciding to —
- * `dist/resvg.wasm` did, until `package.json` named it out.
+ * Every `dist/` file the package publishes, named one at a time, because
+ * `package.json` ships the whole folder: a build output that is not on this list
+ * is a file `npm pack` would carry without anyone deciding to — `dist/resvg.wasm`
+ * did, until `package.json` named it out.
  */
 const PUBLISHED_DIST = [
   'dist/cli.js',

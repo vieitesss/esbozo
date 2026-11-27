@@ -32,11 +32,9 @@ import { dirname, join } from 'node:path';
 const CHECKS = ['typecheck', 'lint', 'knip', 'check-rules'];
 
 /**
- * The files the root Go package embeds that `pnpm build` writes and git does
- * not carry. `go vet` resolves `//go:embed` patterns, so a commit's bare
- * worktree would fail on the three of them; they are stood in for empty, since
- * vet is checking the Go and `pnpm check`'s `check:go` is where the real bytes
- * are. A commit that embeds another built file is red here until it is listed.
+ * The files the root Go package embeds that `pnpm build` writes and git does not
+ * carry: `go vet` resolves `//go:embed` patterns, so they are stood in for empty.
+ * A new built embed is red here until it is listed.
  */
 const BUILT_EMBEDS = ['dist/core.js', 'dist/font-metrics.json', 'dist/resvg.wasm'];
 
@@ -82,7 +80,6 @@ async function unlinkModules(tree) {
   if (info?.isSymbolicLink()) await unlink(modules);
 }
 
-/** Write the built embeds a commit's own `dist/` does not have, empty. */
 async function standInForBuiltEmbeds(tree) {
   for (const path of BUILT_EMBEDS) {
     const file = join(tree, path);
@@ -92,11 +89,7 @@ async function standInForBuiltEmbeds(tree) {
   }
 }
 
-/**
- * The Go half of `pnpm check` in one commit's tree: `go vet ./...`, then
- * `gofmt -l` over the commit's own Go files, whose printed names are the
- * failure. A commit with no `go.mod` has no Go to check.
- */
+/** The Go half of `pnpm check` in one commit's tree. */
 async function goChecks(tree) {
   if (!(await present(join(tree, 'go.mod')))) return null;
 
@@ -106,8 +99,7 @@ async function goChecks(tree) {
 
   const files = (await git(tree, ['ls-files', '--', '*.go'])).trim().split('\n');
   const goFiles = files.filter((file) => file !== '');
-  // `gofmt -l` with no file reads stdin and waits: a tree with no Go file is
-  // a tree with nothing to format.
+  // `gofmt -l` with no file reads stdin and waits.
   if (goFiles.length === 0) return null;
 
   const gofmt = await run('gofmt', ['-l', ...goFiles], tree);
