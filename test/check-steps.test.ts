@@ -108,9 +108,9 @@ function commit(cwd: string, message: string): void {
   );
 }
 
-/** `check:steps` as a person runs it: the script, the base, and the repository. */
-function checkSteps(cwd: string, base: string) {
-  return spawnSync(process.execPath, [SCRIPT, base], { cwd, encoding: 'utf8' });
+/** `check:steps` as a person runs it: the script, the base and any flag, in the repository. */
+function checkSteps(cwd: string, ...args: string[]) {
+  return spawnSync(process.execPath, [SCRIPT, ...args], { cwd, encoding: 'utf8' });
 }
 
 /** The fixture repository one test runs against, and the three commits in it. */
@@ -173,6 +173,32 @@ async function goFixture(t: TestContext, brokenSource: string): Promise<Fixture>
   return { repo, base, broken, clean };
 }
 
+/** A base and `count` green commits above it, in a folder this test removes. */
+async function greenFixture(
+  t: TestContext,
+  count: number,
+): Promise<{ repo: string; base: string; commits: string[] }> {
+  const repo = await mkdtemp(join(tmpdir(), 'esbozo-check-steps-shards-'));
+  t.after(() => rm(repo, { recursive: true, force: true }));
+
+  git(repo, 'init', '--quiet', '--initial-branch=main');
+  await writeFile(join(repo, 'package.json'), PACKAGE_JSON);
+  await writeFile(join(repo, 'check.mjs'), CHECK);
+  git(repo, 'add', '--all');
+  commit(repo, 'the checks are green');
+  const base = git(repo, 'rev-parse', 'HEAD');
+
+  const commits: string[] = [];
+  for (let at = 0; at < count; at += 1) {
+    await writeFile(join(repo, `step-${at}`), '');
+    git(repo, 'add', '--all');
+    commit(repo, `step ${at}`);
+    commits.push(git(repo, 'rev-parse', 'HEAD'));
+  }
+
+  return { repo, base, commits };
+}
+
 /** A green commit, and one that embeds files the build writes, in a folder this test removes. */
 async function embedFixture(t: TestContext): Promise<{ repo: string; base: string; embed: string }> {
   const repo = await mkdtemp(join(tmpdir(), 'esbozo-check-steps-embeds-'));
@@ -227,6 +253,42 @@ test('check:steps passes a green range and leaves the caller where it was', asyn
   assert.equal(git(repo, 'rev-parse', 'HEAD'), head);
   assert.equal(git(repo, 'status', '--porcelain'), status);
   assert.equal(git(repo, 'worktree', 'list', '--porcelain'), worktrees);
+});
+
+/** One shard's verdict lines, as the commit each line names. */
+function checkedCommits(run: { stdout: string }): string[] {
+  return run.stdout
+    .split('\n')
+    .filter((line) => /^[0-9a-f]{40} .*: ok$/.test(line))
+    .map((line) => line.slice(0, 40));
+}
+
+test('the shards together check every commit in the range exactly once', async (t) => {
+  const { repo, base, commits } = await greenFixture(t, 5);
+  const shards = 3;
+  const checked: string[][] = [];
+
+  for (let index = 1; index <= shards; index += 1) {
+    const run = checkSteps(repo, base, '--shard', `${index}/${shards}`);
+    assert.equal(run.status, 0, run.stdout + run.stderr);
+    checked.push(checkedCommits(run));
+  }
+
+  // Five commits, oldest first, one in every `shards` of them: 2, 2 and 1.
+  assert.deepEqual(
+    checked.map((shard) => shard.length),
+    [2, 2, 1],
+  );
+  assert.deepEqual(checked.flat().sort(), [...commits].sort());
+});
+
+test('a malformed shard is a usage error that checks nothing', async (t) => {
+  const { repo, base } = await fixture(t);
+  for (const shard of ['0/3', '4/3', '1', 'x/2', '1/0']) {
+    const run = checkSteps(repo, base, '--shard', shard);
+    assert.equal(run.status, 2, `${shard}: ${run.stdout}${run.stderr}`);
+    assert.match(run.stdout + run.stderr, /^Usage: pnpm check:steps <base>/m);
+  }
 });
 
 test('a commit gofmt would rewrite fails on its own, and the range carries on', async (t) => {
