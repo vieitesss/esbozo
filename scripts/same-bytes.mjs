@@ -95,7 +95,18 @@ function arrayBufferOf(bytes) {
  * how Go writes a `[]byte`.
  */
 async function answerOf({ kind, theme }, source) {
-  core.begin({ source: arrayBufferOf(source), fontPath: null, cssPath: null, theme }, kind);
+  core.begin(
+    {
+      source: arrayBufferOf(source),
+      fontPath: null,
+      cssPath: null,
+      ink: null,
+      paper: null,
+      muted: null,
+      theme,
+    },
+    kind,
+  );
   await new Promise((resolve) => setImmediate(resolve));
   const answer = core.answer();
   return {
