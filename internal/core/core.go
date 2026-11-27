@@ -54,13 +54,13 @@ const (
 	Render Command = "render"
 	// Check is `ez check`: the lines a Scene's Labels overflow with.
 	Check Command = "check"
-	// Png is `ez png`: the image the Scene draws to, in one theme.
-	Png Command = "png"
+	// PNG is `ez png`: the image the Scene draws to, in one theme.
+	PNG Command = "png"
 )
 
 // Run answers one command over a Scene's bytes.
 func Run(command Command, source []byte, options Options) (Answer, error) {
-	if command != Render && command != Check && command != Png {
+	if command != Render && command != Check && command != PNG {
 		return Answer{}, fmt.Errorf("the core has no command %q", command)
 	}
 

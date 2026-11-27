@@ -61,8 +61,8 @@ func TestCoreAnswers(t *testing.T) {
 		fixture := fixtureAnswers{Fixture: filepath.Base(path)}
 		fixture.Render = runAnswer(t, Render, source, "")
 		fixture.Check = runAnswer(t, Check, source, "")
-		fixture.PNGLight = runAnswer(t, Png, source, "light")
-		fixture.PNGDark = runAnswer(t, Png, source, "dark")
+		fixture.PNGLight = runAnswer(t, PNG, source, "light")
+		fixture.PNGDark = runAnswer(t, PNG, source, "dark")
 		written.Fixtures = append(written.Fixtures, fixture)
 	}
 

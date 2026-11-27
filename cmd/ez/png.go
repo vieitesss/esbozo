@@ -90,7 +90,7 @@ func runPng(argv []string, stdout, stderr io.Writer) int {
 		return exitInvalidScene
 	}
 
-	answer, err := core.Run(core.Png, source, core.Options{
+	answer, err := core.Run(core.PNG, source, core.Options{
 		FontPath: parsed.fontPath,
 		CSSPath:  parsed.cssPath,
 		Theme:    parsed.theme,
