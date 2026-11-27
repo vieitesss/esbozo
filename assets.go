@@ -2,12 +2,14 @@
 // in goja, the Kalam it measures and draws with, what measuring Kalam once in
 // the build wrote down, resvg's WebAssembly build that draws the PNG, the
 // embeddable editor module `ez bundle` writes, the served page and the files
-// beside it, the agent skill it prints and installs, and the stamps it answers
-// `--version` and `ez serve` with.
+// beside it, the agent skill it prints and installs, the install script
+// `ez update` re-runs, and the stamps it answers `--version` and `ez serve`
+// with.
 //
-// All but the skill is built, not checked in, so a bare `go install` is not
-// supported: `pnpm build` writes the bundles, the metrics, resvg's module and the
-// stamp, and the font is in `fonts/`; the skill in `skills/` is checked in.
+// All but the skill and the install script is built, not checked in, so a bare
+// `go install` is not supported: `pnpm build` writes the bundles, the metrics,
+// resvg's module and the stamp, and the font is in `fonts/`; the skill in
+// `skills/` and the script in `scripts/` are checked in.
 package esbozo
 
 import (
@@ -55,6 +57,14 @@ var EmbedBundle []byte
 //
 //go:embed skills/esbozo/SKILL.md
 var Skill []byte
+
+// InstallScript is `scripts/install.sh` — the script `ez update` re-runs with the
+// flags it was given and `--dir` set to the folder the binary runs from — so what
+// `ez update` installs is what this binary carries, as `Skill` is to
+// `ez skill install`.
+//
+//go:embed scripts/install.sh
+var InstallScript []byte
 
 // mainSuffix is what the build puts after the version of a build that is not a
 // Release, as #93 story 24 has `ez --version` print it.

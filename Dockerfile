@@ -42,7 +42,7 @@ RUN pnpm install --frozen-lockfile
 COPY scripts ./scripts
 COPY src ./src
 COPY fonts ./fonts
-COPY go.mod go.sum assets.go ./
+COPY go.mod go.sum *.go ./
 COPY cmd ./cmd
 # `assets.go` embeds the skill `ez skill` prints, so `go build` fails without it.
 COPY skills ./skills
@@ -53,6 +53,9 @@ RUN pnpm build
 FROM node:22-slim AS runtime
 
 ENV NODE_ENV=production
+# What `ez update` reads to refuse here: a container's install is the image, so an
+# update prints the `docker pull` line instead of writing into this container.
+ENV ESBOZO_DOCKER=1
 WORKDIR /app
 # Only the files `serve` opens: the CLI, the page's own files beside the
 # compressed variants the server sends, and the font. `dist/` also holds `ez`,
