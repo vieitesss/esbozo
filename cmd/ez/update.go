@@ -18,17 +18,12 @@ import (
 	"esbozo"
 )
 
-// usageUpdate is the line `ez update` prints for flags it cannot read. It is not
-// `usageLine`'s: the TS CLI has no `update`, so no `src/help.ts` words exist to
-// hold this to.
-const usageUpdate = "usage: ez update [--main | --version <X.Y.Z>]"
-
 // runUpdate is `update`, and `upgrade` as its alias: the carried installer, on
 // the folder this binary runs from, with the flags this run was given.
 func runUpdate(argv []string, stdout, stderr io.Writer) int {
 	tag, ok := updateTag(argv)
 	if !ok {
-		fmt.Fprintln(stderr, usageUpdate)
+		fmt.Fprintln(stderr, usageLine["update"])
 		return exitUsage
 	}
 	folder, err := ezFolder()

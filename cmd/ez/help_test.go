@@ -25,7 +25,7 @@ func TestHelpIsPlainOnACharacterDeviceThatIsNoTerminal(t *testing.T) {
 	}
 }
 
-// TestNoColorTurnsBoldOffWhenItIsSetEmpty: Node turns bold off when `NO_COLOR` is
+// TestNoColorTurnsBoldOffWhenItIsSetEmpty: `NO_COLOR` turns bold off when it is
 // there at all, an empty value included.
 func TestNoColorTurnsBoldOffWhenItIsSetEmpty(t *testing.T) {
 	unsetenv(t, "NO_COLOR")
@@ -33,7 +33,7 @@ func TestNoColorTurnsBoldOffWhenItIsSetEmpty(t *testing.T) {
 
 	t.Setenv("NO_COLOR", "")
 	if shouldBold(terminal) {
-		t.Errorf("NO_COLOR set empty turns bold off in Node, so it has to here too")
+		t.Errorf("NO_COLOR set empty turns bold off")
 	}
 }
 
