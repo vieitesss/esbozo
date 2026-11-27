@@ -744,21 +744,21 @@ function copyRuns(text) {
   return runs;
 }
 
-function avoidTermIn(text, prose = false) {
+function avoidTermIn(text, isComment = false) {
   const found = words(text);
   for (const term of terms) {
     const wanted = term.split(' ');
     for (let at = 0; at + wanted.length <= found.length; at += 1) {
       if (!wanted.every((word, step) => same(found[at + step].word, word))) continue;
-      if (wanted.length === 1 && term === 'node' && namesRuntime(text, found[at], prose)) continue;
+      if (wanted.length === 1 && term === 'node' && namesRuntime(text, found[at], isComment)) continue;
       return term;
     }
   }
   return undefined;
 }
 
-function namesRuntime(text, word, prose) {
-  if (prose && text.slice(word.at, word.end) === 'Node') return true;
+function namesRuntime(text, word, isComment) {
+  if (isComment && text.slice(word.at, word.end) === 'Node') return true;
   const rest = text.slice(word.end);
   if (/^\s*(?:\d|-compatible|\.js|runtime|:)/i.test(rest)) return true;
   return /^\s+\S+\.m?js\b/.test(rest);
