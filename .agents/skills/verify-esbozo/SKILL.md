@@ -52,7 +52,7 @@ Use `ez serve` when the editor must open, edit, and save real `.esbozo` or `.jso
 
 ```sh
 RUN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/esbozo-verify-XXXXXX")"
-node dist/cli.js serve "$RUN_DIR" --port 0 >"$RUN_DIR/serve.log" 2>&1 &
+dist/ez serve "$RUN_DIR" --port 0 >"$RUN_DIR/serve.log" 2>&1 &
 SERVE_PID=$!
 ```
 
@@ -75,7 +75,7 @@ Strip the trailing slash from the printed URL so `"${SERVE_URL}/api/health"` nev
 Run this read-only check before driving `ez serve` or whenever a run looks stale.
 
 ```sh
-ls -l dist/cli.js dist/editor.html
+ls -l dist/ez dist/editor.html
 curl -fsS "${SERVE_URL}/api/health"
 curl -fsS "${SERVE_URL}/api/scenes"
 ```
@@ -84,7 +84,7 @@ On older commits that predate `/api/health` (such as `d2d280c`), `/api/health` r
 
 Confirm three facts before driving:
 
-1. `dist/cli.js` and `dist/editor.html` exist and match the commit you built.
+1. `dist/ez` and `dist/editor.html` exist and match the commit you built.
 2. `/api/health` returns `{"build":"<sha>","builtAt":"<iso-utc>"}` matching the `SERVE_PID` startup line.
 3. `/api/scenes` lists the disposable `$RUN_DIR` folder name and seeded Scene files.
 
@@ -132,7 +132,7 @@ Save every proof file under `.e2e/results/verify/<run>/` (already gitignored). N
 Proof standards:
 
 - Drive the real user path (pointer, keyboard, rail buttons, command palette, or `ez` CLI), never internal setters.
-- Capture both the action result on screen and any side effect on disk (the saved `.esbozo` or `.json` file, generated `.svg`, and `node dist/cli.js check <file>` exit code).
+- Capture both the action result on screen and any side effect on disk (the saved `.esbozo` or `.json` file, generated `.svg`, and `dist/ez check <file>` exit code).
 - Inspect rendered ink at 1x and at 800% zoom (four `page.mouse.wheel(0, -400)` calls or `Meta+=`, plus a tight crop around the changed Element).
 - Crop directly in Playwright with `await page.screenshot({ path, clip: { x, y, width, height } })`, or crop an existing PNG on macOS with `sips -c <height> <width> --cropOffset <top> <left> <in.png> --out <out.png>`.
 

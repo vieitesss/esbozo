@@ -1,6 +1,6 @@
-// Help text for the `ez` command line: the words are `src/help.ts`'s, written
-// out again here while both CLIs exist, and a test holds the two to the same
-// help. Section headings are bold only for a terminal without `NO_COLOR`.
+// Help text for the `ez` command line: the one reference for what each command
+// is called, what it takes, and what it exits with. Section headings are bold
+// only for a terminal without `NO_COLOR`.
 package main
 
 import (
@@ -12,8 +12,8 @@ import (
 
 const placeList = "top, bottom, left, right, center, top-left, top-right, bottom-left, bottom-right"
 
-// usageLine is `USAGE_LINE` in `src/help.ts`, word for word: what a command prints
-// when it refuses the arguments it was given.
+// usageLine is what a command prints when it refuses the arguments it was
+// given.
 var usageLine = map[string]string{
 	"render": "usage: ez render <scene> [--font <file>]",
 	"check":  "usage: ez check <scene> [--font <file>] [--css <stylesheet>]",
@@ -26,6 +26,7 @@ var usageLine = map[string]string{
 	"skill":  "usage: ez skill [install [--dir <path>]]",
 	"bundle": "usage: ez bundle <dir>",
 	"serve":  "usage: ez serve <dir> [--host 127.0.0.1] [--port N] [--read-only]",
+	"update": "usage: ez update [--main | --version <X.Y.Z>]",
 }
 
 var cssSubsetLines = []string{
@@ -37,12 +38,14 @@ var cssSubsetLines = []string{
 	"  Palette colours must be opaque.",
 }
 
-// exitCodeRows is the exit table, as `src/cli.ts` defines it.
+// exitCodeRows is the exit table: every code a command exits with, and what it
+// means.
 var exitCodeRows = [][2]string{
 	{"0", "the Scene is clean, was rendered, the PNG or the bundle was written, or the server stopped"},
+	{"1", "`ez update` did not update this folder: it refused, or the install script failed"},
 	{"2", "wrong arguments (unknown command, missing or extra arguments, bad flag)"},
 	{"3", "the Scene could not be read or parsed"},
-	{"4", "the output could not be written, the server could not start, or the editor is not built"},
+	{"4", "the output could not be written, or the server could not start"},
 	{"5", "missing theme values, or a missing or unreadable font"},
 	{"6", "a Label that does not fit its Element (see `ez check`)"},
 }
@@ -66,6 +69,9 @@ var commandGroups = []struct {
 	}},
 	{"AGENTS", [][2]string{
 		{"skill", "Print the esbozo agent skill, or install it (`ez skill install`)"},
+	}},
+	{"MAINTAIN", [][2]string{
+		{"update", "Replace this ez with the latest Release, or the Main build (`upgrade` is the same)"},
 	}},
 }
 
@@ -164,9 +170,21 @@ var commandHelpSpecs = map[string]commandHelpSpec{
 		},
 		example: "ez skill install --dir ~/.agents/skills",
 	},
+	"update": {
+		summary: "Replace this ez with the latest Release, or with the Release or Main build it names.",
+		usage:   []string{"ez update [--main | --version <X.Y.Z>]"},
+		options: [][2]string{
+			{"--main", "Install the rolling Main build"},
+			{"--version <X.Y.Z>", "Install that Release"},
+		},
+		example: "ez update",
+	},
 }
 
 func helpTopicFor(command string, rest []string) string {
+	if command == "upgrade" {
+		command = "update"
+	}
 	if command == "skill" && len(rest) == 2 && rest[0] == "install" && rest[1] == "--help" {
 		return "skill install"
 	}
@@ -215,7 +233,7 @@ func topLevelHelp(bold bool) string {
 	}
 	sections := []string{
 		"ez — hand-drawn diagrams as JSON Scenes",
-		section("USAGE", []string{"  ez <command> [arguments]", "  ez <command> --help"}, bold),
+		section("USAGE", []string{"  ez <command> [arguments]", "  ez <command> --help", "  ez --version"}, bold),
 	}
 	for _, group := range commandGroups {
 		sections = append(sections, section(group.heading, alignedRows(group.rows, commandWidth), bold))
@@ -260,9 +278,8 @@ func runHelp(argv []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-// shouldBold is `shouldBold` in `src/help.ts`: a terminal that `NO_COLOR` has
-// not turned off. Node reads `NO_COLOR` as set unless the variable is absent, so
-// an empty value turns bold off there and here.
+// shouldBold reports whether headings are bold: only to a terminal that
+// `NO_COLOR` has not turned off, an empty value included.
 func shouldBold(stream io.Writer) bool {
 	file, isFile := stream.(*os.File)
 	if !isFile || !isTerminal(file) {

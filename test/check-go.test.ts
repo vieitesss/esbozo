@@ -83,7 +83,7 @@ test('module download chatter on stderr passes the deadcode step', () => {
     const binDir = join(dir, 'bin');
     const chatter = 'go: downloading golang.org/x/tools v0.44.0';
     makeStubGo(binDir, chatter, 'stderr');
-    // The run has to stop after deadcode: the suites it reaches last need a built `dist/ez`.
+    // The run stops at gofmt, so the stub go never reaches `go test`.
     makeStubGofmt(binDir, 'cmd/ez/main.go');
 
     const run = runCheckGo(binDir);

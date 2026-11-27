@@ -32,7 +32,6 @@ import { outlineText } from './outlines.js';
 import { renderScene } from './renderer.js';
 import type { Scene } from './scene.js';
 
-export { THEMES } from './css.js';
 export type { Theme } from './css.js';
 
 interface Palette {

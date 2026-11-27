@@ -36,23 +36,6 @@ export interface SceneWrite {
   readonly svg: string;
 }
 
-export function sceneWrite(body: string): SceneWrite | null {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(body);
-  } catch {
-    return null;
-  }
-  if (typeof raw !== 'object' || raw === null) {
-    return null;
-  }
-  const { scene, svg } = raw as { scene?: unknown; svg?: unknown };
-  if (typeof scene !== 'string' || typeof svg !== 'string') {
-    return null;
-  }
-  return { scene, svg };
-}
-
 export function problemIn(text: string, status: number, what: string): string {
   const written = sceneError(text);
   if (written !== null) {

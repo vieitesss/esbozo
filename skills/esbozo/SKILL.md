@@ -11,14 +11,14 @@ A `.esbozo` file is JSON, byte for byte the schema below, so every JSON reader, 
 
 ## Run `ez`
 
-Build the repository once, then run the CLI from it:
+Install it once, then run it from anywhere:
 
 ```sh
-pnpm install && pnpm build    # in a clone of the esbozo repository
-node dist/cli.js check <name>.esbozo
+curl -fsSL https://esbozo.vieitesss.eu/install | sh
+ez check <name>.esbozo
 ```
 
-Everywhere below, `ez` stands for `node dist/cli.js`, or for the `ez` bin when the package is linked into the path. The npm package (`npx esbozo <command>`, a global `ez`) arrives with #13 and is not on the registry yet. `ez --help` lists every command, CSS subset and exit code (`ez <command> --help` shows flags, defaults and an example); flags take a separate value: `--theme dark`, never `--theme=dark`. `ez skill` prints this skill to stdout, and `ez skill install [--dir <path>]` copies it into `~/.agents/skills/esbozo/SKILL.md` (or `<path>/esbozo/SKILL.md`).
+`ez --help` lists every command, CSS subset and exit code (`ez <command> --help` shows flags, defaults and an example); flags take a separate value: `--theme dark`, never `--theme=dark`. `ez skill` prints this skill to stdout, and `ez skill install [--dir <path>]` copies it into `~/.agents/skills/esbozo/SKILL.md` (or `<path>/esbozo/SKILL.md`).
 
 ## The loop
 
@@ -46,7 +46,7 @@ For a diagram that belongs to a site, pass its own values: `--css <stylesheet>` 
 
 1. Start it in the background. It prints `serving <folder> on http://127.0.0.1:<port>/ (build <id>, <time>)`; give the person that URL. `--port 0` picks a free port: read it from that line, and `curl <url>/api/health` answers the same `build` and `builtAt`, so a server already running can be told apart from the one you just started (and from an earlier build of the same commit).
 2. Keep the default host (this machine only; the API has no authentication). Add `--read-only` for a person who only wants to look.
-3. It exits `4` when it cannot start (port taken: pass another `--port`; editor not built: run `pnpm build`). `SIGINT` or `SIGTERM` stops it with `0`.
+3. It exits `4` when it cannot start (port taken: pass another `--port`; folder cannot be read). `SIGINT` or `SIGTERM` stops it with `0`.
 4. Keep writing the Scene file, `ez check` it and `ez render` it as before. The page reads a Scene when the person opens it, so ask them to reload after you change the file. A Scene open in the page is saved over your file the next time the person edits it: leave a Scene they are editing alone.
 
 Only top-level `*.esbozo` files in `<dir>` are Scenes, and a `*.json` file there is one only when it holds a Scene: other JSON is left out of the list. Flags, routes and what a save guarantees are in `docs/save-api.md` of the esbozo repository.

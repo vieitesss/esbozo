@@ -1,6 +1,6 @@
 # Architecture
 
-esbozo has four modules behind small interfaces, and three programs built from them: the `ez` CLI, the editor page, and the editor bundle (the same element, for a page of someone else's). None imports another's code; they share only `src/paths.ts` and `src/scenes-api.ts` (file names, and the save API's routes, listing shape and write body). The words are defined in [GLOSSARY.md](../GLOSSARY.md).
+esbozo has four modules behind small interfaces, and three programs built from them: the `ez` binary (Go, running the modules in goja), the editor page, and the editor bundle (the same element, for a page of someone else's). None imports another's code; they share only `src/paths.ts` and `src/scenes-api.ts` (file names, and the save API's routes, listing shape and write body). The words are defined in [GLOSSARY.md](../GLOSSARY.md).
 
 ## The four modules
 
@@ -24,7 +24,7 @@ Each module depends only on the ones before it:
 
 Nothing depends backwards: Scene knows nothing of rendering, Layout knows nothing of SVG, and the Renderer knows nothing of a browser or a file.
 
-The CLI and the editor meet only at run time, in one place: `ez serve` reads the editor's built page files (`editor.html`, `editor.css`, `editor.js` and the font) from beside `dist/cli.js` and sends them to a browser. It never loads that code itself. If those files are missing, `serve` exits `4`.
+The CLI and the editor meet only at run time, in one place: `ez serve` answers the editor's built page files (`editor.html`, `editor.css`, `editor.js` and the font) to a browser, and `assets.go` embeds them beside the core, so the binary carries them. It never loads that code itself, and a binary that carries them cannot find one missing: `serve` exits `4` only when it cannot start — the folder cannot be read, the port is taken, or the core runtime will not open.
 
 ## One font, three readers
 
@@ -34,12 +34,12 @@ Those bytes are read twice, because the two readers have different jobs. The CLI
 
 ## The CLI
 
-`src/cli.ts` reads arguments and files and calls the modules. `render` parses, loads a Layout and writes the SVG beside the Scene. `check` parses, loads a Layout and asks it about every Element. `png` renders the SVG, resolves its CSS variables to colours (`src/css.ts`, because resvg has no CSS engine), and rasterises it with resvg-wasm (`src/png.ts`). `serve` (`src/serve.ts`) listens on one folder of Scenes, answers the save API ([save-api.md](save-api.md)) and serves the editor page's files from beside the CLI (`src/page-assets.ts`); the editor finds that API (`src/editor/server-folder.ts`) and works on the folder without the browser's picker. `bundle` copies the built editor bundle out as `<dir>/esbozo-<version>.js`, named after the version in `package.json` ([embed.md](embed.md)). Exit codes are defined once, in `EXIT` in `src/cli.ts`.
+`cmd/ez` reads arguments, files and the process's exit code, and hands what a Scene, a font or a stylesheet means to the core. `render` parses, loads a Layout and writes the SVG beside the Scene. `check` parses, loads a Layout and asks it about every Element. `png` renders the SVG, resolves its CSS variables to colours (`src/css.ts`, because resvg has no CSS engine), and rasterises it with resvg-wasm (`src/png.ts`). `serve` (`cmd/ez/serve.go`, `cmd/ez/api.go` and `cmd/ez/page.go`) listens on one folder of Scenes, answers the save API ([save-api.md](save-api.md)) and serves the editor page's files, which `assets.go` embeds; the editor finds that API (`src/editor/server-folder.ts`) and works on the folder without the browser's picker. `bundle` copies the built editor bundle out as `<dir>/esbozo-<version>.js`, named after the version in `package.json` ([embed.md](embed.md)). Exit codes are defined once, in `EXIT` in `src/exit.ts`, and the Go half names the same numbers in `cmd/ez/main.go`.
 
 ## Builds
 
-`pnpm build` (`scripts/build.mjs`) bundles three artefacts with esbuild from the same sources: `dist/cli.js` (Node, with Kalam and the resvg WASM embedded), `dist/editor.js` with the page, stylesheet and font beside it in `dist/`, and `dist/embed.js`, minified and carrying the stylesheet, which `ez bundle` copies out. The page's stylesheet is `font-face.css`, then `editor.css` — the editor's own rules, every one of them rooted at `esbozo-editor`, so the same text can be dropped into someone else's page — and then `page.css`, the served page's chrome: the window the editor fills and its light/dark switch. The page links that one file, and the bundle writes its own `@font-face` and element-scoped family for the `font` attribute's URL. The package `files` list ships `dist`, `fonts` and `skills`; `npm pack` runs `prepack`, which builds.
+`pnpm build` (`scripts/build.mjs`) bundles the page and the editor bundle with esbuild from the same sources as the core: `dist/editor.js` with the page, stylesheet and font beside it in `dist/`, and `dist/embed.js`, minified and carrying the stylesheet, which `ez bundle` copies out. The page's stylesheet is `font-face.css`, then `editor.css` — the editor's own rules, every one of them rooted at `esbozo-editor`, so the same text can be dropped into someone else's page — and then `page.css`, the served page's chrome: the window the editor fills and its light/dark switch. The page links that one file, and the bundle writes its own `@font-face` and element-scoped family for the `font` attribute's URL. It ends with `scripts/build-core.mjs`, which bundles Scene, Layout and Renderer into `dist/core.js` and writes the font's measurements and resvg's wasm beside it, and then `go build ./cmd/ez`, which links `assets.go` — the core, Kalam, resvg's wasm, the page and its compressed variants, the skill, the install script and the version stamp — into the one static `dist/ez`.
 
 ## Tests
 
-Tests check behaviour from outside. `test/*.test.ts` run the CLI on Scene files in temporary folders under `node:test` (`pnpm test`). They reach Scene, Layout and Renderer through the commands. `tests/*.e2e.ts` drive the built editor in a browser and assert on what it saves (`pnpm e2e`); `tests/README.md` explains the browser suites.
+Tests check behaviour from outside. `test/*.test.ts` run the binary on Scene files in temporary folders under `node:test` (`pnpm test`). They reach Scene, Layout and Renderer through the commands. `tests/*.e2e.ts` drive the built editor in a browser and assert on what it saves (`pnpm e2e`); `tests/README.md` explains the browser suites.

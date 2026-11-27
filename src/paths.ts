@@ -5,7 +5,7 @@ const SCENE_EXTENSIONS = [PRIMARY_SCENE_EXTENSION, '.json'] as const;
 
 type SceneExtension = (typeof SCENE_EXTENSIONS)[number];
 
-export function sceneExtension(sceneFileName: string): SceneExtension | null {
+function sceneExtension(sceneFileName: string): SceneExtension | null {
   const folded = sceneFileName.toLowerCase();
   return SCENE_EXTENSIONS.find((extension) => folded.endsWith(extension)) ?? null;
 }

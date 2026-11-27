@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { brotliDecompressSync, gunzipSync } from 'node:zlib';
-import { BUILD, BUILT_AT, buildId, buildTime } from '../src/build-id.ts';
+import { buildId, buildTime } from '../src/build-id.ts';
 import { PAGE_ASSETS } from '../src/page-assets.ts';
 import { MAX_LISTED_SCENE_BYTES } from '../src/paths.ts';
 import { promisify } from 'node:util';
@@ -39,11 +39,11 @@ const SCENE_SOURCE = JSON.stringify(SCENE, null, 2);
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg"><title>Two boxes</title></svg>';
 
 /**
- * The cases that build a CLI of their own, in a copy of the sources with a git
- * history of its own: they hold the TypeScript build's stamp, which `EZ_BIN` — a
- * binary some other build already stamped — cannot answer.
+ * The cases that build an `ez` of their own, in a copy of the sources with a git
+ * history of its own: they hold that build's stamp, which `EZ_BIN` — a binary
+ * some other build already stamped — cannot answer.
  */
-const SKIP_BUILD = 'this case builds its own CLI: set EZ_BIN only against the binary the build wrote';
+const SKIP_BUILD = 'this case builds its own ez: set EZ_BIN only against the binary the build wrote';
 
 /** A server to stop at the end of the file, whatever the test asserted. */
 const running: Serve[] = [];
@@ -287,7 +287,6 @@ test('the build compresses every text page file beside itself, and serves those 
 test('the page is all that is served: nothing else in the built folder is', async () => {
   const server = await served(await sceneFolder(SCENE));
 
-  // The CLI bundle sits beside the page, and it is not a page file.
   assert.equal((await request(server, '/cli.js')).status, 404);
   assert.equal((await request(server, '/package.json')).status, 404);
   assert.equal((await request(server, '/whatever.txt')).status, 404);
@@ -897,7 +896,7 @@ test('an invalid Scene is refused with the problems as the parser words them', a
 
   assert.equal(answer.status, 400);
   // The message alone, with no `box1: ` in front of it: what the server answers
-  // is the parser's word for the problem, the way `src/serve.ts` joins them.
+  // is the parser's word for the problem, the way `ez serve` joins them.
   assert.deepEqual(JSON.parse(answer.body), {
     error: 'the Scene is invalid: type must be one of rectangle, ellipse, diamond, arrow, line, text, got "box"',
   });
@@ -1116,7 +1115,7 @@ test(
     const built = Date.now();
     await run('node', ['scripts/build.mjs'], { cwd: source });
 
-    const server = await startServe(await sceneFolder(SCENE), [], join(source, 'dist', 'cli.js'));
+    const server = await startServe(await sceneFolder(SCENE), [], join(source, 'dist', 'ez'));
     running.push(server);
 
     assert.equal(server.build, commit, 'the stamped id is the commit the build was made from');
@@ -1195,18 +1194,13 @@ test('a build outside a git checkout is unknown, not a failed build', () => {
   const answers = (commit: string, status: string | null) => (args: readonly string[]) =>
     args[0] === 'rev-parse' ? commit : status;
   assert.equal(buildId(answers('abc1234\n', '')), 'abc1234');
-  assert.equal(buildId(answers('abc1234\n', ' M src/serve.ts\n')), 'abc1234-dirty');
+  assert.equal(buildId(answers('abc1234\n', ' M src/paths.ts\n')), 'abc1234-dirty');
   assert.equal(buildId(answers('abc1234\n', null)), 'unknown');
 });
 
 test('a build writes the time it was made, ISO-8601 UTC to the second', () => {
   assert.equal(buildTime(new Date('2024-06-01T12:34:56.789Z')), '2024-06-01T12:34:56Z');
   assert.equal(buildTime(new Date('2024-12-31T23:59:59.000Z')), '2024-12-31T23:59:59Z');
-});
-
-test('a CLI run from source is dev and carries no build time', () => {
-  assert.equal(BUILD, 'dev');
-  assert.equal(BUILT_AT, null);
 });
 
 async function assertMissing(path: string): Promise<void> {

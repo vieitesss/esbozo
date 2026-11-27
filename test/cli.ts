@@ -15,29 +15,37 @@ import { tempFolder } from './temp.ts';
 
 const run = promisify(execFile);
 
-/** The built CLI every suite exercises unless `EZ_BIN` names another `ez`. */
-export const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
+/** The `ez` every suite exercises unless `EZ_BIN` names another: the binary `pnpm build` writes. */
+const CLI = fileURLToPath(new URL('../dist/ez', import.meta.url));
 
 /**
  * The `ez` one run starts: `EZ_BIN` when it names one, so a suite can be pointed
- * at another build of the same command line (the Go binary), and the built CLI
- * otherwise. A `.js` path runs under this Node; anything else is executed itself,
- * because a binary is not a script. A relative `EZ_BIN` is read from the folder
- * the run was asked for.
+ * at another build of the same command line, and the built binary otherwise. A
+ * relative `EZ_BIN` is read from the folder this process runs in, not from the
+ * folder the run was asked for.
  *
- * `cli` is the built CLI a caller names when it wants a copy of `dist/` that has
+ * `cli` is the `ez` a caller names when it wants a copy of `dist/` that has
  * nothing else from the repository beside it; `EZ_BIN` still wins, because a run
  * pointed at another `ez` is a run of that one.
  */
-function ezCommand(args: readonly string[], cli: string = CLI): { file: string; argv: string[] } {
+function ezBin(cli: string = CLI): string {
   const bin = process.env.EZ_BIN;
-  if (bin === undefined || bin === '') {
-    return { file: process.execPath, argv: [cli, ...args] };
-  }
-  const file = resolve(bin);
-  return file.endsWith('.js')
-    ? { file: process.execPath, argv: [file, ...args] }
-    : { file, argv: [...args] };
+  return bin === undefined || bin === '' ? cli : resolve(bin);
+}
+
+/** One word quoted so a shell reads it back as it is. */
+function quoted(word: string): string {
+  return `'${word.split("'").join(`'\\''`)}'`;
+}
+
+/**
+ * A shell script that runs `ez` the way a suite does, for a case that needs the
+ * command on a `PATH` instead of started from here: a person's copied-out
+ * command, or an example server that shells out to it. `EZ_BIN` reaches it all
+ * the same.
+ */
+export function ezShimScript(): string {
+  return `#!/bin/sh\nexec ${quoted(ezBin())} "$@"\n`;
 }
 
 /** What one `ez` run left behind: its exit code and its two streams. */
@@ -57,11 +65,18 @@ export async function sceneFolder(scene: unknown, name = 'scene.json'): Promise<
   return folder;
 }
 
-/** `ez` with its exit code read, whether it succeeded or not. */
-export async function ez(args: string[], cwd: string): Promise<Run> {
-  const { file, argv } = ezCommand(args);
+/**
+ * `ez` with its exit code read, whether it succeeded or not. `env` is added to
+ * this process's environment for the one run, so a case can set `NO_COLOR` and
+ * still reach the agent's `PATH`.
+ */
+export async function ez(
+  args: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv = {},
+): Promise<Run> {
   try {
-    const { stdout, stderr } = await run(file, argv, { cwd });
+    const { stdout, stderr } = await run(ezBin(), [...args], { cwd, env: { ...process.env, ...env } });
     return { code: 0, stdout, stderr };
   } catch (error) {
     const failed = error as { code?: unknown; stdout?: string; stderr?: string };
@@ -73,6 +88,24 @@ export async function ez(args: string[], cwd: string): Promise<Run> {
   }
 }
 
+/**
+ * `ez` where a run that failed has to fail the caller: a helper that goes on to
+ * read what a command wrote would otherwise report the file that is not there,
+ * never the command that refused to write it. The error carries the exit code
+ * and what `ez` said, so a broken run reads as itself.
+ */
+export async function ezOrThrow(
+  args: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv = {},
+): Promise<Run> {
+  const left = await ez(args, cwd, env);
+  if (left.code !== 0) {
+    throw new Error(`ez ${args.join(' ')} exited ${left.code}: ${left.stderr || left.stdout}`);
+  }
+  return left;
+}
+
 /** A server `ez serve` is running on, and the folder it serves. */
 export interface Serve {
   readonly url: string;
@@ -81,7 +114,7 @@ export interface Serve {
   readonly startup: string;
   /** The build that line names. */
   readonly build: string;
-  /** When that build was made, or `null` when the CLI ran from source. */
+  /** When that build was made, or `null` when the startup line named no time. */
   readonly builtAt: string | null;
   stop(): Promise<void>;
 }
@@ -110,7 +143,7 @@ function readStartup(
  * never fight over one. Resolves once the server prints the line it listens on;
  * the folder is the working directory, as it would be for a person.
  *
- * `cli` is the built CLI to run, so a test can drive a copy of `dist/` that has
+ * `cli` is the `ez` to run, so a test can drive a copy of `dist/` that has
  * nothing else from the repository beside it; `EZ_BIN` replaces it the way it
  * replaces `ez`'s.
  */
@@ -119,8 +152,7 @@ export async function startServe(
   args: readonly string[] = [],
   cli: string = CLI,
 ): Promise<Serve> {
-  const command = ezCommand(['serve', folder, '--port', '0', ...args], cli);
-  const child = spawn(command.file, command.argv, {
+  const child = spawn(ezBin(cli), ['serve', folder, '--port', '0', ...args], {
     cwd: folder,
     stdio: ['ignore', 'pipe', 'pipe'],
   });

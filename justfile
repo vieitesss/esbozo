@@ -9,7 +9,7 @@ default:
 setup:
     pnpm install
 
-# Build the TS CLI, the editor page and bundle, and the Go binary `dist/ez`.
+# Build the editor page and bundle, and the Go binary `dist/ez`.
 build:
     pnpm build
 
@@ -27,7 +27,7 @@ e2e *args:
 
 # Serve the editor on a folder of Scenes at http://127.0.0.1:4320/, e.g. `just serve diagrams --port 0`.
 serve dir="." *args:
-    pnpm build && node dist/cli.js serve "$@"
+    pnpm build && ./dist/ez serve "$@"
 
 # Build and copy the `ez` binary into `dir`.
 install dir=(env("HOME") / ".local/bin"):

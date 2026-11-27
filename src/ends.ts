@@ -1,8 +1,8 @@
 /**
  * The Scene edits `ez anchor` and `ez snap` make, and the words they take.
  *
- * Arguments, files and exit codes belong to whoever runs a command: `src/cli.ts`
- * in Node, and `cmd/ez` through the core bundle. So this module knows only a
+ * Arguments, files and exit codes belong to whoever runs a command: `cmd/ez`,
+ * through the core bundle. So this module knows only a
  * Scene — which end a word names, the fractions a place means, the point an
  * Anchor draws at, and the one line a person reads — and carries no Node API,
  * because the bundle runs these same edits inside goja.
@@ -68,7 +68,7 @@ export type Outcome<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly message: string; readonly exitCode: number };
 
-export function refusal(message: string, exitCode: number): { ok: false; message: string; exitCode: number } {
+function refusal(message: string, exitCode: number): { ok: false; message: string; exitCode: number } {
   return { ok: false, message, exitCode };
 }
 

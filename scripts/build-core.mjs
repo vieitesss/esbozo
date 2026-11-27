@@ -96,9 +96,6 @@ const hostShims = {
 /**
  * Measure the bundled font, so no cold start has to. A font this cannot model is
  * written as `null`, and the core parses it at run time as it always did.
- *
- * The line goes to stderr: `npm pack --json` reads `prepack`'s stdout as the
- * manifest it prints, so a build that writes progress there breaks it.
  */
 const metrics = measurementsOf(opentype.parse, await readFile(BUNDLED_FONT));
 await mkdir('dist', { recursive: true });

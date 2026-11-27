@@ -1,5 +1,5 @@
-// The Scene API's write: `PUT` and `POST /api/scenes/<name>`, as `src/serve.ts`
-// takes one and `docs/save-api.md` states it. The checks run in the order that
+// The Scene API's write: `PUT` and `POST /api/scenes/<name>`, as
+// `docs/save-api.md` states it. The checks run in the order that
 // file gives them, and the pair is written the way its "Writes are serialised
 // and undone on failure" says: one queue per output pair, the old Scene copied
 // aside, and both files put back when either rename fails.
@@ -21,7 +21,7 @@ import (
 	"esbozo/internal/core"
 )
 
-// bodyLimit is `BODY_LIMIT` in `src/serve.ts`: a write larger than a Scene
+// bodyLimit: a write larger than a Scene
 // anyone draws is refused before it is read into memory.
 const bodyLimit = 8 * 1024 * 1024
 
@@ -32,7 +32,7 @@ type sceneWrite struct {
 	Svg   string
 }
 
-// writeRefused is `WriteRefused` in `src/serve.ts`: a write the server refuses
+// writeRefused: a write the server refuses
 // to finish, with the status its answer carries.
 type writeRefused struct {
 	status  int
@@ -103,7 +103,7 @@ func serveWrite(response http.ResponseWriter, request *http.Request, folder, nam
 	sendJSON(response, http.StatusOK, struct{}{})
 }
 
-// announcesJSON is `announcesJson` in `src/serve.ts`: the body has to say it is
+// announcesJSON: the body has to say it is
 // JSON, because a cross-origin page can post `text/plain` without asking first
 // and this rule is what stops it writing to the folder.
 func announcesJSON(request *http.Request) bool {
@@ -115,7 +115,7 @@ func announcesJSON(request *http.Request) bool {
 // over bodyLimit, and nothing has been written.
 var errBodyTooLarge = errors.New("the body is over the limit")
 
-// readBody is `readBody` in `src/serve.ts`: the request's bytes, or
+// readBody: the request's bytes, or
 // errBodyTooLarge once it passes the limit — read one byte past it, so a body
 // the size of the limit itself is taken.
 func readBody(request *http.Request) ([]byte, error) {
@@ -129,10 +129,11 @@ func readBody(request *http.Request) ([]byte, error) {
 	return body, nil
 }
 
-// parseSceneWrite is `sceneWrite` in `src/scenes-api.ts`: a write body, and
-// false for a body that is not the JSON object above. The keys are read exactly
-// as written — `{"Scene": …}` is no write, as the property read in TS makes it
-// — and a field that is not a string is no write either.
+// parseSceneWrite reads a write body: the two texts `SceneWrite` in
+// `src/scenes-api.ts` describes, the Scene to store and the SVG drawn beside it.
+// A body that is not the JSON object above is no write. The keys are read
+// exactly as written — `{"Scene": …}` is no write, as the property read in TS
+// makes it — and a field that is not a string is no write either.
 func parseSceneWrite(body []byte) (sceneWrite, bool) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(body, &fields); err != nil {
@@ -173,7 +174,7 @@ func queueKey(name string) string {
 	return strings.ToLower(svgFileName(name))
 }
 
-// writeQueue is `serialised` in `src/serve.ts`: one queue per output pair, so
+// writeQueue: one queue per output pair, so
 // two writes to one Scene never interleave. Writes whose Scenes reach different
 // SVGs run at the same time, and a read never waits for a write.
 type writeQueue struct {
@@ -221,7 +222,7 @@ func (queue *writeQueue) run(key string, job func() error) error {
 	return err
 }
 
-// writePair is `writePair` in `src/serve.ts`: both targets checked, the old
+// writePair: both targets checked, the old
 // Scene copied aside, both texts written to temporary files, then the Scene
 // renamed into place and then the SVG. A failure anywhere puts the old Scene
 // back and leaves the old SVG untouched, so the SVG never leads the Scene.
@@ -283,7 +284,7 @@ func writePair(scenePath, svgPath string, written sceneWrite) error {
 	return nil
 }
 
-// refuseNonFile is `refuseNonFile` in `src/serve.ts`: a target that exists and
+// refuseNonFile: a target that exists and
 // is not a regular file is refused before anything is written, because a folder
 // or a pipe renamed over would take the write nowhere.
 func refuseNonFile(target string) error {
@@ -309,7 +310,7 @@ func refuseNonFile(target string) error {
 	return nil
 }
 
-// copyAside is `copyAside` in `src/serve.ts`: the Scene as it is now, beside
+// copyAside: the Scene as it is now, beside
 // itself, so a failed write has something to put back. A Scene that is not
 // there yet has nothing to copy, which is not a failure.
 func copyAside(target, backup string) (bool, error) {
@@ -330,7 +331,7 @@ func copyAside(target, backup string) (bool, error) {
 	return true, nil
 }
 
-// putBack is `putBack` in `src/serve.ts`: the old Scene back where the write
+// putBack: the old Scene back where the write
 // renamed over it, or the failed Scene taken away when there was no old one. An
 // undo that cannot land is a refusal that names the copy, because a Scene this
 // server could not keep is never lost quietly.
@@ -365,7 +366,7 @@ func aside(target, suffix string) (string, error) {
 	return target + "." + identifier + "." + suffix, nil
 }
 
-// newUUID is `randomUUID` in `src/serve.ts`: sixteen random bytes in the
+// newUUID: sixteen random bytes in the
 // 8-4-4-4-12 form of RFC 4122 version 4.
 func newUUID() (string, error) {
 	var bytes [16]byte

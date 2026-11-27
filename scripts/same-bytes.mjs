@@ -1,17 +1,17 @@
 /**
  * The two runtimes, held to the same bytes.
  *
- * `ez` runs the core bundle in goja; the editor and the CLI run the same sources
- * in V8. This compares the two: every Scene in `test/fixtures/` is rendered and
+ * `ez` runs the core bundle in goja; the editor runs the same sources in V8.
+ * This compares the two: every Scene in `test/fixtures/` is rendered and
  * checked by `dist/core.js` in Node and by `internal/core` in Go, and the SVG
  * bytes, the problem lines, the notes and the exit code have to be identical.
  * `png` runs in both themes too, and its bytes have to be identical as well: the
  * SVG comparison cannot see a rasteriser at all, and a PNG that came out the same
  * in both themes would mean the theme never arrived.
  *
- * Both sides are the core, so this survives deleting the TypeScript CLI: there is
- * no `dist/cli.js` here. The Go half is `TestCoreAnswers` in `internal/core`,
- * which writes what the core answers; this script runs it and compares.
+ * Both sides are the core, so there is no CLI here at all. The Go half is
+ * `TestCoreAnswers` in `internal/core`, which writes what the core answers; this
+ * script runs it and compares.
  *
  * The two rasterisers behind them are the real ones: Node calls
  * `@resvg/resvg-wasm` here, and Go runs the same `index_bg.wasm` in wazero.

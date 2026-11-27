@@ -1,7 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "entry": [
-    "src/cli.ts",
     "src/core-entry.ts",
     "src/editor/main.ts",
     "src/editor/embed.ts",

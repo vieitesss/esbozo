@@ -1,8 +1,8 @@
 /**
  * CLI seam: `ez update` re-running the install script the binary carries.
  *
- * `ez update` is the Go binary's alone — the TS CLI never grows the command — so
- * these cases run `dist/ez` itself, not the `EZ_BIN` seam. Every case but the
+ * `ez update` writes into the folder the binary runs from, so these cases run
+ * `dist/ez` itself, not the `EZ_BIN` seam. Every case but the
  * clone runs a copy of the binary in a folder of its own, as an installed `ez`
  * is: `update` sets the script's `--dir` to the folder the binary runs from, so
  * what it installs lands beside the copy and what the test then runs is what the

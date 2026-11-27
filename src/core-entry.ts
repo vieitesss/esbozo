@@ -45,8 +45,8 @@ interface EzHost {
    */
   cwd(): string;
   /**
-   * The bundled font's bytes, read in place of the `.ttf` import the CLI bundles
-   * as base64.
+   * The bundled font's bytes, which the `.ttf` import reads: the bundle resolves
+   * that import to a host shim, so `ez` supplies the file.
    */
   bundledFont(): ArrayBuffer;
   /**
@@ -627,7 +627,7 @@ async function check(request: CheckRequest): Promise<Result> {
  * `parse`: what the parser `ez check` uses says about a Scene, and nothing more —
  * no font is measured and no Label fitted, so a host can tell a Scene from any
  * other JSON without paying for a Layout. The problems are each one's message
- * alone, because `src/serve.ts` words an invalid Scene that way.
+ * alone, because `ez serve` words an invalid Scene that way.
  */
 async function parseOnly(request: ParseRequest): Promise<Result> {
   const { parsed } = loadScene(request.source);

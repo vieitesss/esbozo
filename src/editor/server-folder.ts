@@ -1,5 +1,5 @@
 /**
- * The served folder: the save API in `src/serve.ts` seen through the same seam
+ * The served folder: the save API `ez serve` answers, seen through the same seam
  * as a picked File System Access folder.
  *
  * A page served as files has no server to ask, so `servedFolder()` returns `null`
