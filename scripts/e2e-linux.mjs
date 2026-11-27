@@ -189,11 +189,6 @@ async function nodeVersionCI() {
   return version.slice(1, 4).join('.');
 }
 
-/**
- * The Go release `go.mod` names — the one file that says which Go this project
- * builds with, which CI's `actions/setup-go` reads too — so the image pins no
- * second number beside it.
- */
 async function goVersionCI() {
   let said;
   try {

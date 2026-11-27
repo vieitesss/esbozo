@@ -11,20 +11,14 @@
  * before resvg sees them, so resvg is never asked to lay text out.
  */
 
-/** The module's bytes, which the host already carries: `initWasm` has nothing to load. */
 export default new Uint8Array(0);
 
 let ready = false;
 
-/**
- * The one-time start `src/png.ts` awaits. A call before it is a bug, as it is with
- * the real module.
- */
 export async function initWasm() {
   ready = true;
 }
 
-/** The PNG one SVG draws, taken at construction because the host owns the module. */
 export class Resvg {
   constructor(svg, options) {
     if (!ready) throw new Error('Wasm has not been initialized. Call `initWasm()` function.');

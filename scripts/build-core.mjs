@@ -1,14 +1,3 @@
-/**
- * Build the core bundle the Go binary embeds: the Scene, Layout and Renderer the
- * CLI and the editor run, as one script with no Node API.
- *
- * It differs from what `scripts/build.mjs` builds in three ways only: the entry
- * point, the module format (an IIFE that leaves its surface on `__ezCore`,
- * because goja has no modules), and the two Node builtins `src/font.ts` imports,
- * which `scripts/core-host/` answers from the host. It also measures the bundled
- * font once here, instead of in every cold start, and copies resvg's WebAssembly
- * module beside the bundle for `internal/resvg` to run.
- */
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,20 +7,9 @@ import { measurementsOf } from './measure-font.mjs';
 
 const hostDir = fileURLToPath(new URL('./core-host/', import.meta.url));
 
-/** Where the core's measurement of the bundled font is written. */
 const FONT_METRICS = 'dist/font-metrics.json';
-
-/** The one font the core imports; the bundle takes its bytes from the host. */
 const BUNDLED_FONT = resolve('fonts/Kalam-Regular.ttf');
-
-/** The host shim that answers the core's `opentype.js` import. */
 const OPENTYPE_SHIM = resolve(hostDir, 'opentype.mjs');
-
-/**
- * The host shim that answers the core's `@resvg/resvg-wasm` import, for the
- * module and the wasm it would load: `ez` runs those bytes in wazero, so the
- * bundle carries neither.
- */
 const RESVG_SHIM = resolve(hostDir, 'resvg-wasm.mjs');
 
 /**
@@ -41,30 +19,13 @@ const RESVG_SHIM = resolve(hostDir, 'resvg-wasm.mjs');
  */
 const RESVG_WASM = resolve('node_modules/@resvg/resvg-wasm/index_bg.wasm');
 
-/**
- * The one global goja does not implement, which a roughjs dependency reads. It
- * is the bundle's banner so it is in place before any module body runs.
- */
 const legacyRegExp = await readFile(`${hostDir}legacy-regexp.mjs`, 'utf8');
 
-/** The Node builtins the core reaches, and the shim that answers in their place. */
 const SHIMS = {
   'node:fs/promises': 'fs-promises.mjs',
   'node:path': 'path.mjs',
 };
 
-/**
- * Answers a Node builtin with its shim, and the bundled font with the bytes the
- * host hands over: an unresolved builtin or font fails the build, rather than
- * shipping a bundle that only works in Node.
- *
- * `opentype.js` is the same seam one level down: the core's own import is
- * answered by `scripts/core-host/opentype.mjs`, which keeps the real parser for
- * every other font — including its own import of it, which is why the shim's
- * importer is left alone. `@resvg/resvg-wasm` is that seam too, answered whole:
- * `ez` runs the module in wazero, so neither the glue nor its wasm belongs in
- * the bundle.
- */
 const hostShims = {
   name: 'host-shims',
   setup(bundle) {
@@ -93,10 +54,6 @@ const hostShims = {
   },
 };
 
-/**
- * Measure the bundled font, so no cold start has to. A font this cannot model is
- * written as `null`, and the core parses it at run time as it always did.
- */
 const metrics = measurementsOf(opentype.parse, await readFile(BUNDLED_FONT));
 await mkdir('dist', { recursive: true });
 await copyFile(RESVG_WASM, 'dist/resvg.wasm');

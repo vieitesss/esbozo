@@ -1,24 +1,3 @@
-/**
- * The bundled font's measurements, answered from the table the build wrote.
- *
- * `src/layout.ts` measures every Text and Label through a parsed font, and parsing
- * Kalam costs ~91 ms of a cold `ez check`: 1027 glyph objects built so the Layout
- * can ask for a handful of advance widths. `scripts/measure-font.mjs` parses the
- * very same file with the very same library, and this module answers the
- * measurement from what that parse wrote down.
- *
- * Nothing outside that table is invented here: a font that is not the bundled one,
- * text holding a character the build did not verify, and every glyph outline are
- * answered by a real parse made on the spot.
- */
-
-/**
- * Whether these bytes are the bundled font the table was taken from.
- *
- * The table directory carries each table's tag, offset, length and checksum, so
- * comparing the 12-byte header and the records is enough, beside the 427 KB a
- * byte-by-byte compare would walk.
- */
 export function isBundled(table, buffer) {
   if (buffer.byteLength !== table.font.byteLength) {
     return false;
@@ -33,15 +12,6 @@ export function isBundled(table, buffer) {
   return true;
 }
 
-/**
- * One font that answers the measurements from `table` and everything else from
- * `parseReal`, opentype.js's own `parse` called on these bytes the first time
- * something needs it.
- *
- * The shape is the part of an `opentype.js` font `src/layout.ts` and
- * `src/glyphs.ts` read: they ask for the metrics, the family, how many glyphs
- * there are, the advance of a line and the curves of a line.
- */
 export function fontOf(table, buffer, parseReal) {
   let real = null;
   const parsed = () => (real ??= parseReal(buffer));
@@ -78,10 +48,6 @@ export function fontOf(table, buffer, parseReal) {
   };
 }
 
-/**
- * The glyphs a line is measured as, or null when the table cannot answer for it:
- * any character the build did not verify is a line the real parser shapes.
- */
 function glyphSequence(table, text) {
   const glyphs = [];
   for (const character of text) {
@@ -94,7 +60,6 @@ function glyphSequence(table, text) {
   return glyphs;
 }
 
-/** Whether the build verified that this character measures as its own glyph. */
 function isPlain(runs, point) {
   for (let at = 0; at < runs.length; at += 1) {
     if (point < runs[at][0]) {

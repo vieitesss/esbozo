@@ -1,20 +1,13 @@
-/**
- * The Go half of `pnpm check`: `go vet`, `deadcode`, `gofmt`, `staticcheck`, then
- * `go test`. What `ez` answers is `pnpm test`'s, which runs the CLI suites against
- * the binary its build writes.
- */
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
-/** The Go tree `gofmt` reads: both packages, and the file the root one is. */
 const GOFMT_PATHS = ['cmd', 'internal', 'assets.go'];
 
 function run(command, args, env = process.env) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], env });
-    /** What the tool wrote to stdout: the answer a step judges, as opposed to what it echoed. */
     let stdout = '';
 
     child.stdout.setEncoding('utf8').on('data', (chunk) => {

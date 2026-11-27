@@ -1,16 +1,6 @@
 # syntax=docker/dockerfile:1
 
 # The image: `ez serve` on a mounted folder of Scenes.
-#
-# Two stages, because the runtime needs the binary and nothing else. `ez` is one
-# static file: the core, the page, the font and resvg's wasm are embedded in it
-# by `assets.go`, so the second stage carries no `node_modules` and no `dist/`.
-# `test/bundle.test.ts` holds that split honest: it renders, draws a PNG and
-# serves the page from a folder that holds `ez` alone.
-#
-# `pnpm build` ends with `go build ./cmd/ez`, so the build stage carries the Go
-# toolchain `go.mod` names, copied from its own image rather than downloaded
-# here.
 ARG GO_VERSION=1.25.5
 
 FROM golang:${GO_VERSION} AS go
@@ -44,7 +34,6 @@ COPY src ./src
 COPY fonts ./fonts
 COPY go.mod go.sum *.go ./
 COPY cmd ./cmd
-# `assets.go` embeds the skill `ez skill` prints, so `go build` fails without it.
 COPY skills ./skills
 COPY internal ./internal
 RUN pnpm build
@@ -53,12 +42,8 @@ RUN pnpm build
 FROM node:22-slim AS runtime
 
 ENV NODE_ENV=production
-# What `ez update` reads to refuse here: a container's install is the image, so an
-# update prints the `docker pull` line instead of writing into this container.
 ENV ESBOZO_DOCKER=1
 WORKDIR /app
-# Only the binary `pnpm build` wrote: the core, the page and its compressed
-# variants, the font and resvg's wasm are all embedded in it.
 COPY --from=build /app/dist/ez ./ez
 COPY LICENSE ./
 

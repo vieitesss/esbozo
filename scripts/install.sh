@@ -1,19 +1,4 @@
 #!/bin/sh
-#
-# Install ez, the esbozo command line, from a GitHub release.
-#
-#   curl -fsSL https://esbozo.vieitesss.eu/install | sh
-#
-# POSIX sh, on Linux and macOS, x64 and arm64, and never with sudo. The binary
-# lands in `${ESBOZO_INSTALL_DIR:-$HOME/.local/bin}/ez` with an `esbozo` symlink
-# beside it, or in `--dir` when one is given. No flag installs the latest
-# Release; `--main` installs the rolling Main build and `--version X.Y.Z` that
-# Release. Downloads are checked against the release's `SHA256SUMS` and swapped
-# in with an atomic rename, so a refused download leaves an existing install
-# untouched and one already on the target is left alone.
-#
-# `ez update` re-runs this script with the flags it was given plus `--dir` set
-# to its own folder.
 set -eu
 
 RELEASE_URL="${ESBOZO_RELEASE_URL:-https://github.com/vieitesss/esbozo/releases}"
@@ -52,8 +37,6 @@ while [ $# -gt 0 ]; do
     --version)
       [ $# -ge 2 ] || refuse '--version needs a version, like 0.1.0'
       [ -z "$tag" ] || refuse '--main and --version cannot be combined'
-      # Three dot-separated runs of digits and nothing else: `1.2.3/../main`
-      # would fetch the Main build and print it as `Release v1.2.3/../main`.
       case "$2" in
         *[!0-9.]* | *..* | *.*.*.* | .* | *.) refuse "--version wants X.Y.Z, not '$2'" ;;
         [0-9]*.[0-9]*.[0-9]*) ;;

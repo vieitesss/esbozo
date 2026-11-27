@@ -1,25 +1,3 @@
-/**
- * The two runtimes, held to the same bytes.
- *
- * `ez` runs the core bundle in goja; the editor runs the same sources in V8.
- * This compares the two: every Scene in `test/fixtures/` is rendered and
- * checked by `dist/core.js` in Node and by `internal/core` in Go, and the SVG
- * bytes, the problem lines, the notes and the exit code have to be identical.
- * `png` runs in both themes too, and its bytes have to be identical as well: the
- * SVG comparison cannot see a rasteriser at all, and a PNG that came out the same
- * in both themes would mean the theme never arrived.
- *
- * Both sides are the core, so there is no CLI here at all. The Go half is
- * `TestCoreAnswers` in `internal/core`, which writes what the core answers; this
- * script runs it and compares.
- *
- * The two rasterisers behind them are the real ones: Node calls
- * `@resvg/resvg-wasm` here, and Go runs the same `index_bg.wasm` in wazero.
- *
- * Usage: node scripts/same-bytes.mjs — after `pnpm build`, which writes
- * `dist/core.js` and `dist/font-metrics.json`. Exit `0` when every fixture is
- * identical, `1` otherwise; one line per fixture and a count as the last line.
- */
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { mkdtemp, readdir, rm } from 'node:fs/promises';
@@ -36,7 +14,6 @@ const KALAM = join(ROOT, 'fonts/Kalam-Regular.ttf');
 const FONT_METRICS = join(ROOT, 'dist/font-metrics.json');
 const RESVG_WASM = join(ROOT, 'node_modules/@resvg/resvg-wasm/index_bg.wasm');
 
-/** The commands compared on every fixture, and the request each one carries. */
 const KINDS = [
   { label: 'render', kind: 'render', theme: null },
   { label: 'check', kind: 'check', theme: null },
@@ -47,19 +24,8 @@ const KINDS = [
 const KALAM_BYTES = readFileSync(KALAM);
 const FONT_METRICS_TEXT = readFileSync(FONT_METRICS, 'utf8');
 
-/**
- * The real rasteriser, started before any fixture runs: the host answers `png`
- * synchronously, as Go's does, so the module loads once here rather than inside
- * the call.
- */
 await initWasm(readFileSync(RESVG_WASM));
 
-/**
- * The host the bundle reaches through `globalThis.__ezHost`, answered with Node's
- * own filesystem: the same answers `internal/core/host.go` gives the goja
- * runtime, except that `rasterise` is resvg's own module in V8 rather than in
- * wazero.
- */
 globalThis.__ezHost = {
   readText: (path) => readFileSync(String(path), 'utf8'),
   readBytes: (path) => arrayBufferOf(readFileSync(String(path))),
@@ -83,7 +49,6 @@ globalThis.__ezHost = {
 runInThisContext(readFileSync(CORE, 'utf8'), { filename: CORE });
 const core = globalThis.__ezCore;
 
-/** A copy of these bytes as the ArrayBuffer the request carries. */
 function arrayBufferOf(bytes) {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
 }
@@ -101,8 +66,6 @@ async function answerOf({ kind, theme }, source) {
   return {
     ok: answer.ok,
     exitCode: answer.exitCode,
-    // A field the command did not make is empty, as `internal/core` writes it:
-    // `render` alone answers an SVG, and `png` alone an image.
     svg: answer.svg ?? '',
     png: answer.png === null || answer.png === undefined ? null : Buffer.from(answer.png).toString('base64'),
     problems: [...answer.problems],
@@ -110,11 +73,6 @@ async function answerOf({ kind, theme }, source) {
   };
 }
 
-/**
- * The request one command takes: `render` a font path, `check` a stylesheet, and
- * `png` the palette too. A command reads only the fields it takes, so no request
- * carries a field another command named.
- */
 function requestFor(kind, scene, theme) {
   switch (kind) {
     case 'render':
@@ -136,17 +94,11 @@ function requestFor(kind, scene, theme) {
   }
 }
 
-/** Every fixture Scene, by the name both sides call it. */
 async function fixtures() {
   const names = (await readdir(FIXTURES)).filter((name) => name.endsWith('.json')).sort();
   return names.map((name) => ({ name, source: readFileSync(join(FIXTURES, name)) }));
 }
 
-/**
- * What the Go core answered, written by `TestCoreAnswers`: the test is run rather
- * than reimplemented, because a second caller of the core's entry points would be
- * a second thing to keep right.
- */
 function goAnswers() {
   const output = join(scratch, 'go-answers.json');
   const ran = spawnSync('go', ['test', './internal/core', '-run', '^TestCoreAnswers$', '-count=1'], {
@@ -161,7 +113,6 @@ function goAnswers() {
   return JSON.parse(readFileSync(output, 'utf8'));
 }
 
-/** Where two byte strings part company, as a byte offset. */
 function firstDifference(one, other) {
   const end = Math.min(one.length, other.length);
   for (let at = 0; at < end; at += 1) {
@@ -170,7 +121,6 @@ function firstDifference(one, other) {
   return end;
 }
 
-/** The fields one answer disagrees on, as lines a person can act on. */
 function answerDifferences(label, go, node) {
   const found = [];
   if (go.ok !== node.ok) {
