@@ -30,12 +30,15 @@ import (
 )
 
 // The codes the commands decide for themselves, as `EXIT` in `src/cli.ts`
-// defines them; 5 and 6 are the core's, which it refuses a Scene with.
+// defines them; 5 and 6 are the core's, which it refuses a Scene with. 1 is no
+// `src/cli.ts` code: an update `ez update` could not make exits with the install
+// script's own `fail`, because the script owns the write the binary refuses here.
 const (
-	exitOK           = 0
-	exitUsage        = 2
-	exitInvalidScene = 3
-	exitWriteFailed  = 4
+	exitOK            = 0
+	exitInstallFailed = 1
+	exitUsage         = 2
+	exitInvalidScene  = 3
+	exitWriteFailed   = 4
 )
 
 func main() {

@@ -18,23 +18,6 @@ import (
 	"esbozo"
 )
 
-// exitInstallFailed is the update that could not be made: a refusal, or an `sh`
-// that never ran. A refusal exits with the code the script's own `fail` does,
-// because the script owns the write `ez update` refuses here.
-const exitInstallFailed = 1
-
-// installOneLiner is the command `scripts/install.sh` opens with, which a folder
-// this binary cannot write to points at.
-const installOneLiner = "curl -fsSL https://esbozo.vieitesss.eu/install | sh"
-
-// dockerImage is where a Release is published, and what an update refused in
-// Docker prints instead of installing.
-const dockerImage = "ghcr.io/vieitesss/esbozo"
-
-// moduleLine is the line `go.mod` names this repository on: the folder that holds
-// one is a checkout, and the `ez` beside it was built there rather than installed.
-const moduleLine = "module esbozo"
-
 // runUpdate is `update`, and `upgrade` as its alias: the carried installer, on
 // the folder this binary runs from, with the flags this run was given.
 func runUpdate(argv []string, stdout, stderr io.Writer) int {
@@ -78,15 +61,15 @@ func updateRefusal(argv []string, folder string) string {
 	if inDocker() {
 		return fmt.Sprintf(
 			"ez update: this ez runs in a Docker image, where writing %s would change this container only\n"+
-				"  docker pull %s:%s\n",
-			folder, dockerImage, updateTag(argv))
+				"  docker pull ghcr.io/vieitesss/esbozo:%s\n",
+			folder, updateTag(argv))
 	}
 	if !writableFolder(folder) {
 		return fmt.Sprintf(
 			"ez update: cannot write to %s\n"+
 				"  install ez into a folder of your own instead:\n"+
-				"  %s -s -- --dir \"$HOME/.local/bin\"\n",
-			folder, installOneLiner)
+				"  curl -fsSL https://esbozo.vieitesss.eu/install | sh -s -- --dir \"$HOME/.local/bin\"\n",
+			folder)
 	}
 	return ""
 }
@@ -100,7 +83,7 @@ func isClone(folder string) bool {
 		return false
 	}
 	for line := range strings.SplitSeq(string(module), "\n") {
-		if strings.TrimSpace(line) == moduleLine {
+		if strings.TrimSpace(line) == "module esbozo" {
 			return true
 		}
 	}
