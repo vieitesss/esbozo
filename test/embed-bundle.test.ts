@@ -198,7 +198,9 @@ async function sourceCopy(): Promise<string> {
     // `prepack` is `pnpm build`, which ends with `go build ./cmd/ez`.
     'go.mod',
     'go.sum',
-    'assets.go',
+    // Every root `.go` file, because the build compiles them all: one added
+    // later is packed without this list growing.
+    ...(await readdir(ROOT)).filter((name) => name.endsWith('.go')),
     'cmd',
     'internal',
   ]) {

@@ -42,7 +42,7 @@ RUN pnpm install --frozen-lockfile
 COPY scripts ./scripts
 COPY src ./src
 COPY fonts ./fonts
-COPY go.mod go.sum assets.go ./
+COPY go.mod go.sum *.go ./
 COPY cmd ./cmd
 # `assets.go` embeds the skill `ez skill` prints, so `go build` fails without it.
 COPY skills ./skills

@@ -974,7 +974,9 @@ async function committedSources(): Promise<string> {
     // The build ends with `go build ./cmd/ez`, so it reads these too.
     'go.mod',
     'go.sum',
-    'assets.go',
+    // Every root `.go` file, because the build compiles them all: one added
+    // later is built here without this list growing.
+    ...(await readdir(ROOT)).filter((name) => name.endsWith('.go')),
     'cmd',
     'internal',
     // `ez skill` serves the skill the binary carries, so the build reads it too.
