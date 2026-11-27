@@ -1,10 +1,12 @@
 /**
  * CLI seam: `ez --version`, the stamp `pnpm build` embeds in the binary.
  *
- * The TypeScript CLI has no `--version` until T7, so this suite skips unless
+ * The TypeScript CLI has no `--version` until T7, so the Main case skips unless
  * `EZ_BIN` names the other `ez` — the Go binary, which carries the stamp the
  * build wrote. The stamp is `package.json`'s version for a Release, and
  * `<version>-main+<short sha of HEAD>` for every build the build made itself.
+ * A Release is the switch `scripts/version-stamp.mjs` reads, so the Release case
+ * writes the stamp there and reads it back rather than building a second binary.
  */
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
@@ -39,3 +41,18 @@ test(
     assert.equal(result.stdout, `${version}-main+${head}\n`);
   },
 );
+
+test('a Release build stamps the version alone, with no Main suffix', async () => {
+  const folder = await tempFolder();
+  const stamp = join(folder, 'version');
+  const { version } = JSON.parse(await readFile(join(ROOT, 'package.json'), 'utf8')) as {
+    version: string;
+  };
+
+  await run(process.execPath, ['scripts/version-stamp.mjs', stamp], {
+    cwd: ROOT,
+    env: { ...process.env, ESBOZO_RELEASE: '1' },
+  });
+
+  assert.equal(await readFile(stamp, 'utf8'), `${version}\n`);
+});

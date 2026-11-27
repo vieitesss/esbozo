@@ -15,6 +15,7 @@ import { chmod, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { brotliCompressSync, gzipSync } from 'node:zlib';
 import { build, transform } from 'esbuild';
 import { buildId, buildTime } from '../src/build-id.ts';
+import { gitAnswer } from './git.mjs';
 import { PAGE_ASSETS } from '../src/page-assets.ts';
 
 const cliOutfile = 'dist/cli.js';
@@ -40,19 +41,6 @@ await build({
 });
 
 await chmod(cliOutfile, 0o755);
-
-/**
- * git's answer to one command, or `null` when git is missing or this is no
- * checkout: the build then names itself `unknown` instead of failing, because
- * a tarball of the sources still has to build.
- */
-function gitAnswer(args) {
-  try {
-    return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-  } catch {
-    return null;
-  }
-}
 
 /**
  * A stylesheet with its comments and its indentation gone, as `minify` leaves
@@ -133,21 +121,11 @@ await compressPageFiles();
 execFileSync(process.execPath, ['scripts/build-core.mjs'], { stdio: 'inherit' });
 
 /**
- * The stamp `ez --version` prints, embedded by `assets.go`: `package.json`'s
- * version for a Release, and `<version>-main+<short sha of HEAD>` for every
- * build this build made itself, so a binary built anywhere but release CI says
- * it is a Main build. Release CI sets `ESBOZO_RELEASE=1`.
+ * The stamp `ez --version` prints, embedded by `assets.go`: `scripts/version-stamp.mjs`
+ * is its one writer, so the version suite can write a Release stamp without
+ * building the binary again.
  */
-await writeFile('dist/version', `${await versionStamp()}\n`);
-
-async function versionStamp() {
-  const { version } = JSON.parse(await readFile('package.json', 'utf8'));
-  if (process.env.ESBOZO_RELEASE === '1') {
-    return version;
-  }
-  const commit = gitAnswer(['rev-parse', '--short', 'HEAD'])?.trim();
-  return `${version}-main+${commit === undefined || commit === '' ? 'unknown' : commit}`;
-}
+execFileSync(process.execPath, ['scripts/version-stamp.mjs', 'dist/version'], { stdio: 'inherit' });
 
 /**
  * The one static binary: the bundle above, Kalam, and what measuring it yielded,
