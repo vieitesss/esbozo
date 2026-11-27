@@ -21,7 +21,9 @@ import (
 var CoreBundle []byte
 
 // Kalam is the font `ez` falls back to when no stylesheet or `--font` names one;
-// the core measures with these very bytes, handed over as `bundledFont`.
+// the core measures with these very bytes, handed over as `bundledFont`. It is
+// also what `ez serve` answers `/fonts/Kalam-Regular.ttf` with, so the binary
+// carries the font once.
 //
 //go:embed fonts/Kalam-Regular.ttf
 var Kalam []byte
@@ -65,12 +67,13 @@ const mainSuffix = "-main+"
 var versionStamp string
 
 // PageFiles is the served page and the bytes `ez serve` sends for it: the page
-// itself, its stylesheet, its script, the font it measures with, that font's
-// licence, and the variants the build compresses each text file into. The list
-// is `PAGE_ASSETS` in `src/page-assets.ts` read from this side, so a build that
-// wrote no variant fails here instead of sending the page uncompressed.
+// itself, its stylesheet, its script, Kalam's licence, and the variants the build
+// compresses each text file into. The list is `PAGE_ASSETS` in
+// `src/page-assets.ts` read from this side, so a build that wrote no variant
+// fails here instead of sending the page uncompressed. Kalam itself is not here:
+// `serve` sends `esbozo.Kalam`, the copy the core measures with, above.
 //
-//go:embed dist/editor.html dist/editor.html.br dist/editor.html.gz dist/editor.css dist/editor.css.br dist/editor.css.gz dist/editor.js dist/editor.js.br dist/editor.js.gz dist/fonts/Kalam-Regular.ttf dist/fonts/OFL.txt dist/fonts/OFL.txt.br dist/fonts/OFL.txt.gz
+//go:embed dist/editor.html dist/editor.html.br dist/editor.html.gz dist/editor.css dist/editor.css.br dist/editor.css.gz dist/editor.js dist/editor.js.br dist/editor.js.gz dist/fonts/OFL.txt dist/fonts/OFL.txt.br dist/fonts/OFL.txt.gz
 var PageFiles embed.FS
 
 // buildID is the commit the build was made from, as `buildId` in

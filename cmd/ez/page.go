@@ -30,12 +30,16 @@ type pageAsset struct {
 	mime string
 }
 
+// fontFile is the built file Kalam is served from: `esbozo.Kalam`, the copy the
+// core measures with, holds the same bytes, so the binary carries it once.
+const fontFile = "dist/fonts/Kalam-Regular.ttf"
+
 var pageAssets = []pageAsset{
 	{"/", "dist/editor.html", "text/html; charset=utf-8"},
 	{"/editor.html", "dist/editor.html", "text/html; charset=utf-8"},
 	{"/editor.css", "dist/editor.css", "text/css; charset=utf-8"},
 	{"/editor.js", "dist/editor.js", "text/javascript; charset=utf-8"},
-	{"/fonts/Kalam-Regular.ttf", "dist/fonts/Kalam-Regular.ttf", "font/ttf"},
+	{"/fonts/Kalam-Regular.ttf", fontFile, "font/ttf"},
 	{"/fonts/OFL.txt", "dist/fonts/OFL.txt", "text/plain; charset=utf-8"},
 }
 
@@ -135,12 +139,21 @@ func pageAssetAt(pathname string) (pageAsset, bool) {
 	return pageAsset{}, false
 }
 
+// pageFile is the bytes one page file is served as: Kalam is `esbozo.Kalam`,
+// and every other file is embedded beside the core.
+func pageFile(name string) ([]byte, error) {
+	if name == fontFile {
+		return esbozo.Kalam, nil
+	}
+	return esbozo.PageFiles.ReadFile(name)
+}
+
 // sendPageFile writes the file a coding carries, or the file itself.
 func sendPageFile(response http.ResponseWriter, asset pageAsset, offered coding) {
 	name := asset.file + suffix[offered]
 	// The bytes are embedded, so this read only fails if the table above and the
 	// embed list disagree.
-	bytes, err := esbozo.PageFiles.ReadFile(name)
+	bytes, err := pageFile(name)
 	if err != nil {
 		sendJSON(response, http.StatusInternalServerError, problem{err.Error()})
 		return
