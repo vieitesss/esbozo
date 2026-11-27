@@ -9,8 +9,8 @@ import (
 
 // answer is one command's answer, as `scripts/same-bytes.mjs` compares it. An
 // empty list is `[]` rather than `null`, so both sides write the same shape, and
-// a field the command did not make is `null`: `png` for `render` and `check`,
-// `svg` for `png`.
+// a field the command did not make is empty: `png` is `null` for `render` and
+// `check`, and `svg` is `""` for `png`.
 type answer struct {
 	OK       bool     `json:"ok"`
 	ExitCode int      `json:"exitCode"`

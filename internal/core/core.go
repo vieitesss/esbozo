@@ -1,9 +1,9 @@
 // Package core runs the bundled TypeScript core in goja, so that a Scene is
 // parsed, measured and drawn by the same code the CLI and the editor run.
 //
-// No Scene rule lives on this side: Go passes a Scene's bytes and the paths
-// `--font` and `--css` name, and reads back either SVG text or the lines `ez`
-// prints.
+// No Scene rule lives on this side: Go passes a Scene's bytes and the flags
+// `--font`, `--css`, `--theme`, `--ink`, `--paper` and `--muted` name, and reads
+// back SVG text, PNG bytes or the lines `ez` prints.
 package core
 
 import (
@@ -126,11 +126,11 @@ func callableOf(vm *goja.Runtime, name string) (goja.Callable, error) {
 }
 
 // optional turns an absent flag into the null the core tests for.
-func optional(path string) interface{} {
-	if path == "" {
+func optional(value string) interface{} {
+	if value == "" {
 		return nil
 	}
-	return path
+	return value
 }
 
 func answerOf(value goja.Value) (Answer, error) {
