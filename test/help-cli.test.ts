@@ -2,15 +2,12 @@
  * CLI seam: `ez --help`, `ez help`, and per-command `--help`.
  */
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { after, test } from 'node:test';
-import { CLI, ez, tempFolder } from './cli.ts';
+import { ez, tempFolder } from './cli.ts';
 import { removeTempFolders } from './temp.ts';
 
 after(removeTempFolders);
 
-const run = promisify(execFile);
 const ESC = String.fromCharCode(0x1b);
 
 test('ez --help and ez help show grouped commands, CSS subset, exit codes, and examples', async () => {
@@ -39,11 +36,9 @@ test('ez --help and ez help show grouped commands, CSS subset, exit codes, and e
 
 test('ez --help emits no ANSI when NO_COLOR is set', async () => {
   const folder = await tempFolder();
-  const { stdout, stderr } = await run(process.execPath, [CLI, '--help'], {
-    cwd: folder,
-    env: { ...process.env, NO_COLOR: '1' },
-  });
+  const { code, stdout, stderr } = await ez(['--help'], folder, { NO_COLOR: '1' });
 
+  assert.equal(code, 0, stderr);
   assert.equal(stderr, '');
   assert.equal(stdout.includes(`${ESC}[`), false);
 });

@@ -12,13 +12,11 @@ import { request as httpRequest } from 'node:http';
 import { delimiter, join } from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { ezShimScript } from './cli.ts';
 import { removeTempFolders, tempFolder } from './temp.ts';
 
 const SERVER_SCRIPT = fileURLToPath(
   new URL('../examples/host-server/server.mjs', import.meta.url),
-);
-const CLI_SCRIPT = fileURLToPath(
-  new URL('../dist/cli.js', import.meta.url),
 );
 
 const SCENE = {
@@ -167,11 +165,7 @@ test('--render rejects an invalid Scene with 400 and leaves previous files untou
   const root = await tempFolder('esbozo-host-');
   const binDir = await tempFolder('esbozo-bin-');
   const ezShim = join(binDir, 'ez');
-  await writeFile(
-    ezShim,
-    `#!/bin/sh\nexec "${process.execPath}" "${CLI_SCRIPT}" "$@"\n`,
-    'utf8',
-  );
+  await writeFile(ezShim, ezShimScript(), 'utf8');
   await chmod(ezShim, 0o755);
 
   await writeFile(join(root, 'flow.esbozo'), SCENE_SOURCE, 'utf8');
