@@ -268,16 +268,15 @@ func runHelp(argv []string, stdout, stderr io.Writer) int {
 }
 
 // shouldBold is `shouldBold` in `src/help.ts`: a terminal that `NO_COLOR` has
-// not turned off. A character device is as close as a file's stat gets to Node's
-// `isTTY` without asking the operating system.
+// not turned off. Node asks the operating system whether the stream is a TTY,
+// which a file's mode cannot answer — `/dev/null` is a character device too —
+// and reads `NO_COLOR` as set unless the variable is absent, so an empty value
+// turns bold off there and here.
 func shouldBold(stream io.Writer) bool {
 	file, isFile := stream.(*os.File)
-	if !isFile {
+	if !isFile || !isTerminal(file) {
 		return false
 	}
-	info, err := file.Stat()
-	if err != nil || info.Mode()&os.ModeCharDevice == 0 {
-		return false
-	}
-	return os.Getenv("NO_COLOR") == ""
+	_, turnedOff := os.LookupEnv("NO_COLOR")
+	return !turnedOff
 }
