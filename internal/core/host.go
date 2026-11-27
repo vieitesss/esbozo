@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"strings"
 	"sync"
 	"syscall"
+	"unicode/utf8"
 
 	"github.com/dop251/goja"
 
@@ -96,7 +98,7 @@ func installHost(vm *goja.Runtime) error {
 		if err != nil {
 			panic(vm.NewGoError(err))
 		}
-		return vm.ToValue(string(bytes))
+		return vm.ToValue(decodeUtf8(bytes))
 	}); err != nil {
 		return err
 	}
@@ -138,6 +140,71 @@ func installHost(vm *goja.Runtime) error {
 	}
 
 	return vm.Set("__ezHost", host)
+}
+
+// decodeUtf8 is `Buffer.toString('utf8')`: valid UTF-8 passes through, and a
+// sequence that encodes no character becomes U+FFFD — one for each maximal subpart
+// of it, so a truncated character counts once and a byte no sequence starts with
+// counts once. Go's own `string(bytes)` replaces one per byte, which would turn a
+// character cut off across a chunk boundary into two, and `anchor` and `snap` write
+// that text back over the Scene.
+func decodeUtf8(source []byte) string {
+	if utf8.Valid(source) {
+		return string(source)
+	}
+	var text strings.Builder
+	text.Grow(len(source))
+	for index := 0; index < len(source); {
+		character, size := utf8.DecodeRune(source[index:])
+		if character != utf8.RuneError || size > 1 {
+			text.Write(source[index : index+size])
+			index += size
+			continue
+		}
+		text.WriteRune(utf8.RuneError)
+		index += maximalSubpart(source[index:])
+	}
+	return text.String()
+}
+
+// maximalSubpart is how many bytes of a sequence that encodes no character belong to
+// one replacement: the lead byte and the continuation bytes it still wanted, as far
+// as the input has them and as far as each stays in the range that byte may take —
+// which is what makes a surrogate (`ED A0`) two replacements and not one.
+func maximalSubpart(source []byte) int {
+	lead := source[0]
+	width, lowest, highest := 0, byte(0x80), byte(0xBF)
+	switch {
+	case lead >= 0xC2 && lead <= 0xDF:
+		width = 2
+	case lead >= 0xE0 && lead <= 0xEF:
+		width = 3
+		if lead == 0xE0 {
+			lowest = 0xA0
+		}
+		if lead == 0xED {
+			highest = 0x9F
+		}
+	case lead >= 0xF0 && lead <= 0xF4:
+		width = 4
+		if lead == 0xF0 {
+			lowest = 0x90
+		}
+		if lead == 0xF4 {
+			highest = 0x8F
+		}
+	default:
+		// A continuation byte no sequence began, or a byte no sequence begins with.
+		return 1
+	}
+	size := 1
+	for ; size < width && size < len(source); size++ {
+		if source[size] < lowest || source[size] > highest {
+			break
+		}
+		lowest, highest = 0x80, 0xBF
+	}
+	return size
 }
 
 func bytesOf(value goja.Value) ([]byte, error) {
