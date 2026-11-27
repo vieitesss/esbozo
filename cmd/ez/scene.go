@@ -1,10 +1,10 @@
 // `render` and `check`: what the command line takes, and the files the run
 // reads and writes.
 //
-// ADR 0003 draws the boundary: Go owns the flags, the paths and the exit codes,
-// the core owns what a Scene, a font or a stylesheet means. So this file hands
-// the core a Scene's bytes and the paths `--font` and `--css` name, and takes
-// back SVG text, the lines `ez` refuses with, and the code it exits with.
+// The boundary is the ticket's: Go owns the flags, the paths and the exit
+// codes, the core owns what a Scene, a font or a stylesheet means. So this file
+// hands the core a Scene's bytes and the paths `--font` and `--css` name, and
+// takes back SVG text, the lines `ez` refuses with, and the code it exits with.
 package main
 
 import (

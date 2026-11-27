@@ -1,9 +1,9 @@
 // Package core runs the bundled TypeScript core in goja, so that a Scene is
 // parsed, measured and drawn by the same code the CLI and the editor run.
 //
-// The boundary is the one ADR 0003 draws: Go passes a Scene's bytes and the
-// paths `--font` and `--css` name, and reads back either SVG text or the lines
-// `ez` prints. No Scene rule lives on this side.
+// The boundary is deliberate: Go passes a Scene's bytes and the paths `--font`
+// and `--css` name, and reads back either SVG text or the lines `ez` prints. No
+// Scene rule lives on this side.
 package core
 
 import (

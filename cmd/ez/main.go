@@ -19,7 +19,7 @@
 //	0  the Scene is clean or was rendered
 //	2  wrong arguments (unknown command, missing or extra arguments, bad flag)
 //	3  the Scene could not be read or parsed
-//	4  the output could not be written
+//	4  the output could not be written, or the core could not run
 //	5  missing theme values, or a missing or unreadable font
 //	6  a Label that does not fit its Element (see `ez check`)
 //

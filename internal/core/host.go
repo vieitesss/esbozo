@@ -13,8 +13,8 @@ import (
 
 // newRuntime is one fresh goja runtime with the core bundle evaluated in it.
 //
-// ADR 0003 has every `ez` call start a fresh runtime, so nothing carries over
-// from one command to the next; `ez serve` will keep one behind a lock.
+// Every `ez` call starts a fresh runtime, so nothing carries over from one
+// command to the next; `ez serve` will keep one behind a lock.
 func newRuntime() (*goja.Runtime, error) {
 	vm := goja.New()
 	if err := installHost(vm); err != nil {
