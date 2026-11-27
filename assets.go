@@ -1,9 +1,10 @@
 // Package esbozo holds what the `ez` binary carries: the core bundle that runs
-// in goja, the Kalam it measures and draws with, and what measuring Kalam once in
-// the build wrote down.
+// in goja, the Kalam it measures and draws with, what measuring Kalam once in
+// the build wrote down, and resvg's WebAssembly build that draws the PNG.
 //
 // All of it is built, not checked in, so a bare `go install` is not supported:
-// `pnpm build` writes the bundle and the metrics, and the font is in `fonts/`.
+// `pnpm build` writes the bundle, the metrics and resvg's module, and the font is
+// in `fonts/`.
 package esbozo
 
 import _ "embed"
@@ -27,3 +28,10 @@ var Kalam []byte
 //
 //go:embed dist/font-metrics.json
 var FontMetrics []byte
+
+// ResvgModule is resvg's WebAssembly build, the very bytes `@resvg/resvg-wasm`
+// runs in Node: `internal/resvg` runs them in wazero, so the PNG `ez png` writes
+// comes from the rasteriser the CLI draws it with.
+//
+//go:embed dist/resvg.wasm
+var ResvgModule []byte

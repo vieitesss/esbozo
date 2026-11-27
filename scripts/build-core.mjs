@@ -6,9 +6,10 @@
  * point, the module format (an IIFE that leaves its surface on `__ezCore`,
  * because goja has no modules), and the two Node builtins `src/font.ts` imports,
  * which `scripts/core-host/` answers from the host. It also measures the bundled
- * font once here, instead of in every cold start.
+ * font once here, instead of in every cold start, and copies resvg's WebAssembly
+ * module beside the bundle for `internal/resvg` to run in wazero.
  */
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
@@ -25,6 +26,13 @@ const BUNDLED_FONT = resolve('fonts/Kalam-Regular.ttf');
 
 /** The host shim that answers the core's `opentype.js` import. */
 const OPENTYPE_SHIM = resolve(hostDir, 'opentype.mjs');
+
+/**
+ * resvg's WebAssembly build, which `internal/resvg` runs in wazero to make a
+ * PNG. Copied rather than embedded from `node_modules`, because pnpm makes that
+ * package a symbolic link and `go:embed` does not follow one.
+ */
+const RESVG_WASM = resolve('node_modules/@resvg/resvg-wasm/index_bg.wasm');
 
 /**
  * The one global goja does not implement, which a roughjs dependency reads. It
@@ -82,6 +90,7 @@ const hostShims = {
  */
 const metrics = measurementsOf(opentype.parse, await readFile(BUNDLED_FONT));
 await mkdir('dist', { recursive: true });
+await copyFile(RESVG_WASM, 'dist/resvg.wasm');
 await writeFile(FONT_METRICS, JSON.stringify(metrics.table ?? null));
 if (metrics.table === undefined) {
   process.stderr.write(`font metrics  none: ${metrics.refused}\n`);
