@@ -24,11 +24,15 @@ export const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
  * otherwise. A `.js` path runs under this Node; anything else is executed itself,
  * because a binary is not a script. A relative `EZ_BIN` is read from the folder
  * the run was asked for.
+ *
+ * `cli` is the built CLI a caller names when it wants a copy of `dist/` that has
+ * nothing else from the repository beside it; `EZ_BIN` still wins, because a run
+ * pointed at another `ez` is a run of that one.
  */
-function ezCommand(args: readonly string[]): { file: string; argv: string[] } {
+function ezCommand(args: readonly string[], cli: string = CLI): { file: string; argv: string[] } {
   const bin = process.env.EZ_BIN;
   if (bin === undefined || bin === '') {
-    return { file: process.execPath, argv: [CLI, ...args] };
+    return { file: process.execPath, argv: [cli, ...args] };
   }
   const file = resolve(bin);
   return file.endsWith('.js')
@@ -107,14 +111,16 @@ function readStartup(
  * the folder is the working directory, as it would be for a person.
  *
  * `cli` is the built CLI to run, so a test can drive a copy of `dist/` that has
- * nothing else from the repository beside it.
+ * nothing else from the repository beside it; `EZ_BIN` replaces it the way it
+ * replaces `ez`'s.
  */
 export async function startServe(
   folder: string,
   args: readonly string[] = [],
   cli: string = CLI,
 ): Promise<Serve> {
-  const child = spawn(process.execPath, [cli, 'serve', folder, '--port', '0', ...args], {
+  const command = ezCommand(['serve', folder, '--port', '0', ...args], cli);
+  const child = spawn(command.file, command.argv, {
     cwd: folder,
     stdio: ['ignore', 'pipe', 'pipe'],
   });

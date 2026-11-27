@@ -38,6 +38,13 @@ const SCENE = {
 const SCENE_SOURCE = JSON.stringify(SCENE, null, 2);
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg"><title>Two boxes</title></svg>';
 
+/**
+ * The cases that build a CLI of their own, in a copy of the sources with a git
+ * history of its own: they hold the TypeScript build's stamp, which `EZ_BIN` — a
+ * binary some other build already stamped — cannot answer.
+ */
+const SKIP_BUILD = 'this case builds its own CLI: set EZ_BIN only against the binary the build wrote';
+
 /** A server to stop at the end of the file, whatever the test asserted. */
 const running: Serve[] = [];
 after(async () => {
@@ -933,31 +940,35 @@ test('a folder named like a build does not decide which build is served', async 
  * sources are built in a copy with a git history of their own, so the answer
  * cannot come from this checkout's HEAD.
  */
-test('a build stamps the commit it was built from, and the server serves that build', async () => {
-  const source = await committedSources();
-  const commit = (await run('git', ['rev-parse', '--short', 'HEAD'], { cwd: source })).stdout.trim();
-  const built = Date.now();
-  await run('node', ['scripts/build.mjs'], { cwd: source });
+test(
+  'a build stamps the commit it was built from, and the server serves that build',
+  { skip: process.env.EZ_BIN === undefined ? undefined : SKIP_BUILD },
+  async () => {
+    const source = await committedSources();
+    const commit = (await run('git', ['rev-parse', '--short', 'HEAD'], { cwd: source })).stdout.trim();
+    const built = Date.now();
+    await run('node', ['scripts/build.mjs'], { cwd: source });
 
-  const server = await startServe(await sceneFolder(SCENE), [], join(source, 'dist', 'cli.js'));
-  running.push(server);
+    const server = await startServe(await sceneFolder(SCENE), [], join(source, 'dist', 'cli.js'));
+    running.push(server);
 
-  assert.equal(server.build, commit, 'the stamped id is the commit the build was made from');
-  assert.match(
-    server.builtAt ?? '',
-    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/,
-    'the stamp is ISO-8601 UTC to the second',
-  );
-  assert.ok(
-    Math.abs(Date.parse(server.builtAt ?? '') - built) < 5 * 60_000,
-    `the stamp ${server.builtAt} is not when this build ran`,
-  );
-  assert.equal(
-    (await request(server, '/api/health')).body,
-    JSON.stringify({ build: commit, builtAt: server.builtAt }),
-    'the health route answers the build the CLI was stamped with',
-  );
-});
+    assert.equal(server.build, commit, 'the stamped id is the commit the build was made from');
+    assert.match(
+      server.builtAt ?? '',
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/,
+      'the stamp is ISO-8601 UTC to the second',
+    );
+    assert.ok(
+      Math.abs(Date.parse(server.builtAt ?? '') - built) < 5 * 60_000,
+      `the stamp ${server.builtAt} is not when this build ran`,
+    );
+    assert.equal(
+      (await request(server, '/api/health')).body,
+      JSON.stringify({ build: commit, builtAt: server.builtAt }),
+      'the health route answers the build the CLI was stamped with',
+    );
+  },
+);
 
 /**
  * The sources committed to a git repo of their own, with this repository's
