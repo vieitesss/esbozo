@@ -15,6 +15,7 @@
     "!dist/core.js",
     "!dist/font-metrics.json",
     "!dist/resvg.wasm",
+    "!dist/version",
     "fonts",
     "skills"
   ],

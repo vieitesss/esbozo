@@ -15,12 +15,15 @@
 //	ez anchor <scene> --all
 //	ez snap <scene> <element> <start|end> <target|off>
 //	ez serve* / bundle* / skill*
+//	ez --version
 package main
 
 import (
 	"fmt"
 	"io"
 	"os"
+
+	"esbozo"
 )
 
 // The codes the commands decide for themselves, as `EXIT` in `src/cli.ts`
@@ -59,6 +62,9 @@ func run(argv []string, stdout, stderr io.Writer) int {
 		return runSnap(rest, stdout, stderr)
 	case "--help":
 		fmt.Fprint(stdout, topLevelHelp(shouldBold(stdout)))
+		return exitOK
+	case "--version":
+		fmt.Fprintln(stdout, esbozo.Stamp)
 		return exitOK
 	case "serve", "bundle", "skill":
 		fmt.Fprintf(stderr, "ez %s is not yet ported to Go\n", command)

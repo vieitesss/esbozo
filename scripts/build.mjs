@@ -133,6 +133,23 @@ await compressPageFiles();
 execFileSync(process.execPath, ['scripts/build-core.mjs'], { stdio: 'inherit' });
 
 /**
+ * The stamp `ez --version` prints, embedded by `assets.go`: `package.json`'s
+ * version for a Release, and `<version>-main+<short sha of HEAD>` for every
+ * build this build made itself, so a binary built anywhere but release CI says
+ * it is a Main build. Release CI sets `ESBOZO_RELEASE=1`.
+ */
+await writeFile('dist/version', `${await versionStamp()}\n`);
+
+async function versionStamp() {
+  const { version } = JSON.parse(await readFile('package.json', 'utf8'));
+  if (process.env.ESBOZO_RELEASE === '1') {
+    return version;
+  }
+  const commit = gitAnswer(['rev-parse', '--short', 'HEAD'])?.trim();
+  return `${version}-main+${commit === undefined || commit === '' ? 'unknown' : commit}`;
+}
+
+/**
  * The one static binary: the bundle above, Kalam, and what measuring it yielded,
  * linked by goja into `ez` with the Go toolchain `go.mod` names.
  *

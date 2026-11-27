@@ -1,13 +1,17 @@
 // Package esbozo holds what the `ez` binary carries: the core bundle that runs
 // in goja, the Kalam it measures and draws with, what measuring Kalam once in
-// the build wrote down, and resvg's WebAssembly build that draws the PNG.
+// the build wrote down, resvg's WebAssembly build that draws the PNG, and the
+// version stamp it answers `--version` with.
 //
 // All of it is built, not checked in, so a bare `go install` is not supported:
-// `pnpm build` writes the bundle, the metrics and resvg's module, and the font is
-// in `fonts/`.
+// `pnpm build` writes the bundle, the metrics, resvg's module and the stamp, and
+// the font is in `fonts/`.
 package esbozo
 
-import _ "embed"
+import (
+	_ "embed"
+	"strings"
+)
 
 // CoreBundle is the Scene, Layout and Renderer as one script with no Node API.
 //
@@ -34,3 +38,20 @@ var FontMetrics []byte
 //
 //go:embed dist/resvg.wasm
 var ResvgModule []byte
+
+// mainSuffix is what the build puts after the version of a build that is not a
+// Release, as #93 story 24 has `ez --version` print it.
+const mainSuffix = "-main+"
+
+// versionStamp is the stamp the build wrote before it built this binary; nothing
+// is read beside the binary once it runs.
+//
+//go:embed dist/version
+var versionStamp string
+
+// Stamp is what `ez --version` prints, with the newline the build wrote gone.
+var Stamp = strings.TrimSpace(versionStamp)
+
+// Version is the version a Release is — Stamp without the Main suffix, which is
+// there for every other build; `ez bundle` names its file after this.
+var Version, _, _ = strings.Cut(Stamp, mainSuffix)
