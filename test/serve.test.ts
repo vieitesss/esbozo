@@ -897,7 +897,7 @@ test('an invalid Scene is refused with the problems as the parser words them', a
 
   assert.equal(answer.status, 400);
   // The message alone, with no `box1: ` in front of it: what the server answers
-  // is the parser's word for the problem, the way `src/serve.ts` joins them.
+  // is the parser's word for the problem, the way `ez serve` joins them.
   assert.deepEqual(JSON.parse(answer.body), {
     error: 'the Scene is invalid: type must be one of rectangle, ellipse, diamond, arrow, line, text, got "box"',
   });
@@ -1195,7 +1195,7 @@ test('a build outside a git checkout is unknown, not a failed build', () => {
   const answers = (commit: string, status: string | null) => (args: readonly string[]) =>
     args[0] === 'rev-parse' ? commit : status;
   assert.equal(buildId(answers('abc1234\n', '')), 'abc1234');
-  assert.equal(buildId(answers('abc1234\n', ' M src/serve.ts\n')), 'abc1234-dirty');
+  assert.equal(buildId(answers('abc1234\n', ' M src/paths.ts\n')), 'abc1234-dirty');
   assert.equal(buildId(answers('abc1234\n', null)), 'unknown');
 });
 

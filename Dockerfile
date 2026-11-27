@@ -2,9 +2,9 @@
 
 # The image: `ez serve` on a mounted folder of Scenes.
 #
-# Two stages, because the runtime needs `node` and `dist/` and nothing else.
-# esbuild inlines every dependency of the CLI into `dist/cli.js` — roughjs,
-# opentype and resvg's wasm — so the second stage carries no `node_modules`.
+# Two stages, because the runtime needs the binary and nothing else. `ez` is one
+# static file: the core, the page, the font and resvg's wasm are embedded in it
+# by `assets.go`, so the second stage carries no `node_modules` and no `dist/`.
 # `test/bundle.test.ts` holds that split honest: it renders, draws a PNG and
 # serves the page from a folder that holds `dist/` alone.
 #
@@ -57,12 +57,9 @@ ENV NODE_ENV=production
 # update prints the `docker pull` line instead of writing into this container.
 ENV ESBOZO_DOCKER=1
 WORKDIR /app
-# Only the files `serve` opens: the CLI, the page's own files beside the
-# compressed variants the server sends, and the font. `dist/` also holds `ez`,
-# resvg's wasm, the editor bundle `ez bundle` copies out and the font's
-# measurements — 19.7 MB that no request the image answers reads.
-COPY --from=build /app/dist/cli.js /app/dist/editor.* ./dist/
-COPY --from=build /app/dist/fonts ./dist/fonts
+# Only the binary `pnpm build` wrote: the core, the page and its compressed
+# variants, the font and resvg's wasm are all embedded in it.
+COPY --from=build /app/dist/ez ./ez
 COPY LICENSE ./
 
 # The folder the Scenes live in, owned by the user the server runs as, so a
@@ -79,4 +76,4 @@ EXPOSE 4320
 # loopback inside the container, so the image passes the container's own
 # address. What follows the image name appends here, so `docker run … --read-only`
 # keeps this host; a later `--host` wins, because `ez serve` reads the last one.
-ENTRYPOINT ["node", "/app/dist/cli.js", "serve", "/scenes", "--host", "0.0.0.0"]
+ENTRYPOINT ["/app/ez", "serve", "/scenes", "--host", "0.0.0.0"]

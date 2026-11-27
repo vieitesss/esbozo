@@ -1,6 +1,6 @@
 // Command ez is the Go binary that runs the TypeScript core.
 //
-// The surface is `src/cli.ts`'s, and this file decides what each command is
+// This file decides what each command is
 // given and what it exits with; what a Scene, a font or a stylesheet means is
 // the core's, which `render`, `check`, `png`, `anchor` and `snap` hand bytes and
 // get text or an image back from.
@@ -29,10 +29,10 @@ import (
 	"esbozo"
 )
 
-// The codes the commands decide for themselves, as `EXIT` in `src/cli.ts`
-// defines them; 5 and 6 are the core's, which it refuses a Scene with. 1 is no
-// `src/cli.ts` code: an update `ez update` could not make exits with the install
-// script's own `fail`, because the script owns the write the binary refuses here.
+// The codes the commands decide for themselves; 5 and 6 are the core's, which it
+// refuses a Scene with. 1 belongs to no command: an update `ez update` could not
+// make exits with the install script's own `fail`, because the script owns the
+// write the binary refuses here.
 const (
 	exitOK            = 0
 	exitInstallFailed = 1

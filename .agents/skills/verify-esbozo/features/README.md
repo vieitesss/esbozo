@@ -6,7 +6,7 @@ This directory is the maintained source for verifying user-facing behavior in es
 
 - Run `pnpm build` in the target checkout before launching `pnpm probe` or `ez serve`.
 - Create a disposable folder with the `esbozo-` prefix (`mktemp -d "${TMPDIR:-/tmp}/esbozo-verify-XXXXXX"`) for any real-folder `ez serve` run.
-- Start `node dist/cli.js serve "$RUN_DIR" --port 0` and export the slashless loopback origin (`http://127.0.0.1:<port>`) from its startup line.
+- Start `dist/ez serve "$RUN_DIR" --port 0` and export the slashless loopback origin (`http://127.0.0.1:<port>`) from its startup line.
 - Run the Doctor check (`GET /api/health` and `GET /api/scenes`, or `GET /api/scenes` alone on older commits without `/api/health`) and require the expected build commit and disposable folder name.
 - Never drive an `ez serve` instance started by another run or worktree.
 
@@ -22,7 +22,7 @@ This directory is the maintained source for verifying user-facing behavior in es
 
 - Capture both the action and the resulting state, not only the final screen.
 - Visual proof includes a 1x screenshot and a cropped 800% zoom screenshot (four `page.mouse.wheel(0, -400)` calls) of the touched area.
-- Persistence proof reads the saved `.esbozo` or `.json` file from `$RUN_DIR` and checks `node dist/cli.js check <file>` exits `0`.
+- Persistence proof reads the saved `.esbozo` or `.json` file from `$RUN_DIR` and checks `dist/ez check <file>` exits `0`.
 - Record the feature ID, entry point, and commit hash with every artifact.
 - Report any unreachable path with the attempted command and unmet precondition. Do not mark a skipped entry point as verified through another path.
 

@@ -164,7 +164,7 @@ test('a comment between import and its specifier does not hide the builtin', asy
 
 test('a module the browser never loads may import Node, and no finding is printed', async () => {
   await quiet({
-    'src/serve.ts': ["import { randomUUID } from 'node:crypto';", 'export const id = randomUUID();'].join('\n'),
+    'src/png.ts': ["import { randomUUID } from 'node:crypto';", 'export const id = randomUUID();'].join('\n'),
   });
 });
 
@@ -290,7 +290,7 @@ test('the runtime keeps its own name: Node 22, Node-compatible and Node.js are n
       "test('the CLI starts under Node 22', () => {});",
       "test('and runs on Node.js', () => {});",
     ].join('\n'),
-    'src/serve.ts': "export const note = 'Node-compatible, so it runs anywhere';\n",
+    'src/png.ts': "export const note = 'Node-compatible, so it runs anywhere';\n",
   });
 });
 
@@ -896,14 +896,14 @@ test('the outline maths under a namespace is the same finding, because no name i
   );
 });
 
-test('the query, the helpers the Editor shares over a box, and the CLI are quiet', async () => {
+test('the query, the helpers the Editor shares over a box, and the Scene edits are quiet', async () => {
   await quiet({
     'src/editor/page.ts': [
       "import { drawnGeometry } from '../renderer.js';",
       "import { anchorOf, insideOutline, labelAtFor } from '../geometry.js';",
       "import type { ShaftPath } from '../geometry.js';",
     ].join('\n'),
-    'src/cli.ts': [
+    'src/ends.ts': [
       "import { pointOnOutline, shaftPath } from './geometry.js';",
       "import { drawnGeometry } from './renderer.js';",
     ].join('\n'),

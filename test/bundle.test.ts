@@ -1,10 +1,10 @@
 /**
- * CLI seam, the bundle: the built CLI needs nothing but Node and `dist/`.
+ * CLI seam, the bundle: the built binary needs nothing but `dist/`.
  *
  * The Docker image copies `dist/` alone — no `node_modules` — so this proves
- * that is enough: `render` (esbuild inlines its imports), `png` (resvg's wasm
- * travels inside the bundle), and `serve`, whose page files have to be found
- * beside the CLI. Every run happens in a folder that holds `dist/` and nothing
+ * that is enough: `render` (the core carries its own modules), `png` (resvg's
+ * wasm travels inside the binary), and `serve`, whose page files are embedded
+ * beside the core. Every run happens in a folder that holds `dist/` and nothing
  * else from the repository.
  */
 import assert from 'node:assert/strict';
@@ -45,16 +45,16 @@ after(async () => {
   await removeTempFolders();
 });
 
-test('the bundled CLI renders and draws a PNG with no node_modules beside it', async () => {
+test('the bundled binary renders and draws a PNG with no node_modules beside it', async () => {
   const folder = await bundleFolder();
-  const cli = join(folder, 'dist', 'cli.js');
+  const cli = join(folder, 'dist', 'ez');
 
-  const rendered = await run(process.execPath, [cli, 'render', 'scene.json'], { cwd: folder });
+  const rendered = await run(cli, ['render', 'scene.json'], { cwd: folder });
   assert.match(rendered.stdout, /scene\.svg\n$/, 'render prints the path it wrote');
   // check-rules: markup of a written SVG file, not the page
   assert.match(await readFile(join(folder, 'scene.svg'), 'utf8'), /^<svg[\s>]/);
 
-  const drawn = await run(process.execPath, [cli, 'png', 'scene.json', '--theme', 'dark'], {
+  const drawn = await run(cli, ['png', 'scene.json', '--theme', 'dark'], {
     cwd: folder,
   });
   assert.match(drawn.stdout, /scene\.dark\.png\n$/, 'png prints the path it wrote');
@@ -63,9 +63,9 @@ test('the bundled CLI renders and draws a PNG with no node_modules beside it', a
   assert.ok(png.length > 1000, 'the PNG holds an image, not just a header');
 });
 
-test('the bundled CLI serves the page and the folder with no node_modules beside it', async () => {
+test('the bundled binary serves the page and the folder with no node_modules beside it', async () => {
   const folder = await bundleFolder();
-  const server = await startServe(folder, [], join(folder, 'dist', 'cli.js'));
+  const server = await startServe(folder, [], join(folder, 'dist', 'ez'));
   running.push(server);
 
   const listing = await fetch(`${server.url}/api/scenes`);

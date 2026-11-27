@@ -12,14 +12,18 @@ Needs Node 22.22.3 or newer, pnpm, Go (the version `go.mod` names) and `just`; i
 
 ```sh
 just setup && just build
-node dist/cli.js check scene.esbozo
+./dist/ez check scene.esbozo
 ```
 
 Run `just` to see every recipe and what it does.
 
-Everywhere below, `ez` stands for `node dist/cli.js` (or for the `ez` bin, if you link the package into your path).
+Everywhere below, `ez` stands for `./dist/ez` in that clone, or for the `ez` the one-liner installs:
 
-The package itself is not on the registry yet. `npm pack` builds the tarball — `prepack` runs `pnpm build` — and installing that tarball gives the `ez` and `esbozo` commands, so `npx esbozo --help` works from it. It carries the bundled CLI, the editor page and its assets, the one-file editor bundle `ez bundle` writes, and Kalam with its OFL licence.
+```sh
+curl -fsSL https://esbozo.vieitesss.eu/install | sh
+```
+
+`ez` is one static binary: the Scene, the Layout, the Renderer, the editor page and Kalam are inside it, so the install is one file.
 
 ## Commands
 

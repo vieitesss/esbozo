@@ -9,9 +9,9 @@
  * SVG comparison cannot see a rasteriser at all, and a PNG that came out the same
  * in both themes would mean the theme never arrived.
  *
- * Both sides are the core, so this survives deleting the TypeScript CLI: there is
- * no `dist/cli.js` here. The Go half is `TestCoreAnswers` in `internal/core`,
- * which writes what the core answers; this script runs it and compares.
+ * Both sides are the core, so there is no CLI here at all. The Go half is
+ * `TestCoreAnswers` in `internal/core`, which writes what the core answers; this
+ * script runs it and compares.
  *
  * The two rasterisers behind them are the real ones: Node calls
  * `@resvg/resvg-wasm` here, and Go runs the same `index_bg.wasm` in wazero.

@@ -22,8 +22,8 @@ import (
 	"esbozo/internal/core"
 )
 
-// defaultPort is `DEFAULT_PORT` in `src/cli.ts`: the port a person finds `ez
-// serve` on when nothing asked for another one.
+// defaultPort is the port a person finds `ez serve` on when nothing asked for
+// another one.
 const defaultPort = 4320
 
 const healthAPI = "/api/health"
@@ -38,10 +38,9 @@ type serveArguments struct {
 }
 
 // parseServeArguments reads `<dir> [--host <host>] [--port <N>] [--read-only]`
-// in any order, as `parseServeArguments` in `src/cli.ts` does: a flag with no
-// value, a port that is not a number of 0 to 65535, an unknown flag and a
-// second folder are all wrong arguments. A flag given twice is read twice, so
-// the last `--host` wins.
+// in any order: a flag with no value, a port that is not a number of 0 to 65535,
+// an unknown flag and a second folder are all wrong arguments. A flag given
+// twice is read twice, so the last `--host` wins.
 func parseServeArguments(argv []string) (serveArguments, bool) {
 	parsed := serveArguments{host: "127.0.0.1", port: defaultPort}
 	for index := 0; index < len(argv); index++ {
@@ -138,8 +137,8 @@ func runServe(argv []string, stdout, stderr io.Writer) int {
 	}
 	server := &http.Server{Handler: handler(root, parsed.readOnly, session)}
 
-	// SIGINT and SIGTERM stop the server, as `src/cli.ts` listens for them; a
-	// signal is the way a person ends a server they started, not a failure.
+	// SIGINT and SIGTERM stop the server; a signal is the way a person ends a
+	// server they started, not a failure.
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(signals)
@@ -188,8 +187,8 @@ func modeOf(readOnly bool) string {
 	return ""
 }
 
-// buildLine is the build the server is, as `src/cli.ts` prints it: the commit
-// the binary was built from, and when the build ran, so a server someone finds
+// buildLine is the build the server is: the commit the binary was built from,
+// and when the build ran, so a server someone finds
 // running can say whether it is the one they started.
 func buildLine() string {
 	if esbozo.BuiltAt == "" {
@@ -238,7 +237,7 @@ func answer(response http.ResponseWriter, request *http.Request, folder string, 
 	servePageFile(response, request, pathname)
 }
 
-// rawPathProblem is `rawPathProblem` in `src/serve.ts`: a dot segment in the
+// rawPathProblem: a dot segment in the
 // request path, decoded but before it is normalised, or a percent-encoding the
 // path cannot be read from. `..`, `%2e%2e`, `.` and a backslash for a separator
 // are all refused, so no path is read one way here and another way by the URL

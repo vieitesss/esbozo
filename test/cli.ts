@@ -15,16 +15,14 @@ import { tempFolder } from './temp.ts';
 
 const run = promisify(execFile);
 
-/** The `ez` every suite exercises unless `EZ_BIN` names another: the Go binary `pnpm build` writes. */
+/** The `ez` every suite exercises unless `EZ_BIN` names another: the binary `pnpm build` writes. */
 export const CLI = fileURLToPath(new URL('../dist/ez', import.meta.url));
 
 /**
  * The `ez` one run starts: `EZ_BIN` when it names one, so a suite can be pointed
- * at another build of the same command line (the TypeScript CLI, still under
- * `dist/`, until the Go binary alone is shipped), and the Go binary otherwise. A
- * `.js` path runs under this Node; anything else is executed itself, because a
- * binary is not a script. A relative `EZ_BIN` is read from the folder this
- * process runs in, not from the folder the run was asked for.
+ * at another build of the same command line, and the built binary otherwise. A
+ * relative `EZ_BIN` is read from the folder this process runs in, not from the
+ * folder the run was asked for.
  *
  * `cli` is the `ez` a caller names when it wants a copy of `dist/` that has
  * nothing else from the repository beside it; `EZ_BIN` still wins, because a run
@@ -33,9 +31,7 @@ export const CLI = fileURLToPath(new URL('../dist/ez', import.meta.url));
 function ezCommand(args: readonly string[], cli: string = CLI): { file: string; argv: string[] } {
   const bin = process.env.EZ_BIN;
   const file = bin === undefined || bin === '' ? cli : resolve(bin);
-  return file.endsWith('.js')
-    ? { file: process.execPath, argv: [file, ...args] }
-    : { file, argv: [...args] };
+  return { file, argv: [...args] };
 }
 
 /** One word quoted so a shell reads it back as it is. */

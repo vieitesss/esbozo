@@ -26,8 +26,7 @@ type pngArguments struct {
 
 // parsePNGArguments reads the flags in either order, and nothing else: a second
 // Scene, a flag with no value, and a flag `png` does not take are all wrong
-// arguments. A repeated flag takes its last value, as `parsePngArguments` in
-// `src/cli.ts` lets it.
+// arguments. A repeated flag takes its last value.
 func parsePNGArguments(argv []string) (pngArguments, bool) {
 	var parsed pngArguments
 	for index := 0; index < len(argv); index++ {

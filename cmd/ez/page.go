@@ -121,9 +121,9 @@ func servePageFile(response http.ResponseWriter, request *http.Request, pathname
 	})
 }
 
-// acceptedEncodings is what the request takes, as Node's `http` module reads it
-// for `src/serve.ts`: every line of the header, folded into the one list it is.
-// `Header.Get` would return the first line alone, so a client that repeats the
+// acceptedEncodings is what the request takes, as Node's `http` module reads the
+// header: every line of it, folded into the one list it is. `Header.Get` would
+// return the first line alone, so a client that repeats the
 // header would be ranked by half of what it said.
 func acceptedEncodings(request *http.Request) string {
 	return strings.Join(request.Header.Values("accept-encoding"), ", ")
@@ -170,7 +170,7 @@ func sendPageFile(response http.ResponseWriter, asset pageAsset, offered coding)
 	_, _ = response.Write(bytes)
 }
 
-// takenBy is `takenBy` in `src/serve.ts`: what a request takes of what a page
+// takenBy: what a request takes of what a page
 // file can be sent in, best first.
 //
 // Every encoding is ranked by its weight, `identity` — the file as it is —

@@ -37,7 +37,7 @@ EOF
 
 - `ez serve "$RUN_DIR" --port 0` is running with a slashless `SERVE_URL` and Doctor passed.
 
-- **Edit a box Label.** Double-click `box`, locate `page.getByRole('textbox', { name: 'Label' })`, type `Orders`, and press `Escape`. The saved `$RUN_DIR/labels.esbozo` records `"label": "Orders"` on `box` and `node dist/cli.js check "$RUN_DIR/labels.esbozo"` exits `0`.
+- **Edit a box Label.** Double-click `box`, locate `page.getByRole('textbox', { name: 'Label' })`, type `Orders`, and press `Escape`. The saved `$RUN_DIR/labels.esbozo` records `"label": "Orders"` on `box` and `dist/ez check "$RUN_DIR/labels.esbozo"` exits `0`.
 - **Edit an arrow Label.** Double-click the midpoint of `link`'s shaft, type `sends` into the `Label` textbox, and press `Escape`. The saved `$RUN_DIR/labels.esbozo` records `"label": "sends"` without changing the arrow's `points`.
 - **Inspect arrow Label ink at 1x and 800% zoom.** Capture `.e2e/results/verify/<run>/label-1x.png`. Zoom in on the arrow Label with four `page.mouse.wheel(0, -400)` calls (800% zoom) and capture a cropped `.e2e/results/verify/<run>/label-800pct.png`. The words clear the shaft and arrowhead, and the canvas or Grid behind the words shows no opaque background rectangle.
 - **Drive real IME composition.** Reopen the `Label` textbox, open `const session = await cdp()`, send `await session.send('Input.imeSetComposition', { text: '日本語', selectionStart: 3, selectionEnd: 3 })`, confirm the preedit appears without premature commit, then send `await session.send('Input.insertText', { text: '日本語' })` and press `Escape`. The saved Scene holds `"日本語"` once, not twice.

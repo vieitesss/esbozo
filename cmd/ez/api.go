@@ -1,5 +1,5 @@
 // The Scene API's two reading routes: the list of Scenes one folder offers, and
-// one Scene's own bytes, as `src/serve.ts` answers them and `docs/save-api.md`
+// one Scene's own bytes, as `docs/save-api.md`
 // states them. The write the same route takes is `write.go`'s.
 package main
 
@@ -20,7 +20,7 @@ import (
 	"esbozo/internal/core"
 )
 
-// scenesAPI is `SCENES_API` in `src/serve.ts`: where the Scene routes start.
+// scenesAPI: where the Scene routes start.
 const scenesAPI = "/api/scenes"
 
 // maxListedSceneBytes is `MAX_LISTED_SCENE_BYTES` in `src/paths.ts`: a `.json`
@@ -115,7 +115,7 @@ func serveListing(response http.ResponseWriter, request *http.Request, folder st
 	})
 }
 
-// listScenes is `listScenes` in `src/serve.ts`: the regular files at the top
+// listScenes: the regular files at the top
 // level that pass the name rules and are Scenes, sorted. The folder is listed,
 // never walked, so a Scene in a subfolder is out of reach.
 func listScenes(folder string, session *core.Session, cache *listingCache) ([]string, error) {
@@ -145,7 +145,7 @@ func listScenes(folder string, session *core.Session, cache *listingCache) ([]st
 	// What the folder holds is what the cache may hold: a name that is gone, or is
 	// no longer a regular file, is forgotten with the answer made from it.
 	cache.keep(present)
-	// `localeCompare`, as `src/serve.ts` sorts: a name's case decides nothing
+	// `localeCompare`, as the listing sorts: a name's case decides nothing
 	// until two names are the same letters, and then it decides in the lowercase
 	// name's favour. Two names that fold to one string first disagree at a letter's
 	// case, so comparing them as they are and reading the answer backwards is that
@@ -173,7 +173,7 @@ func listedAsScene(folder, name string, session *core.Session, cache *listingCac
 	return parsesAsScene(filepath.Join(folder, name), session, cache)
 }
 
-// parsesAsScene is `parsesAsScene` in `src/serve.ts`: a file over
+// parsesAsScene: a file over
 // maxListedSceneBytes is not read at all, and one that is gone, unreadable or a
 // folder is left out of the listing rather than failing it. An answer the cache
 // already made about this very file stands in place of reading it, and the read
@@ -210,7 +210,7 @@ func parsesAsScene(path string, session *core.Session, cache *listingCache) (boo
 	return parsed.OK, nil
 }
 
-// cannotList is `cannotList` in `src/serve.ts`: a file the listing cannot read is
+// cannotList: a file the listing cannot read is
 // not a Scene it can offer.
 func cannotList(err error) bool {
 	return errors.Is(err, fs.ErrNotExist) ||
@@ -264,7 +264,7 @@ func serveScene(response http.ResponseWriter, request *http.Request, folder, enc
 	_, _ = response.Write(source)
 }
 
-// nameProblem is `nameProblem` in `src/serve.ts`: what a Scene name has to be,
+// nameProblem: what a Scene name has to be,
 // as one path segment at the top level of the folder, ending in a Scene's
 // extension. It is "" for a name the API answers on.
 func nameProblem(name string) string {
@@ -293,7 +293,7 @@ func sceneExtension(name string) string {
 	return ""
 }
 
-// staysInside is `staysInside` in `src/serve.ts`: the name rules already make a
+// staysInside: the name rules already make a
 // Scene one segment at the top level, so what is left is the link a person may
 // have left there — a Scene that resolves outside the folder is refused, and one
 // whose file is not there yet stays inside, because that is a Scene not found.
@@ -305,7 +305,7 @@ func staysInside(folder, path string) bool {
 	return strings.HasPrefix(resolved, folder+string(filepath.Separator))
 }
 
-// readScene is `readScene` in `src/serve.ts`: a Scene's bytes exactly as they
+// readScene: a Scene's bytes exactly as they
 // are on disk, and false for a name that is not a file — there is no such file,
 // or the name belongs to a folder.
 func readScene(path string) ([]byte, bool, error) {

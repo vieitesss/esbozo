@@ -785,8 +785,8 @@ function namesRuntime(text, word, prose) {
   if (prose && text.slice(word.at, word.end) === 'Node') return true;
   const rest = text.slice(word.end);
   if (/^\s*(?:\d|-compatible|\.js|runtime|:)/i.test(rest)) return true;
-  // `node dist/cli.js`: the command that runs the module.
-  return /^\s+\S+\.js\b/.test(rest);
+  // `node scripts/build.mjs`: the runtime in front of a module's file.
+  return /^\s+\S+\.m?js\b/.test(rest);
 }
 
 /** Whether a word is the term, or the plain inflection of it: `shapes`, `shaped`. */

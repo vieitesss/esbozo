@@ -31,7 +31,7 @@
  * Everything here is pure: text in, values out, no I/O and no state.
  */
 
-export const THEMES = ['light', 'dark'] as const;
+const THEMES = ['light', 'dark'] as const;
 export type Theme = (typeof THEMES)[number];
 
 export type Variables = Readonly<Record<string, string>>;

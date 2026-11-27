@@ -7,8 +7,8 @@ import (
 )
 
 // TestHelpIsPlainOnACharacterDeviceThatIsNoTerminal: `/dev/null` is a character
-// device, which is as far as a file's mode gets, and it is no terminal —
-// `node dist/cli.js --help > /dev/null` is plain text, so `ez --help` too.
+// device, which is as far as a file's mode gets, and it is no terminal — the
+// help `ez --help > /dev/null` writes is plain text.
 func TestHelpIsPlainOnACharacterDeviceThatIsNoTerminal(t *testing.T) {
 	unsetenv(t, "NO_COLOR")
 	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)

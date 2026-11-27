@@ -37,7 +37,8 @@ var cssSubsetLines = []string{
 	"  Palette colours must be opaque.",
 }
 
-// exitCodeRows is the exit table, as `src/cli.ts` defines it.
+// exitCodeRows is the exit table: every code a command exits with, and what it
+// means.
 var exitCodeRows = [][2]string{
 	{"0", "the Scene is clean, was rendered, the PNG or the bundle was written, or the server stopped"},
 	{"2", "wrong arguments (unknown command, missing or extra arguments, bad flag)"},

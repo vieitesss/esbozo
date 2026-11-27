@@ -3,30 +3,14 @@
   "version": "0.0.0",
   "description": "A small canvas for hand-drawn diagrams, drawn by people and written by agents.",
   "license": "MIT",
+  "private": true,
   "packageManager": "pnpm@11.24.0",
   "type": "module",
-  "bin": {
-    "esbozo": "dist/cli.js",
-    "ez": "dist/cli.js"
-  },
-  "files": [
-    "dist",
-    "!dist/ez",
-    "!dist/build-id",
-    "!dist/built-at",
-    "!dist/core.js",
-    "!dist/font-metrics.json",
-    "!dist/resvg.wasm",
-    "!dist/version",
-    "fonts",
-    "skills"
-  ],
   "engines": {
     "node": ">=22.22.3"
   },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "prepack": "node scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.browser.json && tsc -p tsconfig.test.json",
     "test": "pnpm build && node scripts/fresh-tmp.mjs node --test test/*.test.ts",
     "lint": "oxlint --deny-warnings",

@@ -42,7 +42,7 @@ func runBundle(argv []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-// bundlePath is `resolve(folder, 'esbozo-<version>.js')` in `src/cli.ts`: what is
+// bundlePath is `resolve(folder, 'esbozo-<version>.js')`: what is
 // printed is the path that was written, and a relative folder is read from the
 // folder the command runs in.
 func bundlePath(folder string) (string, error) {

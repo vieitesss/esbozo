@@ -1,53 +1,30 @@
 /**
- * Build what a person runs: the `ez` CLI, the editor page, and the bundle that
- * puts the editor on someone else's page.
+ * Build what a person runs: the `ez` binary, the editor page, and the bundle
+ * that puts the editor on someone else's page.
  *
- * All three share the Scene and the Renderer, and none needs a node builtin, so
- * the browser bundles are the same source as the CLI's. The page and the bundle
- * differ in two ways only: the page links its stylesheet and font beside itself,
- * while the bundle carries the CSS and takes the font URL from its element.
+ * The two browser bundles share the Scene and the Renderer with the Go binary's
+ * core, and none needs a node builtin, so they build from the same sources. The
+ * page and the bundle differ in two ways only: the page links its stylesheet and
+ * font beside itself, while the bundle carries the CSS and takes the font URL
+ * from its element.
  *
  * It ends with the core bundle the Go binary embeds (`scripts/build-core.mjs`)
  * and the binary itself: one build writes every copy of the core.
  */
 import { execFileSync } from 'node:child_process';
-import { chmod, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { brotliCompressSync, gzipSync } from 'node:zlib';
 import { build, transform } from 'esbuild';
 import { buildId, buildTime } from '../src/build-id.ts';
 import { gitAnswer } from './git.mjs';
 import { PAGE_ASSETS } from '../src/page-assets.ts';
 
-const cliOutfile = 'dist/cli.js';
-
 /**
  * What `ez serve` names as the build it is, and when that build ran, computed
- * once: the CLI is stamped with this pair, and so are the files `assets.go`
+ * once: the binary is stamped with this pair, and so are the files `assets.go`
  * embeds, so the two cannot name two different builds.
  */
 const buildStamp = { id: buildId(gitAnswer), at: buildTime(new Date()) };
-
-await build({
-  entryPoints: ['src/cli.ts'],
-  outfile: cliOutfile,
-  bundle: true,
-  platform: 'node',
-  format: 'esm',
-  target: 'node22',
-  banner: { js: '#!/usr/bin/env node' },
-  loader: { '.wasm': 'binary', '.ttf': 'binary' },
-  // Which build the CLI is, stamped only here: `ez serve` prints it and answers
-  // it at `/api/health`, so a server someone finds running can say whether it
-  // is the one they started. The page and the bundle are not stamped, so what
-  // they render is the same bytes either way.
-  define: {
-    STAMPED_BUILD: JSON.stringify(buildStamp.id),
-    STAMPED_BUILT_AT: JSON.stringify(buildStamp.at),
-  },
-  logLevel: 'info',
-});
-
-await chmod(cliOutfile, 0o755);
 
 /**
  * A stylesheet with its comments and its indentation gone, as `minify` leaves
