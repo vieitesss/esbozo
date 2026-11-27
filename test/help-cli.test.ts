@@ -21,13 +21,14 @@ test('ez --help and ez help show grouped commands, CSS subset, exit codes, and e
   assert.equal(sub.code, 0, sub.stderr);
   assert.equal(sub.stdout, flag.stdout);
 
-  for (const heading of ['MAKE', 'CHECK', 'EDIT', 'AGENTS', 'CSS SUBSET', 'EXIT CODES', 'EXAMPLES']) {
+  for (const heading of ['MAKE', 'CHECK', 'EDIT', 'AGENTS', 'MAINTAIN', 'CSS SUBSET', 'EXIT CODES', 'EXAMPLES']) {
     assert.match(flag.stdout, new RegExp(`^${heading}$`, 'm'), `missing heading ${heading}`);
   }
-  for (const command of ['render', 'png', 'bundle', 'check', 'anchor', 'snap', 'serve', 'skill']) {
+  assert.match(flag.stdout, /^  ez --version$/m, 'missing --version in USAGE');
+  for (const command of ['render', 'png', 'bundle', 'check', 'anchor', 'snap', 'serve', 'skill', 'update']) {
     assert.match(flag.stdout, new RegExp(`^  ${command}\\s+\\S`, 'm'), `missing command ${command}`);
   }
-  for (const code of ['0', '2', '3', '4', '5', '6']) {
+  for (const code of ['0', '1', '2', '3', '4', '5', '6']) {
     assert.match(flag.stdout, new RegExp(`^  ${code}  \\S`, 'm'), `missing exit code ${code}`);
   }
   assert.match(flag.stdout, /:root` and `html` declarations are the light theme/);
@@ -113,6 +114,15 @@ test('ez <command> --help prints usage, flags/defaults, and an example with exit
       args: ['skill', 'install', '--help'],
       expected: [/ez skill install \[--dir /, /--dir /, /~\/\.agents\/skills/, /^EXAMPLE$/m],
     },
+    {
+      args: ['update', '--help'],
+      expected: [
+        /ez update \[--main \| --version <X\.Y\.Z>\]/,
+        /--main/,
+        /--version <X\.Y\.Z>/,
+        /^EXAMPLE$/m,
+      ],
+    },
   ];
 
   for (const { args, expected } of cases) {
@@ -138,6 +148,8 @@ test('ez help <command> prints the same help as ez <command> --help', async () =
     ['serve'],
     ['skill'],
     ['skill', 'install'],
+    ['update'],
+    ['upgrade'],
   ];
 
   for (const command of commands) {
@@ -175,6 +187,7 @@ test('usage errors still print usage on stderr and exit 2', async () => {
     [['snap'], /^usage: ez snap <scene>/],
     [['serve'], /^usage: ez serve <dir>/],
     [['skill', 'bogus'], /^usage: ez skill \[install \[--dir /m],
+    [['update', '--bogus'], /^usage: ez update \[--main \| --version <X\.Y\.Z>\]/],
   ];
 
   for (const [args, pattern] of cases) {
