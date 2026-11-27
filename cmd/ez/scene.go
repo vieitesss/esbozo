@@ -115,7 +115,11 @@ func runScene(command string, argv []string, stdout, stderr io.Writer) int {
 		return answer.ExitCode
 	}
 
-	outputPath := svgPathFor(parsed.scenePath)
+	outputPath, err := svgPathFor(parsed.scenePath)
+	if err != nil {
+		fmt.Fprintf(stderr, "cannot name the SVG beside %s: %s\n", parsed.scenePath, err)
+		return exitWriteFailed
+	}
 	// 0666, as `writeFile` writes: the umask decides the rest.
 	if err := os.WriteFile(outputPath, []byte(answer.SVG), 0o666); err != nil {
 		fmt.Fprintf(stderr, "cannot write SVG %s: %s\n", outputPath, core.NodeMessage(err, outputPath, false))
@@ -126,19 +130,16 @@ func runScene(command string, argv []string, stdout, stderr io.Writer) int {
 }
 
 // svgPathFor is `src/paths.ts`'s rule: the SVG sits beside the Scene, named
-// after the Scene's stem, with `.esbozo` or `.json` taken off.
-func svgPathFor(scenePath string) string {
-	return filepath.Join(filepath.Dir(absolute(scenePath)), sceneStem(filepath.Base(scenePath))+".svg")
-}
-
-// absolute is the Scene path as the CLI prints what it wrote: `path.resolve`
-// keeps a relative Scene's output in the folder the run started in.
-func absolute(scenePath string) string {
-	absolutePath, err := filepath.Abs(scenePath)
+// after the Scene's stem, with `.esbozo` or `.json` taken off. The Scene is
+// resolved first, as `path.resolve` resolves it, so a relative Scene's output
+// lands in the folder the run started in rather than beside the spelling of the
+// path the command line was given.
+func svgPathFor(scenePath string) (string, error) {
+	resolved, err := filepath.Abs(scenePath)
 	if err != nil {
-		return scenePath
+		return "", err
 	}
-	return absolutePath
+	return filepath.Join(filepath.Dir(resolved), sceneStem(filepath.Base(scenePath))+".svg"), nil
 }
 
 // sceneStem is a file name with `.esbozo` or `.json` taken off, in any letter
