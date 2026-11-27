@@ -17,12 +17,6 @@ import (
 	"esbozo/internal/core"
 )
 
-// Exit codes the commands can answer with beyond the usage ones.
-const (
-	exitInvalidScene = 3
-	exitWriteFailed  = 4
-)
-
 // usageLine is what each command prints when its arguments make no sense.
 var usageLine = map[string]string{
 	"render": "usage: ez render <scene> [--font <file>]",

@@ -14,7 +14,7 @@
 // reports what is wrong with a Scene and prints nothing when it is clean, so a
 // script can rely on the exit code alone.
 //
-// Exit codes — the one place they are defined, `EXIT`:
+// Exit codes — the one place they are defined:
 //
 //	0  the Scene is clean or was rendered
 //	2  wrong arguments (unknown command, missing or extra arguments, bad flag)
@@ -33,10 +33,14 @@ import (
 	"os"
 )
 
-// Exit codes, as `EXIT` in `src/cli.ts` defines them.
+// The codes the commands decide for themselves, as `EXIT` in `src/cli.ts`
+// defines them. 5 and 6 are the core's: it answers with the code it refuses a
+// Scene with.
 const (
-	exitOK    = 0
-	exitUsage = 2
+	exitOK           = 0
+	exitUsage        = 2
+	exitInvalidScene = 3
+	exitWriteFailed  = 4
 )
 
 func main() {
