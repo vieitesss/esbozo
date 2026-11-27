@@ -5,9 +5,11 @@
  * In order: `go vet ./...`, then `gofmt -l` over the Go tree — any name it
  * prints is a file that is not formatted — then `go tool staticcheck ./...`, the
  * acronym casing `gofmt` cannot see, then `go test ./...`, and last the CLI
- * suites with `EZ_BIN` naming the built binary. That last one needs
- * `dist/ez` to exist: `pnpm build` writes it, and `pnpm check` runs this after
- * the step whose build does.
+ * suites with `EZ_BIN` naming the built binary. That last one needs `dist/ez`
+ * to exist and to be newer than everything it is built from: `pnpm build`
+ * writes it, and `pnpm check` runs this after the step whose build does, so the
+ * binary the suites drive answers for this tree. Run on its own on a tree that
+ * moved on, it fails and says so rather than testing yesterday's binary.
  *
  * `test/help-cli.test.ts` is left out on purpose: its usage-errors case names
  * `anchor`, `snap`, `bundle` and `skill`, which the Go binary does not answer
@@ -17,14 +19,17 @@
  * `scripts/check.mjs` can report it as `check: FAILED at check:go — ...`.
  */
 import { spawn } from 'node:child_process';
-import { access } from 'node:fs/promises';
-import { join } from 'node:path';
+import { readdir, readFile, stat } from 'node:fs/promises';
+import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 /** The binary the suites drive, and the one `pnpm build` writes. */
 const BIN = join(ROOT, 'dist', 'ez');
+
+/** The Go tree `dist/ez` is compiled from, and the packages it holds. */
+const BIN_TREE = ['cmd', 'internal'];
 
 /** The Go tree `gofmt` reads: both packages, and the file the root one is. */
 const GOFMT_PATHS = ['cmd', 'internal', 'assets.go'];
@@ -64,6 +69,40 @@ function failed(step, status) {
   process.exitCode = status === 0 ? 1 : status;
 }
 
+/** Every file under a directory of the tree, at any depth, as a whole path. */
+async function everyFile(dir) {
+  const entries = await readdir(join(ROOT, dir), { recursive: true, withFileTypes: true });
+  return entries.filter((entry) => entry.isFile()).map((entry) => join(entry.parentPath, entry.name));
+}
+
+/**
+ * The files `dist/ez` is built from outside the Go tree: the module it is
+ * compiled against, and the files `assets.go` embeds — read from its `//go:embed`
+ * lines, so the list cannot fall behind the binary's own.
+ */
+async function linkedIn() {
+  const assets = await readFile(join(ROOT, 'assets.go'), 'utf8');
+  const embedded = [...assets.matchAll(/^\/\/go:embed (.+)$/gm)].flatMap(([, files]) => files.trim().split(/\s+/));
+  return ['assets.go', 'go.mod', 'go.sum', ...embedded].map((file) => join(ROOT, file));
+}
+
+/**
+ * The first file `dist/ez` is built from that changed after it was built, if any:
+ * the change the CLI suites would test yesterday's answer to.
+ */
+async function stale(built) {
+  const tree = await Promise.all(BIN_TREE.map(everyFile));
+  const sources = [...tree.flat(), ...(await linkedIn())];
+  for (const source of sources) {
+    const changed = await stat(source).then(
+      (file) => file.mtimeMs,
+      () => built,
+    );
+    if (changed > built) return relative(ROOT, source);
+  }
+  return undefined;
+}
+
 async function main() {
   const vet = await run('go', ['vet', './...']);
   if (vet.status !== 0) return failed('go vet', vet.status);
@@ -85,12 +124,18 @@ async function main() {
   const tested = await run('go', ['test', './...']);
   if (tested.status !== 0) return failed('go test', tested.status);
 
-  const built = await access(BIN).then(
-    () => true,
-    () => false,
+  const built = await stat(BIN).then(
+    (file) => file.mtimeMs,
+    () => undefined,
   );
-  if (!built) {
+  if (built === undefined) {
     process.stderr.write(`check:go: ${BIN} is not built — run \`pnpm build\` first\n`);
+    return failed('the CLI suites', 1);
+  }
+
+  const changed = await stale(built);
+  if (changed !== undefined) {
+    process.stderr.write(`check:go: ${changed} is newer than ${BIN} — run \`pnpm build\` first\n`);
     return failed('the CLI suites', 1);
   }
 
