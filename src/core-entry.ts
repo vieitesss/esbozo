@@ -14,11 +14,13 @@
  * is `layout.ts` and the drawing is `renderer.ts`.
  */
 import { chooseFont, layoutFor, readStylesheet } from './font.js';
+import { anchorEditOf, anchorScene, snapEditOf, snapScene } from './ends.js';
 import { renderScene } from './renderer.js';
-import { parseScene } from './scene.js';
+import { parseScene, serialiseScene } from './scene.js';
 import { renderPng } from './png.js';
 import type { PngOptions, Theme } from './png.js';
 import { sha256Hex } from './sha256.js';
+import type { AnchorWords, Change, Outcome } from './ends.js';
 import type { Layout } from './layout.js';
 
 /** What the host lends the bundle. */
@@ -465,20 +467,53 @@ interface PngRequest extends CheckRequest {
   readonly muted: string | null;
 }
 
-/** What a command made: the SVG, the PNG, or the lines it refuses with. */
+/**
+ * `anchor`'s request: the Scene, and the words the command line typed. `--all`
+ * names no Element, end or place, and each is `null` when it is set.
+ */
+interface AnchorRequest {
+  readonly source: ArrayBuffer;
+  readonly all: boolean;
+  readonly elementId: string | null;
+  readonly end: string | null;
+  readonly place: string | null;
+}
+
+/** `snap`'s request: the Scene, the Element and end it names, and the target or `off`. */
+interface SnapRequest {
+  readonly source: ArrayBuffer;
+  readonly elementId: string;
+  readonly end: string;
+  readonly target: string;
+}
+
+/** What a command made: the SVG, the PNG, the Scene text, or the lines it refuses with. */
 interface Answer {
   readonly ok: boolean;
   readonly exitCode: number;
   readonly svg: string;
   /** The image `png` drew, and `null` for any other command. */
   readonly png: Uint8Array | null;
+  /** The Scene text `anchor` and `snap` save, and `''` for any other command. */
+  readonly scene: string;
+  /** The lines `anchor` and `snap` print once they have saved it. */
+  readonly lines: readonly string[];
   readonly problems: readonly string[];
   /** Lines the command prints on stderr but does not fail on, such as a remote font. */
   readonly notes: readonly string[];
 }
 
 function failed(exitCode: number, problems: readonly string[]): Answer {
-  return { ok: false, exitCode, svg: '', png: null, problems, notes: [] };
+  return {
+    ok: false,
+    exitCode,
+    svg: '',
+    png: null,
+    scene: '',
+    lines: [],
+    problems,
+    notes: [],
+  };
 }
 
 /** A problem as `ez` prints it: `id: message`, or the message alone with no id. */
@@ -508,7 +543,16 @@ async function render(request: RenderRequest): Promise<Answer> {
 
   const layout: Layout = layoutFor(font.value);
   const svg = renderScene(parsed.scene, layout, sha256Hex(bytes));
-  return { ok: true, exitCode: 0, svg, png: null, problems: [], notes: font.notes };
+  return {
+    ok: true,
+    exitCode: 0,
+    svg,
+    png: null,
+    scene: '',
+    lines: [],
+    problems: [],
+    notes: font.notes,
+  };
 }
 
 async function check(request: CheckRequest): Promise<Answer> {
@@ -537,7 +581,16 @@ async function check(request: CheckRequest): Promise<Answer> {
   if (overflowed.length > 0) {
     return { ...failed(EXIT.labelOverflow, overflowed), notes: font.notes };
   }
-  return { ok: true, exitCode: 0, svg: '', png: null, problems: [], notes: font.notes };
+  return {
+    ok: true,
+    exitCode: 0,
+    svg: '',
+    png: null,
+    scene: '',
+    lines: [],
+    problems: [],
+    notes: font.notes,
+  };
 }
 
 /**
@@ -559,7 +612,16 @@ async function png(request: PngRequest): Promise<Answer> {
   if (!rendered.ok) {
     return failed(EXIT.missingThemeOrFont, rendered.problems);
   }
-  return { ok: true, exitCode: 0, svg: '', png: rendered.png, problems: [], notes: rendered.notes };
+  return {
+    ok: true,
+    exitCode: 0,
+    svg: '',
+    png: rendered.png,
+    scene: '',
+    lines: [],
+    problems: [],
+    notes: rendered.notes,
+  };
 }
 
 /**
@@ -588,6 +650,77 @@ function pngOptions(theme: Theme, request: PngRequest): PngOptions {
 }
 
 /**
+ * `anchor`: one end's Anchor placed on its target's outline, or every Snapped end
+ * frozen where it draws — the Scene text to save, and the line a person reads.
+ */
+async function anchor(request: AnchorRequest): Promise<Answer> {
+  // The words first, as the CLI judges them before it reads the Scene.
+  const edit = anchorEditOf(anchorWords(request));
+  if (!edit.ok) {
+    return failed(edit.exitCode, [edit.message]);
+  }
+  const { parsed } = loadScene(request.source);
+  if (!parsed.ok) {
+    return failed(EXIT.invalidScene, problemLines(parsed.problems));
+  }
+  return saved(anchorScene(parsed.scene, edit.value));
+}
+
+/** `snap`: one end attached to an Element, or written free with `off`. */
+async function snap(request: SnapRequest): Promise<Answer> {
+  const edit = snapEditOf({
+    elementId: request.elementId,
+    end: request.end,
+    target: request.target,
+  });
+  if (!edit.ok) {
+    return failed(edit.exitCode, [edit.message]);
+  }
+  const { parsed } = loadScene(request.source);
+  if (!parsed.ok) {
+    return failed(EXIT.invalidScene, problemLines(parsed.problems));
+  }
+  return saved(snapScene(parsed.scene, edit.value));
+}
+
+/** The words `anchor`'s request carries; `--all` names no Element, end or place. */
+function anchorWords(request: AnchorRequest): AnchorWords {
+  if (request.all) {
+    return { all: true };
+  }
+  if (request.elementId === null || request.end === null || request.place === null) {
+    throw new Error('anchor needs an element, an end and a place without --all');
+  }
+  return { all: false, elementId: request.elementId, end: request.end, place: request.place };
+}
+
+/**
+ * An edit saved: the Scene text the host writes and the lines it prints after, or
+ * the problems the parser finds in what serialising made — `saveScene`'s check,
+ * so no command hands a host a Scene the parser turns down.
+ */
+function saved(edit: Outcome<Change>): Answer {
+  if (!edit.ok) {
+    return failed(edit.exitCode, [edit.message]);
+  }
+  const text = serialiseScene(edit.value.scene);
+  const checked = parseScene(text);
+  if (!checked.ok) {
+    return failed(EXIT.invalidScene, problemLines(checked.problems));
+  }
+  return {
+    ok: true,
+    exitCode: 0,
+    svg: '',
+    png: null,
+    scene: text,
+    lines: edit.value.lines,
+    problems: [],
+    notes: [],
+  };
+}
+
+/**
  * The command that is running, what it made, and what it threw. `begin` starts it
  * and `answer` reads it: goja runs the queue of promises when the script that
  * awaited them ends, so the host gives it two calls rather than one promise.
@@ -597,7 +730,7 @@ let failure: { error: unknown } | null = null;
 
 /**
  * Start one command over `request`, as the host built it: `render`'s fields for
- * `render`, `check`'s for `check`, `png`'s for `png`.
+ * `render`, `check`'s for `check`, `png`'s for `png`, and so on.
  *
  * A command this bundle does not have is refused here rather than answered as
  * `check`: a Scene reported as unmeasurable when nothing measured it is a
@@ -605,7 +738,10 @@ let failure: { error: unknown } | null = null;
  *
  * @public
  */
-export function begin(request: RenderRequest | CheckRequest | PngRequest, kind: string): void {
+export function begin(
+  request: RenderRequest | CheckRequest | PngRequest | AnchorRequest | SnapRequest,
+  kind: string,
+): void {
   settled = null;
   failure = null;
   // The host builds the request for the kind it names, so each branch reads only
@@ -620,6 +756,12 @@ export function begin(request: RenderRequest | CheckRequest | PngRequest, kind: 
       break;
     case 'png':
       running = png(request as PngRequest);
+      break;
+    case 'anchor':
+      running = anchor(request as AnchorRequest);
+      break;
+    case 'snap':
+      running = snap(request as SnapRequest);
       break;
     default:
       throw new Error(`the core has no command ${String(kind)}`);

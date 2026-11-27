@@ -40,6 +40,16 @@ type Image struct {
 	PNG []byte
 }
 
+// Edited is `ez anchor` and `ez snap`'s answer: the Scene they would save, and
+// the lines they print once they have.
+type Edited struct {
+	Result
+	// Scene is the serialised Scene to write over the file the command read.
+	Scene string
+	// Lines are the lines the command prints after saving it.
+	Lines []string
+}
+
 // RenderOptions are `ez render`'s flags; an empty field is a flag that was not
 // given.
 type RenderOptions struct {
@@ -72,9 +82,33 @@ type PNGOptions struct {
 	Muted string
 }
 
+// AnchorOptions are the words `ez anchor` was given: every Snapped end that
+// carries no Anchor, or one end and the place to put its Anchor at.
+type AnchorOptions struct {
+	// All is `--all`: freeze every Snapped end that carries no Anchor.
+	All bool
+	// ElementID is the arrow or line the command names, and empty for `--all`.
+	ElementID string
+	// End is the `start|end` word, and Place the place word, as the command line
+	// typed them: their meaning is the core's, not the host's.
+	End   string
+	Place string
+}
+
+// SnapOptions are the words `ez snap` was given: the end to attach, and the
+// Element to attach it to or `off`.
+type SnapOptions struct {
+	// ElementID is the arrow or line the command names.
+	ElementID string
+	// End is the `start|end` word, and Target the Element to attach to or `off`,
+	// as the command line typed them.
+	End    string
+	Target string
+}
+
 // Render answers `ez render` over a Scene's bytes.
 func Render(source []byte, options RenderOptions) (Rendered, error) {
-	answer, err := run("render", source, map[string]string{"fontPath": options.FontPath})
+	answer, err := run("render", source, map[string]interface{}{"fontPath": options.FontPath})
 	if err != nil {
 		return Rendered{}, err
 	}
@@ -84,7 +118,7 @@ func Render(source []byte, options RenderOptions) (Rendered, error) {
 // Check answers `ez check` over a Scene's bytes: the lines its Labels overflow
 // with.
 func Check(source []byte, options CheckOptions) (Result, error) {
-	answer, err := run("check", source, map[string]string{
+	answer, err := run("check", source, map[string]interface{}{
 		"fontPath": options.FontPath,
 		"cssPath":  options.CSSPath,
 	})
@@ -96,7 +130,7 @@ func Check(source []byte, options CheckOptions) (Result, error) {
 
 // PNG answers `ez png` over a Scene's bytes: the image the Scene draws to.
 func PNG(source []byte, options PNGOptions) (Image, error) {
-	answer, err := run("png", source, map[string]string{
+	answer, err := run("png", source, map[string]interface{}{
 		"fontPath": options.FontPath,
 		"cssPath":  options.CSSPath,
 		"theme":    options.Theme,
@@ -118,10 +152,48 @@ func PNG(source []byte, options PNGOptions) (Image, error) {
 	return image, nil
 }
 
-// run answers one command: `begin` starts `kind` over the Scene and the flags
-// `flags` names, and `answer` reads what it settled on. Only the flags a command
+// Anchor answers `ez anchor` over a Scene's bytes: the Scene the command would
+// save, and the lines it prints once it has.
+func Anchor(source []byte, options AnchorOptions) (Edited, error) {
+	answer, err := run("anchor", source, map[string]interface{}{
+		"all":       options.All,
+		"elementId": options.ElementID,
+		"end":       options.End,
+		"place":     options.Place,
+	})
+	if err != nil {
+		return Edited{}, err
+	}
+	return edited(answer), nil
+}
+
+// Snap answers `ez snap` over a Scene's bytes: the Scene the command would save,
+// and the lines it prints once it has.
+func Snap(source []byte, options SnapOptions) (Edited, error) {
+	answer, err := run("snap", source, map[string]interface{}{
+		"elementId": options.ElementID,
+		"end":       options.End,
+		"target":    options.Target,
+	})
+	if err != nil {
+		return Edited{}, err
+	}
+	return edited(answer), nil
+}
+
+// edited reads the Scene text and the lines an editing command answered with.
+func edited(answer *goja.Object) Edited {
+	return Edited{
+		Result: resultOf(answer),
+		Scene:  answer.Get("scene").String(),
+		Lines:  linesOf(answer.Get("lines")),
+	}
+}
+
+// run answers one command: `begin` starts `kind` over the Scene and the fields
+// `fields` names, and `answer` reads what it settled on. Only the fields a command
 // takes are in its request, so no command reads a field another one named.
-func run(kind string, source []byte, flags map[string]string) (*goja.Object, error) {
+func run(kind string, source []byte, fields map[string]interface{}) (*goja.Object, error) {
 	vm, err := newRuntime()
 	if err != nil {
 		return nil, err
@@ -131,7 +203,7 @@ func run(kind string, source []byte, flags map[string]string) (*goja.Object, err
 	if err := request.Set("source", vm.NewArrayBuffer(source)); err != nil {
 		return nil, err
 	}
-	for name, value := range flags {
+	for name, value := range fields {
 		if err := request.Set(name, optional(value)); err != nil {
 			return nil, err
 		}
@@ -174,9 +246,10 @@ func callableOf(vm *goja.Runtime, name string) (goja.Callable, error) {
 	return callable, nil
 }
 
-// optional turns an absent flag into the null the core tests for.
-func optional(value string) interface{} {
-	if value == "" {
+// optional turns an absent flag into the null the core tests for, and leaves a
+// flag that is either given or not — `--all` — as it is.
+func optional(value interface{}) interface{} {
+	if text, isText := value.(string); isText && text == "" {
 		return nil
 	}
 	return value
