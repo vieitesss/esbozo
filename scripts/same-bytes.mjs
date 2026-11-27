@@ -49,8 +49,8 @@ const FONT_METRICS_TEXT = readFileSync(FONT_METRICS, 'utf8');
 
 /**
  * The real rasteriser, started before any fixture runs: the host answers `png`
- * synchronously, as Go's does, so the module is loaded once here rather than
- * awaited inside the call.
+ * synchronously, as Go's does, so the module loads once here rather than inside
+ * the call.
  */
 await initWasm(readFileSync(RESVG_WASM));
 

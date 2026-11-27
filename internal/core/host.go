@@ -36,8 +36,7 @@ func newRuntime() (*goja.Runtime, error) {
 // those through `globalThis.__ezHost` and a `TextEncoder` the entry defines, so
 // no Node API ever ships inside it. `bundledFont` and `bundledFontMetrics` are
 // the same seam for what the binary already carries, and `rasterise` is resvg's
-// `render().asPng()`: `scripts/core-host/resvg-wasm.mjs` answers the module's two
-// calls with it, and `internal/resvg` runs resvg's own wasm in wazero. A failed
+// `render().asPng()`, which `scripts/core-host/resvg-wasm.mjs` calls. A failed
 // read or a refused SVG throws, because the core's own error messages are built
 // from the exception's `message`.
 func installHost(vm *goja.Runtime) error {
@@ -107,8 +106,6 @@ func installHost(vm *goja.Runtime) error {
 		return err
 	}
 
-	// One SVG and the module's options JSON in, PNG bytes out: the same two
-	// calls `src/png.ts` makes of `@resvg/resvg-wasm`, answered by resvg's wasm.
 	if err := host.Set("rasterise", func(call goja.FunctionCall) goja.Value {
 		png, err := resvg.Rasterise(call.Argument(0).String(), call.Argument(1).String())
 		if err != nil {

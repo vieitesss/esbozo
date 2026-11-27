@@ -29,9 +29,8 @@ var Kalam []byte
 //go:embed dist/font-metrics.json
 var FontMetrics []byte
 
-// ResvgModule is resvg's WebAssembly build, the very bytes `@resvg/resvg-wasm`
-// runs in Node: `internal/resvg` runs them in wazero, so the PNG `ez png` writes
-// comes from the rasteriser the CLI draws it with.
+// ResvgModule is resvg's WebAssembly build — the bytes `@resvg/resvg-wasm` runs
+// in Node — which `internal/resvg` runs in wazero.
 //
 //go:embed dist/resvg.wasm
 var ResvgModule []byte

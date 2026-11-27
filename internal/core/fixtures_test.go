@@ -35,9 +35,9 @@ type answers struct {
 // TestCoreAnswers writes what the Go core answers for every fixture Scene, for
 // `scripts/same-bytes.mjs` to hold to what the same bundle answers in Node. The
 // two halves stay two halves — one runtime cannot be compared with itself — so
-// this writes and the script judges. `png` runs in both themes, because a
-// rasteriser the SVG comparison cannot see and a theme that never arrived would
-// both pass a single-theme comparison.
+// this writes and the script judges. `png` runs in both themes: a rasteriser the
+// SVG comparison cannot see, and a theme that never arrived, would both pass a
+// single-theme comparison.
 func TestCoreAnswers(t *testing.T) {
 	out := os.Getenv("EZ_SAME_BYTES_OUT")
 	if out == "" {

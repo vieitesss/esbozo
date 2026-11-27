@@ -3,8 +3,7 @@
 // The surface is `src/cli.ts`'s, and this file decides what each command is
 // given and what it exits with; what a Scene, a font or a stylesheet means is
 // the core's, which `render`, `check` and `png` hand bytes and get text or an
-// image back from. `png` draws its image with resvg's own WebAssembly module in
-// wazero, behind that same core.
+// image back from.
 //
 // Surface (the commands marked * are not ported yet):
 //

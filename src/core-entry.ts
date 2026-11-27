@@ -47,7 +47,7 @@ interface EzHost {
   /**
    * One SVG in, PNG bytes out, with resvg's own module: `ez` runs those bytes in
    * wazero (`internal/resvg`), so `scripts/core-host/resvg-wasm.mjs` hands the
-   * SVG and the module's options JSON here instead of to a JS engine.
+   * SVG and the module's options JSON here.
    */
   rasterise(svg: string, options: string): ArrayBuffer;
 }
@@ -533,8 +533,8 @@ async function check(request: Request): Promise<Answer> {
 }
 
 /**
- * `png`: `src/png.ts` owns everything — the palette, the font, the outlines —
- * and the host owns resvg, so this hands the Scene over and answers the image.
+ * `png`: `src/png.ts` owns the palette, the font and the outlines, and the host
+ * owns resvg, so this hands the Scene over and answers the image.
  */
 async function png(request: Request): Promise<Answer> {
   const theme = request.theme;
@@ -555,9 +555,9 @@ async function png(request: Request): Promise<Answer> {
 }
 
 /**
- * What `png` was asked for: the theme, and the flags the host actually gave. An
- * absent flag is an absent key rather than one holding `undefined`, which is
- * what `PngOptions` — and every options type here — insists on.
+ * What `png` was asked for: the theme, and the flags the host gave. An absent flag
+ * is an absent key rather than one holding `undefined`, which `PngOptions` and
+ * `exactOptionalPropertyTypes` refuse.
  */
 function pngOptions(theme: Theme, request: Request): PngOptions {
   const options: PngOptions = { theme };

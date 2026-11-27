@@ -1,7 +1,6 @@
-// `png`: the command line's flags, the paths and the exit codes. Go owns those;
-// the core owns the palette, the outlines, and what a Scene is. The rasteriser
-// is resvg's own WebAssembly module in wazero (`internal/resvg`), behind the one
-// host call the core makes for it.
+// `png`: what the command line takes, and the file the run writes. Go owns the
+// flags, the paths and the exit codes; the core owns the palette, the outlines
+// and what a Scene is.
 package main
 
 import (
@@ -29,11 +28,10 @@ type pngArguments struct {
 	fontPath  string
 }
 
-// parsePngArguments reads `<scene> --theme light|dark [--css <stylesheet>]
-// [--ink <colour>] [--paper <colour>] [--muted <colour>] [--font <file>]` in
-// either order, and nothing else: a second Scene, a flag with no value, and a
-// flag `png` does not take are all wrong arguments. A repeated flag takes its
-// last value, as `parsePngArguments` in `src/cli.ts` lets it.
+// parsePngArguments reads the flags in either order, and nothing else: a second
+// Scene, a flag with no value, and a flag `png` does not take are all wrong
+// arguments. A repeated flag takes its last value, as `parsePngArguments` in
+// `src/cli.ts` lets it.
 func parsePngArguments(argv []string) (pngArguments, bool) {
 	var parsed pngArguments
 	for index := 0; index < len(argv); index++ {
@@ -130,7 +128,7 @@ func runPng(argv []string, stdout, stderr io.Writer) int {
 }
 
 // pngPathFor is the SVG's rule one suffix further on: `sketch.esbozo` gives
-// `sketch.light.png` and `sketch.dark.png`, resolved beside the Scene.
+// `sketch.light.png` and `sketch.dark.png`.
 func pngPathFor(scenePath, theme string) (string, error) {
 	resolved, err := filepath.Abs(scenePath)
 	if err != nil {

@@ -7,8 +7,7 @@
  * because goja has no modules), and the two Node builtins `src/font.ts` imports,
  * which `scripts/core-host/` answers from the host. It also measures the bundled
  * font once here, instead of in every cold start, and copies resvg's WebAssembly
- * module beside the bundle for `internal/resvg` to run in wazero, which is also
- * why the core's import of that package is answered by a host shim.
+ * module beside the bundle for `internal/resvg` to run.
  */
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -29,9 +28,9 @@ const BUNDLED_FONT = resolve('fonts/Kalam-Regular.ttf');
 const OPENTYPE_SHIM = resolve(hostDir, 'opentype.mjs');
 
 /**
- * The host shim that answers the core's `@resvg/resvg-wasm` import, for both the
- * module and the wasm it loads: `ez` runs those bytes in wazero, so the bundle
- * carries neither.
+ * The host shim that answers the core's `@resvg/resvg-wasm` import, for the
+ * module and the wasm it would load: `ez` runs those bytes in wazero, so the
+ * bundle carries neither.
  */
 const RESVG_SHIM = resolve(hostDir, 'resvg-wasm.mjs');
 

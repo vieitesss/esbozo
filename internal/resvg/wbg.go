@@ -2,12 +2,10 @@
 //
 // wasm-bindgen hands JS values to the wasm as small integers and expects the JS
 // side to keep the values themselves. This file is that side in Go: `heap` holds
-// the values (an SVG string, the module's memory, a view into it, an error) and
-// the imports below are the ones resvg actually calls.
+// the values and the imports below are the ones resvg actually calls.
 //
-// The list is the module's own import list, so nothing is missing from the
-// module's point of view; `__wbindgen_string_new` and the eight array and
-// iterator imports are reached only by code this path does not run —
+// The list is the module's own import list. The eight array and iterator imports
+// and `__wbindgen_string_new` are reached only by code this path does not run —
 // `imagesToResolve`, and custom font buffers, which `src/png.ts` never passes
 // because it turns words into outlines — and they fail loudly rather than answer
 // wrongly.
@@ -27,8 +25,6 @@ func (one *rasteriser) installWbg() error {
 		name string
 		fn   any
 	}{
-		// The values this path touches: an error, the module's memory and the
-		// views into it a PNG arrives in, and strings both ways.
 		{"__wbg_new_28c511d9baebfa89", one.newError},
 		{"__wbindgen_memory", one.memoryObject},
 		{"__wbg_buffer_12d079cc21e14bdb", one.bufferOf},
@@ -83,8 +79,6 @@ func (one *rasteriser) installWbg() error {
 	return nil
 }
 
-// notReached is the failure an import answers with when the module reaches code
-// the PNG path does not run.
 func notReached(name string) error {
 	return fmt.Errorf("resvg called %s, which this host does not implement", name)
 }
@@ -136,9 +130,8 @@ func (one *rasteriser) isUint8Array(_ context.Context, _ api.Module, handle uint
 }
 
 // stringGet writes the string's bytes into the module's memory and its pointer
-// and length into the result area the glue passed: the module asked for
-// `getObject(handle)` as a string, and a handle that is not one is `undefined`,
-// which is the zero pointer and zero length.
+// and length into the result area the glue passed. A handle that is not a string
+// is `undefined`: zero pointer, zero length.
 func (one *rasteriser) stringGet(_ context.Context, module api.Module, retptr, handle uint32) {
 	var pointer, length uint32
 	if source := one.held(handle); source.kind == jsString {
@@ -163,8 +156,6 @@ func (one *rasteriser) throw(_ context.Context, module api.Module, pointer, leng
 	panic(errors.New(readText(module, pointer, length)))
 }
 
-// held is the object at one handle, and a loud failure when there is none: a
-// handle the module made up would otherwise read as a zero value.
 func (one *rasteriser) held(handle uint32) *object {
 	object, ok := one.heap.get(handle)
 	if !ok {
