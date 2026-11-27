@@ -4,9 +4,10 @@
  * files it is built from.
  */
 import { spawn } from 'node:child_process';
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { readdir, stat } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { embeddedFiles } from './embedded.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
@@ -65,12 +66,10 @@ async function everyFile(dir) {
 
 /**
  * The files `dist/ez` is built from outside the Go tree: the module it is
- * compiled against, and what `assets.go` embeds, read from its `//go:embed` lines.
+ * compiled against, and what `assets.go` embeds.
  */
 async function linkedIn() {
-  const assets = await readFile(join(ROOT, 'assets.go'), 'utf8');
-  const embedded = [...assets.matchAll(/^\/\/go:embed (.+)$/gm)].flatMap(([, files]) => files.trim().split(/\s+/));
-  return ['assets.go', 'go.mod', 'go.sum', ...embedded].map((file) => join(ROOT, file));
+  return ['assets.go', 'go.mod', 'go.sum', ...(await embeddedFiles(ROOT))].map((file) => join(ROOT, file));
 }
 
 async function stale(built) {

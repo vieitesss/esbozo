@@ -60,7 +60,11 @@ const MAIN_GO_UNFORMATTED = MAIN_GO.replace('\tfmt.Println', '    fmt.Println');
 
 const MAIN_GO_VET_BROKEN = MAIN_GO.replace('fmt.Println("hello")', 'fmt.Printf("%d\\n", "hello")');
 
-/** One Go file embedding the files only `pnpm build` writes, so the stand-in has work to do. */
+/**
+ * One Go file embedding the files only `pnpm build` writes, so the stand-in has
+ * work to do; its name is `assets.go` because that is the file `check:steps`
+ * reads the embed list from.
+ */
 const MAIN_GO_EMBEDS = `package main
 
 import (
@@ -151,17 +155,17 @@ async function goFixture(t: TestContext, brokenSource: string): Promise<Fixture>
   await writeFile(join(repo, 'package.json'), PACKAGE_JSON);
   await writeFile(join(repo, 'check.mjs'), CHECK);
   await writeFile(join(repo, 'go.mod'), GO_MOD);
-  await writeFile(join(repo, 'main.go'), MAIN_GO);
+  await writeFile(join(repo, 'assets.go'), MAIN_GO);
   git(repo, 'add', '--all');
   commit(repo, 'the Go is clean');
   const base = git(repo, 'rev-parse', 'HEAD');
 
-  await writeFile(join(repo, 'main.go'), brokenSource);
+  await writeFile(join(repo, 'assets.go'), brokenSource);
   git(repo, 'add', '--all');
   commit(repo, 'break the Go');
   const broken = git(repo, 'rev-parse', 'HEAD');
 
-  await writeFile(join(repo, 'main.go'), MAIN_GO);
+  await writeFile(join(repo, 'assets.go'), MAIN_GO);
   git(repo, 'add', '--all');
   commit(repo, 'put it back');
   const clean = git(repo, 'rev-parse', 'HEAD');
@@ -178,12 +182,12 @@ async function embedFixture(t: TestContext): Promise<{ repo: string; base: strin
   await writeFile(join(repo, 'package.json'), PACKAGE_JSON);
   await writeFile(join(repo, 'check.mjs'), CHECK);
   await writeFile(join(repo, 'go.mod'), GO_MOD);
-  await writeFile(join(repo, 'main.go'), MAIN_GO);
+  await writeFile(join(repo, 'assets.go'), MAIN_GO);
   git(repo, 'add', '--all');
   commit(repo, 'the Go is clean');
   const base = git(repo, 'rev-parse', 'HEAD');
 
-  await writeFile(join(repo, 'main.go'), MAIN_GO_EMBEDS);
+  await writeFile(join(repo, 'assets.go'), MAIN_GO_EMBEDS);
   git(repo, 'add', '--all');
   commit(repo, 'embed what the build writes');
   const embed = git(repo, 'rev-parse', 'HEAD');
