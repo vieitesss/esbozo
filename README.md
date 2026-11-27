@@ -1,96 +1,116 @@
 # esbozo
 
+[![Latest Release](https://img.shields.io/github/v/release/vieitesss/esbozo)](https://github.com/vieitesss/esbozo/releases/latest)
+[![check](https://github.com/vieitesss/esbozo/actions/workflows/ci.yml/badge.svg)](https://github.com/vieitesss/esbozo/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 A small canvas for hand-drawn diagrams, drawn by people and written by agents.
 
-A diagram is a **Scene**: a short file of JSON that a person edits in a browser and an agent writes directly. A Scene is named `<name>.esbozo`; a `<name>.json` file that holds one is a Scene as well, so existing diagrams keep their name. The `ez` command checks a Scene, renders it to an SVG that takes its colours and font from the page's CSS variables (so one file fits light and dark) and falls back to the light theme when there is no page around it, and renders it to a PNG so an agent can look at its own work.
-
-Words used here (Scene, Element, Label, Text, Snap, Grid) are defined in [GLOSSARY.md](GLOSSARY.md).
+A diagram is a Scene, a JSON file named `<name>.esbozo` that you edit in a browser and an agent writes directly. The `ez` binary checks a Scene, renders it to an SVG that reads colours and font from CSS variables, exports light and dark PNGs, and serves the browser editor. Everything ships inside one static binary with no runtime dependencies.
 
 ## Install
 
-Needs Node 22.22.3 or newer, pnpm, Go (the version `go.mod` names) and `just`; if `just` is missing, install it from https://github.com/casey/just. In a clone of this repository:
-
-```sh
-just setup && just build
-./dist/ez check scene.esbozo
-```
-
-Run `just` to see every recipe and what it does.
-
-Everywhere below, `ez` stands for `./dist/ez` in that clone, or for the `ez` the one-liner installs:
+Run the install script on Linux or macOS, x64 or arm64, without `sudo`:
 
 ```sh
 curl -fsSL https://esbozo.vieitesss.eu/install | sh
 ```
 
-`ez` is one static binary: the Scene, the Layout, the Renderer, the editor page and Kalam are inside it, so the install is one file.
+The script verifies `SHA256SUMS` and installs the binary at `${ESBOZO_INSTALL_DIR:-$HOME/.local/bin}/ez` with an `esbozo` symlink beside it. Pass flags to `sh` to change the channel or install folder:
 
-## Commands
+- Use `--main` to install the rolling Main build, as in `curl -fsSL https://esbozo.vieitesss.eu/install | sh -s -- --main`.
+- Use `--version X.Y.Z` to install a specific Release, as in `curl -fsSL https://esbozo.vieitesss.eu/install | sh -s -- --version 0.1.0`.
+- Use `--dir <path>` or set `ESBOZO_INSTALL_DIR` to choose another install folder.
 
-`ez --help` is the reference for every command, flag, default and exit code.
+Run `ez --help` to see every command, flag, and exit code.
 
-| Command | What it does |
-| --- | --- |
-| `ez check <scene>` | Prints each problem as `<element id>: <message>` on stderr, and nothing when the Scene is clean. Reports schema errors, Snap ends that point nowhere, and Labels that do not fit. A font note (a remote `@font-face` replaced by the bundled font) is not a problem: it prints on stderr and the exit code stays `0`. |
-| `ez anchor <scene> <element> <start\|end> <place>` | Puts one end of an arrow or line on a named place of its target's outline: `top`, `bottom`, `left`, `right`, `center`, a corner such as `bottom-left`, a pair of fractions such as `1,0.25`, or `none` to drop the Anchor and aim at the centre again. It writes the end's `x`, `y` where the Anchor draws it, prints the line it changed, and edits the Scene in place. `ez anchor <scene> --all` gives every Snapped end that has no Anchor the Anchor of where it draws today, so the SVG does not move. |
-| `ez snap <scene> <element> <start\|end> <target\|off>` | Attaches an end to an Element at the outline point nearest where it draws today, with the Anchor that keeps it there; `off` writes `"snap": false` and drops the Anchor. Prints the line it changed. |
-| `ez render <scene>` | Writes `<name>.svg` beside the Scene and prints its path. The same Scene and the same font file give the same bytes. A Scene is a `.esbozo` file, or a `.json` one that holds a Scene. |
-| `ez png <scene> --theme light\|dark` | Writes `<name>.<theme>.png` beside the Scene and prints its path. |
-| `ez serve <dir>` | Serves the editor on a folder of Scenes, and a save API for them. Runs until stopped. See [The editor](#the-editor). |
-| `ez bundle <dir>` | Writes the editor as one ES module, `<dir>/esbozo-<version>.js`, for a page of your own. An existing file of that name is replaced, so a page pins it with a one-file diff. See [Embedding the editor](#embedding-the-editor). |
-| `ez skill [install [--dir <path>]]` | Prints the shipped agent skill (`SKILL.md`) to stdout, or with `install` copies it into `~/.agents/skills/esbozo/SKILL.md` (or `<path>/esbozo/SKILL.md`) and prints the written path. |
+## Update
 
-Flags take a separate value: `--theme dark`, never `--theme=dark`. `ez anchor` and `ez snap` print `ez check`'s exit codes, and re-parse the Scene they built before saving it, so they never write one the schema turns down.
-
-## The Scene
-
-Write a Scene by hand or by agent; [docs/schema.md](docs/schema.md) lists every key. An agent that has the Skill in [skills/esbozo/SKILL.md](skills/esbozo/SKILL.md) learns the schema and the loop: write, `ez check`, `ez png`, look, fix. The SVG and PNG are outputs; the Scene stays the only source.
-
-Keys you leave out take the defaults in [docs/schema.md](docs/schema.md). The Skill spaces Elements in 22px steps, the spacing of the editor's Grid dots.
-
-## The editor
-
-The editor is a custom element, `<esbozo-editor>`, built into `dist/` with the CLI (`pnpm build`).
-
-The way to use it is `ez serve`:
+Run `ez update` to replace the installed binary with the latest Release:
 
 ```sh
-ez serve ./diagrams          # serving /abs/path/diagrams on http://127.0.0.1:4320/ (build 1a2b3c4, 2024-06-01T12:34:56Z)
-ez serve ./diagrams --port 0 # let the system pick the port, and read it from the line it prints
-ez serve ./diagrams --read-only
+ez update
 ```
 
-Open the printed URL in a browser. The page lists the folder's Scenes (top-level `*.esbozo` files, plus the `*.json` files that hold a Scene), opens the first, and every change saves the Scene and its SVG. `--read-only` shows the Scenes and saves nothing. The server listens on `127.0.0.1`, so only this machine reaches it; `--host` changes that, and nothing protects the folder from whoever then reaches it. Stop it with Ctrl+C. [docs/save-api.md](docs/save-api.md) holds the flags, the HTTP contract and what a save guarantees, for a client that is not the editor.
+Pass `--main` to switch to the rolling Main build, or `--version X.Y.Z` to install a specific Release.
 
-The page also works from any static host that serves `dist/`. Without `ez serve` behind it, the page needs a browser with the File System Access API (Chrome or Edge): open a folder, pick or create a Scene, and every change saves the Scene and its SVG back to that folder.
+## Quick start
 
-## Embedding the editor
+Follow these four steps to create, check, render, and edit a Scene:
 
-`ez bundle public/` writes the same editor as one file, `esbozo-0.0.0.js`, and a page of your own uses it with no esbozo page and no build step:
+1. Save this Scene as `flow.esbozo`:
 
-```html
-<esbozo-editor
-  scene="/sketches/flow.esbozo"
-  save="/api/scenes/flow.esbozo"
-  font="/fonts/Kalam-Regular.ttf"></esbozo-editor>
-<script type="module" src="/esbozo-0.0.0.js"></script>
+   ```json
+   {
+     "version": 1,
+     "title": "Orders flow",
+     "elements": [
+       { "id": "orders", "type": "rectangle", "x": 44, "y": 44, "width": 176, "height": 88, "label": "Orders" },
+       { "id": "billing", "type": "rectangle", "x": 330, "y": 44, "width": 176, "height": 88, "label": "Billing" },
+       {
+         "id": "orders-billing",
+         "type": "arrow",
+         "points": [
+           { "x": 132, "y": 88, "snap": "orders" },
+           { "x": 418, "y": 88, "snap": "billing" }
+         ]
+       }
+     ]
+   }
+   ```
+
+2. Validate the Scene schema, Snaps, and Label fit. A clean Scene prints nothing:
+
+   ```sh
+   ez check flow.esbozo
+   ```
+
+3. Render the Scene to `flow.svg` beside the source file:
+
+   ```sh
+   ez render flow.esbozo
+   ```
+
+4. Serve the current folder in the browser editor, open the printed URL, and stop the server with Ctrl+C:
+
+   ```sh
+   ez serve .
+   ```
+
+## Agent skill
+
+Install the bundled agent skill so coding agents learn the Scene schema and check-render loop:
+
+```sh
+ez skill install
 ```
 
-`scene` is a URL a `GET` answers the Scene's source on, `save` a URL a `PUT` takes `{ scene, svg }` on — the write [docs/save-api.md](docs/save-api.md) describes — and `font` the URL of the Kalam file the page draws and measures with, since the bundle never carries the font. Without `save` the editor is read-only and its status line says so; a `404` on `scene` opens an empty canvas that says `new Scene` and writes nothing until the first edit. The element is a 480px box in the page's content, every rule the bundle writes is rooted at it, and two elements on one page are two editors. [docs/embed.md](docs/embed.md) has the details: live attributes, the theme, the size, and what the bundle does and does not do.
-
-[docs/architecture.md](docs/architecture.md) explains how Scene, Layout, Renderer and Editor fit together.
+This command writes `~/.agents/skills/esbozo/SKILL.md`. Pass `--dir <path>` to write `<path>/esbozo/SKILL.md`, or run `ez skill` to print `SKILL.md` to stdout.
 
 ## Docker
 
-To run `ez serve` next to other services instead of from a clone:
+Before running the container, make sure the `diagrams` folder exists and is writable by uid 1000. Run the editor on that folder:
 
 ```sh
-docker build -t esbozo .
-docker run --rm -p 127.0.0.1:4320:4320 -v "$PWD/diagrams:/scenes" esbozo
+docker run --rm -p 127.0.0.1:4320:4320 -v "$PWD/diagrams:/scenes" ghcr.io/vieitesss/esbozo
 ```
 
-Open <http://127.0.0.1:4320/>. `diagrams` must exist already and be writable by the container's user (uid 1000). Arguments after the image name are the CLI's own, so `esbozo --read-only` works. [docs/docker.md](docs/docker.md) has the Linux owner-matching run, the multi-arch build, the port, who can reach the server and `pnpm test:docker`.
+Open `http://127.0.0.1:4320/` in your browser. Arguments after the image name pass to `ez serve`, such as `--read-only`. See [Docker](docs/docker.md) for Linux permissions, networking, and local image builds.
 
-## Licences
+## Uninstall
 
-The code is MIT: see [LICENSE](LICENSE). The bundled font, Kalam, is under the SIL Open Font License: see [fonts/OFL.txt](fonts/OFL.txt).
+```sh
+rm -f "${ESBOZO_INSTALL_DIR:-$HOME/.local/bin}/ez" "${ESBOZO_INSTALL_DIR:-$HOME/.local/bin}/esbozo"
+```
+
+## Documentation
+
+Read these pages for the full reference and contributor workflow:
+
+- [Scene schema](docs/schema.md) lists every Scene key, Element type, and style option.
+- [Save API](docs/save-api.md) describes `ez serve` flags, HTTP routes, and save guarantees.
+- [Embedding the editor](docs/embed.md) explains how to embed `<esbozo-editor>` with `ez bundle`.
+- [Docker](docs/docker.md) covers container permissions, networking, and local builds.
+- [Architecture](docs/architecture.md) describes how Scene, Layout, Renderer, Editor, and `cmd/ez` fit together.
+- [Development](docs/development.md) covers building from source, running tests, and contributing.
+- [Glossary](GLOSSARY.md) defines the esbozo vocabulary.
