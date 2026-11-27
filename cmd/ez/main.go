@@ -30,9 +30,8 @@ import (
 )
 
 // The codes the commands decide for themselves; 5 and 6 are the core's, which it
-// refuses a Scene with. 1 belongs to no command: an update `ez update` could not
-// make exits with the install script's own `fail`, because the script owns the
-// write the binary refuses here.
+// refuses a Scene with. 1 is `ez update`'s: the installer failed, or this binary
+// refused to run it.
 const (
 	exitOK            = 0
 	exitInstallFailed = 1
