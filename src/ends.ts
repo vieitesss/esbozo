@@ -11,12 +11,7 @@ import { anchorOf, anchorPoint, pointOnOutline } from './geometry.js';
 import { isOutlined, snapTargetId, elementsById } from './scene.js';
 import { drawnGeometry } from './renderer.js';
 import type { Anchor, ArrowOrLineElement, Element, OutlinedElement, Point, Scene } from './scene.js';
-
-/** The codes these edits refuse with, as `EXIT` in `src/cli.ts` defines them. */
-const EXIT = {
-  usage: 2,
-  invalidScene: 3,
-} as const;
+import { EXIT } from './exit.js';
 
 /*
  * An Anchor names a place on a Snap target's box, so the names below exist on

@@ -20,6 +20,7 @@ import { parseScene, serialiseScene } from './scene.js';
 import { renderPng } from './png.js';
 import type { PngOptions, Theme } from './png.js';
 import { sha256Hex } from './sha256.js';
+import { EXIT } from './exit.js';
 import type { AnchorWords, Change, Outcome } from './ends.js';
 import type { Layout } from './layout.js';
 import type { Scene } from './scene.js';
@@ -428,17 +429,6 @@ function readJson(text: string): unknown {
   }
   return value;
 }
-
-/**
- * The exit codes `render`, `check` and `png` use, copied from `EXIT` in
- * `src/cli.ts` because that table is not exported; the core answers them so a
- * host prints what the CLI prints.
- */
-const EXIT = {
-  invalidScene: 3,
-  missingThemeOrFont: 5,
-  labelOverflow: 6,
-} as const;
 
 /**
  * What `render` needs: the Scene's exact bytes, and where a `--font` flag pointed.

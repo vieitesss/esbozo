@@ -57,15 +57,7 @@
  * version is the one in `package.json`, and the bytes are the ones `pnpm build`
  * made — the same editor the served page shows, not a second copy of it.
  *
- * Exit codes — the one place they are defined, `EXIT`:
- *   0  the Scene is clean, was rendered, the PNG was written, the bundle was
- *      written, or the server stopped
- *   2  wrong arguments (unknown command, missing or extra arguments, bad flag)
- *   3  the Scene could not be read or parsed
- *   4  the output could not be written, the server could not start, or the
- *      editor is not built
- *   5  missing theme values, or a missing or unreadable font
- *   6  a Label that does not fit its Element (see `ez check`)
+ * Exit codes: the one place they are defined is `src/exit.ts`.
  *
  * Problems are plain text, one per line, on stderr, and name the Element they
  * belong to: `a: width must be at least 1 pixel, got 0`.
@@ -76,6 +68,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BUILD, BUILT_AT } from './build-id.js';
 import { anchorEditOf, anchorScene, refusal, snapEditOf, snapScene } from './ends.js';
+import { EXIT } from './exit.js';
 import { sceneStem, svgFileName } from './paths.js';
 import { parseScene, serialiseScene } from './scene.js';
 import { renderScene } from './renderer.js';
@@ -90,15 +83,6 @@ import { chooseFont, layoutFor, readStylesheet } from './font.js';
 import { USAGE_LINE, commandHelp, shouldBold, topLevelHelp } from './help.js';
 import type { HelpTopic } from './help.js';
 import type { Layout } from './layout.js';
-
-const EXIT = {
-  ok: 0,
-  usage: 2,
-  invalidScene: 3,
-  writeFailed: 4,
-  missingThemeOrFont: 5,
-  labelOverflow: 6,
-} as const;
 
 const DEFAULT_PORT = 4320;
 
