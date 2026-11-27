@@ -109,9 +109,13 @@ function os2Of(font) {
   };
 }
 
+const SFNT_HEADER_BYTES = 12;
+const SFNT_TABLE_RECORD_BYTES = 16;
+
 function fingerprint(bytes) {
-  const records = (bytes[4] << 8) | bytes[5];
-  return { byteLength: bytes.byteLength, directory: [...bytes.subarray(0, 12 + records * 16)] };
+  const tableCount = (bytes[4] << 8) | bytes[5];
+  const directoryLength = SFNT_HEADER_BYTES + tableCount * SFNT_TABLE_RECORD_BYTES;
+  return { byteLength: bytes.byteLength, directory: [...bytes.subarray(0, directoryLength)] };
 }
 
 function runsOf(points) {
