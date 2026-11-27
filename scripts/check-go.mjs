@@ -3,8 +3,9 @@
  * pointed at the built one, so both are checked here.
  *
  * In order: `go vet ./...`, then `gofmt -l` over the Go tree — any name it
- * prints is a file that is not formatted — then `go test ./...`, and last the
- * CLI suites with `EZ_BIN` naming the built binary. That last one needs
+ * prints is a file that is not formatted — then `go tool staticcheck ./...`, the
+ * acronym casing `gofmt` cannot see, then `go test ./...`, and last the CLI
+ * suites with `EZ_BIN` naming the built binary. That last one needs
  * `dist/ez` to exist: `pnpm build` writes it, and `pnpm check` runs this after
  * the step whose build does.
  *
@@ -77,6 +78,9 @@ async function main() {
     process.stderr.write(`check:go: gofmt would rewrite ${unformatted.join(', ')}\n`);
     return failed('gofmt', 1);
   }
+
+  const linted = await run('go', ['tool', 'staticcheck', './...']);
+  if (linted.status !== 0) return failed('go tool staticcheck', linted.status);
 
   const tested = await run('go', ['test', './...']);
   if (tested.status !== 0) return failed('go test', tested.status);
