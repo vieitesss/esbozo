@@ -79,10 +79,19 @@ func runScene(command string, argv []string, stdout, stderr io.Writer) int {
 		return exitInvalidScene
 	}
 
-	answer, err := core.Run(core.Command(command), source, core.Options{
-		FontPath: parsed.fontPath,
-		CSSPath:  parsed.cssPath,
-	})
+	// `render` draws an SVG and writes it; `check` measures and prints only.
+	var answer core.Result
+	var svg string
+	if command == "check" {
+		answer, err = core.Check(source, core.CheckOptions{
+			FontPath: parsed.fontPath,
+			CSSPath:  parsed.cssPath,
+		})
+	} else {
+		var rendered core.Rendered
+		rendered, err = core.Render(source, core.RenderOptions{FontPath: parsed.fontPath})
+		answer, svg = rendered.Result, rendered.SVG
+	}
 	if err != nil {
 		fmt.Fprintf(stderr, "ez could not run %s: %s\n", command, err)
 		return exitWriteFailed
@@ -106,7 +115,7 @@ func runScene(command string, argv []string, stdout, stderr io.Writer) int {
 		return exitWriteFailed
 	}
 	// 0666, as `writeFile` writes: the umask decides the rest.
-	if err := os.WriteFile(outputPath, []byte(answer.SVG), 0o666); err != nil {
+	if err := os.WriteFile(outputPath, []byte(svg), 0o666); err != nil {
 		fmt.Fprintf(stderr, "cannot write SVG %s: %s\n", outputPath, core.NodeMessage(err, outputPath, false))
 		return exitWriteFailed
 	}

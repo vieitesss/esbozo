@@ -88,7 +88,7 @@ func runPng(argv []string, stdout, stderr io.Writer) int {
 		return exitInvalidScene
 	}
 
-	answer, err := core.Run(core.PNG, source, core.Options{
+	image, err := core.PNG(source, core.PNGOptions{
 		FontPath: parsed.fontPath,
 		CSSPath:  parsed.cssPath,
 		Theme:    parsed.theme,
@@ -103,14 +103,14 @@ func runPng(argv []string, stdout, stderr io.Writer) int {
 
 	// A remote font falls back to Kalam without failing, and the CLI says so
 	// before anything else it has to say.
-	for _, note := range answer.Notes {
+	for _, note := range image.Notes {
 		fmt.Fprintln(stderr, note)
 	}
-	for _, problem := range answer.Problems {
+	for _, problem := range image.Problems {
 		fmt.Fprintln(stderr, problem)
 	}
-	if !answer.OK {
-		return answer.ExitCode
+	if !image.OK {
+		return image.ExitCode
 	}
 
 	outputPath, err := pngPathFor(parsed.scenePath, parsed.theme)
@@ -119,7 +119,7 @@ func runPng(argv []string, stdout, stderr io.Writer) int {
 		return exitWriteFailed
 	}
 	// 0666, as `writeFile` writes: the umask decides the rest.
-	if err := os.WriteFile(outputPath, answer.PNG, 0o666); err != nil {
+	if err := os.WriteFile(outputPath, image.PNG, 0o666); err != nil {
 		fmt.Fprintf(stderr, "cannot write PNG %s: %s\n", outputPath, core.NodeMessage(err, outputPath, false))
 		return exitWriteFailed
 	}

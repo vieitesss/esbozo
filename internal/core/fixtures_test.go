@@ -59,10 +59,10 @@ func TestCoreAnswers(t *testing.T) {
 			t.Fatal(err)
 		}
 		fixture := fixtureAnswers{Fixture: filepath.Base(path)}
-		fixture.Render = runAnswer(t, Render, source, "")
-		fixture.Check = runAnswer(t, Check, source, "")
-		fixture.PNGLight = runAnswer(t, PNG, source, "light")
-		fixture.PNGDark = runAnswer(t, PNG, source, "dark")
+		fixture.Render = renderAnswer(t, source)
+		fixture.Check = checkAnswer(t, source)
+		fixture.PNGLight = pngAnswer(t, source, "light")
+		fixture.PNGDark = pngAnswer(t, source, "dark")
 		written.Fixtures = append(written.Fixtures, fixture)
 	}
 
@@ -75,21 +75,50 @@ func TestCoreAnswers(t *testing.T) {
 	}
 }
 
-// runAnswer runs one command, failing the test rather than writing a half answer
+// renderAnswer runs `render`, failing the test rather than writing a half answer
 // the comparison would then have to explain.
-func runAnswer(t *testing.T, command Command, source []byte, theme string) answer {
+func renderAnswer(t *testing.T, source []byte) answer {
 	t.Helper()
-	ran, err := Run(command, source, Options{Theme: theme})
+	rendered, err := Render(source, RenderOptions{})
 	if err != nil {
-		t.Fatalf("%s: %v", command, err)
+		t.Fatalf("render: %v", err)
 	}
+	written := answered(rendered.Result)
+	written.SVG = rendered.SVG
+	return written
+}
+
+// checkAnswer runs `check`, which writes no file: its answer is the lines it
+// refuses with.
+func checkAnswer(t *testing.T, source []byte) answer {
+	t.Helper()
+	checked, err := Check(source, CheckOptions{})
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	return answered(checked)
+}
+
+// pngAnswer runs `png` in one theme.
+func pngAnswer(t *testing.T, source []byte, theme string) answer {
+	t.Helper()
+	image, err := PNG(source, PNGOptions{Theme: theme})
+	if err != nil {
+		t.Fatalf("png %s: %v", theme, err)
+	}
+	written := answered(image.Result)
+	written.PNG = image.PNG
+	return written
+}
+
+// answered is what every command answers, as the comparison writes it; each
+// command's own field is set beside these.
+func answered(result Result) answer {
 	return answer{
-		OK:       ran.OK,
-		ExitCode: ran.ExitCode,
-		SVG:      ran.SVG,
-		PNG:      ran.PNG,
-		Problems: listed(ran.Problems),
-		Notes:    listed(ran.Notes),
+		OK:       result.OK,
+		ExitCode: result.ExitCode,
+		Problems: listed(result.Problems),
+		Notes:    listed(result.Notes),
 	}
 }
 
@@ -101,8 +130,8 @@ func listed(problems []string) []string {
 	return problems
 }
 
-// BenchmarkRenderEveryElement measures a cold Run: every iteration starts a goja
-// runtime, as every `ez` command does.
+// BenchmarkRenderEveryElement measures a cold Render: every iteration starts a
+// goja runtime, as every `ez` command does, over the bundle compiled once.
 func BenchmarkRenderEveryElement(b *testing.B) {
 	source, err := os.ReadFile("../../test/fixtures/every-element.json")
 	if err != nil {
@@ -110,12 +139,12 @@ func BenchmarkRenderEveryElement(b *testing.B) {
 	}
 
 	for b.Loop() {
-		ran, err := Run(Render, source, Options{})
+		rendered, err := Render(source, RenderOptions{})
 		if err != nil {
 			b.Fatal(err)
 		}
-		if !ran.OK || ran.SVG == "" {
-			b.Fatalf("render drew nothing: exit %d, %v", ran.ExitCode, ran.Problems)
+		if !rendered.OK || rendered.SVG == "" {
+			b.Fatalf("render drew nothing: exit %d, %v", rendered.ExitCode, rendered.Problems)
 		}
 	}
 }

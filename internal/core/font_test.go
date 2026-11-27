@@ -40,11 +40,11 @@ func TestRenderMatchesRuntimeFontParse(t *testing.T) {
 	parsedFont := copyOfBundledFont(t)
 	source := []byte(advanceScene)
 
-	measured, err := Run(Render, source, Options{})
+	measured, err := Render(source, RenderOptions{})
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	parsed, err := Run(Render, source, Options{FontPath: parsedFont})
+	parsed, err := Render(source, RenderOptions{FontPath: parsedFont})
 	if err != nil {
 		t.Fatalf("render --font: %v", err)
 	}
