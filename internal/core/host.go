@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"syscall"
 
 	"github.com/dop251/goja"
 
@@ -50,7 +51,7 @@ func installHost(vm *goja.Runtime) error {
 		path := call.Argument(0).String()
 		bytes, err := os.ReadFile(path)
 		if err != nil {
-			panic(vm.NewGoError(errors.New(hostMessage(err, path))))
+			panic(vm.NewGoError(errors.New(NodeMessage(err, path, true))))
 		}
 		return vm.ToValue(string(bytes))
 	}); err != nil {
@@ -61,7 +62,7 @@ func installHost(vm *goja.Runtime) error {
 		path := call.Argument(0).String()
 		bytes, err := os.ReadFile(path)
 		if err != nil {
-			panic(vm.NewGoError(errors.New(hostMessage(err, path))))
+			panic(vm.NewGoError(errors.New(NodeMessage(err, path, true))))
 		}
 		return vm.ToValue(vm.NewArrayBuffer(bytes))
 	}); err != nil {
@@ -127,15 +128,28 @@ func bytesOf(value goja.Value) ([]byte, error) {
 	return nil, fmt.Errorf("expected bytes, got %s", value.ExportType())
 }
 
-// hostMessage is a read error as Node words it, because the core's messages are
-// built around Node's: `cannot read font x: ENOENT: no such file or directory,
-// open 'x'`. Anything else keeps Go's own wording.
-func hostMessage(err error, path string) string {
-	if errors.Is(err, fs.ErrNotExist) {
+// NodeMessage is a file error as Node words it, because every message `ez`
+// prints about a file is built around Node's: `cannot read font x: ENOENT: no
+// such file or directory, open 'x'`. Go already carries the code and the reason;
+// what Node adds is the call that made it, which is `open` for a path it could
+// not open and `read` for the read of a directory that failed. Anything else
+// keeps Go's own wording.
+//
+// Both the core's reads, which the host makes on its behalf, and the command
+// line's own reads and writes say it through here, so one path cannot drift
+// from the other.
+func NodeMessage(err error, path string, reading bool) string {
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
 		return fmt.Sprintf("ENOENT: no such file or directory, open '%s'", path)
-	}
-	if errors.Is(err, fs.ErrPermission) {
+	case errors.Is(err, fs.ErrPermission):
 		return fmt.Sprintf("EACCES: permission denied, open '%s'", path)
+	case errors.Is(err, syscall.EISDIR) && reading:
+		return "EISDIR: illegal operation on a directory, read"
+	case errors.Is(err, syscall.EISDIR):
+		return fmt.Sprintf("EISDIR: illegal operation on a directory, open '%s'", path)
+	case errors.Is(err, syscall.ENOTDIR):
+		return fmt.Sprintf("ENOTDIR: not a directory, open '%s'", path)
 	}
 	return err.Error()
 }

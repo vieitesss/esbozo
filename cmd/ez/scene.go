@@ -8,14 +8,11 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	"esbozo/internal/core"
 )
@@ -93,7 +90,7 @@ func runScene(command string, argv []string, stdout, stderr io.Writer) int {
 
 	source, err := os.ReadFile(parsed.scenePath)
 	if err != nil {
-		fmt.Fprintf(stderr, "cannot read Scene %s: %s\n", parsed.scenePath, nodeMessage(err, parsed.scenePath, true))
+		fmt.Fprintf(stderr, "cannot read Scene %s: %s\n", parsed.scenePath, core.NodeMessage(err, parsed.scenePath, true))
 		return exitInvalidScene
 	}
 
@@ -121,7 +118,7 @@ func runScene(command string, argv []string, stdout, stderr io.Writer) int {
 	outputPath := svgPathFor(parsed.scenePath)
 	// 0666, as `writeFile` writes: the umask decides the rest.
 	if err := os.WriteFile(outputPath, []byte(answer.SVG), 0o666); err != nil {
-		fmt.Fprintf(stderr, "cannot write SVG %s: %s\n", outputPath, nodeMessage(err, outputPath, false))
+		fmt.Fprintf(stderr, "cannot write SVG %s: %s\n", outputPath, core.NodeMessage(err, outputPath, false))
 		return exitWriteFailed
 	}
 	fmt.Fprintln(stdout, outputPath)
@@ -154,25 +151,4 @@ func sceneStem(name string) string {
 		}
 	}
 	return name
-}
-
-// nodeMessage is a file error as Node words it, because the CLI's messages are
-// Node's: `cannot read Scene a.json: ENOENT: no such file or directory, open
-// 'a.json'`. Go already carries the code and the reason; what Node adds is the
-// call that made it, which is `open` unless a read got as far as reading a
-// directory.
-func nodeMessage(err error, path string, reading bool) string {
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		return fmt.Sprintf("ENOENT: no such file or directory, open '%s'", path)
-	case errors.Is(err, fs.ErrPermission):
-		return fmt.Sprintf("EACCES: permission denied, open '%s'", path)
-	case errors.Is(err, syscall.EISDIR) && reading:
-		return fmt.Sprintf("EISDIR: illegal operation on a directory, read")
-	case errors.Is(err, syscall.EISDIR):
-		return fmt.Sprintf("EISDIR: illegal operation on a directory, open '%s'", path)
-	case errors.Is(err, syscall.ENOTDIR):
-		return fmt.Sprintf("ENOTDIR: not a directory, open '%s'", path)
-	}
-	return err.Error()
 }
