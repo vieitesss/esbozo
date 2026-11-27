@@ -14,7 +14,8 @@
 //	ez anchor <scene> <element> <start|end> <place>
 //	ez anchor <scene> --all
 //	ez snap <scene> <element> <start|end> <target|off>
-//	ez serve* / bundle* / skill*
+//	ez skill [install [--dir <path>]]
+//	ez serve* / bundle*
 //	ez --version
 package main
 
@@ -60,13 +61,15 @@ func run(argv []string, stdout, stderr io.Writer) int {
 		return runAnchor(rest, stdout, stderr)
 	case "snap":
 		return runSnap(rest, stdout, stderr)
+	case "skill":
+		return runSkill(rest, stdout, stderr)
 	case "--help":
 		fmt.Fprint(stdout, topLevelHelp(shouldBold(stdout)))
 		return exitOK
 	case "--version":
 		fmt.Fprintln(stdout, esbozo.Stamp)
 		return exitOK
-	case "serve", "bundle", "skill":
+	case "serve", "bundle":
 		fmt.Fprintf(stderr, "ez %s is not yet ported to Go\n", command)
 		return exitUsage
 	}

@@ -977,6 +977,8 @@ async function committedSources(): Promise<string> {
     'assets.go',
     'cmd',
     'internal',
+    // `ez skill` serves the skill the binary carries, so the build reads it too.
+    'skills',
   ]) {
     await cp(join(ROOT, path), join(folder, path), { recursive: true });
   }
