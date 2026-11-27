@@ -1,5 +1,5 @@
 /**
- * The Go half of `pnpm check`: `go vet`, `gofmt`, `staticcheck`, `go test`, then
+ * The Go half of `pnpm check`: `go vet`, `deadcode`, `gofmt`, `staticcheck`, `go test`, then
  * the CLI suites with `EZ_BIN` naming `dist/ez`, which must be newer than the
  * files it is built from.
  *
@@ -86,6 +86,10 @@ async function stale(built) {
 async function main() {
   const vet = await run('go', ['vet', './...']);
   if (vet.status !== 0) return failed('go vet', vet.status);
+
+  const dead = await run('go', ['tool', 'deadcode', './cmd/ez']);
+  if (dead.status !== 0) return failed('deadcode', dead.status);
+  if (dead.out.trim() !== '') return failed('deadcode', 1);
 
   const gofmt = await run('gofmt', ['-l', ...GOFMT_PATHS]);
   const unformatted = gofmt.out
