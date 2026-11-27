@@ -45,10 +45,7 @@ const REFUSED_TEXTS = ['NaN', 'Infinity', 'undefined'];
 
 const SURROGATE_ESCAPE = /\\u[dD][89a-fA-F]/;
 
-const v8Parse = (text: string, reviver?: unknown): unknown => {
-  if (reviver !== undefined) {
-    return (engineParse as (text: string, reviver?: unknown) => unknown)(text, reviver);
-  }
+const v8Parse = (text: string): unknown => {
   const source = String(text);
   if (REFUSED_TEXTS.includes(source)) {
     throw new SyntaxError(`"${source}" is not valid JSON`);
