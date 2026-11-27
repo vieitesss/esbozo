@@ -415,6 +415,25 @@ test('a font that cannot be read exits 5', async () => {
   }
 });
 
+test('an empty @font-face url reads the stylesheet folder and exits 5', async () => {
+  const folder = await sceneFolder(FITS);
+  await writeFile(
+    join(folder, 'theme.css'),
+    [':root { --font-hand: "K"; }', '@font-face { font-family: "K"; src: url(""); }', ''].join('\n'),
+    'utf8',
+  );
+
+  const run = await ez(['check', 'scene.json', '--css', 'theme.css'], folder);
+
+  // `path.resolve` ignores an empty part, so the url names the folder the
+  // stylesheet is in: a failed read of it, not a crash and not exit 4.
+  assert.equal(run.code, 5);
+  assert.equal(
+    run.stderr,
+    'cannot read font  (from theme.css): EISDIR: illegal operation on a directory, read\n',
+  );
+});
+
 test('a file error names the call that failed, for --font and --css', async () => {
   const folder = await sceneFolder(FITS);
   await mkdir(join(folder, 'adir'));
