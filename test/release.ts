@@ -6,13 +6,15 @@
  * and the `ez-<os>-<arch>.gz` asset — served over HTTP on the port the operating
  * system picks, so no test reaches GitHub. Both suites ask this module, so the
  * release the script downloads and the release the binary re-runs the script
- * against cannot drift apart.
+ * against cannot drift apart, and so the one way they run a subprocess is here.
  */
+import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { arch, platform } from 'node:process';
 import { gzipSync } from 'node:zlib';
+import type { Run } from './cli.ts';
 
 /** The asset the script asks for on this machine. */
 const OS = platform === 'darwin' ? 'darwin' : 'linux';
@@ -34,6 +36,23 @@ export function release(
     ['SHA256SUMS', Buffer.from(line(digest, ASSET))],
     [ASSET, archive],
   ]);
+}
+
+/**
+ * One command run with `env` on top of this process's own, its exit code read
+ * whether it succeeded or not.
+ */
+export function run(
+  file: string,
+  args: readonly string[],
+  env: NodeJS.ProcessEnv = {},
+): Promise<Run> {
+  return new Promise((ended) => {
+    execFile(file, [...args], { env: { ...process.env, ...env } }, (error, stdout, stderr) => {
+      const code = error === null ? 0 : typeof error.code === 'number' ? error.code : -1;
+      ended({ code, stdout, stderr });
+    });
+  });
 }
 
 /** Every release folder the run can ask for, by the path the script asks for. */

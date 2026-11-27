@@ -9,12 +9,13 @@
  * no test reaches GitHub.
  */
 import assert from 'node:assert/strict';
-import { execFile, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { chmod, lstat, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { EZ, release, startRelease, type FakeRelease } from './release.ts';
+import type { Run } from './cli.ts';
+import { EZ, release, run, startRelease, type FakeRelease } from './release.ts';
 import { removeTempFolders, tempFolder } from './temp.ts';
 
 const INSTALL = fileURLToPath(new URL('../scripts/install.sh', import.meta.url));
@@ -29,11 +30,9 @@ const SHELLS =
     : ['sh'];
 
 let server: FakeRelease;
-let releaseUrl: string;
 
 before(async () => {
   server = await startRelease();
-  releaseUrl = server.url;
 });
 
 after(async () => {
@@ -41,28 +40,13 @@ after(async () => {
   await removeTempFolders();
 });
 
-/** What one run of the script left: its exit code and its two streams. */
-interface Run {
-  readonly code: number;
-  readonly stdout: string;
-  readonly stderr: string;
-}
-
 /** `sh scripts/install.sh` (or `shell`) with `args`, pointed at the fake release. */
 function install(
   args: readonly string[],
   env: NodeJS.ProcessEnv = {},
   shell = 'sh',
 ): Promise<Run> {
-  const options = {
-    env: { ...process.env, ESBOZO_RELEASE_URL: releaseUrl, ...env },
-  };
-  return new Promise((ended) => {
-    execFile(shell, [INSTALL, ...args], options, (error, stdout, stderr) => {
-      const code = error === null ? 0 : typeof error.code === 'number' ? error.code : -1;
-      ended({ code, stdout, stderr });
-    });
-  });
+  return run(shell, [INSTALL, ...args], { ESBOZO_RELEASE_URL: server.url, ...env });
 }
 
 /**
@@ -77,12 +61,7 @@ async function unreachable(): Promise<string> {
 
 /** What running one installed `ez` prints, and what it exits with. */
 function runInstalled(file: string): Promise<Run> {
-  return new Promise((ended) => {
-    execFile(file, [], (error, stdout, stderr) => {
-      const code = error === null ? 0 : typeof error.code === 'number' ? error.code : -1;
-      ended({ code, stdout, stderr });
-    });
-  });
+  return run(file, []);
 }
 
 test('when no flag is given, installs the latest Release with an esbozo symlink beside ez', async () => {
