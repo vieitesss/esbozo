@@ -1,5 +1,5 @@
 /**
- * Script seam: `ez update` re-running the install script the binary carries.
+ * CLI seam: `ez update` re-running the install script the binary carries.
  *
  * `ez update` is the Go binary's alone — the TS CLI never grows the command — so
  * these cases run `dist/ez` itself, not the `EZ_BIN` seam. Every case but the
