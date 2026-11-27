@@ -24,7 +24,7 @@ Each module depends only on the ones before it:
 
 Nothing depends backwards: Scene knows nothing of rendering, Layout knows nothing of SVG, and the Renderer knows nothing of a browser or a file.
 
-The CLI and the editor meet only at run time, in one place: `ez serve` answers the editor's built page files (`editor.html`, `editor.css`, `editor.js` and the font) to a browser, and `assets.go` embeds them beside the core, so the binary carries them. It never loads that code itself. If those files are missing, `serve` exits `4`.
+The CLI and the editor meet only at run time, in one place: `ez serve` answers the editor's built page files (`editor.html`, `editor.css`, `editor.js` and the font) to a browser, and `assets.go` embeds them beside the core, so the binary carries them. It never loads that code itself, and a binary that carries them cannot find one missing: `serve` exits `4` only when it cannot start — the folder cannot be read, the port is taken, or the core runtime will not open.
 
 ## One font, three readers
 

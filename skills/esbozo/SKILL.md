@@ -46,7 +46,7 @@ For a diagram that belongs to a site, pass its own values: `--css <stylesheet>` 
 
 1. Start it in the background. It prints `serving <folder> on http://127.0.0.1:<port>/ (build <id>, <time>)`; give the person that URL. `--port 0` picks a free port: read it from that line, and `curl <url>/api/health` answers the same `build` and `builtAt`, so a server already running can be told apart from the one you just started (and from an earlier build of the same commit).
 2. Keep the default host (this machine only; the API has no authentication). Add `--read-only` for a person who only wants to look.
-3. It exits `4` when it cannot start (port taken: pass another `--port`; editor not built: run `pnpm build`). `SIGINT` or `SIGTERM` stops it with `0`.
+3. It exits `4` when it cannot start (port taken: pass another `--port`; folder cannot be read). `SIGINT` or `SIGTERM` stops it with `0`.
 4. Keep writing the Scene file, `ez check` it and `ez render` it as before. The page reads a Scene when the person opens it, so ask them to reload after you change the file. A Scene open in the page is saved over your file the next time the person edits it: leave a Scene they are editing alone.
 
 Only top-level `*.esbozo` files in `<dir>` are Scenes, and a `*.json` file there is one only when it holds a Scene: other JSON is left out of the list. Flags, routes and what a save guarantees are in `docs/save-api.md` of the esbozo repository.
