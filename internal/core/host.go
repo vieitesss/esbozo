@@ -42,8 +42,9 @@ func newRuntime() (*goja.Runtime, error) {
 // `src/font.ts` imports: the binary embeds Kalam anyway, so the bundle asks for
 // those bytes rather than carrying a base64 copy. `bundledFontMetrics` is that
 // seam one step further — the parse of those bytes, taken at build time — and is
-// `null` when the build could not prove one. A failed read throws, because the
-// core's own error messages are built from the exception's `message`.
+// the JSON text `null` when the build could not prove one, which the shim reads
+// as no table at all. A failed read throws, because the core's own error
+// messages are built from the exception's `message`.
 func installHost(vm *goja.Runtime) error {
 	host := vm.NewObject()
 

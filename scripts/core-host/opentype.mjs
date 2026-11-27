@@ -17,8 +17,10 @@ let table;
 /** The measurements the build took, or null when it took none. */
 function metrics() {
   if (table === undefined) {
-    const json = globalThis.__ezHost?.bundledFontMetrics();
-    table = json === undefined || json === '' ? null : JSON.parse(json);
+    // The host answers the text `scripts/build-core.mjs` wrote, which is `null`
+    // when the build could not prove a table: `JSON.parse` makes that the null
+    // this module measures nothing from.
+    table = JSON.parse(globalThis.__ezHost.bundledFontMetrics());
   }
   return table;
 }
