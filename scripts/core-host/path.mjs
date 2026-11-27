@@ -20,15 +20,19 @@ export function dirname(path) {
 /**
  * A path against a base, as Node's `resolve` answers it: the last absolute part
  * is the base, every part after it is joined on, and a result with no absolute
- * part sits in the host's working folder.
+ * part sits in the host's working folder. An empty part names the folder the
+ * parts around it already name, so it adds nothing.
  */
 export function resolve(...parts) {
   let resolved = '';
   let absolute = false;
   for (let index = parts.length - 1; index >= 0 && !absolute; index -= 1) {
     const part = parts[index];
-    if (typeof part !== 'string' || part === '') {
+    if (typeof part !== 'string') {
       throw new TypeError('resolve needs a path');
+    }
+    if (part === '') {
+      continue;
     }
     resolved = `${part}/${resolved}`;
     absolute = part.startsWith('/');
