@@ -20,6 +20,13 @@ import { PAGE_ASSETS } from '../src/page-assets.ts';
 
 const cliOutfile = 'dist/cli.js';
 
+/**
+ * What `ez serve` names as the build it is, and when that build ran, computed
+ * once: the CLI is stamped with this pair, and so are the files `assets.go`
+ * embeds, so the two cannot name two different builds.
+ */
+const buildStamp = { id: buildId(gitAnswer), at: buildTime(new Date()) };
+
 await build({
   entryPoints: ['src/cli.ts'],
   outfile: cliOutfile,
@@ -34,8 +41,8 @@ await build({
   // is the one they started. The page and the bundle are not stamped, so what
   // they render is the same bytes either way.
   define: {
-    STAMPED_BUILD: JSON.stringify(buildId(gitAnswer)),
-    STAMPED_BUILT_AT: JSON.stringify(buildTime(new Date())),
+    STAMPED_BUILD: JSON.stringify(buildStamp.id),
+    STAMPED_BUILT_AT: JSON.stringify(buildStamp.at),
   },
   logLevel: 'info',
 });
@@ -128,14 +135,13 @@ execFileSync(process.execPath, ['scripts/build-core.mjs'], { stdio: 'inherit' })
 execFileSync(process.execPath, ['scripts/version-stamp.mjs', 'dist/version'], { stdio: 'inherit' });
 
 /**
- * What `ez serve` names as the build it is, and when that build ran: the same
- * answers `buildId` and `buildTime` give the TypeScript CLI's own stamp, written
- * beside the version so that `assets.go` embeds them and the binary reads
- * nothing at run time. The startup line and `/api/health` end with this pair, so
- * a server someone finds running can say whether it is the one they started.
+ * The same pair, written beside the version so that `assets.go` embeds them and
+ * the binary reads nothing at run time. The startup line and `/api/health` end
+ * with this pair, so a server someone finds running can say whether it is the
+ * one they started.
  */
-await writeFile('dist/build-id', `${buildId(gitAnswer)}\n`);
-await writeFile('dist/built-at', `${buildTime(new Date())}\n`);
+await writeFile('dist/build-id', `${buildStamp.id}\n`);
+await writeFile('dist/built-at', `${buildStamp.at}\n`);
 
 /**
  * The one static binary: the bundle above, Kalam, and what measuring it yielded,
