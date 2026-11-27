@@ -110,7 +110,7 @@ type SnapOptions struct {
 // Render answers `ez render` over a Scene's bytes.
 func Render(source []byte, options RenderOptions) (Rendered, error) {
 	var rendered Rendered
-	err := run(nil, "render", source, map[string]interface{}{"fontPath": options.FontPath},
+	err := runOnce("render", source, map[string]interface{}{"fontPath": options.FontPath},
 		func(answer *goja.Object) error {
 			rendered = Rendered{Result: resultOf(answer), SVG: answer.Get("svg").String()}
 			return nil
@@ -122,7 +122,7 @@ func Render(source []byte, options RenderOptions) (Rendered, error) {
 // with.
 func Check(source []byte, options CheckOptions) (Result, error) {
 	var result Result
-	err := run(nil, "check", source, map[string]interface{}{
+	err := runOnce("check", source, map[string]interface{}{
 		"fontPath": options.FontPath,
 		"cssPath":  options.CSSPath,
 	}, func(answer *goja.Object) error {
@@ -135,7 +135,7 @@ func Check(source []byte, options CheckOptions) (Result, error) {
 // PNG answers `ez png` over a Scene's bytes: the image the Scene draws to.
 func PNG(source []byte, options PNGOptions) (Image, error) {
 	var image Image
-	err := run(nil, "png", source, map[string]interface{}{
+	err := runOnce("png", source, map[string]interface{}{
 		"fontPath": options.FontPath,
 		"cssPath":  options.CSSPath,
 		"theme":    options.Theme,
@@ -163,7 +163,7 @@ func PNG(source []byte, options PNGOptions) (Image, error) {
 // could not read, and answers only whether the command's words stand.
 func Anchor(source []byte, options AnchorOptions) (Edited, error) {
 	var edited Edited
-	err := run(nil, "anchor", source, map[string]interface{}{
+	err := runOnce("anchor", source, map[string]interface{}{
 		"all":       options.All,
 		"elementId": options.ElementID,
 		"end":       options.End,
@@ -180,7 +180,7 @@ func Anchor(source []byte, options AnchorOptions) (Edited, error) {
 // read, and answers only whether the command's words stand.
 func Snap(source []byte, options SnapOptions) (Edited, error) {
 	var edited Edited
-	err := run(nil, "snap", source, map[string]interface{}{
+	err := runOnce("snap", source, map[string]interface{}{
 		"elementId": options.ElementID,
 		"end":       options.End,
 		"target":    options.Target,
@@ -227,11 +227,21 @@ func Open() (*Session, error) {
 // Scene from any other JSON without paying for a Layout.
 func (session *Session) Parse(source []byte) (Result, error) {
 	var result Result
-	err := run(session, "parse", source, nil, func(answer *goja.Object) error {
+	err := session.run("parse", source, nil, func(answer *goja.Object) error {
 		result = resultOf(answer)
 		return nil
 	})
 	return result, err
+}
+
+// runOnce answers one command in a runtime of its own: one opened here and thrown
+// away with the answer, down the same path a session the host keeps takes.
+func runOnce(kind string, source []byte, fields map[string]interface{}, read func(*goja.Object) error) error {
+	session, err := Open()
+	if err != nil {
+		return err
+	}
+	return session.run(kind, source, fields, read)
 }
 
 // run answers one command: `begin` starts `kind` over the Scene and the fields
@@ -240,18 +250,7 @@ func (session *Session) Parse(source []byte) (Result, error) {
 // the host keeps — behind this lock, when more than one command shares it — is only
 // ever touched from inside here. Only the fields a command takes are in its
 // request, so no command reads a field another one named.
-//
-// A nil session is a command that runs once: its runtime is opened here and thrown
-// away with the answer, down the same path a warm one takes.
-func run(session *Session, kind string, source []byte, fields map[string]interface{}, read func(*goja.Object) error) error {
-	if session == nil {
-		opened, err := Open()
-		if err != nil {
-			return err
-		}
-		session = opened
-	}
-
+func (session *Session) run(kind string, source []byte, fields map[string]interface{}, read func(*goja.Object) error) error {
 	session.mu.Lock()
 	defer session.mu.Unlock()
 	vm := session.vm
