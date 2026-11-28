@@ -8,31 +8,15 @@ import { sha256Hex } from './sha256.js';
 import { EXIT } from './exit.js';
 import { command, keysOf, protocolOf } from './core-runner.js';
 import type { Result } from './core-runner.js';
+import { host } from './core-host.js';
 import type { AnchorWords, Change, Outcome } from './ends.js';
 import type { Layout } from './layout.js';
 import type { Scene } from './scene.js';
 
-interface EzHost {
-  readText(path: string): string;
-  readBytes(path: string): ArrayBuffer;
-  encodeUtf8(text: string): ArrayBuffer;
-  decodeUtf8(bytes: ArrayBuffer): string;
-  sha256(bytes: Uint8Array): ArrayBuffer;
-  cwd(): string;
-  bundledFont(): ArrayBuffer;
-  bundledFontMetrics(): string;
-  rasterise(svg: string, options: string): ArrayBuffer;
-}
-
-declare global {
-  // eslint-disable-next-line no-var
-  var __ezHost: EzHost;
-}
-
 // goja has no TextEncoder global; back it with the host's UTF-8 encoder.
 (globalThis as unknown as Record<string, unknown>).TextEncoder = class {
   encode(text = ''): Uint8Array {
-    return new Uint8Array(globalThis.__ezHost.encodeUtf8(String(text)));
+    return new Uint8Array(host().encodeUtf8(String(text)));
   }
 };
 
@@ -431,7 +415,7 @@ function problemLines(problems: readonly { elementId: string | null; message: st
 
 function loadScene(source: ArrayBuffer) {
   const bytes = new Uint8Array(source);
-  return { bytes, parsed: readAsV8(() => parseScene(globalThis.__ezHost.decodeUtf8(source))) };
+  return { bytes, parsed: readAsV8(() => parseScene(host().decodeUtf8(source))) };
 }
 
 async function render(request: RenderRequest): Promise<Rendered> {
