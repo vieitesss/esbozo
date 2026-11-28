@@ -28,6 +28,23 @@ test('ez --version prints the version package.json declares and the commit it wa
   assert.equal(result.stdout, `${version}-main+${head}\n`);
 });
 
+test('a build with no `.git` stamps the commit it is handed, not unknown', async () => {
+  const folder = await tempFolder();
+  const stamp = join(folder, 'version');
+  const { version } = JSON.parse(await readFile(join(ROOT, 'package.json'), 'utf8')) as {
+    version: string;
+  };
+
+  // The image's build context carries no `.git`, so the workflow that builds it
+  // names the commit instead: without that name every image would say `unknown`.
+  await run(process.execPath, [join(ROOT, 'scripts/version-stamp.mjs'), stamp], {
+    cwd: folder,
+    env: { ...process.env, ESBOZO_RELEASE: '', ESBOZO_COMMIT: 'abc1234' },
+  });
+
+  assert.equal(await readFile(stamp, 'utf8'), `${version}-main+abc1234\n`);
+});
+
 test('a Release build stamps the version alone, with no Main suffix', async () => {
   const folder = await tempFolder();
   const stamp = join(folder, 'version');
