@@ -29,6 +29,7 @@ const ASSET = `ez-${GOOS}-${arch}.gz`;
 let version: string;
 let stamp: string;
 let outdir: string;
+let files: Map<string, Buffer>;
 let server: FakeRelease;
 
 before(async () => {
@@ -45,10 +46,11 @@ before(async () => {
   });
   assert.equal(built.status, 0, built.stderr);
 
-  const files = new Map<string, Buffer>();
+  const written = new Map<string, Buffer>();
   for (const name of await readdir(outdir)) {
-    files.set(name, await readFile(join(outdir, name)));
+    written.set(name, await readFile(join(outdir, name)));
   }
+  files = written;
   server = await startRelease(new Map([[`/download/v${version}`, files]]));
 });
 
@@ -81,4 +83,26 @@ test('installs the archive, and the installed ez prints the version this build s
     stdout: `${stamp}\n`,
     stderr: '',
   });
+});
+
+test('refuses a download the SHA256SUMS this release wrote does not match', async () => {
+  // One flipped byte: the archive still unzips, so only the sum can tell.
+  const tampered = new Map(files);
+  const archive = Buffer.from(tampered.get(ASSET) ?? Buffer.alloc(0));
+  archive[0] = (archive[0] ?? 0) ^ 0xff;
+  tampered.set(ASSET, archive);
+  const corrupt = await startRelease(new Map([[`/download/v${version}`, tampered]]));
+  const bin = join(await tempFolder(), 'bin');
+
+  try {
+    const refused = await run('sh', [INSTALL, '--dir', bin, '--version', version], {
+      ESBOZO_RELEASE_URL: corrupt.url,
+    });
+
+    assert.equal(refused.code, 1, refused.stderr);
+    assert.match(refused.stderr, /checksum mismatch/);
+    assert.deepEqual(await readdir(bin), [], 'nothing is installed');
+  } finally {
+    await corrupt.close();
+  }
 });
