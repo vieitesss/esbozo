@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInThisContext } from 'node:vm';
-import { installHost } from './core-host/host.ts';
+import { arrayBufferOf, installHost } from './core-host/host.ts';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const CORE = join(ROOT, 'dist/core.js');
@@ -23,10 +23,6 @@ await installHost();
 // in this context defines as a global; `import` would keep it module-scoped.
 runInThisContext(readFileSync(CORE, 'utf8'), { filename: CORE });
 const core = globalThis.__ezCore;
-
-function arrayBufferOf(bytes) {
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-}
 
 /**
  * One command's answer, as both sides write it. `begin` starts the command and

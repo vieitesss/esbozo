@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { before, test } from 'node:test';
 import { runInThisContext } from 'node:vm';
-import { installHost } from '../scripts/core-host/host.ts';
+import { arrayBufferOf, installHost } from '../scripts/core-host/host.ts';
 import type { EzHost } from '../src/core-host.ts';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -32,10 +32,6 @@ interface Described extends Answer {
 interface Core {
   begin(request: object, kind: string): void;
   answer(): Answer;
-}
-
-function arrayBufferOf(bytes: Buffer): ArrayBuffer {
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
 
 let core: Core;

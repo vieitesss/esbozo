@@ -56,6 +56,6 @@ export async function installHost(): Promise<EzHost> {
   return installed;
 }
 
-function arrayBufferOf(bytes: Uint8Array): ArrayBuffer {
+export function arrayBufferOf(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
