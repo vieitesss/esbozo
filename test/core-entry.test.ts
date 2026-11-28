@@ -5,11 +5,12 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { before, test } from 'node:test';
 import { runInThisContext } from 'node:vm';
+import { installHost } from '../scripts/core-host/host.ts';
+import type { EzHost } from '../src/core-host.ts';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const CORE = join(ROOT, 'dist/core.js');
 const SCENE = join(ROOT, 'test/fixtures/small.json');
-const KALAM = join(ROOT, 'fonts/Kalam-Regular.ttf');
 
 interface RenderRequest {
   source: ArrayBuffer;
@@ -33,37 +34,15 @@ interface Core {
   answer(): Answer;
 }
 
-interface Host {
-  readText(path: string): string;
-  readBytes(path: string): ArrayBuffer;
-  encodeUtf8(text: string): ArrayBuffer;
-  decodeUtf8(bytes: ArrayBuffer): string;
-  cwd(): string;
-  bundledFont(): ArrayBuffer;
-  bundledFontMetrics(): string;
-}
-
 function arrayBufferOf(bytes: Buffer): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
 
-function host(): Host {
-  const font = readFileSync(KALAM);
-  return {
-    readText: (path) => readFileSync(String(path), 'utf8'),
-    readBytes: (path) => arrayBufferOf(readFileSync(String(path))),
-    encodeUtf8: (text) => arrayBufferOf(Buffer.from(String(text), 'utf8')),
-    decodeUtf8: (bytes) => Buffer.from(new Uint8Array(bytes)).toString('utf8'),
-    cwd: () => process.cwd(),
-    bundledFont: () => arrayBufferOf(font),
-    bundledFontMetrics: () => readFileSync(join(ROOT, 'dist/font-metrics.json'), 'utf8'),
-  };
-}
-
 let core: Core;
+let host: EzHost;
 
-before(() => {
-  (globalThis as unknown as { __ezHost: Host }).__ezHost = host();
+before(async () => {
+  host = await installHost();
   runInThisContext(readFileSync(CORE, 'utf8'), { filename: CORE });
   core = (globalThis as unknown as { __ezCore: Core }).__ezCore;
 });
@@ -153,9 +132,8 @@ test('describe answers copies, so a caller cannot change the commands', async ()
 });
 
 test('a throw inside the core comes back a throw, not a refused Scene', async () => {
-  const installed = (globalThis as unknown as { __ezHost: Host }).__ezHost;
-  const decode = installed.decodeUtf8;
-  installed.decodeUtf8 = () => {
+  const decode = host.decodeUtf8;
+  host.decodeUtf8 = () => {
     throw new Error('the host gave up');
   };
   try {
@@ -163,6 +141,6 @@ test('a throw inside the core comes back a throw, not a refused Scene', async ()
     await drainMicrotasks();
     assert.throws(() => core.answer(), /the host gave up/);
   } finally {
-    installed.decodeUtf8 = decode;
+    host.decodeUtf8 = decode;
   }
 });
