@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"esbozo/internal/core"
 )
 
 func TestPutBackRestoresTheSceneByteForByte(t *testing.T) {
@@ -86,14 +88,25 @@ func TestNamesThatReachOneSVGShareOneQueue(t *testing.T) {
 		{"alias.json", "alias.JSON"},
 		{"a.esbozo", "A.ESBOZO"},
 	} {
-		if queueKey(names[0]) != queueKey(names[1]) {
+		if queueKey(t, names[0]) != queueKey(t, names[1]) {
 			t.Errorf("%s and %s reach one SVG but queue apart: %s, %s",
-				names[0], names[1], queueKey(names[0]), queueKey(names[1]))
+				names[0], names[1], queueKey(t, names[0]), queueKey(t, names[1]))
 		}
 	}
-	if queueKey("one.json") == queueKey("two.json") {
+	if queueKey(t, "one.json") == queueKey(t, "two.json") {
 		t.Errorf("two Scenes with an SVG of their own share one queue, so their writes wait on each other")
 	}
+}
+
+// queueKey is the key a write of this Scene waits on: the SVG the core names
+// for it, case folded as the file system that holds it may be.
+func queueKey(t *testing.T, name string) string {
+	t.Helper()
+	names, err := core.Names(name, "")
+	if err != nil {
+		t.Fatalf("naming %s: %v", name, err)
+	}
+	return strings.ToLower(names.SVG)
 }
 
 func writeText(t *testing.T, path, text string) {

@@ -19,8 +19,6 @@ import (
 
 const scenesAPI = "/api/scenes"
 
-const maxListedSceneBytes = 5 * 1024 * 1024
-
 type listing struct {
 	Folder   string   `json:"folder"`
 	ReadOnly bool     `json:"readOnly"`
@@ -96,42 +94,54 @@ func listScenes(folder string, session *core.Session, cache *listingCache) ([]st
 	if err != nil {
 		return nil, err
 	}
-	names := make([]string, 0, len(entries))
+	scenes := make([]string, 0, len(entries))
 	present := make(map[string]bool, len(entries))
 	for _, entry := range entries {
-		name := entry.Name()
-		if !entry.Type().IsRegular() || nameProblem(name) != "" {
+		fileName := entry.Name()
+		if !entry.Type().IsRegular() {
 			continue
 		}
-		path := filepath.Join(folder, name)
+		names, err := session.Names(fileName, "")
+		if err != nil {
+			return nil, err
+		}
+		if names.Problem != "" {
+			continue
+		}
+		path := filepath.Join(folder, fileName)
 		present[path] = true
-		listed, err := listedAsScene(folder, name, session, cache)
+		listed, err := listedAsScene(path, names, session, cache)
 		if err != nil {
 			return nil, err
 		}
 		if listed {
-			names = append(names, name)
+			scenes = append(scenes, fileName)
 		}
 	}
 	cache.keep(present)
-	sort.Slice(names, func(left, right int) bool {
-		one, other := strings.ToLower(names[left]), strings.ToLower(names[right])
+	sort.Slice(scenes, func(left, right int) bool {
+		one, other := strings.ToLower(scenes[left]), strings.ToLower(scenes[right])
 		if one != other {
 			return one < other
 		}
-		return names[left] > names[right]
+		return scenes[left] > scenes[right]
 	})
-	return names, nil
+	return scenes, nil
 }
 
-func listedAsScene(folder, name string, session *core.Session, cache *listingCache) (bool, error) {
-	if sceneExtension(name) == ".esbozo" {
+// listedAsScene is whether a folder lists one of its regular files: by its name
+// alone, or by reading it as a Scene too.
+func listedAsScene(path string, names core.SceneNames, session *core.Session, cache *listingCache) (bool, error) {
+	switch names.Listed {
+	case core.SceneListingAlways:
 		return true, nil
+	case core.SceneListingIfScene:
+		return parsesAsScene(path, names.MaxListedSceneBytes, session, cache)
 	}
-	return parsesAsScene(filepath.Join(folder, name), session, cache)
+	return false, nil
 }
 
-func parsesAsScene(path string, session *core.Session, cache *listingCache) (bool, error) {
+func parsesAsScene(path string, maxBytes int64, session *core.Session, cache *listingCache) (bool, error) {
 	found, err := os.Stat(path)
 	if err != nil {
 		if cannotList(err) {
@@ -139,7 +149,7 @@ func parsesAsScene(path string, session *core.Session, cache *listingCache) (boo
 		}
 		return false, err
 	}
-	if found.Size() > maxListedSceneBytes {
+	if found.Size() > maxBytes {
 		return false, nil
 	}
 	if listed, kept := cache.answer(path, found); kept {
@@ -173,8 +183,13 @@ func serveScene(response http.ResponseWriter, request *http.Request, folder, enc
 		sendJSON(response, http.StatusBadRequest, problem{"the Scene name is not valid percent-encoding"})
 		return
 	}
-	if refusal := nameProblem(name); refusal != "" {
-		sendJSON(response, http.StatusBadRequest, problem{refusal})
+	names, err := session.Names(name, "")
+	if err != nil {
+		sendJSON(response, http.StatusInternalServerError, problem{err.Error()})
+		return
+	}
+	if names.Problem != "" {
+		sendJSON(response, http.StatusBadRequest, problem{names.Problem})
 		return
 	}
 
@@ -185,7 +200,7 @@ func serveScene(response http.ResponseWriter, request *http.Request, folder, enc
 	}
 
 	if request.Method == http.MethodPut || request.Method == http.MethodPost {
-		serveWrite(response, request, folder, name, readOnly, session, writes, cache)
+		serveWrite(response, request, folder, name, names, readOnly, session, writes, cache)
 		return
 	}
 	if request.Method != http.MethodGet {
@@ -206,30 +221,6 @@ func serveScene(response http.ResponseWriter, request *http.Request, folder, enc
 	header.Set("cache-control", "no-store")
 	response.WriteHeader(http.StatusOK)
 	_, _ = response.Write(source)
-}
-
-func nameProblem(name string) string {
-	switch {
-	case name == "":
-		return "the Scene name is missing"
-	case strings.ContainsAny(name, `/\`):
-		return name + ": name a Scene in the folder, not a path"
-	case name == "." || name == ".." || strings.HasPrefix(name, "."):
-		return name + ": name a Scene file, not a hidden or relative one"
-	case sceneExtension(name) == "":
-		return name + ": a Scene file ends in .esbozo or .json"
-	}
-	return ""
-}
-
-func sceneExtension(name string) string {
-	folded := strings.ToLower(name)
-	for _, extension := range []string{".esbozo", ".json"} {
-		if strings.HasSuffix(folded, extension) {
-			return extension
-		}
-	}
-	return ""
 }
 
 func staysInside(folder, path string) bool {

@@ -30,7 +30,7 @@ type writeRefused struct {
 
 func (refusal writeRefused) Error() string { return refusal.message }
 
-func serveWrite(response http.ResponseWriter, request *http.Request, folder, name string, readOnly bool, session *core.Session, writes *writeQueue, cache *listingCache) {
+func serveWrite(response http.ResponseWriter, request *http.Request, folder, name string, names core.SceneNames, readOnly bool, session *core.Session, writes *writeQueue, cache *listingCache) {
 	if readOnly {
 		sendJSON(response, http.StatusForbidden, problem{"this folder is served read-only"})
 		return
@@ -65,8 +65,8 @@ func serveWrite(response http.ResponseWriter, request *http.Request, folder, nam
 	}
 
 	scenePath := filepath.Join(folder, name)
-	svgPath := filepath.Join(folder, svgFileName(name))
-	err = writes.run(queueKey(name), func() error {
+	svgPath := filepath.Join(folder, names.SVG)
+	err = writes.run(strings.ToLower(names.SVG), func() error {
 		return writePair(scenePath, svgPath, written)
 	})
 	cache.forget(scenePath)
@@ -134,14 +134,6 @@ func jsonString(fields map[string]json.RawMessage, name string) (string, bool) {
 		return "", false
 	}
 	return *text, true
-}
-
-func svgFileName(name string) string {
-	return sceneStem(name) + ".svg"
-}
-
-func queueKey(name string) string {
-	return strings.ToLower(svgFileName(name))
 }
 
 type writeQueue struct {
