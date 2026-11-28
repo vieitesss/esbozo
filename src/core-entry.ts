@@ -4,7 +4,7 @@ import { renderScene } from './renderer.js';
 import { parseScene, serialiseScene } from './scene.js';
 import { renderPng } from './png.js';
 import type { PngOptions, Theme } from './png.js';
-import { sha256Hex } from './sha256.js';
+import { sha256Hex, useNativeDigest } from './sha256.js';
 import { EXIT } from './exit.js';
 import { command, keysOf, protocolOf } from './core-runner.js';
 import type { Result } from './core-runner.js';
@@ -19,6 +19,9 @@ import type { Scene } from './scene.js';
     return new Uint8Array(host().encodeUtf8(String(text)));
   }
 };
+
+// goja has no JIT, so the Scene hash is Go's own `crypto/sha256` here.
+useNativeDigest((bytes) => new Uint8Array(host().sha256(bytes)));
 
 /**
  * goja's `JSON.parse` differs from V8 in three ways that Scenes hit: it rejects

@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
-import { sha256Hex, sha256HexAsync } from '../src/sha256.ts';
+import { sha256Hex, sha256HexAsync, useNativeDigest } from '../src/sha256.ts';
 import { removeTempFolders, tempFolder } from './temp.ts';
 
 /** The bundle folder is this file's, so its teardown is too. */
@@ -64,6 +64,26 @@ test('without a platform digest, the portable one answers the same bytes', async
 
 test('sha256Hex matches the published digest of the empty string', () => {
   assert.equal(sha256Hex(''), 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+});
+
+test('the digest a host hands over is the one that answers, until it is cleared', () => {
+  // goja has no JIT, so the CLI hands this module Go's own `crypto/sha256`. The
+  // handed-over digest has to answer, and the portable one has to come back when
+  // nothing is handed over, because a browser is handed nothing.
+  const asked: string[] = [];
+  useNativeDigest((bytes) => {
+    asked.push(Buffer.from(bytes).toString('utf8'));
+    return new Uint8Array(createHash('sha256').update(bytes).digest());
+  });
+  try {
+    assert.equal(sha256Hex('esbozo ✓ 世界'), openssl('esbozo ✓ 世界'));
+    assert.deepEqual(asked, ['esbozo ✓ 世界'], 'the host was handed the text\u2019s UTF-8 bytes');
+  } finally {
+    useNativeDigest(null);
+  }
+  for (const sample of SAMPLES) {
+    assert.equal(sha256Hex(sample), openssl(sample), JSON.stringify(sample.slice(0, 24)));
+  }
 });
 
 test('the Scene, Renderer and hash modules bundle for the browser', async () => {
