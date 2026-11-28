@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { before, test } from 'node:test';
 import { runInThisContext } from 'node:vm';
 import { arrayBufferOf, installHost } from '../scripts/core-host/host.ts';
+import { host as ezHost } from '../src/core-host.ts';
 import type { EzHost } from '../src/core-host.ts';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -199,6 +200,5 @@ test('a throw inside the core comes back a throw, not a refused Scene', async ()
 
 test('the host installs again in one process, on the wasm that is already up', async () => {
   const again = await installHost();
-  const installed = (globalThis as unknown as { __ezHost: EzHost }).__ezHost;
-  assert.equal(installed, again, 'the newest host is the one the core reads');
+  assert.equal(ezHost(), again, 'the newest host is the one the core reads');
 });
