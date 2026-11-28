@@ -2,6 +2,8 @@ import { chooseFont, layoutFor, readStylesheet } from './font.js';
 import { anchorEditOf, anchorScene, snapEditOf, snapScene } from './ends.js';
 import { renderScene } from './renderer.js';
 import { parseScene, serialiseScene } from './scene.js';
+import { MAX_LISTED_SCENE_BYTES, pngFileName, sceneListing, sceneNameProblem, sceneStem, svgFileName } from './paths.js';
+import type { SceneListing } from './paths.js';
 import { renderPng } from './png.js';
 import type { PngOptions, Theme } from './png.js';
 import { sha256Hex } from './sha256.js';
@@ -393,6 +395,11 @@ interface ParseRequest {
   readonly source: ArrayBuffer;
 }
 
+interface NamesRequest {
+  readonly fileName: string;
+  readonly theme: string | null;
+}
+
 interface Rendered extends Result {
   readonly svg: string;
 }
@@ -409,6 +416,20 @@ interface Edited extends Result {
 interface Described extends Result {
   readonly exit: typeof EXIT;
   readonly commands: Record<string, readonly string[]>;
+}
+
+/**
+ * Everything Go needs to name a Scene's files, and to list one: the problem a
+ * name has (or null), the names built from it, how a folder lists it, and the
+ * size past which a listing does not read it.
+ */
+interface Names extends Result {
+  readonly problem: string | null;
+  readonly stem: string;
+  readonly svg: string;
+  readonly png: string | null;
+  readonly listed: SceneListing;
+  readonly maxListedSceneBytes: number;
 }
 
 function ok(): Result {
@@ -588,6 +609,23 @@ async function describe(): Promise<Described> {
   return { ...ok(), exit: EXIT, commands: keysOf(COMMANDS) };
 }
 
+/**
+ * Answer a Scene's file rules: the problem its name has, or null, and the
+ * names and listing Go builds from it. A theme names the PNG too; with none,
+ * there is no PNG to name.
+ */
+async function names(request: NamesRequest): Promise<Names> {
+  return {
+    ...ok(),
+    problem: sceneNameProblem(request.fileName),
+    stem: sceneStem(request.fileName),
+    svg: svgFileName(request.fileName),
+    png: request.theme === null ? null : pngFileName(request.fileName, request.theme),
+    listed: sceneListing(request.fileName),
+    maxListedSceneBytes: MAX_LISTED_SCENE_BYTES,
+  };
+}
+
 /** Every command the core has, by kind, with the request keys it takes. */
 const COMMANDS = {
   render: command<RenderRequest>(['source', 'fontPath'], render),
@@ -599,6 +637,7 @@ const COMMANDS = {
   ),
   anchor: command<AnchorRequest>(['source', 'all', 'elementId', 'end', 'place'], anchor),
   snap: command<SnapRequest>(['source', 'elementId', 'end', 'target'], snap),
+  names: command<NamesRequest>(['fileName', 'theme'], names),
   describe: command<object>([], describe),
 };
 
