@@ -373,9 +373,9 @@ interface AnchorRequest {
 
 interface SnapRequest {
   readonly scenePath: string | null;
-  readonly elementId: string;
-  readonly end: string;
-  readonly target: string;
+  readonly elementId: string | null;
+  readonly end: string | null;
+  readonly target: string | null;
 }
 
 interface ParseRequest {
@@ -544,10 +544,12 @@ async function anchor(request: AnchorRequest): Promise<Edited> {
 async function snap(request: SnapRequest): Promise<Edited> {
   // The runner reads "" as null, so an empty path arrives as no path at all.
   const scenePath = request.scenePath ?? '';
+  // The runner reads "" as null, so an empty word arrives as no word at all:
+  // give it back the empty word that was typed, and judge that.
   const words = snapEditOf({
-    elementId: request.elementId,
-    end: request.end,
-    target: request.target,
+    elementId: request.elementId ?? '',
+    end: request.end ?? '',
+    target: request.target ?? '',
   });
   return saveEnd(words, scenePath, snapScene);
 }
