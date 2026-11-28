@@ -19,6 +19,7 @@ var optionCommands = []struct {
 	{"png", PNGOptions{}},
 	{"anchor", AnchorOptions{}},
 	{"snap", SnapOptions{}},
+	{"names", namesRequest{}},
 }
 
 func TestExitCodesMatchTheCoresTable(t *testing.T) {

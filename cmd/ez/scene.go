@@ -112,13 +112,9 @@ func svgPathFor(scenePath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(filepath.Dir(resolved), svgFileName(filepath.Base(scenePath))), nil
-}
-
-func sceneStem(name string) string {
-	extension := sceneExtension(name)
-	if extension == "" {
-		return name
+	names, err := core.Names(filepath.Base(scenePath), "")
+	if err != nil {
+		return "", err
 	}
-	return name[:len(name)-len(extension)]
+	return filepath.Join(filepath.Dir(resolved), names.SVG), nil
 }

@@ -46,6 +46,35 @@ type Edited struct {
 	Lines []string
 }
 
+// SceneListing is how a folder lists a file it holds: by its name alone, or by
+// reading it as a Scene too.
+type SceneListing string
+
+const (
+	SceneListingAlways  SceneListing = "always"
+	SceneListingIfScene SceneListing = "if-scene"
+	SceneListingNever   SceneListing = "never"
+)
+
+// SceneNames is what the core answers for a Scene's file name: the problem the
+// name has, the names built from it, how a folder lists the file, and the size
+// past which a listing does not read it.
+type SceneNames struct {
+	Result
+	// Problem is why the name is no Scene name, or "" when it is one.
+	Problem string
+	// Stem is the name without its Scene extension.
+	Stem string
+	// SVG is the SVG drawn beside the Scene.
+	SVG string
+	// PNG is the image named for the theme asked for, or "" when none was.
+	PNG string
+	// Listed is how a folder lists the file.
+	Listed SceneListing
+	// MaxListedSceneBytes is the size past which a listing does not read a Scene.
+	MaxListedSceneBytes int64
+}
+
 // RenderOptions configures Render.
 type RenderOptions struct {
 	FontPath string `key:"fontPath"`
@@ -169,6 +198,36 @@ func Snap(source []byte, options SnapOptions) (Edited, error) {
 	return edited, err
 }
 
+// namesRequest is the request `names` reads: the Scene's file name, and the
+// theme its PNG is named for.
+type namesRequest struct {
+	FileName string `key:"fileName"`
+	Theme    string `key:"theme"`
+}
+
+// Names answers a Scene's file rules without a Session of its own.
+func Names(fileName, theme string) (SceneNames, error) {
+	session, err := Open()
+	if err != nil {
+		return SceneNames{}, err
+	}
+	return session.Names(fileName, theme)
+}
+
+// Names answers a Scene's file rules. The theme names the PNG too; an empty
+// theme names none.
+func (session *Session) Names(fileName, theme string) (SceneNames, error) {
+	var names SceneNames
+	fields := fieldsOf(namesRequest{FileName: fileName, Theme: theme})
+	err := session.call("names", func(vm *goja.Runtime) (*goja.Object, error) {
+		return fieldsRequestOf(vm, fields)
+	}, func(answer *goja.Object) error {
+		names = sceneNamesOf(answer)
+		return nil
+	})
+	return names, err
+}
+
 func editedOf(answer *goja.Object) Edited {
 	return Edited{
 		Result: resultOf(answer),
@@ -218,7 +277,10 @@ func (session *Session) run(kind string, source []byte, fields map[string]interf
 
 // requestOf is the request a command reads: its Scene, then its option fields.
 func requestOf(vm *goja.Runtime, source []byte, fields map[string]interface{}) (*goja.Object, error) {
-	request := vm.NewObject()
+	request, err := fieldsRequestOf(vm, fields)
+	if err != nil {
+		return nil, err
+	}
 	if source == nil {
 		if err := request.Set("source", goja.Null()); err != nil {
 			return nil, err
@@ -226,6 +288,13 @@ func requestOf(vm *goja.Runtime, source []byte, fields map[string]interface{}) (
 	} else if err := request.Set("source", vm.NewArrayBuffer(source)); err != nil {
 		return nil, err
 	}
+	return request, nil
+}
+
+// fieldsRequestOf is the request of a command that reads no Scene: its option
+// fields alone.
+func fieldsRequestOf(vm *goja.Runtime, fields map[string]interface{}) (*goja.Object, error) {
+	request := vm.NewObject()
 	for name, value := range fields {
 		if err := request.Set(name, value); err != nil {
 			return nil, err
@@ -288,6 +357,26 @@ func resultOf(answer *goja.Object) Result {
 		Problems: linesOf(answer.Get("problems")),
 		Notes:    linesOf(answer.Get("notes")),
 	}
+}
+
+func sceneNamesOf(answer *goja.Object) SceneNames {
+	return SceneNames{
+		Result:              resultOf(answer),
+		Problem:             textOf(answer.Get("problem")),
+		Stem:                answer.Get("stem").String(),
+		SVG:                 answer.Get("svg").String(),
+		PNG:                 textOf(answer.Get("png")),
+		Listed:              SceneListing(answer.Get("listed").String()),
+		MaxListedSceneBytes: answer.Get("maxListedSceneBytes").ToInteger(),
+	}
+}
+
+// textOf is a string answer the core may answer null for.
+func textOf(value goja.Value) string {
+	if value == nil || goja.IsNull(value) || goja.IsUndefined(value) {
+		return ""
+	}
+	return value.String()
 }
 
 func linesOf(value goja.Value) []string {

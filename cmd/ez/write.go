@@ -30,7 +30,7 @@ type writeRefused struct {
 
 func (refusal writeRefused) Error() string { return refusal.message }
 
-func serveWrite(response http.ResponseWriter, request *http.Request, folder, name string, readOnly bool, session *core.Session, writes *writeQueue, cache *listingCache) {
+func serveWrite(response http.ResponseWriter, request *http.Request, folder, name string, names core.SceneNames, readOnly bool, session *core.Session, writes *writeQueue, cache *listingCache) {
 	if readOnly {
 		sendJSON(response, http.StatusForbidden, problem{"this folder is served read-only"})
 		return
@@ -65,8 +65,8 @@ func serveWrite(response http.ResponseWriter, request *http.Request, folder, nam
 	}
 
 	scenePath := filepath.Join(folder, name)
-	svgPath := filepath.Join(folder, svgFileName(name))
-	err = writes.run(queueKey(name), func() error {
+	svgPath := filepath.Join(folder, names.SVG)
+	err = writes.run(writeQueueKey(names.SVG), func() error {
 		return writePair(scenePath, svgPath, written)
 	})
 	cache.forget(scenePath)
@@ -80,6 +80,13 @@ func serveWrite(response http.ResponseWriter, request *http.Request, folder, nam
 		return
 	}
 	sendJSON(response, http.StatusOK, struct{}{})
+}
+
+// writeQueueKey is the key a write waits on: the SVG drawn beside the Scene,
+// case folded as the file system that holds it may be. Two names that reach
+// one SVG wait on each other; two that do not, do not.
+func writeQueueKey(svg string) string {
+	return strings.ToLower(svg)
 }
 
 // announcesJSON: the body has to say it is
@@ -134,14 +141,6 @@ func jsonString(fields map[string]json.RawMessage, name string) (string, bool) {
 		return "", false
 	}
 	return *text, true
-}
-
-func svgFileName(name string) string {
-	return sceneStem(name) + ".svg"
-}
-
-func queueKey(name string) string {
-	return strings.ToLower(svgFileName(name))
 }
 
 type writeQueue struct {

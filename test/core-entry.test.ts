@@ -29,6 +29,15 @@ interface Described extends Answer {
   commands: Record<string, string[]>;
 }
 
+interface Names extends Answer {
+  problem: string | null;
+  stem: string;
+  svg: string;
+  png: string | null;
+  listed: string;
+  maxListedSceneBytes: number;
+}
+
 interface Core {
   begin(request: object, kind: string): void;
   answer(): Answer;
@@ -110,8 +119,55 @@ test('describe answers the exit table and every command\u2019s request keys', as
     png: ['source', 'fontPath', 'cssPath', 'theme', 'ink', 'paper', 'muted'],
     anchor: ['source', 'all', 'elementId', 'end', 'place'],
     snap: ['source', 'elementId', 'end', 'target'],
+    names: ['fileName', 'theme'],
     describe: [],
   });
+});
+
+test('names answers a Scene’s file rules, named for the files Go reads and writes', async () => {
+  core.begin({ fileName: 'sketch.json', theme: 'dark' }, 'names');
+  await drainMicrotasks();
+  const answer = core.answer() as Names;
+  assert.equal(answer.ok, true);
+  assert.equal(answer.problem, null);
+  assert.equal(answer.stem, 'sketch');
+  assert.equal(answer.svg, 'sketch.svg');
+  assert.equal(answer.png, 'sketch.dark.png');
+  assert.equal(answer.listed, 'if-scene');
+  assert.equal(answer.maxListedSceneBytes, 5 * 1024 * 1024);
+});
+
+test('names with no theme names no PNG, and a name that is no Scene says why', async () => {
+  core.begin({ fileName: 'sketches/sketch.esbozo', theme: null }, 'names');
+  await drainMicrotasks();
+  const answer = core.answer() as Names;
+  assert.equal(answer.ok, true);
+  assert.equal(answer.problem, 'sketches/sketch.esbozo: name a Scene in the folder, not a path');
+  assert.equal(answer.stem, 'sketches/sketch');
+  assert.equal(answer.svg, 'sketches/sketch.svg');
+  assert.equal(answer.png, null);
+  assert.equal(answer.listed, 'always');
+});
+
+test('names reads an empty name as the missing one, not as a crash', async () => {
+  core.begin({ fileName: '', theme: null }, 'names');
+  await drainMicrotasks();
+  const answer = core.answer() as Names;
+  assert.equal(answer.ok, true);
+  assert.equal(answer.problem, 'the Scene name is missing');
+  assert.equal(answer.stem, '');
+  assert.equal(answer.svg, '.svg');
+  assert.equal(answer.png, null);
+  assert.equal(answer.listed, 'never');
+});
+
+test('names reads an empty name with a theme as the missing one too', async () => {
+  core.begin({ fileName: '', theme: 'light' }, 'names');
+  await drainMicrotasks();
+  const answer = core.answer() as Names;
+  assert.equal(answer.ok, true);
+  assert.equal(answer.problem, 'the Scene name is missing');
+  assert.equal(answer.png, '.light.png');
 });
 
 test('describe answers copies, so a caller cannot change the commands', async () => {

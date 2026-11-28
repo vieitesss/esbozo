@@ -117,5 +117,9 @@ func pngPathFor(scenePath, theme string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(filepath.Dir(resolved), sceneStem(filepath.Base(scenePath))+"."+theme+".png"), nil
+	names, err := core.Names(filepath.Base(scenePath), theme)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(filepath.Dir(resolved), names.PNG), nil
 }

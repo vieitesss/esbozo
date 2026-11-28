@@ -1,6 +1,6 @@
 import { emptyScene, parseFragment } from '../scene.js';
 import type { Element as SceneElement, Scene } from '../scene.js';
-import { PRIMARY_SCENE_EXTENSION, sceneFileNameFor, sceneStem } from '../paths.js';
+import { PRIMARY_SCENE_EXTENSION, sceneFileNameFor } from '../paths.js';
 import { selectedFrom } from './elements.js';
 import { movableCount } from './arrange.js';
 import type { ArrangeAct } from './arrange.js';
@@ -782,7 +782,7 @@ class EsbozoEditorElement extends HTMLElement {
       return;
     }
     // The file name the Scene saves under, and the one a too-large page tells a
-    // person to hand to the CLI.
+    // person to hand to the CLI. The PNG beside it is named from it.
     const file = this.#connection.target?.name ?? `${this.#hand.scene.title}${PRIMARY_SCENE_EXTENSION}`;
     try {
       await exportPng({
@@ -790,7 +790,6 @@ class EsbozoEditorElement extends HTMLElement {
         theme,
         layout: this.#connection.layout,
         family: this.#connection.family,
-        name: sceneStem(file) || this.#hand.scene.title,
         file,
       });
     } catch (error) {
