@@ -89,6 +89,9 @@ export function protocolOf(commands: Commands): Protocol {
  * as null because an omitted option arrives that way.
  */
 function fieldsOf(request: object, kind: string, { keys }: Command): Record<string, unknown> {
+  if (request === null || typeof request !== 'object' || Array.isArray(request)) {
+    throw new Error(`${kind} expects a request object`);
+  }
   const fields = Object.entries(request).map(
     ([key, value]) => [key, value === '' ? null : value] as const,
   );

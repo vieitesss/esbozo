@@ -88,6 +88,17 @@ test('a kind inherited from Object.prototype is refused too', () => {
   }
 });
 
+test('a request that is not an object is refused', () => {
+  const refused: unknown[] = [42, true, 'abc', [], null, undefined];
+  for (const request of refused) {
+    assert.throws(
+      () => core.begin(request as object, 'describe'),
+      /describe expects a request object/,
+    );
+    assert.throws(() => core.answer(), /call begin first/, 'nothing settled for it to answer');
+  }
+});
+
 test('a request key the command does not take is refused', () => {
   assert.throws(
     () => core.begin({ ...request(), lablePath: 'typo.ttf' }, 'render'),
