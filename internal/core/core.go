@@ -22,7 +22,7 @@ const (
 // Result is the common outcome of a core command.
 type Result struct {
 	OK bool
-	// ExitCode matches EXIT in src/exit.ts.
+	// ExitCode is one of the exit codes above.
 	ExitCode int
 	// Problems are stderr lines printed on refusal.
 	Problems []string
@@ -196,23 +196,40 @@ func runOnce(kind string, source []byte, fields map[string]interface{}, read fun
 	return session.run(kind, source, fields, read)
 }
 
+// run sends one command over this Scene and these option fields.
 func (session *Session) run(kind string, source []byte, fields map[string]interface{}, read func(*goja.Object) error) error {
+	return session.call(kind, func(vm *goja.Runtime) (*goja.Object, error) {
+		return requestOf(vm, source, fields)
+	}, read)
+}
+
+// requestOf is the request a command reads: its Scene, then its option fields.
+func requestOf(vm *goja.Runtime, source []byte, fields map[string]interface{}) (*goja.Object, error) {
+	request := vm.NewObject()
+	if source == nil {
+		if err := request.Set("source", goja.Null()); err != nil {
+			return nil, err
+		}
+	} else if err := request.Set("source", vm.NewArrayBuffer(source)); err != nil {
+		return nil, err
+	}
+	for name, value := range fields {
+		if err := request.Set(name, value); err != nil {
+			return nil, err
+		}
+	}
+	return request, nil
+}
+
+// call begins one command over the request build makes, and hands its answer to read.
+func (session *Session) call(kind string, build func(*goja.Runtime) (*goja.Object, error), read func(*goja.Object) error) error {
 	session.mu.Lock()
 	defer session.mu.Unlock()
 	vm := session.vm
 
-	request := vm.NewObject()
-	if source == nil {
-		if err := request.Set("source", goja.Null()); err != nil {
-			return err
-		}
-	} else if err := request.Set("source", vm.NewArrayBuffer(source)); err != nil {
+	request, err := build(vm)
+	if err != nil {
 		return err
-	}
-	for name, value := range fields {
-		if err := request.Set(name, value); err != nil {
-			return err
-		}
 	}
 
 	// Two calls, not one: goja runs the queue of promises when the call that
