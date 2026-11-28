@@ -9,20 +9,32 @@ import (
 
 const placeList = "top, bottom, left, right, center, top-left, top-right, bottom-left, bottom-right"
 
-var usageLine = map[string]string{
-	"render": "usage: ez render <scene> [--font <file>]",
-	"check":  "usage: ez check <scene> [--font <file>] [--css <stylesheet>]",
-	"png": "usage: ez png <scene> --theme light|dark [--css <stylesheet>]" +
-		" [--ink <colour>] [--paper <colour>] [--muted <colour>] [--font <file>]",
-	"anchor": "usage: ez anchor <scene> <element> <start|end> <place>\n" +
-		"       ez anchor <scene> --all\n" +
-		`  place: ` + placeList + `, a pair of fractions "fx,fy", or none`,
-	"snap":   "usage: ez snap <scene> <element> <start|end> <target|off>",
-	"skill":  "usage: ez skill [install [--dir <path>]]",
-	"bundle": "usage: ez bundle <dir>",
-	"serve":  "usage: ez serve <dir> [--host 127.0.0.1] [--port N] [--read-only]",
-	"update": "usage: ez update [--main | --version <X.Y.Z>]",
-}
+// usageLine is how a usage error restates a command's usage: each form comes
+// from commandHelpSpecs, so a command's usage is written once. A form indented
+// in the spec continues the line above it; a further form starts its own line.
+var usageLine = func() map[string]string {
+	lines := make(map[string]string, len(commandHelpSpecs))
+	for topic, spec := range commandHelpSpecs {
+		if topic == "skill install" {
+			continue
+		}
+		usage := "usage: " + spec.usage[0]
+		for _, line := range spec.usage[1:] {
+			if strings.HasPrefix(line, " ") {
+				usage += " " + strings.TrimLeft(line, " ")
+				continue
+			}
+			usage += "\n       " + line
+		}
+		for _, option := range spec.options {
+			if option[0] == "<place>" {
+				usage += "\n  place: " + option[1]
+			}
+		}
+		lines[topic] = usage
+	}
+	return lines
+}()
 
 var cssSubsetLines = []string{
 	"  `:root` and `html` declarations are the light theme; dark is those values",
