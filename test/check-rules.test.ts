@@ -407,14 +407,14 @@ test('a Go comment names the runtime by its proper noun, with no version after i
   });
 });
 
-test('a Go string is not a name, and NodeMessage is the runtime, not an Element', async () => {
+test('a Go string is not a name', async () => {
   await quiet({
     'internal/resvg/resvg.go': [
       'package resvg',
       '',
       'const api = "the drawing the module exports"',
       '',
-      'func NodeMessage() string { return api }',
+      'func Message() string { return api }',
     ].join('\n'),
   });
 });

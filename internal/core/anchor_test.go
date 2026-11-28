@@ -99,6 +99,64 @@ func TestAnEmptyScenePathReadsNoFile(t *testing.T) {
 	}
 }
 
+// An empty word is a word: it arrives at the core as null because the runner
+// reads "" that way, and Snap judges it as the empty word that was typed.
+func TestSnapJudgesAnEmptyWordAsTheEmptyWord(t *testing.T) {
+	cases := []struct {
+		name     string
+		options  SnapOptions
+		exitCode int
+		problem  string
+	}{
+		{
+			"an empty target",
+			SnapOptions{ElementID: "arr", End: "start", Target: ""},
+			ExitInvalidScene,
+			`no Element "" in the Scene`,
+		},
+		{
+			"an empty Element",
+			SnapOptions{ElementID: "", End: "start", Target: "box"},
+			ExitInvalidScene,
+			`no Element "" in the Scene`,
+		},
+		{
+			"an empty end",
+			SnapOptions{ElementID: "arr", End: "", Target: "box"},
+			ExitUsage,
+			`an end is start or end, got ""`,
+		},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			source := sceneWithLabel("untouched")
+			path := sceneFile(t, source)
+			options := testCase.options
+			options.ScenePath = path
+
+			edited, err := Snap(options)
+			if err != nil {
+				t.Fatalf("snap: %v", err)
+			}
+			if edited.OK || edited.ExitCode != testCase.exitCode {
+				t.Errorf("snap answered ok=%v exit=%d, want ok=false exit=%d",
+					edited.OK, edited.ExitCode, testCase.exitCode)
+			}
+			if len(edited.Problems) != 1 || edited.Problems[0] != testCase.problem {
+				t.Errorf("snap answered problems %q, want one %q", edited.Problems, testCase.problem)
+			}
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(got, source) {
+				t.Errorf("snap wrote the Scene it refused: %s", got)
+			}
+		})
+	}
+}
+
 // sceneFile writes a Scene to a temporary folder, and answers its path.
 func sceneFile(t *testing.T, source []byte) string {
 	t.Helper()

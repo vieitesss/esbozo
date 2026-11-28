@@ -76,7 +76,13 @@ func runPNG(argv []string, stdout, stderr io.Writer) int {
 		return exitInvalidScene
 	}
 
-	image, err := core.PNG(source, core.PNGOptions{
+	session, err := core.Open()
+	if err != nil {
+		fmt.Fprintf(stderr, "ez could not run png: %s\n", err)
+		return exitWriteFailed
+	}
+
+	image, err := session.PNG(source, core.PNGOptions{
 		FontPath: parsed.fontPath,
 		CSSPath:  parsed.cssPath,
 		Theme:    parsed.theme,
@@ -99,7 +105,7 @@ func runPNG(argv []string, stdout, stderr io.Writer) int {
 		return image.ExitCode
 	}
 
-	outputPath, err := pngPathFor(parsed.scenePath, parsed.theme)
+	outputPath, err := pngPathFor(session, parsed.scenePath, parsed.theme)
 	if err != nil {
 		fmt.Fprintf(stderr, "cannot name the PNG beside %s: %s\n", parsed.scenePath, err)
 		return exitWriteFailed
@@ -112,12 +118,12 @@ func runPNG(argv []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-func pngPathFor(scenePath, theme string) (string, error) {
+func pngPathFor(session *core.Session, scenePath, theme string) (string, error) {
 	resolved, err := filepath.Abs(scenePath)
 	if err != nil {
 		return "", err
 	}
-	names, err := core.Names(filepath.Base(scenePath), theme)
+	names, err := session.Names(filepath.Base(scenePath), theme)
 	if err != nil {
 		return "", err
 	}

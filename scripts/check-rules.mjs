@@ -47,7 +47,6 @@ const ROOT = process.argv[2] ?? fileURLToPath(new URL('..', import.meta.url));
 const ROOTS = ['src', 'test', 'tests', 'scripts'];
 
 const GO_ROOTS = ['cmd', 'internal'];
-const RUNTIME_NAMES = new Set(['NodeMessage', 'NodeMkdirMessage', 'nodeMessage']);
 const WATCHED = /^(?:(?:src|test|tests|scripts)\/.*\.(?:ts|tsx|js|mjs|cjs)|(?:cmd|internal)\/.*\.go)$/;
 
 /** The modules that ship to a browser, so no Node builtin may reach them. */
@@ -306,7 +305,6 @@ function avoidTerms(file) {
 
 function avoidTermsInGo(file) {
   for (const token of goTokens(file.text)) {
-    if (RUNTIME_NAMES.has(token.text)) continue;
     const hit = avoidTermIn(token.text, token.kind === 'comment');
     if (hit === undefined) continue;
     file.report(token.at, `avoid term "${hit}" in ${token.kind} "${token.text.trim()}"`);
