@@ -19,7 +19,7 @@ const CORNER_PLACES: Readonly<Record<string, Anchor>> = {
   'bottom-right': { x: 1, y: 1 },
 };
 
-const PLACE_WORDS = [...Object.keys(SIDE_PLACES), ...Object.keys(CORNER_PLACES)];
+export const PLACE_WORDS = [...Object.keys(SIDE_PLACES), ...Object.keys(CORNER_PLACES)];
 
 const ENDS = ['start', 'end'] as const;
 type End = (typeof ENDS)[number];
