@@ -98,15 +98,16 @@ func TestNamesThatReachOneSVGShareOneQueue(t *testing.T) {
 	}
 }
 
-// queueKey is the key a write of this Scene waits on: the SVG the core names
-// for it, case folded as the file system that holds it may be.
+// queueKey is the key a write of this Scene waits on: the production name for
+// the Scene's SVG, folded by the production key, so a change there reaches
+// this test.
 func queueKey(t *testing.T, name string) string {
 	t.Helper()
 	names, err := core.Names(name, "")
 	if err != nil {
 		t.Fatalf("naming %s: %v", name, err)
 	}
-	return strings.ToLower(names.SVG)
+	return writeQueueKey(names.SVG)
 }
 
 func writeText(t *testing.T, path, text string) {

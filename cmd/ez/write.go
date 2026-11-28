@@ -66,7 +66,7 @@ func serveWrite(response http.ResponseWriter, request *http.Request, folder, nam
 
 	scenePath := filepath.Join(folder, name)
 	svgPath := filepath.Join(folder, names.SVG)
-	err = writes.run(strings.ToLower(names.SVG), func() error {
+	err = writes.run(writeQueueKey(names.SVG), func() error {
 		return writePair(scenePath, svgPath, written)
 	})
 	cache.forget(scenePath)
@@ -80,6 +80,13 @@ func serveWrite(response http.ResponseWriter, request *http.Request, folder, nam
 		return
 	}
 	sendJSON(response, http.StatusOK, struct{}{})
+}
+
+// writeQueueKey is the key a write waits on: the SVG drawn beside the Scene,
+// case folded as the file system that holds it may be. Two names that reach
+// one SVG wait on each other; two that do not, do not.
+func writeQueueKey(svg string) string {
+	return strings.ToLower(svg)
 }
 
 // announcesJSON: the body has to say it is
