@@ -117,8 +117,8 @@ test('describe answers the exit table and every command\u2019s request keys', as
     check: ['source', 'fontPath', 'cssPath'],
     parse: ['source'],
     png: ['source', 'fontPath', 'cssPath', 'theme', 'ink', 'paper', 'muted'],
-    anchor: ['source', 'all', 'elementId', 'end', 'place'],
-    snap: ['source', 'elementId', 'end', 'target'],
+    anchor: ['scenePath', 'all', 'elementId', 'end', 'place'],
+    snap: ['scenePath', 'elementId', 'end', 'target'],
     names: ['fileName', 'theme'],
     describe: [],
   });

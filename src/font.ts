@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fontFaces, resolveVariables, themeVariables } from './css.js';
 import type { Theme } from './css.js';
+import { messageOf } from './core-host.js';
 import kalam from '../fonts/Kalam-Regular.ttf';
 import { createLayout, parseFontFile } from './layout.js';
 import type { Layout, ParsedFont } from './layout.js';
@@ -173,8 +174,4 @@ function tagAt(bytes: Uint8Array, offset: number): string {
     bytes[offset + 2] ?? 0,
     bytes[offset + 3] ?? 0,
   );
-}
-
-function messageOf(error: unknown): string {
-  return (error as NodeJS.ErrnoException).message;
 }

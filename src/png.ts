@@ -28,6 +28,7 @@ import { colourText, readColour, resolveSvgColours, resolveVariables, themeVaria
 import type { Rgba, Theme, Variables } from './css.js';
 import { chooseFont, layoutFor, readStylesheet } from './font.js';
 import type { Stylesheet } from './font.js';
+import { messageOf } from './core-host.js';
 import { outlineText } from './outlines.js';
 import { renderScene } from './renderer.js';
 import type { Scene } from './scene.js';
@@ -201,8 +202,4 @@ let wasmReady: Promise<void> | null = null;
 function readyWasm(): Promise<void> {
   wasmReady ??= initWasm(resvgWasm);
   return wasmReady;
-}
-
-function messageOf(error: unknown): string {
-  return (error as NodeJS.ErrnoException).message;
 }

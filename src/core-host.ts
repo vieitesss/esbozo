@@ -37,3 +37,8 @@ declare global {
 export function host(): EzHost {
   return globalThis.__ezHost;
 }
+
+/** What an error says about itself, for a problem line that names the cause. */
+export function messageOf(error: unknown): string {
+  return (error as Error).message;
+}
