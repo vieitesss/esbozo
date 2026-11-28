@@ -40,9 +40,8 @@ export async function sha256HexAsync(text: string): Promise<string> {
 }
 
 export function sha256(input: Uint8Array): Uint8Array {
-  const hosted = hostDigest(input);
-  if (hosted !== null) {
-    return hosted;
+  if (handedDigest !== null) {
+    return handedDigest(input);
   }
   const message = pad(input);
   const words = new Uint32Array(64);
@@ -120,15 +119,18 @@ export function sha256(input: Uint8Array): Uint8Array {
 }
 
 /**
- * Prefer Go's native `crypto/sha256` when running under `internal/core`
- * because goja has no JIT.
+ * Prefer the platform's own digest where the host hands one over: Go's
+ * `crypto/sha256` under `internal/core`, because goja has no JIT to run this
+ * module's loop. A browser hands over nothing, and keeps this module's.
  */
-function hostDigest(bytes: Uint8Array): Uint8Array | null {
-  const host = (
-    globalThis as unknown as { readonly __ezHost?: { sha256?(input: Uint8Array): ArrayBuffer } }
-  ).__ezHost;
-  const digest = host?.sha256;
-  return digest === undefined ? null : new Uint8Array(digest(bytes));
+let handedDigest: ((bytes: Uint8Array) => Uint8Array) | null = null;
+
+/**
+ * Take `digest` as this module's SHA-256, or `null` to hash in JavaScript
+ * again. `internal/core` hands over Go's `crypto/sha256` as the bundle loads.
+ */
+export function useNativeDigest(digest: ((bytes: Uint8Array) => Uint8Array) | null): void {
+  handedDigest = digest;
 }
 
 function pad(input: Uint8Array): Uint8Array {

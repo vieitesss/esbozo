@@ -11,6 +11,8 @@
  * before resvg sees them, so resvg is never asked to lay text out.
  */
 
+import { host } from '../../src/core-host.js';
+
 export default new Uint8Array(0);
 
 let ready = false;
@@ -22,7 +24,7 @@ export async function initWasm() {
 export class Resvg {
   constructor(svg, options) {
     if (!ready) throw new Error('Wasm has not been initialized. Call `initWasm()` function.');
-    this.png = new Uint8Array(globalThis.__ezHost.rasterise(String(svg), JSON.stringify(options)));
+    this.png = new Uint8Array(host().rasterise(String(svg), JSON.stringify(options)));
   }
 
   render() {

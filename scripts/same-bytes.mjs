@@ -5,14 +5,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInThisContext } from 'node:vm';
-import { initWasm, Resvg } from '@resvg/resvg-wasm';
+import { arrayBufferOf, installHost } from './core-host/host.ts';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const CORE = join(ROOT, 'dist/core.js');
 const FIXTURES = join(ROOT, 'test/fixtures');
-const KALAM = join(ROOT, 'fonts/Kalam-Regular.ttf');
-const FONT_METRICS = join(ROOT, 'dist/font-metrics.json');
-const RESVG_WASM = join(ROOT, 'node_modules/@resvg/resvg-wasm/index_bg.wasm');
 
 const KINDS = [
   { label: 'render', kind: 'render', theme: null },
@@ -21,37 +18,11 @@ const KINDS = [
   { label: 'pngDark', kind: 'png', theme: 'dark' },
 ];
 
-const KALAM_BYTES = readFileSync(KALAM);
-const FONT_METRICS_TEXT = readFileSync(FONT_METRICS, 'utf8');
-
-await initWasm(readFileSync(RESVG_WASM));
-
-globalThis.__ezHost = {
-  readText: (path) => readFileSync(String(path), 'utf8'),
-  readBytes: (path) => arrayBufferOf(readFileSync(String(path))),
-  encodeUtf8: (text) => arrayBufferOf(Buffer.from(String(text), 'utf8')),
-  decodeUtf8: (bytes) => Buffer.from(new Uint8Array(bytes)).toString('utf8'),
-  cwd: () => process.cwd(),
-  bundledFont: () => arrayBufferOf(KALAM_BYTES),
-  bundledFontMetrics: () => FONT_METRICS_TEXT,
-  rasterise: (svg, options) => {
-    const resvg = new Resvg(String(svg), JSON.parse(String(options)));
-    try {
-      return arrayBufferOf(Buffer.from(resvg.render().asPng()));
-    } finally {
-      resvg.free();
-    }
-  },
-};
-
+await installHost();
 // The bundle is an IIFE that leaves its surface on `__ezCore`, which a script
 // in this context defines as a global; `import` would keep it module-scoped.
 runInThisContext(readFileSync(CORE, 'utf8'), { filename: CORE });
 const core = globalThis.__ezCore;
-
-function arrayBufferOf(bytes) {
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-}
 
 /**
  * One command's answer, as both sides write it. `begin` starts the command and
