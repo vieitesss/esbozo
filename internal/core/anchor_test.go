@@ -1,9 +1,11 @@
 package core
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -46,6 +48,52 @@ func TestAnchorReplacesBrokenUtf8TheWayBufferDoes(t *testing.T) {
 			}
 			if got := written.Elements[0].Label; got != testCase.want {
 				t.Errorf("the Label saved is %q, want %q", got, testCase.want)
+			}
+		})
+	}
+}
+
+func TestAnEmptyScenePathReadsNoFile(t *testing.T) {
+	folder := t.TempDir()
+	// A file named "null" is what a host opens when an empty path is mistaken
+	// for no path at all and stringified.
+	untouched := sceneWithLabel("untouched")
+	if err := os.WriteFile(filepath.Join(folder, "null"), untouched, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(folder)
+
+	cases := []struct {
+		name string
+		edit func() (Edited, error)
+	}{
+		{"anchor", func() (Edited, error) {
+			return Anchor(AnchorOptions{All: true})
+		}},
+		{"snap", func() (Edited, error) {
+			return Snap(SnapOptions{ElementID: "arr", End: "start", Target: "off"})
+		}},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			edited, err := testCase.edit()
+			if err != nil {
+				t.Fatalf("%s: %v", testCase.name, err)
+			}
+			if edited.OK || edited.ExitCode != ExitInvalidScene {
+				t.Errorf("%s answered ok=%v exit=%d, want ok=false exit=%d",
+					testCase.name, edited.OK, edited.ExitCode, ExitInvalidScene)
+			}
+			if len(edited.Problems) != 1 || !strings.HasPrefix(edited.Problems[0], "cannot read Scene : ") {
+				t.Errorf("%s answered problems %q, want one cannot read Scene line",
+					testCase.name, edited.Problems)
+			}
+			got, err := os.ReadFile(filepath.Join(folder, "null"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(got, untouched) {
+				t.Errorf("%s wrote the file named null: %s", testCase.name, got)
 			}
 		})
 	}

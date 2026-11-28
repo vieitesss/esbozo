@@ -364,7 +364,7 @@ interface PngRequest extends CheckRequest {
 }
 
 interface AnchorRequest {
-  readonly scenePath: string;
+  readonly scenePath: string | null;
   readonly all: boolean;
   readonly elementId: string | null;
   readonly end: string | null;
@@ -372,7 +372,7 @@ interface AnchorRequest {
 }
 
 interface SnapRequest {
-  readonly scenePath: string;
+  readonly scenePath: string | null;
   readonly elementId: string;
   readonly end: string;
   readonly target: string;
@@ -536,16 +536,20 @@ function pngOptions(theme: Theme, request: PngRequest): PngOptions {
 }
 
 async function anchor(request: AnchorRequest): Promise<Edited> {
-  return saveEnd(anchorEditOf(anchorWords(request)), request.scenePath, anchorScene);
+  // The runner reads "" as null, so an empty path arrives as no path at all.
+  const scenePath = request.scenePath ?? '';
+  return saveEnd(anchorEditOf(anchorWords(request)), scenePath, anchorScene);
 }
 
 async function snap(request: SnapRequest): Promise<Edited> {
+  // The runner reads "" as null, so an empty path arrives as no path at all.
+  const scenePath = request.scenePath ?? '';
   const words = snapEditOf({
     elementId: request.elementId,
     end: request.end,
     target: request.target,
   });
-  return saveEnd(words, request.scenePath, snapScene);
+  return saveEnd(words, scenePath, snapScene);
 }
 
 /**
