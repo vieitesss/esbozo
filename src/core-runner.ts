@@ -53,7 +53,7 @@ export function protocolOf(commands: Commands): Protocol {
   function begin(request: object, kind: string): void {
     settled = null;
     failure = null;
-    const found = commands[kind];
+    const found = Object.hasOwn(commands, kind) ? commands[kind] : undefined;
     if (found === undefined) {
       throw new Error(`the core has no command ${String(kind)}`);
     }

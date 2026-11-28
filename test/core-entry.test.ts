@@ -81,6 +81,13 @@ test('a command the core does not have is refused, not answered as check', () =>
   assert.throws(() => core.answer(), /call begin first/, 'nothing settled for it to answer');
 });
 
+test('a kind inherited from Object.prototype is refused too', () => {
+  for (const kind of ['toString', 'constructor', '__proto__']) {
+    assert.throws(() => core.begin({}, kind), new RegExp(`no command ${kind}`));
+    assert.throws(() => core.answer(), /call begin first/, 'nothing settled for it to answer');
+  }
+});
+
 test('a request key the command does not take is refused', () => {
   assert.throws(
     () => core.begin({ ...request(), lablePath: 'typo.ttf' }, 'render'),
