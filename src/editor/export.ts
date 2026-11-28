@@ -27,6 +27,7 @@ import { colourText, readColour, resolveSvgColours, resolveVariables } from '../
 import type { Theme, Variables } from '../css.js';
 import type { Layout } from '../layout.js';
 import { outlineText } from '../outlines.js';
+import { pngFileName } from '../paths.js';
 import { renderScene } from '../renderer.js';
 import type { Scene } from '../scene.js';
 
@@ -44,14 +45,12 @@ export interface PngExport {
   /** The family the page's CSS names, and the one the outlined SVG is resolved in. */
   readonly family: string;
   readonly theme: Theme;
-  /** The file name without its extension: `sketch` writes `sketch.light.png`. */
-  readonly name: string;
   /** The Scene's own file name, which the too-large message's CLI command names. */
   readonly file: string;
 }
 
 /**
- * Draw the Scene as a PNG and hand it to the download: `<name>.<theme>.png`,
+ * Draw the Scene as a PNG and hand it to the download: `<stem>.<theme>.png`,
  * the same name `ez png` gives the same Scene and theme.
  */
 export async function exportPng(options: PngExport): Promise<void> {
@@ -71,7 +70,7 @@ export async function exportPng(options: PngExport): Promise<void> {
   }
   const size = sizeOf(outlined.svg);
   const drawing = await rasterise(outlined.svg, page['--paper'], size, options);
-  download(drawing, `${options.name}.${options.theme}.png`);
+  download(drawing, pngFileName(options.file, options.theme));
 }
 
 /** A page a canvas of this browser cannot hold at 1:1, so the CLI draws it. */
