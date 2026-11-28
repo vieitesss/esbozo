@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"maps"
 	"slices"
 	"testing"
@@ -56,6 +57,45 @@ func TestOptionKeysMatchTheCoresCommands(t *testing.T) {
 	}
 	if takes := described.takes["describe"]; len(takes) != 0 {
 		t.Fatalf("describe declares keys %v, and Go sends none", takes)
+	}
+}
+
+// panicOf is what fieldsOf panics with, or "" when it maps the options.
+func panicOf(options any) (raised string) {
+	defer func() {
+		if value := recover(); value != nil {
+			raised = fmt.Sprint(value)
+		}
+	}()
+	fieldsOf(options)
+	return ""
+}
+
+func TestFieldsOfRefusesAnOptionFieldItCannotMap(t *testing.T) {
+	type untagged struct {
+		Named string
+	}
+	type emptyTag struct {
+		Named string `key:""`
+	}
+	type repeated struct {
+		First  string `key:"named"`
+		Second string `key:"named"`
+	}
+	for _, refused := range []struct {
+		name    string
+		options any
+		wants   string
+	}{
+		{"no tag", untagged{}, "untagged.Named has no key tag"},
+		{"empty tag", emptyTag{}, "emptyTag.Named has an empty key tag"},
+		{"repeated key", repeated{}, "repeated.Second repeats the key named"},
+	} {
+		t.Run(refused.name, func(t *testing.T) {
+			if raised := panicOf(refused.options); raised != refused.wants {
+				t.Fatalf("fieldsOf panics with %q, and it should name %q", raised, refused.wants)
+			}
+		})
 	}
 }
 

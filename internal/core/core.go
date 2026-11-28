@@ -88,12 +88,26 @@ const keyTag = "key"
 
 // fieldsOf maps a command's options to the request keys it sends. Every option
 // field carries the tag that names its key, and an empty string arrives at the
-// core as null.
+// core as null. A field that names no key, or a key a second field claims, is a
+// mistake in the struct rather than in a request, so it panics instead of
+// sending the core a request the core would refuse.
 func fieldsOf(options any) map[string]interface{} {
 	value := reflect.ValueOf(options)
+	name := value.Type().Name()
 	fields := make(map[string]interface{}, value.NumField())
 	for index := range value.NumField() {
-		fields[value.Type().Field(index).Tag.Get(keyTag)] = value.Field(index).Interface()
+		field := value.Type().Field(index)
+		key, tagged := field.Tag.Lookup(keyTag)
+		if !tagged {
+			panic(fmt.Sprintf("%s.%s has no key tag", name, field.Name))
+		}
+		if key == "" {
+			panic(fmt.Sprintf("%s.%s has an empty key tag", name, field.Name))
+		}
+		if _, taken := fields[key]; taken {
+			panic(fmt.Sprintf("%s.%s repeats the key %s", name, field.Name, key))
+		}
+		fields[key] = value.Field(index).Interface()
 	}
 	return fields
 }
