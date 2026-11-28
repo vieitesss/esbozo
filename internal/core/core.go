@@ -3,15 +3,25 @@ package core
 
 import (
 	"fmt"
+	"reflect"
 	"sync"
 
 	"github.com/dop251/goja"
 )
 
+// The exit codes the core answers with; `describe` reports the same table.
+const (
+	ExitOK                 = 0
+	ExitUsage              = 2
+	ExitInvalidScene       = 3
+	ExitWriteFailed        = 4
+	ExitMissingThemeOrFont = 5
+	ExitLabelOverflow      = 6
+)
+
 // Result is the common outcome of a core command.
 type Result struct {
-	OK bool
-	// ExitCode matches EXIT in src/exit.ts.
+	OK       bool
 	ExitCode int
 	// Problems are stderr lines printed on refusal.
 	Problems []string
@@ -36,46 +46,75 @@ type Edited struct {
 	Lines []string
 }
 
-// RenderOptions configures Render; empty fields are omitted.
+// RenderOptions configures Render.
 type RenderOptions struct {
-	FontPath string
+	FontPath string `key:"fontPath"`
 }
 
-// CheckOptions configures Check; empty fields are omitted.
+// CheckOptions configures Check.
 type CheckOptions struct {
-	FontPath string
-	CSSPath  string
+	FontPath string `key:"fontPath"`
+	CSSPath  string `key:"cssPath"`
 }
 
-// PNGOptions configures PNG; empty fields are omitted.
+// PNGOptions configures PNG.
 type PNGOptions struct {
-	FontPath string
-	CSSPath  string
+	FontPath string `key:"fontPath"`
+	CSSPath  string `key:"cssPath"`
 	// Theme is "light" or "dark".
-	Theme string
-	Ink   string
-	Paper string
-	Muted string
+	Theme string `key:"theme"`
+	Ink   string `key:"ink"`
+	Paper string `key:"paper"`
+	Muted string `key:"muted"`
 }
 
 // AnchorOptions configures Anchor. When All is true, ElementID, End, and Place are ignored.
 type AnchorOptions struct {
-	All       bool
-	ElementID string
-	End       string
-	Place     string
+	All       bool   `key:"all"`
+	ElementID string `key:"elementId"`
+	End       string `key:"end"`
+	Place     string `key:"place"`
 }
 
 // SnapOptions configures Snap; Target is an Element id or "off".
 type SnapOptions struct {
-	ElementID string
-	End       string
-	Target    string
+	ElementID string `key:"elementId"`
+	End       string `key:"end"`
+	Target    string `key:"target"`
+}
+
+// keyTag names the request key an option field sends.
+const keyTag = "key"
+
+// fieldsOf maps a command's options to the request keys it sends. Every option
+// field carries the tag that names its key, and an empty string arrives at the
+// core as null. A field that names no key, or a key a second field claims, is a
+// mistake in the struct rather than in a request, so it panics instead of
+// sending the core a request the core would refuse.
+func fieldsOf(options any) map[string]interface{} {
+	value := reflect.ValueOf(options)
+	name := value.Type().Name()
+	fields := make(map[string]interface{}, value.NumField())
+	for index := range value.NumField() {
+		field := value.Type().Field(index)
+		key, tagged := field.Tag.Lookup(keyTag)
+		if !tagged {
+			panic(fmt.Sprintf("%s.%s has no key tag", name, field.Name))
+		}
+		if key == "" {
+			panic(fmt.Sprintf("%s.%s has an empty key tag", name, field.Name))
+		}
+		if _, taken := fields[key]; taken {
+			panic(fmt.Sprintf("%s.%s repeats the key %s", name, field.Name, key))
+		}
+		fields[key] = value.Field(index).Interface()
+	}
+	return fields
 }
 
 func Render(source []byte, options RenderOptions) (Rendered, error) {
 	var rendered Rendered
-	err := runOnce("render", source, map[string]interface{}{"fontPath": options.FontPath},
+	err := runOnce("render", source, fieldsOf(options),
 		func(answer *goja.Object) error {
 			rendered = Rendered{Result: resultOf(answer), SVG: answer.Get("svg").String()}
 			return nil
@@ -85,10 +124,7 @@ func Render(source []byte, options RenderOptions) (Rendered, error) {
 
 func Check(source []byte, options CheckOptions) (Result, error) {
 	var result Result
-	err := runOnce("check", source, map[string]interface{}{
-		"fontPath": options.FontPath,
-		"cssPath":  options.CSSPath,
-	}, func(answer *goja.Object) error {
+	err := runOnce("check", source, fieldsOf(options), func(answer *goja.Object) error {
 		result = resultOf(answer)
 		return nil
 	})
@@ -97,14 +133,7 @@ func Check(source []byte, options CheckOptions) (Result, error) {
 
 func PNG(source []byte, options PNGOptions) (Image, error) {
 	var image Image
-	err := runOnce("png", source, map[string]interface{}{
-		"fontPath": options.FontPath,
-		"cssPath":  options.CSSPath,
-		"theme":    options.Theme,
-		"ink":      options.Ink,
-		"paper":    options.Paper,
-		"muted":    options.Muted,
-	}, func(answer *goja.Object) error {
+	err := runOnce("png", source, fieldsOf(options), func(answer *goja.Object) error {
 		image = Image{Result: resultOf(answer)}
 		png := answer.Get("png")
 		if png == nil || goja.IsNull(png) || goja.IsUndefined(png) {
@@ -123,12 +152,7 @@ func PNG(source []byte, options PNGOptions) (Image, error) {
 // Anchor runs ez anchor. A nil source validates options without editing a Scene.
 func Anchor(source []byte, options AnchorOptions) (Edited, error) {
 	var edited Edited
-	err := runOnce("anchor", source, map[string]interface{}{
-		"all":       options.All,
-		"elementId": options.ElementID,
-		"end":       options.End,
-		"place":     options.Place,
-	}, func(answer *goja.Object) error {
+	err := runOnce("anchor", source, fieldsOf(options), func(answer *goja.Object) error {
 		edited = editedOf(answer)
 		return nil
 	})
@@ -138,11 +162,7 @@ func Anchor(source []byte, options AnchorOptions) (Edited, error) {
 // Snap runs ez snap. A nil source validates options without editing a Scene.
 func Snap(source []byte, options SnapOptions) (Edited, error) {
 	var edited Edited
-	err := runOnce("snap", source, map[string]interface{}{
-		"elementId": options.ElementID,
-		"end":       options.End,
-		"target":    options.Target,
-	}, func(answer *goja.Object) error {
+	err := runOnce("snap", source, fieldsOf(options), func(answer *goja.Object) error {
 		edited = editedOf(answer)
 		return nil
 	})
@@ -189,23 +209,40 @@ func runOnce(kind string, source []byte, fields map[string]interface{}, read fun
 	return session.run(kind, source, fields, read)
 }
 
+// run sends one command over this Scene and these option fields.
 func (session *Session) run(kind string, source []byte, fields map[string]interface{}, read func(*goja.Object) error) error {
+	return session.call(kind, func(vm *goja.Runtime) (*goja.Object, error) {
+		return requestOf(vm, source, fields)
+	}, read)
+}
+
+// requestOf is the request a command reads: its Scene, then its option fields.
+func requestOf(vm *goja.Runtime, source []byte, fields map[string]interface{}) (*goja.Object, error) {
+	request := vm.NewObject()
+	if source == nil {
+		if err := request.Set("source", goja.Null()); err != nil {
+			return nil, err
+		}
+	} else if err := request.Set("source", vm.NewArrayBuffer(source)); err != nil {
+		return nil, err
+	}
+	for name, value := range fields {
+		if err := request.Set(name, value); err != nil {
+			return nil, err
+		}
+	}
+	return request, nil
+}
+
+// call begins one command over the request build makes, and hands its answer to read.
+func (session *Session) call(kind string, build func(*goja.Runtime) (*goja.Object, error), read func(*goja.Object) error) error {
 	session.mu.Lock()
 	defer session.mu.Unlock()
 	vm := session.vm
 
-	request := vm.NewObject()
-	if source == nil {
-		if err := request.Set("source", goja.Null()); err != nil {
-			return err
-		}
-	} else if err := request.Set("source", vm.NewArrayBuffer(source)); err != nil {
+	request, err := build(vm)
+	if err != nil {
 		return err
-	}
-	for name, value := range fields {
-		if err := request.Set(name, emptyStringAsNil(value)); err != nil {
-			return err
-		}
 	}
 
 	// Two calls, not one: goja runs the queue of promises when the call that
@@ -242,13 +279,6 @@ func callableOf(vm *goja.Runtime, name string) (goja.Callable, error) {
 		return nil, fmt.Errorf("the core bundle has no __ezCore.%s", name)
 	}
 	return callable, nil
-}
-
-func emptyStringAsNil(value interface{}) interface{} {
-	if text, isText := value.(string); isText && text == "" {
-		return nil
-	}
-	return value
 }
 
 func resultOf(answer *goja.Object) Result {

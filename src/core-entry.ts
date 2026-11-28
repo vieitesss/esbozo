@@ -6,6 +6,8 @@ import { renderPng } from './png.js';
 import type { PngOptions, Theme } from './png.js';
 import { sha256Hex } from './sha256.js';
 import { EXIT } from './exit.js';
+import { command, keysOf, protocolOf } from './core-runner.js';
+import type { Result } from './core-runner.js';
 import type { AnchorWords, Change, Outcome } from './ends.js';
 import type { Layout } from './layout.js';
 import type { Scene } from './scene.js';
@@ -391,13 +393,6 @@ interface ParseRequest {
   readonly source: ArrayBuffer;
 }
 
-interface Result {
-  readonly ok: boolean;
-  readonly exitCode: number;
-  readonly problems: readonly string[];
-  readonly notes: readonly string[];
-}
-
 interface Rendered extends Result {
   readonly svg: string;
 }
@@ -409,6 +404,11 @@ interface Image extends Result {
 interface Edited extends Result {
   readonly scene: string;
   readonly lines: readonly string[];
+}
+
+interface Described extends Result {
+  readonly exit: typeof EXIT;
+  readonly commands: Record<string, readonly string[]>;
 }
 
 function ok(): Result {
@@ -580,55 +580,37 @@ function saved(edit: Outcome<Change>): Edited {
   return { ...ok(), scene: text, lines: edit.value.lines };
 }
 
-let settled: Result | null = null;
-let failure: { error: unknown } | null = null;
+/**
+ * Describe the core's protocol: the exit table, and the request keys each
+ * command declares.
+ */
+async function describe(): Promise<Described> {
+  return { ...ok(), exit: EXIT, commands: keysOf(COMMANDS) };
+}
+
+/** Every command the core has, by kind, with the request keys it takes. */
+const COMMANDS = {
+  render: command<RenderRequest>(['source', 'fontPath'], render),
+  check: command<CheckRequest>(['source', 'fontPath', 'cssPath'], check),
+  parse: command<ParseRequest>(['source'], parseOnly),
+  png: command<PngRequest>(
+    ['source', 'fontPath', 'cssPath', 'theme', 'ink', 'paper', 'muted'],
+    png,
+  ),
+  anchor: command<AnchorRequest>(['source', 'all', 'elementId', 'end', 'place'], anchor),
+  snap: command<SnapRequest>(['source', 'elementId', 'end', 'target'], snap),
+  describe: command<object>([], describe),
+};
+
+const protocol = protocolOf(COMMANDS);
 
 /**
- * Start a core command (`render`, `check`, `parse`, `png`, `anchor`, or `snap`).
- *
- * Split into `begin` + `answer` because goja drains its promise queue when the
- * JS call returns to Go, so the host cannot await a returned promise.
+ * Start a core command, refused unless it is a kind the table has, its request
+ * declares only that command's keys, and every one of them is there.
  *
  * @public
  */
-export function begin(
-  request: RenderRequest | CheckRequest | PngRequest | AnchorRequest | SnapRequest | ParseRequest,
-  kind: string,
-): void {
-  settled = null;
-  failure = null;
-  let running: Promise<Result>;
-  switch (kind) {
-    case 'render':
-      running = render(request as RenderRequest);
-      break;
-    case 'check':
-      running = check(request as CheckRequest);
-      break;
-    case 'parse':
-      running = parseOnly(request as ParseRequest);
-      break;
-    case 'png':
-      running = png(request as PngRequest);
-      break;
-    case 'anchor':
-      running = anchor(request as AnchorRequest);
-      break;
-    case 'snap':
-      running = snap(request as SnapRequest);
-      break;
-    default:
-      throw new Error(`the core has no command ${String(kind)}`);
-  }
-  void running.then(
-    (answer) => {
-      settled = answer;
-    },
-    (error: unknown) => {
-      failure = { error };
-    },
-  );
-}
+export const begin = protocol.begin;
 
 /**
  * Return (and clear) the settled result of the command started by `begin`, or
@@ -636,16 +618,4 @@ export function begin(
  *
  * @public
  */
-export function answer(): Result {
-  const answered = settled;
-  const failed = failure;
-  settled = null;
-  failure = null;
-  if (failed !== null) {
-    throw failed.error;
-  }
-  if (answered === null) {
-    throw new Error('the core has no answer: call begin first');
-  }
-  return answered;
-}
+export const answer = protocol.answer;
