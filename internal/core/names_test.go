@@ -45,6 +45,22 @@ func TestNamesWithoutAThemeNamesNoPNG(t *testing.T) {
 	}
 }
 
+func TestNamesAnswersAnEmptyNameAsTheMissingOne(t *testing.T) {
+	const missing = "the Scene name is missing"
+	for _, theme := range []string{"", "light"} {
+		names, err := Names("", theme)
+		if err != nil {
+			t.Fatalf("naming an empty name with the theme %q: %v", theme, err)
+		}
+		if names.Problem != missing {
+			t.Errorf("an empty name answers the problem %q, and `ez serve` refuses it with %q", names.Problem, missing)
+		}
+		if names.SVG != ".svg" {
+			t.Errorf("an empty name still answers its SVG as %q, so a caller never branches before naming", names.SVG)
+		}
+	}
+}
+
 func TestNamesAnswersWhyANameIsNoSceneName(t *testing.T) {
 	names, err := Names("../flow.esbozo", "")
 	if err != nil {

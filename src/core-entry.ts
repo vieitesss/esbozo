@@ -396,7 +396,7 @@ interface ParseRequest {
 }
 
 interface NamesRequest {
-  readonly fileName: string;
+  readonly fileName: string | null;
   readonly theme: string | null;
 }
 
@@ -615,13 +615,15 @@ async function describe(): Promise<Described> {
  * there is no PNG to name.
  */
 async function names(request: NamesRequest): Promise<Names> {
+  // The runner reads "" as null, so an empty name arrives as no name at all.
+  const fileName = request.fileName ?? '';
   return {
     ...ok(),
-    problem: sceneNameProblem(request.fileName),
-    stem: sceneStem(request.fileName),
-    svg: svgFileName(request.fileName),
-    png: request.theme === null ? null : pngFileName(request.fileName, request.theme),
-    listed: sceneListing(request.fileName),
+    problem: sceneNameProblem(fileName),
+    stem: sceneStem(fileName),
+    svg: svgFileName(fileName),
+    png: request.theme === null ? null : pngFileName(fileName, request.theme),
+    listed: sceneListing(fileName),
     maxListedSceneBytes: MAX_LISTED_SCENE_BYTES,
   };
 }

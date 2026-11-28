@@ -174,6 +174,27 @@ test('names with no theme names no PNG, and a name that is no Scene says why', a
   assert.equal(answer.listed, 'always');
 });
 
+test('names reads an empty name as the missing one, not as a crash', async () => {
+  core.begin({ fileName: '', theme: null }, 'names');
+  await drainMicrotasks();
+  const answer = core.answer() as Names;
+  assert.equal(answer.ok, true);
+  assert.equal(answer.problem, 'the Scene name is missing');
+  assert.equal(answer.stem, '');
+  assert.equal(answer.svg, '.svg');
+  assert.equal(answer.png, null);
+  assert.equal(answer.listed, 'never');
+});
+
+test('names reads an empty name with a theme as the missing one too', async () => {
+  core.begin({ fileName: '', theme: 'light' }, 'names');
+  await drainMicrotasks();
+  const answer = core.answer() as Names;
+  assert.equal(answer.ok, true);
+  assert.equal(answer.problem, 'the Scene name is missing');
+  assert.equal(answer.png, '.light.png');
+});
+
 test('describe answers copies, so a caller cannot change the commands', async () => {
   core.begin({}, 'describe');
   await drainMicrotasks();
