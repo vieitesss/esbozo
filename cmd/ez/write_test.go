@@ -103,7 +103,11 @@ func TestNamesThatReachOneSVGShareOneQueue(t *testing.T) {
 // this test.
 func queueKey(t *testing.T, name string) string {
 	t.Helper()
-	names, err := core.Names(name, "")
+	session, err := core.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	names, err := session.Names(name, "")
 	if err != nil {
 		t.Fatalf("naming %s: %v", name, err)
 	}

@@ -43,16 +43,17 @@ func TestCoreAnswers(t *testing.T) {
 	}
 
 	written := answers{}
+	session := openSession(t)
 	for _, path := range paths {
 		source, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
 		}
 		fixture := fixtureAnswers{Fixture: filepath.Base(path)}
-		fixture.Render = renderAnswer(t, source)
-		fixture.Check = checkAnswer(t, source)
-		fixture.PNGLight = pngAnswer(t, source, "light")
-		fixture.PNGDark = pngAnswer(t, source, "dark")
+		fixture.Render = renderAnswer(t, session, source)
+		fixture.Check = checkAnswer(t, session, source)
+		fixture.PNGLight = pngAnswer(t, session, source, "light")
+		fixture.PNGDark = pngAnswer(t, session, source, "dark")
 		written.Fixtures = append(written.Fixtures, fixture)
 	}
 
@@ -65,9 +66,9 @@ func TestCoreAnswers(t *testing.T) {
 	}
 }
 
-func renderAnswer(t *testing.T, source []byte) answer {
+func renderAnswer(t *testing.T, session *Session, source []byte) answer {
 	t.Helper()
-	rendered, err := Render(source, RenderOptions{})
+	rendered, err := session.Render(source, RenderOptions{})
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
@@ -76,18 +77,18 @@ func renderAnswer(t *testing.T, source []byte) answer {
 	return written
 }
 
-func checkAnswer(t *testing.T, source []byte) answer {
+func checkAnswer(t *testing.T, session *Session, source []byte) answer {
 	t.Helper()
-	checked, err := Check(source, CheckOptions{})
+	checked, err := session.Check(source, CheckOptions{})
 	if err != nil {
 		t.Fatalf("check: %v", err)
 	}
 	return answered(checked)
 }
 
-func pngAnswer(t *testing.T, source []byte, theme string) answer {
+func pngAnswer(t *testing.T, session *Session, source []byte, theme string) answer {
 	t.Helper()
-	image, err := PNG(source, PNGOptions{Theme: theme})
+	image, err := session.PNG(source, PNGOptions{Theme: theme})
 	if err != nil {
 		t.Fatalf("png %s: %v", theme, err)
 	}
@@ -119,7 +120,8 @@ func BenchmarkRenderEveryElement(b *testing.B) {
 	}
 
 	for b.Loop() {
-		rendered, err := Render(source, RenderOptions{})
+		session := openSession(b)
+		rendered, err := session.Render(source, RenderOptions{})
 		if err != nil {
 			b.Fatal(err)
 		}

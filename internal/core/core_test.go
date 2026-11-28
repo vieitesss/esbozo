@@ -42,7 +42,7 @@ func TestParseAnswersWhatTheParserSays(t *testing.T) {
 		t.Fatal("a Scene that will not parse said nothing about why")
 	}
 
-	checked, err := Check([]byte(unparsableScene), CheckOptions{})
+	checked, err := session.Check([]byte(unparsableScene), CheckOptions{})
 	if err != nil {
 		t.Fatalf("check: %v", err)
 	}
@@ -57,7 +57,8 @@ func TestParseAnswersWhatTheParserSays(t *testing.T) {
 const loneSurrogateScene = `{"version":1,"elements":[{"id":"a","type":"rectangle","x":0,"y":0,"width":100,"height":50,"label":"before\ud800after"}]}`
 
 func TestCheckKeepsALoneSurrogateEscape(t *testing.T) {
-	checked, err := Check([]byte(loneSurrogateScene), CheckOptions{})
+	session := openSession(t)
+	checked, err := session.Check([]byte(loneSurrogateScene), CheckOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +75,8 @@ func TestCheckKeepsALoneSurrogateEscape(t *testing.T) {
 const overflowingNumberScene = `{"version":1,"elements":[{"id":"a","type":"rectangle","x":1e400,"y":0,"width":100,"height":50,"label":"big"}]}`
 
 func TestCheckReadsANumberTooLargeForAFloat64AsV8Does(t *testing.T) {
-	checked, err := Check([]byte(overflowingNumberScene), CheckOptions{})
+	session := openSession(t)
+	checked, err := session.Check([]byte(overflowingNumberScene), CheckOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +140,8 @@ func BenchmarkParse(b *testing.B) {
 	})
 	b.Run("once", func(b *testing.B) {
 		for b.Loop() {
-			if _, err := Check(source, CheckOptions{}); err != nil {
+			session := openSession(b)
+			if _, err := session.Check(source, CheckOptions{}); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -191,6 +194,17 @@ func TestSessionAnswersOneCommandAtATime(t *testing.T) {
 	for failure := range failures {
 		t.Error(failure)
 	}
+}
+
+// openSession opens a Session the way a caller outside the tests does, so a
+// test asks through the interface `ez` asks through.
+func openSession(t testing.TB) *Session {
+	t.Helper()
+	session, err := Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return session
 }
 
 func sameLines(one, other []string) bool {

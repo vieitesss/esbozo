@@ -143,15 +143,6 @@ func fieldsOf(options any) map[string]interface{} {
 	return fields
 }
 
-// Render draws a Scene's SVG in a runtime of its own.
-func Render(source []byte, options RenderOptions) (Rendered, error) {
-	session, err := Open()
-	if err != nil {
-		return Rendered{}, err
-	}
-	return session.Render(source, options)
-}
-
 // Render draws the Scene's SVG as `render` answers.
 func (session *Session) Render(source []byte, options RenderOptions) (Rendered, error) {
 	var rendered Rendered
@@ -163,15 +154,6 @@ func (session *Session) Render(source []byte, options RenderOptions) (Rendered, 
 	return rendered, err
 }
 
-// Check answers `check` in a runtime of its own.
-func Check(source []byte, options CheckOptions) (Result, error) {
-	session, err := Open()
-	if err != nil {
-		return Result{}, err
-	}
-	return session.Check(source, options)
-}
-
 // Check answers what `check` asks about the Scene's Elements.
 func (session *Session) Check(source []byte, options CheckOptions) (Result, error) {
 	var result Result
@@ -180,15 +162,6 @@ func (session *Session) Check(source []byte, options CheckOptions) (Result, erro
 		return nil
 	})
 	return result, err
-}
-
-// PNG draws a Scene's image in a runtime of its own.
-func PNG(source []byte, options PNGOptions) (Image, error) {
-	session, err := Open()
-	if err != nil {
-		return Image{}, err
-	}
-	return session.PNG(source, options)
 }
 
 // PNG draws the Scene's image as `png` answers.
@@ -237,15 +210,6 @@ func Snap(options SnapOptions) (Edited, error) {
 type namesRequest struct {
 	FileName string `key:"fileName"`
 	Theme    string `key:"theme"`
-}
-
-// Names answers a Scene's file rules without a Session of its own.
-func Names(fileName, theme string) (SceneNames, error) {
-	session, err := Open()
-	if err != nil {
-		return SceneNames{}, err
-	}
-	return session.Names(fileName, theme)
 }
 
 // Names answers a Scene's file rules. The theme names the PNG too; an empty

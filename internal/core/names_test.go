@@ -30,7 +30,8 @@ func TestNamesReadsAFileNameIntoTheFileNamesAndTheListing(t *testing.T) {
 }
 
 func TestNamesWithoutAThemeNamesNoPNG(t *testing.T) {
-	names, err := Names("flow.json", "")
+	session := openSession(t)
+	names, err := session.Names("flow.json", "")
 	if err != nil {
 		t.Fatalf("names: %v", err)
 	}
@@ -47,8 +48,9 @@ func TestNamesWithoutAThemeNamesNoPNG(t *testing.T) {
 
 func TestNamesAnswersAnEmptyNameAsTheMissingOne(t *testing.T) {
 	const missing = "the Scene name is missing"
+	session := openSession(t)
 	for _, theme := range []string{"", "light"} {
-		names, err := Names("", theme)
+		names, err := session.Names("", theme)
 		if err != nil {
 			t.Fatalf("naming an empty name with the theme %q: %v", theme, err)
 		}
@@ -62,7 +64,8 @@ func TestNamesAnswersAnEmptyNameAsTheMissingOne(t *testing.T) {
 }
 
 func TestNamesAnswersWhyANameIsNoSceneName(t *testing.T) {
-	names, err := Names("../flow.esbozo", "")
+	session := openSession(t)
+	names, err := session.Names("../flow.esbozo", "")
 	if err != nil {
 		t.Fatalf("names: %v", err)
 	}
