@@ -1,3 +1,5 @@
+import { host } from '../../src/core-host.js';
+
 export function dirname(path) {
   const trimmed = path.length > 1 ? path.replace(/\/+$/, '') : path;
   const cut = trimmed.lastIndexOf('/');
@@ -22,7 +24,7 @@ export function resolve(...parts) {
     absolute = part.startsWith('/');
   }
   if (!absolute) {
-    resolved = `${globalThis.__ezHost.cwd()}/${resolved}`;
+    resolved = `${host().cwd()}/${resolved}`;
   }
   return normalise(resolved);
 }

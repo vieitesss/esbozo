@@ -1,1 +1,3 @@
-export default new Uint8Array(globalThis.__ezHost.bundledFont());
+import { host } from '../../src/core-host.js';
+
+export default new Uint8Array(host().bundledFont());
