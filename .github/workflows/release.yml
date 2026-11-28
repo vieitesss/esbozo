@@ -108,6 +108,9 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The smoke is this commit's, with the assets it built.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - name: Fetch the assets this run built
         env:
           GH_TOKEN: ${{ github.token }}
