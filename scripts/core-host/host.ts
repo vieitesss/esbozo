@@ -23,9 +23,15 @@ const KALAM = join(ROOT, 'fonts/Kalam-Regular.ttf');
 const FONT_METRICS = join(ROOT, 'dist/font-metrics.json');
 const RESVG_WASM = join(ROOT, 'node_modules/@resvg/resvg-wasm/index_bg.wasm');
 
+/**
+ * resvg's `initWasm` refuses a second call in one process, so its promise is
+ * kept here: a second `installHost()` reuses the wasm that is already up.
+ */
+let wasmReady: ReturnType<typeof initWasm> | undefined;
+
 /** Install this host as the core's, and answer it. */
 export async function installHost(): Promise<EzHost> {
-  await initWasm(readFileSync(RESVG_WASM));
+  await (wasmReady ??= initWasm(readFileSync(RESVG_WASM)));
   const font = readFileSync(KALAM);
   const metrics = readFileSync(FONT_METRICS, 'utf8');
   const installed: EzHost = {

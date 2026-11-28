@@ -144,3 +144,9 @@ test('a throw inside the core comes back a throw, not a refused Scene', async ()
     host.decodeUtf8 = decode;
   }
 });
+
+test('the host installs again in one process, on the wasm that is already up', async () => {
+  const again = await installHost();
+  const installed = (globalThis as unknown as { __ezHost: EzHost }).__ezHost;
+  assert.equal(installed, again, 'the newest host is the one the core reads');
+});
