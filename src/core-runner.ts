@@ -37,7 +37,7 @@ export function command<Request>(
 
 /** Each command's request keys, as `describe` answers them. */
 export function keysOf(commands: Commands): Record<string, readonly string[]> {
-  return Object.fromEntries(Object.entries(commands).map(([kind, entry]) => [kind, entry.keys]));
+  return Object.fromEntries(Object.entries(commands).map(([kind, entry]) => [kind, [...entry.keys]]));
 }
 
 /**

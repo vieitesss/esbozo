@@ -139,6 +139,19 @@ test('describe answers the exit table and every command\u2019s request keys', as
   });
 });
 
+test('describe answers copies, so a caller cannot change the commands', async () => {
+  core.begin({}, 'describe');
+  await drainMicrotasks();
+  const answer = core.answer() as Described;
+  answer.commands.render!.push('lablePath');
+  answer.commands.describe!.push('hacked');
+  core.begin({}, 'describe');
+  await drainMicrotasks();
+  const again = core.answer() as Described;
+  assert.deepEqual(again.commands.render, ['source', 'fontPath']);
+  assert.deepEqual(again.commands.describe, []);
+});
+
 test('a throw inside the core comes back a throw, not a refused Scene', async () => {
   const installed = (globalThis as unknown as { __ezHost: Host }).__ezHost;
   const decode = installed.decodeUtf8;
