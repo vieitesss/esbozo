@@ -89,7 +89,7 @@ This command writes `~/.agents/skills/esbozo/SKILL.md`. Pass `--dir <path>` to w
 
 ## Docker
 
-Before running the container, make sure the `diagrams` folder exists and is writable by uid 1000. Run the editor on that folder:
+Before running the container, make sure the `diagrams` folder exists and is writable by uid 65532. Run the editor on that folder:
 
 ```sh
 docker run --rm -p 127.0.0.1:4320:4320 -v "$PWD/diagrams:/scenes" ghcr.io/vieitesss/esbozo
