@@ -10,7 +10,7 @@ import { sha256Hex, useNativeDigest } from './sha256.js';
 import { EXIT } from './exit.js';
 import { command, keysOf, protocolOf } from './core-runner.js';
 import type { Result } from './core-runner.js';
-import { host } from './core-host.js';
+import { host, messageOf } from './core-host.js';
 import type { AnchorWords, Change, Outcome } from './ends.js';
 import type { Layout } from './layout.js';
 import type { Scene } from './scene.js';
@@ -578,10 +578,6 @@ async function saveEnd<Edit>(
     return nothingSaved(refused(EXIT.invalidScene, problemLines(parsed.problems)));
   }
   return saved(apply(parsed.scene, words.value));
-}
-
-function messageOf(error: unknown): string {
-  return (error as Error).message;
 }
 
 function anchorWords(request: AnchorRequest): AnchorWords {
