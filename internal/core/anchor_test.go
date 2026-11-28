@@ -2,6 +2,8 @@ package core
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -21,7 +23,8 @@ func TestAnchorReplacesBrokenUtf8TheWayBufferDoes(t *testing.T) {
 
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			edited, err := Anchor(sceneWithLabel(testCase.label), AnchorOptions{
+			edited, err := Anchor(AnchorOptions{
+				ScenePath: sceneFile(t, sceneWithLabel(testCase.label)),
 				ElementID: "arr",
 				End:       "start",
 				Place:     "right",
@@ -46,6 +49,16 @@ func TestAnchorReplacesBrokenUtf8TheWayBufferDoes(t *testing.T) {
 			}
 		})
 	}
+}
+
+// sceneFile writes a Scene to a temporary folder, and answers its path.
+func sceneFile(t *testing.T, source []byte) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "scene.json")
+	if err := os.WriteFile(path, source, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func sceneWithLabel(label string) []byte {

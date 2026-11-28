@@ -364,7 +364,7 @@ interface PngRequest extends CheckRequest {
 }
 
 interface AnchorRequest {
-  readonly source: ArrayBuffer | null;
+  readonly scenePath: string;
   readonly all: boolean;
   readonly elementId: string | null;
   readonly end: string | null;
@@ -372,7 +372,7 @@ interface AnchorRequest {
 }
 
 interface SnapRequest {
-  readonly source: ArrayBuffer | null;
+  readonly scenePath: string;
   readonly elementId: string;
   readonly end: string;
   readonly target: string;
@@ -536,7 +536,7 @@ function pngOptions(theme: Theme, request: PngRequest): PngOptions {
 }
 
 async function anchor(request: AnchorRequest): Promise<Edited> {
-  return saveEnd(anchorEditOf(anchorWords(request)), request.source, anchorScene);
+  return saveEnd(anchorEditOf(anchorWords(request)), request.scenePath, anchorScene);
 }
 
 async function snap(request: SnapRequest): Promise<Edited> {
@@ -545,25 +545,39 @@ async function snap(request: SnapRequest): Promise<Edited> {
     end: request.end,
     target: request.target,
   });
-  return saveEnd(words, request.source, snapScene);
+  return saveEnd(words, request.scenePath, snapScene);
 }
 
+/**
+ * Save the edit the judged words ask for. A Scene the host cannot read is
+ * refused with the line that says why, and only once the words are judged, so
+ * a word the command has no use for is never reported as a missing file.
+ */
 async function saveEnd<Edit>(
   words: Outcome<Edit>,
-  source: ArrayBuffer | null,
+  scenePath: string,
   apply: (scene: Scene, edit: Edit) => Outcome<Change>,
 ): Promise<Edited> {
   if (!words.ok) {
     return nothingSaved(refused(words.exitCode, [words.message]));
   }
-  if (source === null) {
-    return nothingSaved(ok());
+  let source: ArrayBuffer;
+  try {
+    source = host().readBytes(scenePath);
+  } catch (error) {
+    return nothingSaved(
+      refused(EXIT.invalidScene, [`cannot read Scene ${scenePath}: ${messageOf(error)}`]),
+    );
   }
   const { parsed } = loadScene(source);
   if (!parsed.ok) {
     return nothingSaved(refused(EXIT.invalidScene, problemLines(parsed.problems)));
   }
   return saved(apply(parsed.scene, words.value));
+}
+
+function messageOf(error: unknown): string {
+  return (error as Error).message;
 }
 
 function anchorWords(request: AnchorRequest): AnchorWords {
@@ -624,8 +638,8 @@ const COMMANDS = {
     ['source', 'fontPath', 'cssPath', 'theme', 'ink', 'paper', 'muted'],
     png,
   ),
-  anchor: command<AnchorRequest>(['source', 'all', 'elementId', 'end', 'place'], anchor),
-  snap: command<SnapRequest>(['source', 'elementId', 'end', 'target'], snap),
+  anchor: command<AnchorRequest>(['scenePath', 'all', 'elementId', 'end', 'place'], anchor),
+  snap: command<SnapRequest>(['scenePath', 'elementId', 'end', 'target'], snap),
   names: command<NamesRequest>(['fileName', 'theme'], names),
   describe: command<object>([], describe),
 };

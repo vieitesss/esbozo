@@ -10,40 +10,34 @@ import (
 	"esbozo/internal/nodeerr"
 )
 
-type anchorArguments struct {
-	scenePath string
-	options   core.AnchorOptions
-}
-
-type snapArguments struct {
-	scenePath string
-	options   core.SnapOptions
-}
-
-func parseAnchorArguments(argv []string) (anchorArguments, bool) {
+func parseAnchorArguments(argv []string) (core.AnchorOptions, bool) {
 	if hasWord(argv, "--all") {
 		rest := withoutWord(argv, "--all")
 		if len(rest) != 1 || rest[0] == "" || strings.HasPrefix(rest[0], "--") {
-			return anchorArguments{}, false
+			return core.AnchorOptions{}, false
 		}
-		return anchorArguments{scenePath: rest[0], options: core.AnchorOptions{All: true}}, true
+		return core.AnchorOptions{ScenePath: rest[0], All: true}, true
 	}
 	if !fourWords(argv) {
-		return anchorArguments{}, false
+		return core.AnchorOptions{}, false
 	}
-	return anchorArguments{
-		scenePath: argv[0],
-		options:   core.AnchorOptions{ElementID: argv[1], End: argv[2], Place: argv[3]},
+	return core.AnchorOptions{
+		ScenePath: argv[0],
+		ElementID: argv[1],
+		End:       argv[2],
+		Place:     argv[3],
 	}, true
 }
 
-func parseSnapArguments(argv []string) (snapArguments, bool) {
+func parseSnapArguments(argv []string) (core.SnapOptions, bool) {
 	if !fourWords(argv) {
-		return snapArguments{}, false
+		return core.SnapOptions{}, false
 	}
-	return snapArguments{
-		scenePath: argv[0],
-		options:   core.SnapOptions{ElementID: argv[1], End: argv[2], Target: argv[3]},
+	return core.SnapOptions{
+		ScenePath: argv[0],
+		ElementID: argv[1],
+		End:       argv[2],
+		Target:    argv[3],
 	}, true
 }
 
@@ -79,38 +73,33 @@ func withoutWord(argv []string, word string) []string {
 }
 
 func runAnchor(argv []string, stdout, stderr io.Writer) int {
-	parsed, ok := parseAnchorArguments(argv)
+	options, ok := parseAnchorArguments(argv)
 	if !ok {
 		fmt.Fprintln(stderr, usageLine["anchor"])
 		return exitUsage
 	}
-	return editScene("anchor", parsed.scenePath, func(source []byte) (core.Edited, error) {
-		return core.Anchor(source, parsed.options)
+	return editScene("anchor", options.ScenePath, func() (core.Edited, error) {
+		return core.Anchor(options)
 	}, stdout, stderr)
 }
 
 func runSnap(argv []string, stdout, stderr io.Writer) int {
-	parsed, ok := parseSnapArguments(argv)
+	options, ok := parseSnapArguments(argv)
 	if !ok {
 		fmt.Fprintln(stderr, usageLine["snap"])
 		return exitUsage
 	}
-	return editScene("snap", parsed.scenePath, func(source []byte) (core.Edited, error) {
-		return core.Snap(source, parsed.options)
+	return editScene("snap", options.ScenePath, func() (core.Edited, error) {
+		return core.Snap(options)
 	}, stdout, stderr)
 }
 
 func editScene(
 	command, scenePath string,
-	edit func(source []byte) (core.Edited, error),
+	edit func() (core.Edited, error),
 	stdout, stderr io.Writer,
 ) int {
-	source, readErr := os.ReadFile(scenePath)
-	if readErr != nil {
-		source = nil
-	}
-
-	edited, err := edit(source)
+	edited, err := edit()
 	if err != nil {
 		fmt.Fprintf(stderr, "ez could not run %s: %s\n", command, err)
 		return exitWriteFailed
@@ -120,10 +109,6 @@ func editScene(
 	}
 	if !edited.OK {
 		return edited.ExitCode
-	}
-	if readErr != nil {
-		fmt.Fprintf(stderr, "cannot read Scene %s: %s\n", scenePath, nodeerr.Message(readErr, scenePath, true))
-		return exitInvalidScene
 	}
 
 	if err := os.WriteFile(scenePath, []byte(edited.Scene), 0o666); err != nil {

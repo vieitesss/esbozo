@@ -99,6 +99,7 @@ type PNGOptions struct {
 
 // AnchorOptions configures Anchor. When All is true, ElementID, End, and Place are ignored.
 type AnchorOptions struct {
+	ScenePath string `key:"scenePath"`
 	All       bool   `key:"all"`
 	ElementID string `key:"elementId"`
 	End       string `key:"end"`
@@ -107,6 +108,7 @@ type AnchorOptions struct {
 
 // SnapOptions configures Snap; Target is an Element id or "off".
 type SnapOptions struct {
+	ScenePath string `key:"scenePath"`
 	ElementID string `key:"elementId"`
 	End       string `key:"end"`
 	Target    string `key:"target"`
@@ -178,20 +180,22 @@ func PNG(source []byte, options PNGOptions) (Image, error) {
 	return image, err
 }
 
-// Anchor runs ez anchor. A nil source validates options without editing a Scene.
-func Anchor(source []byte, options AnchorOptions) (Edited, error) {
+// Anchor runs ez anchor. The core reads the Scene at options.ScenePath, and
+// answers whether it could, so Go holds no rule about the file.
+func Anchor(options AnchorOptions) (Edited, error) {
 	var edited Edited
-	err := runOnce("anchor", source, fieldsOf(options), func(answer *goja.Object) error {
+	err := runOnce("anchor", nil, fieldsOf(options), func(answer *goja.Object) error {
 		edited = editedOf(answer)
 		return nil
 	})
 	return edited, err
 }
 
-// Snap runs ez snap. A nil source validates options without editing a Scene.
-func Snap(source []byte, options SnapOptions) (Edited, error) {
+// Snap runs ez snap. The core reads the Scene at options.ScenePath, and answers
+// whether it could, so Go holds no rule about the file.
+func Snap(options SnapOptions) (Edited, error) {
 	var edited Edited
-	err := runOnce("snap", source, fieldsOf(options), func(answer *goja.Object) error {
+	err := runOnce("snap", nil, fieldsOf(options), func(answer *goja.Object) error {
 		edited = editedOf(answer)
 		return nil
 	})
@@ -260,6 +264,8 @@ func (session *Session) Parse(source []byte) (Result, error) {
 	return result, err
 }
 
+// runOnce runs one command in a runtime of its own. A nil source is a command
+// that reads its Scene from a path in its options instead.
 func runOnce(kind string, source []byte, fields map[string]interface{}, read func(*goja.Object) error) error {
 	session, err := Open()
 	if err != nil {
@@ -275,18 +281,17 @@ func (session *Session) run(kind string, source []byte, fields map[string]interf
 	}, read)
 }
 
-// requestOf is the request a command reads: its Scene, then its option fields.
+// requestOf is the request a command reads: its Scene, when it takes one, then
+// its option fields.
 func requestOf(vm *goja.Runtime, source []byte, fields map[string]interface{}) (*goja.Object, error) {
 	request, err := fieldsRequestOf(vm, fields)
 	if err != nil {
 		return nil, err
 	}
-	if source == nil {
-		if err := request.Set("source", goja.Null()); err != nil {
+	if source != nil {
+		if err := request.Set("source", vm.NewArrayBuffer(source)); err != nil {
 			return nil, err
 		}
-	} else if err := request.Set("source", vm.NewArrayBuffer(source)); err != nil {
-		return nil, err
 	}
 	return request, nil
 }
