@@ -68,3 +68,15 @@ the editor, whatever the Scene holds; it rests there again on the next visit.
 Where it rests sets whether it lies or stands. Moving it never changes the
 Scene.
 _Avoid_: toolbar
+
+## Distribution
+
+**Release**:
+A tagged, numbered version of esbozo, such as `0.1.0`. What an install or
+`ez update` gets unless asked for the Main build.
+_Avoid_: version (for the build itself)
+
+**Main build**:
+The rolling build of the latest green commit on `main`, replaced on every
+push. Reached with `--main`.
+_Avoid_: nightly, canary
