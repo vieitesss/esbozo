@@ -21,8 +21,7 @@ const (
 
 // Result is the common outcome of a core command.
 type Result struct {
-	OK bool
-	// ExitCode is one of the exit codes above.
+	OK       bool
 	ExitCode int
 	// Problems are stderr lines printed on refusal.
 	Problems []string
