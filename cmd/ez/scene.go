@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"esbozo/internal/core"
+	"esbozo/internal/nodeerr"
 )
 
 type sceneArguments struct {
@@ -62,7 +63,7 @@ func runScene(command string, argv []string, stdout, stderr io.Writer) int {
 
 	source, err := os.ReadFile(parsed.scenePath)
 	if err != nil {
-		fmt.Fprintf(stderr, "cannot read Scene %s: %s\n", parsed.scenePath, core.NodeMessage(err, parsed.scenePath, true))
+		fmt.Fprintf(stderr, "cannot read Scene %s: %s\n", parsed.scenePath, nodeerr.Message(err, parsed.scenePath, true))
 		return exitInvalidScene
 	}
 
@@ -99,7 +100,7 @@ func runScene(command string, argv []string, stdout, stderr io.Writer) int {
 		return exitWriteFailed
 	}
 	if err := os.WriteFile(outputPath, []byte(svg), 0o666); err != nil {
-		fmt.Fprintf(stderr, "cannot write SVG %s: %s\n", outputPath, core.NodeMessage(err, outputPath, false))
+		fmt.Fprintf(stderr, "cannot write SVG %s: %s\n", outputPath, nodeerr.Message(err, outputPath, false))
 		return exitWriteFailed
 	}
 	fmt.Fprintln(stdout, outputPath)

@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"esbozo"
-	"esbozo/internal/core"
+	"esbozo/internal/nodeerr"
 )
 
 type skillArguments struct {
@@ -81,11 +81,11 @@ func runSkill(argv []string, stdout, stderr io.Writer) int {
 		return exitWriteFailed
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o777); err != nil {
-		fmt.Fprintf(stderr, "cannot write %s: %s\n", target, core.NodeMkdirMessage(err, filepath.Dir(target)))
+		fmt.Fprintf(stderr, "cannot write %s: %s\n", target, nodeerr.Mkdir(err, filepath.Dir(target)))
 		return exitWriteFailed
 	}
 	if err := os.WriteFile(target, esbozo.Skill, 0o666); err != nil {
-		fmt.Fprintf(stderr, "cannot write %s: %s\n", target, core.NodeMessage(err, target, false))
+		fmt.Fprintf(stderr, "cannot write %s: %s\n", target, nodeerr.Message(err, target, false))
 		return exitWriteFailed
 	}
 	fmt.Fprintln(stdout, target)
