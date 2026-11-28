@@ -40,9 +40,8 @@ export async function sha256HexAsync(text: string): Promise<string> {
 }
 
 export function sha256(input: Uint8Array): Uint8Array {
-  const hosted = hostDigest(input);
-  if (hosted !== null) {
-    return hosted;
+  if (handedDigest !== null) {
+    return handedDigest(input);
   }
   const message = pad(input);
   const words = new Uint32Array(64);
@@ -121,8 +120,8 @@ export function sha256(input: Uint8Array): Uint8Array {
 
 /**
  * Prefer the platform's own digest where the host hands one over: Go's
- * `crypto/sha256` under `internal/core`, because goja has no JIT to run the
- * JavaScript below. A browser hands over nothing, and keeps this module's.
+ * `crypto/sha256` under `internal/core`, because goja has no JIT to run this
+ * module's loop. A browser hands over nothing, and keeps this module's.
  */
 let handedDigest: ((bytes: Uint8Array) => Uint8Array) | null = null;
 
@@ -132,10 +131,6 @@ let handedDigest: ((bytes: Uint8Array) => Uint8Array) | null = null;
  */
 export function useNativeDigest(digest: ((bytes: Uint8Array) => Uint8Array) | null): void {
   handedDigest = digest;
-}
-
-function hostDigest(bytes: Uint8Array): Uint8Array | null {
-  return handedDigest === null ? null : handedDigest(bytes);
 }
 
 function pad(input: Uint8Array): Uint8Array {
