@@ -84,6 +84,7 @@ test('the digest a host hands over is the one that answers, until it is cleared'
   for (const sample of SAMPLES) {
     assert.equal(sha256Hex(sample), openssl(sample), JSON.stringify(sample.slice(0, 24)));
   }
+  assert.deepEqual(asked, ['esbozo ✓ 世界'], 'clearing the host digest stops calling it');
 });
 
 test('the Scene, Renderer and hash modules bundle for the browser', async () => {
