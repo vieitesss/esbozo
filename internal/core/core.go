@@ -3,6 +3,7 @@ package core
 
 import (
 	"fmt"
+	"reflect"
 	"sync"
 
 	"github.com/dop251/goja"
@@ -36,46 +37,61 @@ type Edited struct {
 	Lines []string
 }
 
-// RenderOptions configures Render; empty fields are omitted.
+// RenderOptions configures Render.
 type RenderOptions struct {
-	FontPath string
+	FontPath string `key:"fontPath"`
 }
 
-// CheckOptions configures Check; empty fields are omitted.
+// CheckOptions configures Check.
 type CheckOptions struct {
-	FontPath string
-	CSSPath  string
+	FontPath string `key:"fontPath"`
+	CSSPath  string `key:"cssPath"`
 }
 
-// PNGOptions configures PNG; empty fields are omitted.
+// PNGOptions configures PNG.
 type PNGOptions struct {
-	FontPath string
-	CSSPath  string
+	FontPath string `key:"fontPath"`
+	CSSPath  string `key:"cssPath"`
 	// Theme is "light" or "dark".
-	Theme string
-	Ink   string
-	Paper string
-	Muted string
+	Theme string `key:"theme"`
+	Ink   string `key:"ink"`
+	Paper string `key:"paper"`
+	Muted string `key:"muted"`
 }
 
 // AnchorOptions configures Anchor. When All is true, ElementID, End, and Place are ignored.
 type AnchorOptions struct {
-	All       bool
-	ElementID string
-	End       string
-	Place     string
+	All       bool   `key:"all"`
+	ElementID string `key:"elementId"`
+	End       string `key:"end"`
+	Place     string `key:"place"`
 }
 
 // SnapOptions configures Snap; Target is an Element id or "off".
 type SnapOptions struct {
-	ElementID string
-	End       string
-	Target    string
+	ElementID string `key:"elementId"`
+	End       string `key:"end"`
+	Target    string `key:"target"`
+}
+
+// keyTag names the request key an option field sends.
+const keyTag = "key"
+
+// fieldsOf maps a command's options to the request keys it sends. Every option
+// field carries the tag that names its key, and an empty string arrives at the
+// core as null.
+func fieldsOf(options any) map[string]interface{} {
+	value := reflect.ValueOf(options)
+	fields := make(map[string]interface{}, value.NumField())
+	for index := range value.NumField() {
+		fields[value.Type().Field(index).Tag.Get(keyTag)] = value.Field(index).Interface()
+	}
+	return fields
 }
 
 func Render(source []byte, options RenderOptions) (Rendered, error) {
 	var rendered Rendered
-	err := runOnce("render", source, map[string]interface{}{"fontPath": options.FontPath},
+	err := runOnce("render", source, fieldsOf(options),
 		func(answer *goja.Object) error {
 			rendered = Rendered{Result: resultOf(answer), SVG: answer.Get("svg").String()}
 			return nil
@@ -85,10 +101,7 @@ func Render(source []byte, options RenderOptions) (Rendered, error) {
 
 func Check(source []byte, options CheckOptions) (Result, error) {
 	var result Result
-	err := runOnce("check", source, map[string]interface{}{
-		"fontPath": options.FontPath,
-		"cssPath":  options.CSSPath,
-	}, func(answer *goja.Object) error {
+	err := runOnce("check", source, fieldsOf(options), func(answer *goja.Object) error {
 		result = resultOf(answer)
 		return nil
 	})
@@ -97,14 +110,7 @@ func Check(source []byte, options CheckOptions) (Result, error) {
 
 func PNG(source []byte, options PNGOptions) (Image, error) {
 	var image Image
-	err := runOnce("png", source, map[string]interface{}{
-		"fontPath": options.FontPath,
-		"cssPath":  options.CSSPath,
-		"theme":    options.Theme,
-		"ink":      options.Ink,
-		"paper":    options.Paper,
-		"muted":    options.Muted,
-	}, func(answer *goja.Object) error {
+	err := runOnce("png", source, fieldsOf(options), func(answer *goja.Object) error {
 		image = Image{Result: resultOf(answer)}
 		png := answer.Get("png")
 		if png == nil || goja.IsNull(png) || goja.IsUndefined(png) {
@@ -123,12 +129,7 @@ func PNG(source []byte, options PNGOptions) (Image, error) {
 // Anchor runs ez anchor. A nil source validates options without editing a Scene.
 func Anchor(source []byte, options AnchorOptions) (Edited, error) {
 	var edited Edited
-	err := runOnce("anchor", source, map[string]interface{}{
-		"all":       options.All,
-		"elementId": options.ElementID,
-		"end":       options.End,
-		"place":     options.Place,
-	}, func(answer *goja.Object) error {
+	err := runOnce("anchor", source, fieldsOf(options), func(answer *goja.Object) error {
 		edited = editedOf(answer)
 		return nil
 	})
@@ -138,11 +139,7 @@ func Anchor(source []byte, options AnchorOptions) (Edited, error) {
 // Snap runs ez snap. A nil source validates options without editing a Scene.
 func Snap(source []byte, options SnapOptions) (Edited, error) {
 	var edited Edited
-	err := runOnce("snap", source, map[string]interface{}{
-		"elementId": options.ElementID,
-		"end":       options.End,
-		"target":    options.Target,
-	}, func(answer *goja.Object) error {
+	err := runOnce("snap", source, fieldsOf(options), func(answer *goja.Object) error {
 		edited = editedOf(answer)
 		return nil
 	})
@@ -203,7 +200,7 @@ func (session *Session) run(kind string, source []byte, fields map[string]interf
 		return err
 	}
 	for name, value := range fields {
-		if err := request.Set(name, emptyStringAsNil(value)); err != nil {
+		if err := request.Set(name, value); err != nil {
 			return err
 		}
 	}
@@ -242,13 +239,6 @@ func callableOf(vm *goja.Runtime, name string) (goja.Callable, error) {
 		return nil, fmt.Errorf("the core bundle has no __ezCore.%s", name)
 	}
 	return callable, nil
-}
-
-func emptyStringAsNil(value interface{}) interface{} {
-	if text, isText := value.(string); isText && text == "" {
-		return nil
-	}
-	return value
 }
 
 func resultOf(answer *goja.Object) Result {
