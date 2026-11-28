@@ -1,22 +1,68 @@
 # The multi-arch image, on a machine that has buildx: no local docker here does.
+# A push publishes to ghcr.io when it is a Release tag, or when `check` went
+# green on `main`; a pull request builds the image and pushes nothing.
 name: docker
 
 on:
   push:
-    branches: [main]
+    tags: ['v*.*.*']
   pull_request:
+  # `check` covers `main`, so the image goes out only once that run passed, and
+  # from the commit it passed rather than from whatever `main` holds by then.
+  workflow_run:
+    workflows: [check]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   build:
+    # A `check` that failed on `main` publishes nothing. Every other trigger
+    # runs: a pull request is the only place a fork's change is seen at all.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
+      # A `workflow_run` sets `github.sha` to the tip of `main`, which is not
+      # necessarily the commit `check` passed and this checked out: the short
+      # tag is named after that commit instead.
+      - id: commit
+        name: Short commit the image is built from
+        run: echo "sha=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+      # A Release `vX.Y.Z` is `X.Y.Z`, `X.Y`, `X` and `latest`; a green `main`
+      # is `main` and `sha-<short>`; a pull request gets tags it never pushes.
+      - uses: docker/metadata-action@v5
+        id: image
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
+            type=ref,event=branch
+            type=raw,value=sha-${{ steps.commit.outputs.sha }},enable=${{ github.event_name == 'workflow_run' }}
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
-          push: false
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.image.outputs.tags }}
+          labels: ${{ steps.image.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
