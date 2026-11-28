@@ -36,23 +36,36 @@ COPY go.mod go.sum *.go ./
 COPY cmd ./cmd
 COPY skills ./skills
 COPY internal ./internal
+# What `ez --version` prints. `pnpm build` asks `.git` for it, and the context
+# carries no `.git`, so the workflow that builds the image says it instead:
+# `ESBOZO_RELEASE=1` on a Release tag, and the commit a Main build is stamped
+# with. Both empty is a build nobody named, which stamps `unknown`.
+ARG ESBOZO_RELEASE=
+ARG ESBOZO_COMMIT=
 RUN pnpm build
 
+# The folder the Scenes live in, owned by the user the server runs as, so a
+# named volume starts out writable instead of root-owned. It is made here
+# because the runtime stage has no shell to run `mkdir` in; `COPY --chown`
+# takes the ownership it is given rather than the build user's.
+RUN mkdir -p /scenes
 
-FROM node:22-slim AS runtime
+# The runtime: `gcr.io/distroless/static-debian12:nonroot` holds `/app/ez` and
+# nothing runs beside it. `ez` is a static binary (`CGO_ENABLED=0`) and `ez
+# serve` speaks plain HTTP and reads files, so it needs no libc and no CA
+# bundle. What the base does buy: the `nonroot` user (uid 65532), the
+# `/etc/passwd` that `ez skill install` reads through `os/user`, and `/tmp`.
+FROM gcr.io/distroless/static-debian12:nonroot AS runtime
 
-ENV NODE_ENV=production
 ENV ESBOZO_DOCKER=1
 WORKDIR /app
 COPY --from=build /app/dist/ez ./ez
 COPY LICENSE ./
+COPY --from=build --chown=65532:65532 /scenes /scenes
 
-# The folder the Scenes live in, owned by the user the server runs as, so a
-# named volume starts out writable instead of root-owned.
-RUN mkdir -p /scenes && chown node:node /scenes
-
-# Nobody draws as root inside the container.
-USER node
+# Nobody draws as root inside the container. The base's `nonroot` is uid 65532;
+# spelling it out keeps that true if the tag's user ever moves.
+USER 65532:65532
 
 VOLUME ["/scenes"]
 EXPOSE 4320

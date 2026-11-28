@@ -50,7 +50,7 @@ const PORT = 4320;
 /**
  * The host's own user and group, so the container writes as the folder's owner.
  * A `mkdtemp` folder is mode 0700 and belongs to the host user; the image's own
- * user is uid 1000. Docker Desktop maps the two, a native Linux host does not,
+ * user is uid 65532. Docker Desktop maps the two, a native Linux host does not,
  * and there the mount would be unreadable without `--user`. Windows has no
  * ids to pass, and Docker Desktop decides ownership there.
  */

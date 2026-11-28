@@ -30,6 +30,26 @@ Run the main verification commands from the repository root:
 - `pnpm e2e <file>` runs the model-free browser suites in Chromium, `--all` runs them all, and a bare `pnpm e2e` refuses locally ([why](../tests/README.md)).
 - `pnpm check:steps <base>` runs the static checks on every commit in `<base>..HEAD`.
 
+## Cutting a Release
+
+A Release is a `vX.Y.Z` tag, and its `X.Y.Z` has to be `package.json`'s version. Bump the version, commit it, and push the tag:
+
+```sh
+git commit -am 'chore: version 0.1.0'
+git tag v0.1.0
+git push origin main v0.1.0
+```
+
+`.github/workflows/release.yml` then builds the four assets — `ez-linux-x64.gz`, `ez-linux-arm64.gz`, `ez-darwin-x64.gz`, `ez-darwin-arm64.gz` — and their `SHA256SUMS` with `scripts/release.mjs`, smoke-tests both Linux binaries, and publishes them with the notes GitHub writes. There is no CHANGELOG to keep and no npm package: `ez` ships as that binary alone. The same script is runnable by hand, for all four targets or the one you can run:
+
+```sh
+pnpm build
+node scripts/release.mjs dist/release
+sh scripts/smoke.sh dist/release/ez-linux-x64.gz
+```
+
+Every green `check` on `main` republishes the rolling `main` prerelease from the same script and moves its tag to that commit; that build answers `ez --version` as `<version>-main+<sha>`, and it is what `install.sh --main` and `ez update --main` install.
+
 ## Git hooks
 
 Enable the repository git hooks once per clone:

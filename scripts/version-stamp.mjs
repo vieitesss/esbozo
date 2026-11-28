@@ -14,6 +14,13 @@ function stampOf(release) {
   if (process.env.ESBOZO_RELEASE === '1') {
     return release;
   }
-  const commit = gitAnswer(['rev-parse', '--short', 'HEAD'])?.trim();
-  return `${release}-main+${commit === undefined || commit === '' ? 'unknown' : commit}`;
+  // The Docker build has no `.git` to ask — `.dockerignore` keeps it out of the
+  // context — so the workflow that builds the image names the commit instead.
+  // A build nobody names either way stays `unknown`.
+  const commit = (
+    gitAnswer(['rev-parse', '--short', 'HEAD']) ??
+    process.env.ESBOZO_COMMIT ??
+    ''
+  ).trim();
+  return `${release}-main+${commit === '' ? 'unknown' : commit}`;
 }

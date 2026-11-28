@@ -1,6 +1,6 @@
 {
   "name": "esbozo",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "A small canvas for hand-drawn diagrams, drawn by people and written by agents.",
   "license": "MIT",
   "private": true,
