@@ -48,90 +48,82 @@ func newRuntime() (*goja.Runtime, error) {
 	return vm, nil
 }
 
-func installHost(vm *goja.Runtime) error {
-	host := vm.NewObject()
+// hostMethod answers one name of the host seam: the value the core receives, or
+// the Go error installHost throws into it as a JavaScript error.
+type hostMethod func(vm *goja.Runtime, call goja.FunctionCall) (goja.Value, error)
 
-	if err := host.Set("readText", func(call goja.FunctionCall) goja.Value {
+// hostMethods is the seam `ez` answers: one entry per method of EzHost in
+// src/core-host.ts, and host_test.go keeps the two lists equal.
+var hostMethods = map[string]hostMethod{
+	"readText": func(vm *goja.Runtime, call goja.FunctionCall) (goja.Value, error) {
 		path := call.Argument(0).String()
 		bytes, err := os.ReadFile(path)
 		if err != nil {
-			panic(vm.NewGoError(errors.New(nodeerr.Message(err, path, true))))
+			return nil, errors.New(nodeerr.Message(err, path, true))
 		}
-		return vm.ToValue(string(bytes))
-	}); err != nil {
-		return err
-	}
-
-	if err := host.Set("readBytes", func(call goja.FunctionCall) goja.Value {
+		return vm.ToValue(string(bytes)), nil
+	},
+	"readBytes": func(vm *goja.Runtime, call goja.FunctionCall) (goja.Value, error) {
 		path := call.Argument(0).String()
 		bytes, err := os.ReadFile(path)
 		if err != nil {
-			panic(vm.NewGoError(errors.New(nodeerr.Message(err, path, true))))
+			return nil, errors.New(nodeerr.Message(err, path, true))
 		}
-		return vm.ToValue(vm.NewArrayBuffer(bytes))
-	}); err != nil {
-		return err
-	}
-
-	if err := host.Set("encodeUtf8", func(call goja.FunctionCall) goja.Value {
-		return vm.ToValue(vm.NewArrayBuffer([]byte(call.Argument(0).String())))
-	}); err != nil {
-		return err
-	}
-
-	if err := host.Set("sha256", func(call goja.FunctionCall) goja.Value {
+		return vm.ToValue(vm.NewArrayBuffer(bytes)), nil
+	},
+	"encodeUtf8": func(vm *goja.Runtime, call goja.FunctionCall) (goja.Value, error) {
+		return vm.ToValue(vm.NewArrayBuffer([]byte(call.Argument(0).String()))), nil
+	},
+	"sha256": func(vm *goja.Runtime, call goja.FunctionCall) (goja.Value, error) {
 		bytes, err := bytesOf(call.Argument(0))
 		if err != nil {
-			panic(vm.NewGoError(err))
+			return nil, err
 		}
 		digest := sha256.Sum256(bytes)
-		return vm.ToValue(vm.NewArrayBuffer(digest[:]))
-	}); err != nil {
-		return err
-	}
-
-	if err := host.Set("decodeUtf8", func(call goja.FunctionCall) goja.Value {
+		return vm.ToValue(vm.NewArrayBuffer(digest[:])), nil
+	},
+	"decodeUtf8": func(vm *goja.Runtime, call goja.FunctionCall) (goja.Value, error) {
 		bytes, err := bytesOf(call.Argument(0))
 		if err != nil {
-			panic(vm.NewGoError(err))
+			return nil, err
 		}
-		return vm.ToValue(decodeUtf8(bytes))
-	}); err != nil {
-		return err
-	}
-
-	if err := host.Set("cwd", func(call goja.FunctionCall) goja.Value {
+		return vm.ToValue(decodeUtf8(bytes)), nil
+	},
+	"cwd": func(vm *goja.Runtime, call goja.FunctionCall) (goja.Value, error) {
 		folder, err := os.Getwd()
 		if err != nil {
-			panic(vm.NewGoError(err))
+			return nil, err
 		}
-		return vm.ToValue(folder)
-	}); err != nil {
-		return err
-	}
-
-	if err := host.Set("bundledFont", func(call goja.FunctionCall) goja.Value {
-		return vm.ToValue(vm.NewArrayBuffer(esbozo.Kalam))
-	}); err != nil {
-		return err
-	}
-
-	if err := host.Set("bundledFontMetrics", func(call goja.FunctionCall) goja.Value {
-		return vm.ToValue(string(esbozo.FontMetrics))
-	}); err != nil {
-		return err
-	}
-
-	if err := host.Set("rasterise", func(call goja.FunctionCall) goja.Value {
+		return vm.ToValue(folder), nil
+	},
+	"bundledFont": func(vm *goja.Runtime, call goja.FunctionCall) (goja.Value, error) {
+		return vm.ToValue(vm.NewArrayBuffer(esbozo.Kalam)), nil
+	},
+	"bundledFontMetrics": func(vm *goja.Runtime, call goja.FunctionCall) (goja.Value, error) {
+		return vm.ToValue(string(esbozo.FontMetrics)), nil
+	},
+	"rasterise": func(vm *goja.Runtime, call goja.FunctionCall) (goja.Value, error) {
 		png, err := resvg.Rasterise(call.Argument(0).String(), call.Argument(1).String())
 		if err != nil {
-			panic(vm.NewGoError(err))
+			return nil, err
 		}
-		return vm.ToValue(vm.NewArrayBuffer(png))
-	}); err != nil {
-		return err
-	}
+		return vm.ToValue(vm.NewArrayBuffer(png)), nil
+	},
+}
 
+func installHost(vm *goja.Runtime) error {
+	host := vm.NewObject()
+	for name, method := range hostMethods {
+		if err := host.Set(name, func(call goja.FunctionCall) goja.Value {
+			value, err := method(vm, call)
+			if err != nil {
+				panic(vm.NewGoError(err))
+			}
+			return value
+		}); err != nil {
+			return err
+		}
+	}
 	return vm.Set("__ezHost", host)
 }
 
