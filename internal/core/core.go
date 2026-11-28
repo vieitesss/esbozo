@@ -9,6 +9,16 @@ import (
 	"github.com/dop251/goja"
 )
 
+// The exit codes the core answers with; `describe` reports the same table.
+const (
+	ExitOK                 = 0
+	ExitUsage              = 2
+	ExitInvalidScene       = 3
+	ExitWriteFailed        = 4
+	ExitMissingThemeOrFont = 5
+	ExitLabelOverflow      = 6
+)
+
 // Result is the common outcome of a core command.
 type Result struct {
 	OK bool

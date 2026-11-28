@@ -6,14 +6,15 @@ import (
 	"os"
 
 	"esbozo"
+	"esbozo/internal/core"
 )
 
 const (
-	exitOK            = 0
+	exitOK            = core.ExitOK
 	exitInstallFailed = 1
-	exitUsage         = 2
-	exitInvalidScene  = 3
-	exitWriteFailed   = 4
+	exitUsage         = core.ExitUsage
+	exitInvalidScene  = core.ExitInvalidScene
+	exitWriteFailed   = core.ExitWriteFailed
 )
 
 func main() {
