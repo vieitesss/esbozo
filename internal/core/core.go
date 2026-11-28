@@ -143,9 +143,19 @@ func fieldsOf(options any) map[string]interface{} {
 	return fields
 }
 
+// Render draws a Scene's SVG in a runtime of its own.
 func Render(source []byte, options RenderOptions) (Rendered, error) {
+	session, err := Open()
+	if err != nil {
+		return Rendered{}, err
+	}
+	return session.Render(source, options)
+}
+
+// Render draws the Scene's SVG as `render` answers.
+func (session *Session) Render(source []byte, options RenderOptions) (Rendered, error) {
 	var rendered Rendered
-	err := runOnce("render", source, fieldsOf(options),
+	err := session.run("render", source, fieldsOf(options),
 		func(answer *goja.Object) error {
 			rendered = Rendered{Result: resultOf(answer), SVG: answer.Get("svg").String()}
 			return nil
@@ -153,18 +163,38 @@ func Render(source []byte, options RenderOptions) (Rendered, error) {
 	return rendered, err
 }
 
+// Check answers `check` in a runtime of its own.
 func Check(source []byte, options CheckOptions) (Result, error) {
+	session, err := Open()
+	if err != nil {
+		return Result{}, err
+	}
+	return session.Check(source, options)
+}
+
+// Check answers what `check` asks about the Scene's Elements.
+func (session *Session) Check(source []byte, options CheckOptions) (Result, error) {
 	var result Result
-	err := runOnce("check", source, fieldsOf(options), func(answer *goja.Object) error {
+	err := session.run("check", source, fieldsOf(options), func(answer *goja.Object) error {
 		result = resultOf(answer)
 		return nil
 	})
 	return result, err
 }
 
+// PNG draws a Scene's image in a runtime of its own.
 func PNG(source []byte, options PNGOptions) (Image, error) {
+	session, err := Open()
+	if err != nil {
+		return Image{}, err
+	}
+	return session.PNG(source, options)
+}
+
+// PNG draws the Scene's image as `png` answers.
+func (session *Session) PNG(source []byte, options PNGOptions) (Image, error) {
 	var image Image
-	err := runOnce("png", source, fieldsOf(options), func(answer *goja.Object) error {
+	err := session.run("png", source, fieldsOf(options), func(answer *goja.Object) error {
 		image = Image{Result: resultOf(answer)}
 		png := answer.Get("png")
 		if png == nil || goja.IsNull(png) || goja.IsUndefined(png) {

@@ -69,14 +69,19 @@ func runScene(command string, argv []string, stdout, stderr io.Writer) int {
 
 	var answer core.Result
 	var svg string
+	session, err := core.Open()
+	if err != nil {
+		fmt.Fprintf(stderr, "ez could not run %s: %s\n", command, err)
+		return exitWriteFailed
+	}
 	if command == "check" {
-		answer, err = core.Check(source, core.CheckOptions{
+		answer, err = session.Check(source, core.CheckOptions{
 			FontPath: parsed.fontPath,
 			CSSPath:  parsed.cssPath,
 		})
 	} else {
 		var rendered core.Rendered
-		rendered, err = core.Render(source, core.RenderOptions{FontPath: parsed.fontPath})
+		rendered, err = session.Render(source, core.RenderOptions{FontPath: parsed.fontPath})
 		answer, svg = rendered.Result, rendered.SVG
 	}
 	if err != nil {
@@ -94,7 +99,7 @@ func runScene(command string, argv []string, stdout, stderr io.Writer) int {
 		return answer.ExitCode
 	}
 
-	outputPath, err := svgPathFor(parsed.scenePath)
+	outputPath, err := svgPathFor(session, parsed.scenePath)
 	if err != nil {
 		fmt.Fprintf(stderr, "cannot name the SVG beside %s: %s\n", parsed.scenePath, err)
 		return exitWriteFailed
@@ -107,12 +112,12 @@ func runScene(command string, argv []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-func svgPathFor(scenePath string) (string, error) {
+func svgPathFor(session *core.Session, scenePath string) (string, error) {
 	resolved, err := filepath.Abs(scenePath)
 	if err != nil {
 		return "", err
 	}
-	names, err := core.Names(filepath.Base(scenePath), "")
+	names, err := session.Names(filepath.Base(scenePath), "")
 	if err != nil {
 		return "", err
 	}
