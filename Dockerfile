@@ -36,6 +36,12 @@ COPY go.mod go.sum *.go ./
 COPY cmd ./cmd
 COPY skills ./skills
 COPY internal ./internal
+# What `ez --version` prints. `pnpm build` asks `.git` for it, and the context
+# carries no `.git`, so the workflow that builds the image says it instead:
+# `ESBOZO_RELEASE=1` on a Release tag, and the commit a Main build is stamped
+# with. Both empty is a build nobody named, which stamps `unknown`.
+ARG ESBOZO_RELEASE=
+ARG ESBOZO_COMMIT=
 RUN pnpm build
 
 # The folder the Scenes live in, owned by the user the server runs as, so a

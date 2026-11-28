@@ -87,5 +87,9 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.image.outputs.tags }}
           labels: ${{ steps.image.outputs.labels }}
+          # `ez --version` has no `.git` to ask inside the build context.
+          build-args: |
+            ESBOZO_RELEASE=${{ steps.channel.outputs.stamp == 'release' && '1' || '' }}
+            ESBOZO_COMMIT=${{ steps.commit.outputs.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
