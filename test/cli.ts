@@ -1,22 +1,27 @@
-/**
- * The one seam the CLI tests share: `ez` on Scene files in temporary folders.
- *
- * Both `render.test.ts` and `elements.test.ts` drive the built CLI the same way:
- * write a Scene to a fresh folder, run `ez`, read what it wrote. Keeping the
- * three helpers here means a change to how the CLI is invoked, or to how its
- * exit code is read, cannot make the suites disagree.
- */
+/** The one seam the CLI tests share: `ez` on Scene files in temporary folders. */
 import { execFile, spawn } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { tempFolder } from './temp.ts';
 
 const run = promisify(execFile);
 
-/** The built CLI both suites exercise. */
-export const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
+const CLI = fileURLToPath(new URL('../dist/ez', import.meta.url));
+
+function ezBin(cli: string = CLI): string {
+  const bin = process.env.EZ_BIN;
+  return bin === undefined || bin === '' ? cli : resolve(bin);
+}
+
+function shellQuote(word: string): string {
+  return `'${word.split("'").join(`'\\''`)}'`;
+}
+
+export function ezShimScript(): string {
+  return `#!/bin/sh\nexec ${shellQuote(ezBin())} "$@"\n`;
+}
 
 /** What one `ez` run left behind: its exit code and its two streams. */
 export interface Run {
@@ -35,10 +40,13 @@ export async function sceneFolder(scene: unknown, name = 'scene.json'): Promise<
   return folder;
 }
 
-/** `ez` with its exit code read, whether it succeeded or not. */
-export async function ez(args: string[], cwd: string): Promise<Run> {
+export async function ez(
+  args: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv = {},
+): Promise<Run> {
   try {
-    const { stdout, stderr } = await run(process.execPath, [CLI, ...args], { cwd });
+    const { stdout, stderr } = await run(ezBin(), [...args], { cwd, env: { ...process.env, ...env } });
     return { code: 0, stdout, stderr };
   } catch (error) {
     const failed = error as { code?: unknown; stdout?: string; stderr?: string };
@@ -50,6 +58,18 @@ export async function ez(args: string[], cwd: string): Promise<Run> {
   }
 }
 
+export async function ezOrThrow(
+  args: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv = {},
+): Promise<Run> {
+  const left = await ez(args, cwd, env);
+  if (left.code !== 0) {
+    throw new Error(`ez ${args.join(' ')} exited ${left.code}: ${left.stderr || left.stdout}`);
+  }
+  return left;
+}
+
 /** A server `ez serve` is running on, and the folder it serves. */
 export interface Serve {
   readonly url: string;
@@ -58,7 +78,6 @@ export interface Serve {
   readonly startup: string;
   /** The build that line names. */
   readonly build: string;
-  /** When that build was made, or `null` when the CLI ran from source. */
   readonly builtAt: string | null;
   stop(): Promise<void>;
 }
@@ -86,16 +105,13 @@ function readStartup(
  * `ez serve` on `folder`, with the port the operating system picks so tests
  * never fight over one. Resolves once the server prints the line it listens on;
  * the folder is the working directory, as it would be for a person.
- *
- * `cli` is the built CLI to run, so a test can drive a copy of `dist/` that has
- * nothing else from the repository beside it.
  */
 export async function startServe(
   folder: string,
   args: readonly string[] = [],
   cli: string = CLI,
 ): Promise<Serve> {
-  const child = spawn(process.execPath, [cli, 'serve', folder, '--port', '0', ...args], {
+  const child = spawn(ezBin(cli), ['serve', folder, '--port', '0', ...args], {
     cwd: folder,
     stdio: ['ignore', 'pipe', 'pipe'],
   });

@@ -12,7 +12,7 @@ Export lets a user download a light or dark PNG of the open Scene from the comma
 
 - Press `q` (with focus outside an editable field) to open the `Commands` dialog.
 - Choose `Export PNG (light)` or `Export PNG (dark)` from the command list.
-- Alternatively, run `node dist/cli.js png scene.esbozo --theme light` (or `--theme dark`) or `node dist/cli.js render scene.esbozo` in a terminal.
+- Alternatively, run `dist/ez png scene.esbozo --theme light` (or `--theme dark`) or `dist/ez render scene.esbozo` in a terminal.
 
 ## Driving it with pnpm probe
 
@@ -25,7 +25,7 @@ Preconditions:
 - **Open command palette.** Navigate to `SERVE_URL` and press `q`. A dialog with role `dialog` and name `Commands` becomes visible.
 - **Download light PNG.** Register `const dl = page.waitForEvent('download')`, click `page.getByRole('option', { name: /Export PNG \(light\)/ })`, await `dl`, and save it to `.e2e/results/verify/<run>/scene.light.png`. The suggested filename is `scene.light.png`.
 - **Download dark PNG.** Reopen the palette with `q`, trigger `Export PNG (dark)`, and save it to `.e2e/results/verify/<run>/scene.dark.png`. The suggested filename is `scene.dark.png` and its pixel bytes differ from the light PNG.
-- **Compare with CLI output.** Run `node dist/cli.js png "$RUN_DIR/scene.esbozo" --theme light`, `node dist/cli.js png "$RUN_DIR/scene.esbozo" --theme dark`, and `node dist/cli.js render "$RUN_DIR/scene.esbozo"`. Every command exits `0`, prints the output path, and the CLI PNG dimensions match the browser downloads.
+- **Compare with CLI output.** Run `dist/ez png "$RUN_DIR/scene.esbozo" --theme light`, `dist/ez png "$RUN_DIR/scene.esbozo" --theme dark`, and `dist/ez render "$RUN_DIR/scene.esbozo"`. Every command exits `0`, prints the output path, and the CLI PNG dimensions match the browser downloads.
 - **Inspect exported ink.** Open the saved light and dark PNGs (and crop any text or arrow junction with `sips -c` if needed). Confirm the Kalam typeface rendered rather than a system fallback font.
 - **Regression check.** Run `npx e2e run tests/editor-export.e2e.ts`. All export checks pass.
 

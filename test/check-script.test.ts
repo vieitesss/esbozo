@@ -1,7 +1,7 @@
 /**
  * Script seam: `scripts/check.mjs` behind `pnpm check`.
  *
- * What is asserted is the contract the wrapper keeps: the same five steps in
+ * What is asserted is the contract the wrapper keeps: the same six steps in
  * order, fail-fast, the ok summary as the last line, the FAILED summary with
  * the first decisive error and the failing step's exit code, and through the
  * real pnpm wrapper the failure summary within the last three lines, where
@@ -44,7 +44,7 @@ process.stdout.write(\`ran \${step}\\n\`);
   const run = runCheck(runner, dir);
   assert.equal(run.status, 0, run.stdout + run.stderr);
   const lines = run.stdout.trimEnd().split('\n');
-  assert.equal(lines.at(-1), 'check: ok (typecheck, lint, knip, check-rules, test)');
+  assert.equal(lines.at(-1), 'check: ok (typecheck, lint, knip, check-rules, test, check:go)');
 });
 
 test('when a step fails, stops immediately, preserves exit code, and prints FAILED summary on last line', async (t) => {
@@ -100,7 +100,7 @@ test('through the real pnpm check wrapper, the ok summary is still the last line
   });
   assert.equal(run.status, 0, run.stdout);
   const lines = run.stdout.trimEnd().split('\n');
-  assert.equal(lines.at(-1), 'check: ok (typecheck, lint, knip, check-rules, test)');
+  assert.equal(lines.at(-1), 'check: ok (typecheck, lint, knip, check-rules, test, check:go)');
 });
 
 test('through the real pnpm check wrapper, the FAILED summary sits within the last three lines', async (t) => {
@@ -168,4 +168,21 @@ if (step === 'test') {
   assert.equal(run.status, 1);
   const combined = (run.stdout + run.stderr).trimEnd().split('\n');
   assert.equal(combined.at(-1), 'check: FAILED at test — ✖ broken behavior (12ms)');
+});
+
+test('names the failing step\u2019s own line, not the command pnpm echoes before it', async (t) => {
+  const { dir, runner } = await makeRunner(
+    t,
+    `if (process.argv[2] === 'check:go') {
+  process.stdout.write('$ node scripts/check-go.mjs\\n');
+  process.stdout.write('cmd/ez/main.go\\n');
+  process.exit(1);
+}
+`,
+  );
+
+  const run = runCheck(runner, dir);
+  assert.equal(run.status, 1);
+  const combined = (run.stdout + run.stderr).trimEnd().split('\n');
+  assert.equal(combined.at(-1), 'check: FAILED at check:go — cmd/ez/main.go');
 });

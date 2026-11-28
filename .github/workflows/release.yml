@@ -1,0 +1,148 @@
+name: release
+
+# A `vX.Y.Z` tag is the only Release; every green `check` on main is the Main
+# build, rebuilt on the commit that passed it.
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_run:
+    workflows: [check]
+    types: [completed]
+    branches: [main]
+
+# Publishing is creating a Release, uploading its assets, and moving the Main
+# build's tag. Nothing here reads or writes anything else. `gh run download`
+# reads the artifact the build job uploaded, and through the Actions API, so
+# naming `contents` alone would leave its scope at `none` and 403.
+permissions:
+  contents: write
+  actions: read
+
+# Two publishes must not overlap, and neither may be cut off: a cancel lands in
+# the middle of `gh release upload` or of the tag move, and leaves the Main build
+# with assets its `SHA256SUMS` no longer describes. Runs queue instead, and
+# GitHub keeps only the newest pending one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.ref || 'main' }}
+  cancel-in-progress: false
+
+env:
+  # GitHub runners set CI, which makes test reporters emit ANSI colour codes.
+  NO_COLOR: '1'
+  CGO_ENABLED: '0'
+  GOTOOLCHAIN: local
+
+jobs:
+  assets:
+    # `branches: [main]` matches a fork's `main` too, so a pull request opened
+    # from one arrives here as a `pull_request` event on a commit nobody in this
+    # repository wrote. Only a push to this repository's own `main` publishes.
+    if: >-
+      github.event_name == 'push' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.channel.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # workflow_run runs this file from main, but the commit that passed
+          # `check` is that run's head, not main's head: they differ when a
+          # later commit has already landed.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: pnpm install --frozen-lockfile
+      - name: Name the release this run publishes
+        id: channel
+        run: sh scripts/release-channel.sh
+      - name: Build the four assets
+        # A Release stamps the bare version; the Main build stamps `-main+<sha>`.
+        env:
+          ESBOZO_RELEASE: ${{ steps.channel.outputs.stamp == 'release' && '1' || '' }}
+        run: |
+          pnpm build
+          node scripts/release.mjs dist/release
+      - name: Check the binary prints the version this run publishes
+        env:
+          VERSION: ${{ steps.channel.outputs.version }}
+        run: |
+          case "$GITHUB_EVENT_NAME" in
+            push) expected="$VERSION" ;;
+            *) expected="$VERSION-main+$(git rev-parse --short HEAD)" ;;
+          esac
+          actual="$(dist/ez --version)"
+          if [ "$actual" != "$expected" ]; then
+            printf 'release: dist/ez --version is %s, not %s\n' "$actual" "$expected" >&2
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-assets
+          path: dist/release
+          if-no-files-found: error
+          retention-days: 7
+
+  smoke:
+    needs: assets
+    strategy:
+      # Both Linux binaries are smoked, each on the architecture it ships to:
+      # no emulator stands between the binary and the machine.
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            asset: ez-linux-x64.gz
+          - runner: ubuntu-24.04-arm
+            asset: ez-linux-arm64.gz
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The smoke is this commit's, with the assets it built.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - name: Fetch the assets this run built
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --name release-assets --dir dist/release
+      - run: sh scripts/smoke.sh "dist/release/${{ matrix.asset }}"
+
+  publish:
+    needs: [assets, smoke]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The Main build's tag moves to the commit it was built from.
+          fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - name: Fetch the assets the smoke tests passed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --name release-assets --dir dist/release
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.assets.outputs.tag }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            # GitHub writes the notes from the commits since the last Release.
+            gh release create "$TAG" --generate-notes dist/release/*
+          else
+            # The Main build is one rolling prerelease: its assets are replaced
+            # with this commit's, and its tag moves to that commit.
+            gh release view main >/dev/null 2>&1 ||
+              gh release create main --prerelease --title 'Main build' \
+                --notes 'The latest build of main, rebuilt whenever the checks pass. Install it with `install.sh --main`.'
+            gh release upload main --clobber dist/release/*
+            git tag -f main HEAD
+            git push --force origin refs/tags/main
+          fi

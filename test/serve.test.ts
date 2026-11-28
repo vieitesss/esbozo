@@ -9,12 +9,12 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { chmod, cp, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
-import { request as httpRequest } from 'node:http';
+import { request as httpRequest, type IncomingHttpHeaders } from 'node:http';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { brotliDecompressSync, gunzipSync } from 'node:zlib';
-import { BUILD, BUILT_AT, buildId, buildTime } from '../src/build-id.ts';
+import { buildId, buildTime } from '../src/build-id.ts';
 import { PAGE_ASSETS } from '../src/page-assets.ts';
 import { MAX_LISTED_SCENE_BYTES } from '../src/paths.ts';
 import { promisify } from 'node:util';
@@ -37,6 +37,8 @@ const SCENE = {
 };
 const SCENE_SOURCE = JSON.stringify(SCENE, null, 2);
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg"><title>Two boxes</title></svg>';
+
+const SKIP_BUILD = 'this case builds its own ez: set EZ_BIN only against the binary the build wrote';
 
 /** A server to stop at the end of the file, whatever the test asserted. */
 const running: Serve[] = [];
@@ -87,6 +89,22 @@ async function rawRequest(server: Serve, path: string, method = 'GET'): Promise<
       let body = '';
       response.on('data', (chunk: string) => (body += chunk));
       response.on('end', () => resolve_({ status: response.statusCode ?? 0, body }));
+    });
+    asking.on('error', reject);
+    asking.end();
+  });
+}
+
+async function repeatedRequest(
+  server: Serve,
+  path: string,
+  headers: Record<string, string[]>,
+): Promise<{ status: number; headers: IncomingHttpHeaders }> {
+  const { hostname, port } = new URL(server.url);
+  return new Promise((resolve_, reject) => {
+    const asking = httpRequest({ hostname, port, path, headers }, (response) => {
+      response.resume();
+      response.on('end', () => resolve_({ status: response.statusCode ?? 0, headers: response.headers }));
     });
     asking.on('error', reject);
     asking.end();
@@ -210,6 +228,22 @@ test('the page transfers compressed when the client asks, in the best encoding i
   }
 });
 
+test('a page request that names accept-encoding twice is ranked as one header', async () => {
+  const server = await served(await sceneFolder(SCENE));
+
+  for (const [asked, encoding] of [
+    [['identity;q=0', 'gzip'], 'gzip'],
+    [['deflate', 'br'], 'br'],
+  ] as const) {
+    const answer = await repeatedRequest(server, '/editor.js', { 'accept-encoding': [...asked] });
+    assert.equal(answer.status, 200, `${asked.join(' + ')} is answered`);
+    assert.equal(answer.headers['content-encoding'], encoding, `${asked.join(' + ')} is answered in ${encoding}`);
+  }
+
+  const refused = await repeatedRequest(server, '/editor.js', { 'accept-encoding': ['identity;q=0'] });
+  assert.equal(refused.status, 406);
+});
+
 test('the build compresses every text page file beside itself, and serves those bytes', async () => {
   const server = await served(await sceneFolder(SCENE));
   const text = PAGE_ASSETS.filter((asset) => asset.mime.startsWith('text/'));
@@ -241,7 +275,6 @@ test('the build compresses every text page file beside itself, and serves those 
 test('the page is all that is served: nothing else in the built folder is', async () => {
   const server = await served(await sceneFolder(SCENE));
 
-  // The CLI bundle sits beside the page, and it is not a page file.
   assert.equal((await request(server, '/cli.js')).status, 404);
   assert.equal((await request(server, '/package.json')).status, 404);
   assert.equal((await request(server, '/whatever.txt')).status, 404);
@@ -320,6 +353,36 @@ test('the list keeps an .esbozo that will not parse, so opening it says why', as
   assert.equal(opened.body, '{ not json');
 });
 
+test('the list answers about the file on disk now, not the one it read before', async () => {
+  const folder = await sceneFolder(SCENE);
+  const scenePath = join(folder, 'scene.json');
+  const server = await served(folder);
+  const listed = async (): Promise<string[]> =>
+    (JSON.parse((await request(server, '/api/scenes')).body) as { scenes: string[] }).scenes;
+
+  assert.deepEqual(await listed(), ['scene.json']);
+
+  await writeFile(scenePath, '{ not a Scene', 'utf8');
+  assert.deepEqual(await listed(), []);
+
+  await writeFile(scenePath, SCENE_SOURCE, 'utf8');
+  assert.deepEqual(await listed(), ['scene.json']);
+});
+
+test('the list answers about a Scene the API has just saved', async () => {
+  const folder = await sceneFolder(SCENE);
+  await writeFile(join(folder, 'broken.json'), '{ not a Scene', 'utf8');
+  const server = await served(folder);
+  const listed = async (): Promise<string[]> =>
+    (JSON.parse((await request(server, '/api/scenes')).body) as { scenes: string[] }).scenes;
+
+  assert.deepEqual(await listed(), ['scene.json']);
+
+  const saved = await request(server, '/api/scenes/broken.json', 'PUT', sent());
+  assert.equal(saved.status, 200);
+  assert.deepEqual(await listed(), ['broken.json', 'scene.json']);
+});
+
 test('the list names the Scenes at the top level and says the folder is writable', async () => {
   const folder = await tempFolder();
   await writeFile(join(folder, 'b.json'), SCENE_SOURCE, 'utf8');
@@ -338,6 +401,21 @@ test('the list names the Scenes at the top level and says the folder is writable
     readOnly: false,
     scenes: ['a.json', 'b.json'],
   });
+});
+
+test('the list puts a lowercase name before the uppercase one it folds to', async (t) => {
+  const folder = await sceneFolder(SCENE);
+  if (await foldsCase(folder)) {
+    t.skip('this filesystem treats a.json and A.json as one file');
+    return;
+  }
+  await writeFile(join(folder, 'a.json'), SCENE_SOURCE, 'utf8');
+  await writeFile(join(folder, 'A.json'), SCENE_SOURCE, 'utf8');
+
+  const server = await served(folder);
+  const listed = JSON.parse((await request(server, '/api/scenes')).body) as { scenes: string[] };
+
+  assert.deepEqual(listed.scenes, ['a.json', 'A.json', 'scene.json']);
 });
 
 test('the list offers only names the API opens', async () => {
@@ -386,6 +464,16 @@ test('a Scene reads back byte for byte, and a missing one is not found', async (
   const missing = await request(server, '/api/scenes/other.json');
   assert.equal(missing.status, 404);
   assert.match(missing.body, /no Scene named other\.json/);
+});
+
+test('a JSON answer carries the text as written, not HTML-escaped', async () => {
+  const folder = await sceneFolder(SCENE);
+  const server = await served(folder);
+
+  const answer = await request(server, '/api/scenes/a%3Cb%3E%26c.json');
+
+  assert.equal(answer.status, 404);
+  assert.equal(answer.body, '{"error":"no Scene named a<b>&c.json"}');
 });
 
 /**
@@ -768,6 +856,40 @@ test('an invalid Scene is refused and nothing is written', async () => {
   await assertMissing(join(folder, 'odd.json'));
 });
 
+test('an invalid Scene is refused with the problems as the parser words them', async () => {
+  const folder = await sceneFolder(SCENE);
+  const server = await served(folder);
+  const broken = { version: 1, elements: [{ id: 'box1', type: 'box', x: 0, y: 0, width: 100, height: 50 }] };
+
+  const answer = await request(server, '/api/scenes/broken.json', 'PUT', sent(broken));
+
+  assert.equal(answer.status, 400);
+  assert.deepEqual(JSON.parse(answer.body), {
+    error: 'the Scene is invalid: type must be one of rectangle, ellipse, diamond, arrow, line, text, got "box"',
+  });
+  await assertMissing(join(folder, 'broken.json'));
+  await assertMissing(join(folder, 'broken.svg'));
+});
+
+test('a write whose scene or svg is null is refused as no write at all', async () => {
+  const folder = await sceneFolder(SCENE);
+  const server = await served(folder);
+  const refusal = { error: 'the body must be { "scene": "<text>", "svg": "<text>" }' };
+
+  for (const body of [
+    { scene: JSON.stringify(SCENE), svg: null },
+    { scene: null, svg: SVG },
+  ]) {
+    const answer = await request(server, '/api/scenes/null.json', 'PUT', body);
+    assert.equal(answer.status, 400, `${JSON.stringify(body)} answered ${answer.status}`);
+    assert.deepEqual(JSON.parse(answer.body), refusal, JSON.stringify(body));
+  }
+  await assertMissing(join(folder, 'null.json'));
+  await assertMissing(join(folder, 'null.svg'));
+
+  assert.equal((await request(server, '/api/scenes/kept.json', 'PUT', sent())).status, 200);
+});
+
 test('a request path with a dot segment is refused before it is normalised', async () => {
   const folder = await sceneFolder(SCENE);
   const server = await served(folder);
@@ -795,6 +917,20 @@ test('a request path with a dot segment is refused before it is normalised', asy
   assert.equal(plain.status, 200);
   assert.equal(plain.body, SCENE_SOURCE);
   assert.equal(await readFile(join(folder, 'scene.json'), 'utf8'), SCENE_SOURCE);
+});
+
+test('a path that is not UTF-8 percent-encoding is refused, and nothing is written', async () => {
+  const folder = await sceneFolder(SCENE);
+  const server = await served(folder);
+
+  for (const path of ['/api/scenes/%ff.json', '/api/scenes/%c3%28.json']) {
+    for (const method of ['GET', 'PUT']) {
+      const answer = await rawRequest(server, path, method);
+      assert.equal(answer.status, 400, `${method} ${path} answered ${answer.status}`);
+      assert.deepEqual(JSON.parse(answer.body), { error: 'the path is not valid percent-encoding' });
+    }
+  }
+  assert.deepEqual(await readdir(folder), ['scene.json']);
 });
 
 test('a write has to announce JSON, so a plain cross-origin post cannot write', async () => {
@@ -933,31 +1069,35 @@ test('a folder named like a build does not decide which build is served', async 
  * sources are built in a copy with a git history of their own, so the answer
  * cannot come from this checkout's HEAD.
  */
-test('a build stamps the commit it was built from, and the server serves that build', async () => {
-  const source = await committedSources();
-  const commit = (await run('git', ['rev-parse', '--short', 'HEAD'], { cwd: source })).stdout.trim();
-  const built = Date.now();
-  await run('node', ['scripts/build.mjs'], { cwd: source });
+test(
+  'a build stamps the commit it was built from, and the server serves that build',
+  { skip: process.env.EZ_BIN === undefined ? undefined : SKIP_BUILD },
+  async () => {
+    const source = await committedSources();
+    const commit = (await run('git', ['rev-parse', '--short', 'HEAD'], { cwd: source })).stdout.trim();
+    const built = Date.now();
+    await run('node', ['scripts/build.mjs'], { cwd: source });
 
-  const server = await startServe(await sceneFolder(SCENE), [], join(source, 'dist', 'cli.js'));
-  running.push(server);
+    const server = await startServe(await sceneFolder(SCENE), [], join(source, 'dist', 'ez'));
+    running.push(server);
 
-  assert.equal(server.build, commit, 'the stamped id is the commit the build was made from');
-  assert.match(
-    server.builtAt ?? '',
-    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/,
-    'the stamp is ISO-8601 UTC to the second',
-  );
-  assert.ok(
-    Math.abs(Date.parse(server.builtAt ?? '') - built) < 5 * 60_000,
-    `the stamp ${server.builtAt} is not when this build ran`,
-  );
-  assert.equal(
-    (await request(server, '/api/health')).body,
-    JSON.stringify({ build: commit, builtAt: server.builtAt }),
-    'the health route answers the build the CLI was stamped with',
-  );
-});
+    assert.equal(server.build, commit, 'the stamped id is the commit the build was made from');
+    assert.match(
+      server.builtAt ?? '',
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/,
+      'the stamp is ISO-8601 UTC to the second',
+    );
+    assert.ok(
+      Math.abs(Date.parse(server.builtAt ?? '') - built) < 5 * 60_000,
+      `the stamp ${server.builtAt} is not when this build ran`,
+    );
+    assert.equal(
+      (await request(server, '/api/health')).body,
+      JSON.stringify({ build: commit, builtAt: server.builtAt }),
+      'the health route answers the build the CLI was stamped with',
+    );
+  },
+);
 
 /**
  * The sources committed to a git repo of their own, with this repository's
@@ -966,7 +1106,18 @@ test('a build stamps the commit it was built from, and the server serves that bu
  */
 async function committedSources(): Promise<string> {
   const folder = await tempFolder('esbozo-build-');
-  for (const path of ['package.json', 'scripts', 'src', 'fonts']) {
+  for (const path of [
+    'package.json',
+    'scripts',
+    'src',
+    'fonts',
+    'go.mod',
+    'go.sum',
+    ...(await readdir(ROOT)).filter((name) => name.endsWith('.go')),
+    'cmd',
+    'internal',
+    'skills',
+  ]) {
     await cp(join(ROOT, path), join(folder, path), { recursive: true });
   }
   await symlink(join(ROOT, 'node_modules'), join(folder, 'node_modules'), 'dir');
@@ -1002,18 +1153,13 @@ test('a build outside a git checkout is unknown, not a failed build', () => {
   const answers = (commit: string, status: string | null) => (args: readonly string[]) =>
     args[0] === 'rev-parse' ? commit : status;
   assert.equal(buildId(answers('abc1234\n', '')), 'abc1234');
-  assert.equal(buildId(answers('abc1234\n', ' M src/serve.ts\n')), 'abc1234-dirty');
+  assert.equal(buildId(answers('abc1234\n', ' M src/paths.ts\n')), 'abc1234-dirty');
   assert.equal(buildId(answers('abc1234\n', null)), 'unknown');
 });
 
 test('a build writes the time it was made, ISO-8601 UTC to the second', () => {
   assert.equal(buildTime(new Date('2024-06-01T12:34:56.789Z')), '2024-06-01T12:34:56Z');
   assert.equal(buildTime(new Date('2024-12-31T23:59:59.000Z')), '2024-12-31T23:59:59Z');
-});
-
-test('a CLI run from source is dev and carries no build time', () => {
-  assert.equal(BUILD, 'dev');
-  assert.equal(BUILT_AT, null);
 });
 
 async function assertMissing(path: string): Promise<void> {

@@ -10,7 +10,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { ez, sceneFolder } from './cli.ts';
-import { removeTempFolders } from './temp.ts';
+import { removeTempFolders, tempFolder } from './temp.ts';
 
 after(removeTempFolders);
 
@@ -316,6 +316,22 @@ test('ez snap refuses a target that is not a box, and any other form it has no w
     assert.match(run.stderr, message, args.join(' '));
   }
   assert.deepEqual((await ends(folder)).end, { x: 240, y: 90, snap: 'b' });
+});
+
+test('a Scene it cannot read still has the words judged first', async () => {
+  const folder = await tempFolder();
+
+  const word = await ez(['anchor', 'missing.json', 'a-b', 'middle', 'top'], folder);
+  assert.equal(word.code, 2, word.stderr);
+  assert.equal(word.stderr, 'an end is start or end, got "middle"\n');
+
+  const read = await ez(['anchor', 'missing.json', 'a-b', 'end', 'top'], folder);
+  assert.equal(read.code, 3, read.stderr);
+  assert.match(read.stderr, /^cannot read Scene missing\.json: ENOENT/);
+
+  const folderScene = await ez(['anchor', '.', 'a-b', 'end', 'top'], folder);
+  assert.equal(folderScene.code, 3, folderScene.stderr);
+  assert.equal(folderScene.stderr, 'cannot read Scene .: EISDIR: illegal operation on a directory, read\n');
 });
 
 test('ez --help names both anchor commands', async () => {

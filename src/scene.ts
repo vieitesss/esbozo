@@ -1319,8 +1319,8 @@ function parseChoice<T extends string>(
  * Scene cannot hold must not reach the page's own SVG either.
  */
 export function hasXmlInvalidChars(text: string): boolean {
-  for (const character of text) {
-    const code = character.codePointAt(0)!;
+  for (let at = 0; at < text.length; at += 1) {
+    const code = text.codePointAt(at)!;
     const allowed =
       code === 0x9 ||
       code === 0xa ||
@@ -1330,6 +1330,9 @@ export function hasXmlInvalidChars(text: string): boolean {
       code >= 0x10000;
     if (!allowed) {
       return true;
+    }
+    if (code >= 0x10000) {
+      at += 1;
     }
   }
   return false;

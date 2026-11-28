@@ -8,7 +8,7 @@
  * its Label would also overflow.
  */
 import assert from 'node:assert/strict';
-import { copyFile, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -412,6 +412,49 @@ test('a font that cannot be read exits 5', async () => {
     const run = await ez([...args], folder);
     assert.equal(run.code, 5, args.join(' '));
     assert.match(run.stderr, message);
+  }
+});
+
+test('an empty @font-face url reads the stylesheet folder and exits 5', async () => {
+  const folder = await sceneFolder(FITS);
+  await writeFile(
+    join(folder, 'theme.css'),
+    [':root { --font-hand: "K"; }', '@font-face { font-family: "K"; src: url(""); }', ''].join('\n'),
+    'utf8',
+  );
+
+  const run = await ez(['check', 'scene.json', '--css', 'theme.css'], folder);
+
+  assert.equal(run.code, 5);
+  assert.equal(
+    run.stderr,
+    'cannot read font  (from theme.css): EISDIR: illegal operation on a directory, read\n',
+  );
+});
+
+test('a file error names the call that failed, for --font and --css', async () => {
+  const folder = await sceneFolder(FITS);
+  await mkdir(join(folder, 'adir'));
+
+  for (const [flag, path, message] of [
+    ['--font', 'adir', 'cannot read font adir: EISDIR: illegal operation on a directory, read'],
+    ['--css', 'adir', 'cannot read stylesheet adir: EISDIR: illegal operation on a directory, read'],
+    [
+      '--font',
+      'scene.json/f.ttf',
+      "cannot read font scene.json/f.ttf: ENOTDIR: not a directory, open 'scene.json/f.ttf'",
+    ],
+    [
+      '--css',
+      'scene.json/c.css',
+      "cannot read stylesheet scene.json/c.css: ENOTDIR: not a directory, open 'scene.json/c.css'",
+    ],
+  ] as const) {
+    const run = await ez(['check', 'scene.json', flag, path], folder);
+
+    assert.equal(run.code, 5, `${flag} ${path}`);
+    assert.equal(run.stderr, `${message}\n`, `${flag} ${path}`);
+    assert.equal(run.stdout, '', `${flag} ${path}`);
   }
 });
 

@@ -1,55 +1,12 @@
-/**
- * Build the three artefacts: the `ez` CLI, the editor page, and the bundle that
- * puts the editor on someone else's page.
- *
- * All three share the Scene and the Renderer, and none needs a node builtin, so
- * the browser bundles are the same source as the CLI's. The page and the bundle
- * differ in two ways only: the page links its stylesheet and font beside itself,
- * while the bundle carries the CSS and takes the font URL from its element.
- */
 import { execFileSync } from 'node:child_process';
-import { chmod, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { brotliCompressSync, gzipSync } from 'node:zlib';
 import { build, transform } from 'esbuild';
 import { buildId, buildTime } from '../src/build-id.ts';
+import { gitAnswer } from './git.mjs';
 import { PAGE_ASSETS } from '../src/page-assets.ts';
 
-const cliOutfile = 'dist/cli.js';
-
-await build({
-  entryPoints: ['src/cli.ts'],
-  outfile: cliOutfile,
-  bundle: true,
-  platform: 'node',
-  format: 'esm',
-  target: 'node22',
-  banner: { js: '#!/usr/bin/env node' },
-  loader: { '.wasm': 'binary', '.ttf': 'binary' },
-  // Which build the CLI is, stamped only here: `ez serve` prints it and answers
-  // it at `/api/health`, so a server someone finds running can say whether it
-  // is the one they started. The page and the bundle are not stamped, so what
-  // they render is the same bytes either way.
-  define: {
-    STAMPED_BUILD: JSON.stringify(buildId(gitAnswer)),
-    STAMPED_BUILT_AT: JSON.stringify(buildTime(new Date())),
-  },
-  logLevel: 'info',
-});
-
-await chmod(cliOutfile, 0o755);
-
-/**
- * git's answer to one command, or `null` when git is missing or this is no
- * checkout: the build then names itself `unknown` instead of failing, because
- * a tarball of the sources still has to build.
- */
-function gitAnswer(args) {
-  try {
-    return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-  } catch {
-    return null;
-  }
-}
+const buildStamp = { id: buildId(gitAnswer), at: buildTime(new Date()) };
 
 /**
  * A stylesheet with its comments and its indentation gone, as `minify` leaves
@@ -122,6 +79,16 @@ await copyFile('src/editor/page.html', 'dist/editor.html');
 await copyFile('fonts/Kalam-Regular.ttf', 'dist/fonts/Kalam-Regular.ttf');
 await copyFile('fonts/OFL.txt', 'dist/fonts/OFL.txt');
 await compressPageFiles();
+
+execFileSync(process.execPath, ['scripts/build-core.mjs'], { stdio: 'inherit' });
+execFileSync(process.execPath, ['scripts/version-stamp.mjs', 'dist/version'], { stdio: 'inherit' });
+await writeFile('dist/build-id', `${buildStamp.id}\n`);
+await writeFile('dist/built-at', `${buildStamp.at}\n`);
+
+execFileSync('go', ['build', '-ldflags=-s -w', '-o', 'dist/ez', './cmd/ez'], {
+  stdio: 'inherit',
+  env: { ...process.env, GOTOOLCHAIN: 'local', CGO_ENABLED: '0' },
+});
 
 /**
  * Every text page file, compressed beside itself. `ez serve` sends these bytes

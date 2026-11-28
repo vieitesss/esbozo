@@ -1,7 +1,6 @@
 /**
  * Reference host server for the esbozo embed bundle.
  *
- * Example code only: not part of `src/` and not published in the npm package.
  * Copy and adapt this file into your own host application.
  *
  * Usage:

@@ -1,23 +1,8 @@
-/**
- * CLI seam, the bundle and the package: `ez bundle` on a temp folder, and the
- * packed tarball run on its own.
- *
- * Nothing here publishes anything. `npm pack` writes a tarball, `npm install`
- * installs it into a folder of its own, and the two `bin` names it makes are run
- * through — so a file the package forgot to publish, or a step `prepack` forgot
- * to build, fails here rather than on someone's machine.
- *
- * Packing runs the build (`prepack`), which writes `dist` — the folder every
- * other suite in this run is spawning `dist/cli.js` from. So the pack runs on a
- * copy of the sources instead: the same `prepack`, the same build, in a folder
- * whose `dist` nobody else is reading.
- */
+/** CLI seam, the bundle: `ez bundle` on a temp folder, and the file it writes. */
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
-import { cp, readdir, readFile, symlink, writeFile } from 'node:fs/promises';
+import { readdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
 import { gzipSync } from 'node:zlib';
 import { after, test } from 'node:test';
 import { transform } from 'esbuild';
@@ -26,7 +11,6 @@ import { removeTempFolders } from './temp.ts';
 
 after(removeTempFolders);
 
-const run = promisify(execFile);
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 /** What the bundle may weigh, gzipped, with Rough.js in it. */
@@ -90,94 +74,28 @@ test('a bundle that cannot be written is the write-failure exit code', async () 
   assert.equal((await ez(['bundle', missing], ROOT)).code, 4);
 });
 
-test('the packed tarball installs, and both of its bins run the editor it bundles', async () => {
-  // Packing runs `prepack`, which rebuilds `dist` where it runs. So it runs on a
-  // copy of the sources, with this repository's `node_modules` linked in: the
-  // build is the real one, and the `dist` every other suite is spawning from is
-  // never rewritten underneath it.
-  const source = await sourceCopy();
-  const packed = await pack(source);
+test('a folder that is a file is not a folder to write into', async () => {
+  const file = join(await tempFolder('esbozo-bundle-'), 'a-file');
+  await writeFile(file, 'not a folder', 'utf8');
+  const path = join(file, BUNDLE);
 
-  // Everything the two commands that read beside the CLI need: the page `serve`
-  // publishes, the bundle `bundle` copies, and Kalam's licence.
-  for (const needed of [
-    'dist/cli.js',
-    'dist/embed.js',
-    'dist/editor.js',
-    'dist/editor.css',
-    'dist/editor.html',
-    'fonts/Kalam-Regular.ttf',
-    'fonts/OFL.txt',
-    // npm publishes the readme and the licence whether or not `files` names them.
-    'README.md',
-    'LICENSE',
-    'skills/esbozo/SKILL.md',
-  ]) {
-    assert.ok(packed.files.includes(needed), `${needed} is published`);
-  }
-
-  // A real `npm install` of the tarball, in a folder of its own.
-  const consumer = await tempFolder('esbozo-consumer-');
-  await writeFile(
-    join(consumer, 'package.json'),
-    JSON.stringify({ name: 'consumer', private: true, type: 'module' }, null, 2),
-    'utf8',
-  );
-  await run(
-    'npm',
-    ['install', '--no-audit', '--no-fund', '--prefer-offline', join(source, packed.filename)],
-    { cwd: consumer },
-  );
-
-  // Both `bin` names npm links, out of the installed package alone.
-  const bin = (name: string): string => join(consumer, 'node_modules', '.bin', name);
-  const alias = await run(bin('ez'), ['--help'], { cwd: consumer });
-  assert.match(alias.stdout, /^  bundle\s+\S/m);
-  const named = await run(bin('esbozo'), ['--help'], { cwd: consumer });
-  assert.equal(named.stdout, alias.stdout);
-
-  // The bundle the installed CLI writes is the one the prepack built.
-  const out = await tempFolder('esbozo-bundled-');
-  const written = await run(bin('ez'), ['bundle', out], { cwd: consumer });
-  assert.equal(written.stdout.trim(), join(out, BUNDLE));
-  assert.deepEqual(
-    await readFile(join(out, BUNDLE), 'utf8'),
-    await readFile(join(source, 'dist', 'embed.js'), 'utf8'),
-  );
+  const run = await ez(['bundle', file], ROOT);
+  assert.equal(run.code, 4, run.stderr);
+  assert.equal(run.stdout, '');
+  assert.equal(run.stderr, `cannot write ${path}: ENOTDIR: not a directory, open '${path}'\n`);
 });
 
-interface Packed {
-  readonly filename: string;
-  readonly files: string[];
-}
+test('a folder reached through a symlink loop is the error the CLI words', async () => {
+  const folder = await tempFolder('esbozo-bundle-');
+  await symlink(join(folder, 'b'), join(folder, 'a'));
+  await symlink(join(folder, 'a'), join(folder, 'b'));
+  const path = join(folder, 'a', BUNDLE);
 
-/** A copy of what npm publishes, with this repository's dependencies linked in. */
-async function sourceCopy(): Promise<string> {
-  const folder = await tempFolder('esbozo-source-');
-  for (const path of [
-    'package.json',
-    'README.md',
-    'LICENSE',
-    'scripts',
-    'src',
-    'fonts',
-    'skills',
-    'tsconfig.json',
-    'tsconfig.base.json',
-    'tsconfig.browser.json',
-  ]) {
-    await cp(join(ROOT, path), join(folder, path), { recursive: true });
-  }
-  await symlink(join(ROOT, 'node_modules'), join(folder, 'node_modules'), 'dir');
-  return folder;
-}
-
-/** `npm pack`, with the real `prepack`, writing the tarball into the folder it packs. */
-async function pack(folder: string): Promise<Packed> {
-  const { stdout } = await run('npm', ['pack', '--json', '--pack-destination', folder], {
-    cwd: folder,
-  });
-  const [first] = JSON.parse(stdout) as Array<{ filename: string; files: Array<{ path: string }> }>;
-  assert.ok(first !== undefined, 'npm pack printed no manifest');
-  return { filename: first.filename, files: first.files.map((file) => file.path) };
-}
+  const run = await ez(['bundle', join(folder, 'a')], ROOT);
+  assert.equal(run.code, 4, run.stderr);
+  assert.equal(run.stdout, '');
+  assert.equal(
+    run.stderr,
+    `cannot write ${path}: ELOOP: too many symbolic links encountered, open '${path}'\n`,
+  );
+});

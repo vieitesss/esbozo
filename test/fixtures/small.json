@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "title": "One box",
+  "elements": [
+    { "id": "a", "type": "rectangle", "x": 40, "y": 40, "width": 120, "height": 80 }
+  ]
+}

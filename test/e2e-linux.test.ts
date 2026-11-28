@@ -47,6 +47,7 @@ exit 0
 const COPIED = [
   '.node-version',
   'docker/e2e.Dockerfile',
+  'go.mod',
   'package.json',
   'pnpm-lock.yaml',
   'pnpm-workspace.yaml',
@@ -289,7 +290,7 @@ test('masks nothing when the worktree has no node_modules, as a clean checkout d
   assert.deepEqual(argumentsAfter(suiteRun(plain.calls), '--tmpfs'), []);
 });
 
-test('builds with the Node runtime and pnpm versions CI pins', async () => {
+test('builds with the Node runtime, pnpm and Go versions the project pins', async () => {
   const root = await fakeRoot();
   const built = await run({ root, env: { STUB_INSPECT_EXIT: '1' } });
 
@@ -298,9 +299,11 @@ test('builds with the Node runtime and pnpm versions CI pins', async () => {
   const argv = call(built.calls, 'build');
   assert.equal(argumentAfter(argv, '--file'), join(root, 'docker/e2e.Dockerfile'));
   const pinned = JSON.parse(await readFile(join(root, 'package.json'), 'utf8')) as { packageManager: string };
+  const goMod = await readFile(join(root, 'go.mod'), 'utf8');
   assert.deepEqual(argumentsAfter(argv, '--build-arg'), [
     `NODE_VERSION=${(await readFile(join(root, '.node-version'), 'utf8')).trim()}`,
     `PNPM_VERSION=${pinned.packageManager.replace(/^pnpm@/, '')}`,
+    `GO_VERSION=${/^go\s+(\S+)$/m.exec(goMod)?.[1]}`,
   ]);
   assert.equal(argv[argv.length - 1], `${root}/`);
 });
@@ -316,6 +319,9 @@ test('the tag changes when a file the Dockerfile copies changes, and stays when 
 
   await writeFile(join(root, 'notes.txt'), 'a file the image never sees\n');
   assert.equal(await tag(), afterCopy, 'a file outside the build context leaves the tag alone');
+
+  await writeFile(join(root, 'go.mod'), 'module esbozo\n\ngo 1.26.0\n');
+  assert.notEqual(await tag(), afterCopy, 'a different Go toolchain builds a new image');
 });
 
 test('a failed image build leaves its own exit code and says the run cannot happen', async () => {

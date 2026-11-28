@@ -15,10 +15,10 @@ import { expect } from 'e2e';
 import type { App, Screen } from 'e2e';
 import type { Browser } from '@e2e-dev/web';
 import { livePage } from './cdp.ts';
+import { ez, ezOrThrow, ezShimScript } from '../test/cli.ts';
 import { tempFolder } from '../test/temp.ts';
 
 const run = promisify(execFile);
-const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 
 /** The fixtures every helper drives: the page, its pointer, and its files. */
 export interface Ui {
@@ -1499,8 +1499,7 @@ export async function cliRender(scene: unknown, font?: string): Promise<string> 
  */
 export async function cliRenderBytes(source: string, font?: string): Promise<string> {
   const folder = await sceneFolder(source);
-  const args = [CLI, 'render', 'scene.json', ...(font === undefined ? [] : ['--font', font])];
-  await run(process.execPath, args, { cwd: folder });
+  await ezOrThrow(['render', 'scene.json', ...(font === undefined ? [] : ['--font', font])], folder);
   return readFile(join(folder, 'scene.svg'), 'utf8');
 }
 
@@ -1516,15 +1515,8 @@ export async function cliCheckBytes(
   source: string,
 ): Promise<{ code: number; reported: string }> {
   const folder = await sceneFolder(source, 'esbozo-check-');
-  try {
-    const { stdout, stderr } = await run(process.execPath, [CLI, 'check', 'scene.json'], {
-      cwd: folder,
-    });
-    return { code: 0, reported: `${stdout}${stderr}` };
-  } catch (error) {
-    const failure = error as { code?: number; stdout?: string; stderr?: string };
-    return { code: failure.code ?? 1, reported: `${failure.stdout ?? ''}${failure.stderr ?? ''}` };
-  }
+  const { code, stdout, stderr } = await ez(['check', 'scene.json'], folder);
+  return { code, reported: `${stdout}${stderr}` };
 }
 
 /** The editor saved both files, and the SVG is the CLI's own output. */
@@ -1550,17 +1542,19 @@ const PAGE_FONT = fileURLToPath(new URL('../dist/fonts/Kalam-Regular.ttf', impor
  */
 export async function cliPng(scene: unknown, theme: 'light' | 'dark'): Promise<Buffer> {
   const folder = await sceneFolder(JSON.stringify(scene, null, 2));
-  await run(process.execPath, [
-    CLI,
-    'png',
-    'scene.json',
-    '--theme',
-    theme,
-    '--css',
-    PAGE_CSS,
-    '--font',
-    PAGE_FONT,
-  ], { cwd: folder });
+  await ezOrThrow(
+    [
+      'png',
+      'scene.json',
+      '--theme',
+      theme,
+      '--css',
+      PAGE_CSS,
+      '--font',
+      PAGE_FONT,
+    ],
+    folder,
+  );
   return readFile(join(folder, `scene.${theme}.png`));
 }
 
@@ -1580,7 +1574,7 @@ export async function runAsWritten(
   const bin = join(folder, 'bin');
   await mkdir(bin);
   const shim = join(bin, 'ez');
-  await writeFile(shim, `#!/bin/sh\nexec "${process.execPath}" "${CLI}" "$@"\n`, 'utf8');
+  await writeFile(shim, ezShimScript(), 'utf8');
   await chmod(shim, 0o755);
   try {
     await run('/bin/sh', ['-c', command], {

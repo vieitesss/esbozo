@@ -4,10 +4,11 @@
  * Review kept finding a commit that only went green once the next one landed —
  * an export `knip` reported until a later import pointed at it — so the branch
  * is walked oldest first and each commit gets the static half of `pnpm check`:
- * `typecheck`, `lint`, `knip` and `check-rules`. The node tests and the build
- * are left out: they are slow, and none of them is what a single commit broke.
+ * `typecheck`, `lint`, `knip`, `check-rules`, and the Go half, `go vet` and
+ * `gofmt`. The node tests, `go test`, the CLI suites and the build are left
+ * out: they are slow, and none of them is what a single commit broke.
  *
- * Usage: pnpm check:steps <base>
+ * Usage: pnpm check:steps <base> [--shard I/N]
  *
  * The caller's working tree, index and branch are never touched. The commits are
  * checked in one detached temporary worktree, with this checkout's
@@ -20,12 +21,14 @@
  * One line per commit — `<sha> <subject>: ok`, or the name of the first check
  * that failed with that check's output printed underneath — and the run carries
  * on, so one pass names every commit that is not green. Exit `1` when any commit
- * fails, and `2` for a missing base or a base `HEAD` does not descend from.
+ * fails, and `2` for a missing base, a base `HEAD` does not descend from, or a
+ * shard that is not `I/N` with `1 <= I <= N`.
  */
 import { spawn } from 'node:child_process';
-import { lstat, mkdtemp, rm, symlink, unlink } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { embeddedFiles } from './embedded.mjs';
 
 /** The static half of `pnpm check`, in the order `pnpm check` runs them. */
 const CHECKS = ['typecheck', 'lint', 'knip', 'check-rules'];
@@ -33,7 +36,18 @@ const CHECKS = ['typecheck', 'lint', 'knip', 'check-rules'];
 /** The two files whose change makes this checkout's modules the wrong ones. */
 const MANIFEST = ['package.json', 'pnpm-lock.yaml'];
 
-const USAGE = 'Usage: pnpm check:steps <base>  (base must be a commit HEAD descends from)';
+const USAGE = 'Usage: pnpm check:steps <base> [--shard I/N]  (base must be a commit HEAD descends from)';
+
+function readShard(args) {
+  const at = args.indexOf('--shard');
+  if (at === -1) return { kind: 'absent' };
+  const match = /^(\d+)\/(\d+)$/.exec(args[at + 1] ?? '');
+  if (match === null) return { kind: 'malformed' };
+  const index = Number(match[1]);
+  const count = Number(match[2]);
+  if (index < 1 || count < 1 || index > count) return { kind: 'malformed' };
+  return { kind: 'shard', index, count };
+}
 
 /** One command, its two streams collected, resolved with what it exited with. */
 function run(command, args, cwd) {
@@ -72,11 +86,45 @@ async function unlinkModules(tree) {
   if (info?.isSymbolicLink()) await unlink(modules);
 }
 
-async function main() {
-  const [base] = process.argv.slice(2);
-  const root = process.cwd();
+/**
+ * Stand in for what `assets.go` embeds that `pnpm build` writes and git does not
+ * carry: `go vet` resolves `//go:embed` patterns, so they are stood in for empty.
+ * The list is `assets.go`'s own, so a new embed is a file `go vet` resolves
+ * without a second list to keep in step.
+ */
+async function standInForBuiltEmbeds(tree) {
+  for (const path of await embeddedFiles(tree)) {
+    const file = join(tree, path);
+    if (await present(file)) continue;
+    await mkdir(dirname(file), { recursive: true });
+    await writeFile(file, '');
+  }
+}
 
-  if (base === undefined || base.startsWith('-')) {
+async function goChecks(tree) {
+  if (!(await present(join(tree, 'go.mod')))) return null;
+
+  await standInForBuiltEmbeds(tree);
+  const vet = await run('go', ['vet', './...'], tree);
+  if (vet.status !== 0) return { name: 'go vet', ...vet };
+
+  const files = (await git(tree, ['ls-files', '--', '*.go'])).trim().split('\n');
+  const goFiles = files.filter((file) => file !== '');
+  // `gofmt -l` with no file reads stdin and waits.
+  if (goFiles.length === 0) return null;
+
+  const gofmt = await run('gofmt', ['-l', ...goFiles], tree);
+  if (gofmt.status !== 0) return { name: 'gofmt', ...gofmt };
+  if (gofmt.out.trim() === '') return null;
+  return { name: 'gofmt', status: 1, out: `not formatted: ${gofmt.out.trim()}`, err: '' };
+}
+
+async function main() {
+  const [base, ...rest] = process.argv.slice(2);
+  const root = process.cwd();
+  const shard = readShard(rest);
+
+  if (base === undefined || base.startsWith('-') || shard.kind === 'malformed') {
     process.stderr.write(`${USAGE}\n`);
     process.exitCode = 2;
     return;
@@ -100,7 +148,8 @@ async function main() {
     .map((line) => {
       const [sha, subject] = line.split('\0');
       return { sha, subject };
-    });
+    })
+    .filter((_, at) => shard.kind === 'absent' || at % shard.count === shard.index - 1);
 
   const scratch = await mkdtemp(join(tmpdir(), 'esbozo-check-steps-'));
   const tree = join(scratch, 'tree');
@@ -148,6 +197,8 @@ async function main() {
         const result = await run('pnpm', ['run', '--config.verify-deps-before-run=false', check], tree);
         if (result.status !== 0) broke = { name: check, ...result };
       }
+
+      if (broke === null) broke = await goChecks(tree);
 
       if (broke === null) {
         process.stdout.write(`${sha} ${subject}: ok\n`);

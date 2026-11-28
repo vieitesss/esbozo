@@ -12,7 +12,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { tempFolder } from './temp.ts';
 
-/** What the bundled modules expose: the public Scene, Renderer and Layout functions, and Kalam. */
+/** What the bundled modules expose: the public Scene, Renderer and Layout functions, the exit and place tables the CLI restates, and Kalam. */
 export interface ProjectModules {
   parseScene: typeof import('../src/scene.ts').parseScene;
   serialiseScene: typeof import('../src/scene.ts').serialiseScene;
@@ -50,6 +50,10 @@ export interface ProjectModules {
   createLayout: typeof import('../src/layout.ts').createLayout;
   parseFontFile: typeof import('../src/layout.ts').parseFontFile;
   systemDarkRules: typeof import('../src/editor/theme-css.ts').systemDarkRules;
+  /** The exit table the CLI's help restates in words. */
+  EXIT: typeof import('../src/exit.ts').EXIT;
+  /** The place words the CLI's anchor help restates. */
+  PLACE_WORDS: typeof import('../src/ends.ts').PLACE_WORDS;
   /** The editor stylesheet, so the dark-theme mirror test runs over the real CSS. */
   EDITOR_CSS: string;
   /** Kalam's bytes, so a test measures with the font the CLI measures with. */
@@ -78,6 +82,8 @@ export async function loadProjectModules(): Promise<ProjectModules> {
       `export { anchorPoint, anchorOf } from ${source('geometry.ts')};`,
       `export { PaintCache, sceneFile } from ${source('editor/paint.ts')};`,
       `export { createLayout, parseFontFile } from ${source('layout.ts')};`,
+      `export { EXIT } from ${source('exit.ts')};`,
+      `export { PLACE_WORDS } from ${source('ends.ts')};`,
       `export { systemDarkRules } from ${source('editor/theme-css.ts')};`,
       `export { default as EDITOR_CSS } from ${source('editor/editor.css')};`,
       `export { default as KALAM } from ${JSON.stringify(

@@ -5,9 +5,9 @@
  * A failure that shows only in CI is a Linux Chromium's, not this Mac's, so the
  * fix is proved where it broke. The image is `docker/e2e.Dockerfile`, built
  * once and tagged with a hash of every input it is built from: that file, the
- * files it copies in, and the Node and pnpm versions. A second run reuses it,
- * and a change to any of them builds a new one instead of silently testing the
- * old.
+ * files it copies in, and the Node, pnpm and Go versions. A second run reuses
+ * it, and a change to any of them builds a new one instead of silently testing
+ * the old.
  *
  * The worktree is mounted at `/src` and copied over the image's dependencies at
  * run time (see `scripts/e2e-linux-container.sh`): a source change costs a copy,
@@ -36,6 +36,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const DOCKERFILE = join(ROOT, 'docker/e2e.Dockerfile');
 const NODE_VERSION_FILE = join(ROOT, '.node-version');
+const GO_MOD_FILE = join(ROOT, 'go.mod');
 
 /** A `major.minor.patch` version, the only shape the image can install by name. */
 const VERSION = /^v?(\d+)\.(\d+)\.(\d+)$/;
@@ -46,7 +47,8 @@ const PASSED = /^(?:ESBOZO_|OPENCODE_API_KEY$)/;
 const pkg = JSON.parse(await readFile(join(ROOT, 'package.json'), 'utf8'));
 const pnpmVersion = pnpmOf(pkg.packageManager);
 const nodeVersion = await nodeVersionCI();
-const image = await imageFor(nodeVersion, pnpmVersion);
+const goVersion = await goVersionCI();
+const image = await imageFor(nodeVersion, pnpmVersion, goVersion);
 
 await dockerOrStop();
 if (!(await imageExists())) {
@@ -61,6 +63,8 @@ if (!(await imageExists())) {
     `NODE_VERSION=${nodeVersion}`,
     '--build-arg',
     `PNPM_VERSION=${pnpmVersion}`,
+    '--build-arg',
+    `GO_VERSION=${goVersion}`,
     ROOT,
   ]);
   if (built !== 0) {
@@ -185,12 +189,26 @@ async function nodeVersionCI() {
   return version.slice(1, 4).join('.');
 }
 
+async function goVersionCI() {
+  let said;
+  try {
+    said = await readFile(GO_MOD_FILE, 'utf8');
+  } catch (error) {
+    fail(`cannot read go.mod, the Go version the image builds with: ${error.message}`);
+  }
+  const version = /^go\s+(\S+)$/m.exec(said);
+  if (version === null) {
+    fail('go.mod names no Go version: it must hold a "go <version>" line');
+  }
+  return version[1];
+}
+
 /**
  * The image name for this Dockerfile and everything it is built from: the same
  * inputs produce the same tag, so its presence is the whole answer to "reuse or
  * build". A different one leaves the old image for `docker image rm` to judge.
  */
-async function imageFor(node, pnpm) {
+async function imageFor(node, pnpm, go) {
   const dockerfile = await readFile(DOCKERFILE);
   const fingerprint = createHash('sha256').update(dockerfile);
   // Every file the Dockerfile copies into the image: the lockfile decides the
@@ -205,7 +223,7 @@ async function imageFor(node, pnpm) {
       fail(`docker/e2e.Dockerfile copies ${source}, which cannot be read: ${error.message}`);
     }
   }
-  fingerprint.update(`\nnode ${node}\npnpm ${pnpm}\n`);
+  fingerprint.update(`\nnode ${node}\npnpm ${pnpm}\ngo ${go}\n`);
   return `esbozo:e2e-linux-${fingerprint.digest('hex').slice(0, 12)}`;
 }
 

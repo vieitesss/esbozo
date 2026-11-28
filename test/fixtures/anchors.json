@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "title": "Anchors and bends",
+  "defaults": { "roughness": 1 },
+  "elements": [
+    { "id": "box", "type": "rectangle", "x": 40, "y": 40, "width": 180, "height": 110, "corners": "round", "fill": { "kind": "hachure", "grey": 2 } },
+    { "id": "oval", "type": "ellipse", "x": 300, "y": 40, "width": 160, "height": 110 },
+    { "id": "gem", "type": "diamond", "x": 520, "y": 40, "width": 160, "height": 110 },
+    {
+      "id": "left-right",
+      "type": "arrow",
+      "points": [
+        { "x": 220, "y": 95, "snap": "box", "anchor": { "x": 1, "y": 0.5 } },
+        { "x": 300, "y": 95, "snap": "oval", "anchor": { "x": 0, "y": 0.5 } }
+      ],
+      "heads": { "end": "arrow" }
+    },
+    {
+      "id": "oval-gem",
+      "type": "arrow",
+      "points": [
+        { "x": 460, "y": 95, "snap": "oval", "anchor": { "x": 1, "y": 0.25 } },
+        { "x": 520, "y": 95, "snap": "gem", "anchor": { "x": 0, "y": 0.75 } }
+      ],
+      "label": "labelled",
+      "stroke": { "width": "bold" }
+    },
+    {
+      "id": "bent",
+      "type": "line",
+      "points": [
+        { "x": 130, "y": 150, "snap": "box", "anchor": { "x": 0.5, "y": 1 } },
+        { "x": 130, "y": 300, "corner": "round" },
+        { "x": 380, "y": 300, "corner": "sharp" },
+        { "x": 380, "y": 150, "snap": "oval", "anchor": { "x": 0.5, "y": 1 } }
+      ],
+      "label": "two\nlines",
+      "fontSize": "L"
+    },
+    {
+      "id": "loop",
+      "type": "arrow",
+      "points": [
+        { "x": 600, "y": 150, "snap": "gem", "anchor": { "x": 0.75, "y": 1 } },
+        { "x": 680, "y": 240, "corner": "round" },
+        { "x": 600, "y": 240, "corner": "round" },
+        { "x": 600, "y": 150, "snap": "gem", "anchor": { "x": 0.25, "y": 1 } }
+      ]
+    }
+  ]
+}

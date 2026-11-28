@@ -7,8 +7,9 @@
  *      bundle and the Scene all run in a browser, so `node:crypto` anywhere in
  *      them is a build that only works in Node.
  *   2. A GLOSSARY.md _Avoid_ term never names something in the code, in a test
- *      name or in copy. One word per idea is the point of the glossary, and the
- *      list is read from GLOSSARY.md so the two cannot drift.
+ *      name, in copy, or in a Go identifier or comment. One word per idea is
+ *      the point of the glossary, and the list is read from GLOSSARY.md so the
+ *      two cannot drift.
  *   3. A test never asserts on the seam's implementation: no markup regexes, no
  *      bounding boxes, no DOM structure or rect reads, no `data-element-id`, no
  *      tag-name selectors, and no test reads a `src/` file for itself.
@@ -44,6 +45,9 @@ const ROOT = process.argv[2] ?? fileURLToPath(new URL('..', import.meta.url));
 
 /** Where the rules look: the sources, the suites, and the scripts a person runs. */
 const ROOTS = ['src', 'test', 'tests', 'scripts'];
+
+const GO_ROOTS = ['cmd', 'internal'];
+const WATCHED = /^(?:(?:src|test|tests|scripts)\/.*\.(?:ts|tsx|js|mjs|cjs)|(?:cmd|internal)\/.*\.go)$/;
 
 /** The modules that ship to a browser, so no Node builtin may reach them. */
 const BROWSER_SAFE = /^src\/(?:scene|renderer|layout|geometry|paths|sha256)\.ts$|^src\/editor\//;
@@ -233,14 +237,13 @@ const paths = await files(ROOT);
 
 for (const path of paths) {
   const text = await readFile(join(ROOT, path), 'utf8');
+  const report = (at, message) => findings.push(`${path}:${lineAt(text, at)}: ${message}`);
+  if (path.endsWith('.go')) {
+    avoidTermsInGo({ path, text, report });
+    continue;
+  }
   const source = parse(path, text);
-  const file = {
-    path,
-    text,
-    source,
-    report: (at, message) => findings.push(`${path}:${lineAt(text, at)}: ${message}`),
-  };
-  for (const rule of RULES) rule(file);
+  for (const rule of RULES) rule({ path, text, source, report });
 }
 
 await e2eScripts(ROOT, paths);
@@ -267,9 +270,9 @@ function nodeImports(file) {
  * An entry with a parenthetical qualifier — `label (for free-standing text)` —
  * is one sense of the word, so no mechanical rule can tell the senses apart.
  * Every such entry is left to a person; the rest are matched whole, word by
- * word, with the plain inflections a name takes (`shapes`, `shaped`). `Node`
- * followed by a version, `-compatible`, `.js` or `runtime` names the runtime,
- * not an Element, so it is not the term.
+ * word, with the plain inflections a name takes (`shapes`, `shaped`). The runtime
+ * is not an Element: `Node` followed by a version, `-compatible`, `.js` or
+ * `runtime` names it, and in prose so does the bare proper noun.
  */
 function avoidTerms(file) {
   const { path, source, report } = file;
@@ -298,6 +301,67 @@ function avoidTerms(file) {
       }
     }
   }
+}
+
+function avoidTermsInGo(file) {
+  for (const token of goTokens(file.text)) {
+    const hit = avoidTermIn(token.text, token.kind === 'comment');
+    if (hit === undefined) continue;
+    file.report(token.at, `avoid term "${hit}" in ${token.kind} "${token.text.trim()}"`);
+  }
+}
+
+function goTokens(text) {
+  const found = [];
+  let at = 0;
+  while (at < text.length) {
+    const char = text[at];
+    if (char === '"' || char === "'" || char === '`') {
+      at = endOfGoLiteral(text, at);
+      continue;
+    }
+    if (text.startsWith('//', at)) {
+      const end = text.indexOf('\n', at);
+      const stop = end === -1 ? text.length : end;
+      found.push({ at, kind: 'comment', text: text.slice(at, stop) });
+      at = stop;
+      continue;
+    }
+    if (text.startsWith('/*', at)) {
+      const end = text.indexOf('*/', at + 2);
+      const stop = end === -1 ? text.length : end + 2;
+      found.push({ at, kind: 'comment', text: text.slice(at, stop) });
+      at = stop;
+      continue;
+    }
+    const word = /^[A-Za-z_][A-Za-z0-9_]*/.exec(text.slice(at, at + 256));
+    if (word !== null) {
+      found.push({ at, kind: 'identifier', text: word[0] });
+      at += word[0].length;
+      continue;
+    }
+    at += 1;
+  }
+  return found;
+}
+
+function endOfGoLiteral(text, at) {
+  const quote = text[at];
+  if (quote === '`') {
+    const end = text.indexOf('`', at + 1);
+    return end === -1 ? text.length : end + 1;
+  }
+  let cursor = at + 1;
+  while (cursor < text.length) {
+    if (text[cursor] === '\\') {
+      cursor += 2;
+      continue;
+    }
+    if (text[cursor] === quote) return cursor + 1;
+    if (text[cursor] === '\n') return cursor;
+    cursor += 1;
+  }
+  return text.length;
 }
 
 /** Rule 3: a test that reaches past the seam it is testing. */
@@ -678,25 +742,24 @@ function copyRuns(text) {
   return runs;
 }
 
-/** The Avoid term this text holds, if it holds one. */
-function avoidTermIn(text) {
+function avoidTermIn(text, isComment = false) {
   const found = words(text);
   for (const term of terms) {
     const wanted = term.split(' ');
     for (let at = 0; at + wanted.length <= found.length; at += 1) {
       if (!wanted.every((word, step) => same(found[at + step].word, word))) continue;
-      // `Node 22`, `Node-compatible`, `Node.js` and the `Node runtime` name the
-      // runtime the code runs on, not an Element.
-      if (wanted.length === 1 && term === 'node' && namesRuntime(text, found[at].end)) continue;
+      if (wanted.length === 1 && term === 'node' && namesRuntime(text, found[at], isComment)) continue;
       return term;
     }
   }
   return undefined;
 }
 
-/** Whether what follows a `node` makes it the runtime's name. */
-function namesRuntime(text, end) {
-  return /^\s*(?:\d|-compatible|\.js|runtime)/i.test(text.slice(end));
+function namesRuntime(text, word, isComment) {
+  if (isComment && text.slice(word.at, word.end) === 'Node') return true;
+  const rest = text.slice(word.end);
+  if (/^\s*(?:\d|-compatible|\.js|runtime|:)/i.test(rest)) return true;
+  return /^\s+\S+\.m?js\b/.test(rest);
 }
 
 /** Whether a word is the term, or the plain inflection of it: `shapes`, `shaped`. */
@@ -993,7 +1056,7 @@ function lineAt(text, at) {
 /** The files the rules read, relative to the root and `/`-separated. */
 async function files(root) {
   const found = [];
-  for (const name of ROOTS) {
+  for (const name of [...ROOTS, ...GO_ROOTS]) {
     const top = join(root, name);
     let entries;
     try {
@@ -1005,7 +1068,7 @@ async function files(root) {
       if (!entry.isFile()) continue;
       const path = `${name}/${relative(top, join(entry.parentPath, entry.name)).split(sep).join('/')}`;
       if (path.includes('node_modules/')) continue;
-      if (!/\.(?:ts|tsx|js|mjs|cjs)$/.test(path)) continue;
+      if (!WATCHED.test(path)) continue;
       found.push(path);
     }
   }

@@ -436,6 +436,58 @@ test('a Scene that is not JSON exits 3', async () => {
   assert.match(run.stderr, /not valid JSON/);
 });
 
+test('a leading-zero JSON number is refused with V8 wording and position', async () => {
+  const folder = await tempFolder();
+  await writeFile(
+    join(folder, 'scene.json'),
+    '{ "version": 1, "elements": [{ "id": "a", "type": "rectangle", "x": 01e400, "x": 10, "y": 0, "width": 100, "height": 50 }] }\n',
+    'utf8',
+  );
+
+  const run = await ez(['render', 'scene.json'], folder);
+
+  assert.equal(run.code, 3);
+  assert.equal(
+    run.stderr,
+    'not valid JSON: Unexpected number in JSON at position 69 (line 1 column 70)\n',
+  );
+  assert.equal(existsSync(join(folder, 'scene.svg')), false, 'no SVG for a Scene it cannot read');
+});
+
+test('a refused Scene counts CR and CRLF line breaks as V8 does', async () => {
+  const cases = [
+    {
+      name: 'CR line endings',
+      text: '{\r  "a": 1,\r  "b": 01\r}',
+      place: 'position 20 (line 3 column 9)',
+    },
+    {
+      name: 'CRLF line endings',
+      text: '{\r\n  "a": 1,\r\n  "b": 01\r\n}',
+      place: 'position 22 (line 3 column 9)',
+    },
+    {
+      name: 'mixed line endings',
+      text: '{\n  "a": 1,\r  "b": 01\n}',
+      place: 'position 20 (line 3 column 9)',
+    },
+  ];
+
+  for (const one of cases) {
+    const folder = await tempFolder();
+    await writeFile(join(folder, 'scene.json'), one.text, 'utf8');
+
+    const run = await ez(['render', 'scene.json'], folder);
+
+    assert.equal(run.code, 3, one.name);
+    assert.equal(
+      run.stderr,
+      `not valid JSON: Unexpected number in JSON at ${one.place}\n`,
+      one.name,
+    );
+  }
+});
+
 test('a missing Scene exits 3', async () => {
   const folder = await tempFolder();
 
@@ -780,6 +832,109 @@ test('a head’s cut takes ink from its own end, and no more than the head reach
   for (const [index, one] of arrows.entries()) {
     assertCutIsLocal(one, groups[index]!, bareGroups[index]!);
   }
+});
+
+test('a head’s cut stops its shaft inside the window the head allows', async () => {
+  const ended = { x: 180, y: 40 };
+  const svg = await renderOne({
+    version: 1,
+    title: 'One headed arrow',
+    defaults: { roughness: 0 },
+    elements: [
+      {
+        id: 'headed',
+        type: 'arrow',
+        points: [{ x: 40, y: 40 }, ended],
+        heads: { start: 'none', end: 'arrow' },
+        stroke: { width: 'bold', style: 'solid' },
+      },
+    ],
+  });
+
+  const [group] = inkGroups(svg);
+  assert.ok(group !== undefined, 'the arrow has ink of its own');
+  const shaft = pathsOf(group).filter((tag) => attributeIn(tag, 'fill') === 'none');
+  const head = pathsOf(group).filter((tag) => attributeIn(tag, 'fill') !== 'none');
+  assert.equal(head.length, 1, 'one filled triangle for the one head');
+  const corners = flatPoints(head[0]!);
+  assert.equal(corners.length, 3, 'the head fills a triangle');
+
+  const { at: apex } = nearestOf(corners, ended);
+  const base = middleOf(corners.filter((corner) => corner !== apex));
+  const away = towards(apex, base);
+  const radius = attributeOf(shaft[0]!, 'stroke-width') / 2;
+  const cut = cutOf(shaft, apex, away);
+  const covered = (cut.x - apex.x) * away.x + (cut.y - apex.y) * away.y;
+
+  const reach = far(apex, base);
+  const [first, second] = corners.filter((corner) => corner !== apex) as [At, At];
+  const lean = far(first, second) / 2 / reach;
+  const penEntry = (radius * Math.hypot(1, lean)) / lean;
+  const headBase = reach - radius;
+
+  assert.ok(
+    covered >= penEntry - 1,
+    `the cut covers ${covered.toFixed(2)} of the shaft, short of the head’s own ${penEntry.toFixed(2)}`,
+  );
+  assert.ok(
+    covered <= headBase + 1,
+    `the cut covers ${covered.toFixed(2)} of the shaft, past the head’s base at ${headBase.toFixed(2)}`,
+  );
+});
+
+test('a short shaft that bends out of its head keeps the ink the head cannot hide', async () => {
+  const svg = await renderOne({
+    version: 1,
+    title: 'Short bent shaft',
+    elements: [
+      {
+        id: 'b-extra',
+        type: 'arrow',
+        corners: 'sharp',
+        roughness: 0,
+        points: [
+          { x: 189, y: 99 },
+          { x: 193, y: 95 },
+          { x: 193, y: 100 },
+          { x: 200, y: 100 },
+        ],
+        heads: { start: 'none', end: 'arrow' },
+        stroke: { width: 'extra', style: 'solid' },
+      },
+    ],
+  });
+
+  const walkCut = { x: 193.54, y: 99.29 };
+  assertCutIsKept(svg, { x: 200, y: 100 }, walkCut);
+});
+
+test('a shaft that leaves its head and comes back keeps the ink outside it', async () => {
+  const svg = await renderOne({
+    version: 1,
+    title: 'Shaft leaving its head',
+    elements: [
+      {
+        id: 'a-bold',
+        type: 'arrow',
+        corners: 'sharp',
+        roughness: 0,
+        points: [
+          { x: 100, y: 100 },
+          { x: 192, y: 100 },
+          { x: 195, y: 95 },
+          { x: 196, y: 100 },
+          { x: 198, y: 98 },
+          { x: 198, y: 100 },
+          { x: 200, y: 100 },
+        ],
+        heads: { start: 'none', end: 'arrow' },
+        stroke: { width: 'bold', style: 'solid' },
+      },
+    ],
+  });
+
+  const walkCut = { x: 196.02, y: 99.3 };
+  assertCutIsKept(svg, { x: 200, y: 100 }, walkCut);
 });
 
 test('a short leg at a head still runs into its triangle', async () => {
@@ -1501,6 +1656,49 @@ function nearestOf(points: readonly At[], target: At): { at: At; off: number } {
 /** How far apart two places are. */
 function far(from: At, to: At): number {
   return Math.hypot(to.x - from.x, to.y - from.y);
+}
+
+function cutOf(shaft: readonly string[], apex: At, away: At): At {
+  let cut = apex;
+  let nearestBehind = Number.POSITIVE_INFINITY;
+  for (const tag of shaft) {
+    for (const run of inkRuns(tag)) {
+      for (const point of run) {
+        const behind = (point.x - apex.x) * away.x + (point.y - apex.y) * away.y;
+        if (behind < nearestBehind) {
+          nearestBehind = behind;
+          cut = point;
+        }
+      }
+    }
+  }
+  return cut;
+}
+
+function assertCutIsKept(svg: string, tip: At, walkCut: At): void {
+  const [group] = inkGroups(svg);
+  assert.ok(group !== undefined, 'the arrow has ink of its own');
+  const shaft = pathsOf(group).filter((tag) => attributeIn(tag, 'fill') === 'none');
+  assert.ok(shaft.length > 0, 'the shaft keeps ink of its own beside its head');
+
+  const head = pathsOf(group).filter((tag) => attributeIn(tag, 'fill') !== 'none');
+  const corners = flatPoints(head[0]!);
+  assert.equal(corners.length, 3, 'the head fills a triangle');
+  const { at: apex } = nearestOf(corners, tip);
+  const base = middleOf(corners.filter((corner) => corner !== apex));
+  const away = towards(apex, base);
+
+  const cut = cutOf(shaft, apex, away);
+  const drift = far(cut, walkCut);
+  assert.ok(
+    drift <= 1,
+    `the cut at (${cut.x.toFixed(2)}, ${cut.y.toFixed(2)}) is ${drift.toFixed(2)} px from the walk's cut at (${walkCut.x}, ${walkCut.y})`,
+  );
+
+  const visible = shaft
+    .flatMap((tag) => inkRuns(tag))
+    .some((run) => run.some((sample) => !covers(corners, sample)));
+  assert.ok(visible, 'the shaft keeps ink outside the head’s triangle');
 }
 
 /** The place between two places. */

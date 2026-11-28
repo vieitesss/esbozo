@@ -10,10 +10,9 @@
 # not in the image: the worktree is mounted at `/src` and copied over the
 # dependencies at run time (`scripts/e2e-linux-container.sh`), so a source change
 # costs a copy, and the host's macOS `node_modules` is masked out of the mount.
-#
-# `NODE_VERSION` and `PNPM_VERSION` have no defaults on purpose: a default here
-# is a second place to bump, and the two numbers live in `.node-version` and
-# `package.json`.
+ARG GO_VERSION
+
+FROM golang:${GO_VERSION} AS go
 
 FROM ubuntu:26.04
 
@@ -40,6 +39,9 @@ RUN set -eux; \
     rm "node-v${NODE_VERSION}-linux-${node_arch}.tar.xz"; \
     node --version; npm --version; \
     npm install -g "pnpm@${PNPM_VERSION}"; pnpm --version
+
+COPY --from=go /usr/local/go /usr/local/go
+ENV PATH=/usr/local/go/bin:${PATH}
 
 # Where `e2e-web install` puts Chromium, and the user the suite runs as: nobody
 # draws as root, and Chromium refuses its sandbox as root.

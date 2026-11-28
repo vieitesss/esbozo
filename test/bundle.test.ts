@@ -1,15 +1,7 @@
-/**
- * CLI seam, the bundle: the built CLI needs nothing but Node and `dist/`.
- *
- * The Docker image copies `dist/` alone — no `node_modules` — so this proves
- * that is enough: `render` (esbuild inlines its imports), `png` (resvg's wasm
- * travels inside the bundle), and `serve`, whose page files have to be found
- * beside the CLI. Every run happens in a folder that holds `dist/` and nothing
- * else from the repository.
- */
+/** CLI seam, the bundle: the built binary needs nothing beside it. */
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { cp, readFile, writeFile } from 'node:fs/promises';
+import { cp, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -30,11 +22,11 @@ const SAMPLE_SCENE = {
   ],
 };
 
-/** A folder holding a copy of `dist/` and one Scene, and nothing else. */
 async function bundleFolder(): Promise<string> {
   const folder = await tempFolder();
-  await cp(join(ROOT, 'dist'), join(folder, 'dist'), { recursive: true });
+  await cp(join(ROOT, 'dist', 'ez'), join(folder, 'ez'));
   await writeFile(join(folder, 'scene.json'), JSON.stringify(SAMPLE_SCENE, null, 2), 'utf8');
+  assert.deepEqual((await readdir(folder)).sort(), ['ez', 'scene.json']);
   return folder;
 }
 
@@ -45,16 +37,16 @@ after(async () => {
   await removeTempFolders();
 });
 
-test('the bundled CLI renders and draws a PNG with no node_modules beside it', async () => {
+test('the bundled binary renders and draws a PNG with no node_modules beside it', async () => {
   const folder = await bundleFolder();
-  const cli = join(folder, 'dist', 'cli.js');
+  const cli = join(folder, 'ez');
 
-  const rendered = await run(process.execPath, [cli, 'render', 'scene.json'], { cwd: folder });
+  const rendered = await run(cli, ['render', 'scene.json'], { cwd: folder });
   assert.match(rendered.stdout, /scene\.svg\n$/, 'render prints the path it wrote');
   // check-rules: markup of a written SVG file, not the page
   assert.match(await readFile(join(folder, 'scene.svg'), 'utf8'), /^<svg[\s>]/);
 
-  const drawn = await run(process.execPath, [cli, 'png', 'scene.json', '--theme', 'dark'], {
+  const drawn = await run(cli, ['png', 'scene.json', '--theme', 'dark'], {
     cwd: folder,
   });
   assert.match(drawn.stdout, /scene\.dark\.png\n$/, 'png prints the path it wrote');
@@ -63,9 +55,9 @@ test('the bundled CLI renders and draws a PNG with no node_modules beside it', a
   assert.ok(png.length > 1000, 'the PNG holds an image, not just a header');
 });
 
-test('the bundled CLI serves the page and the folder with no node_modules beside it', async () => {
+test('the bundled binary serves the page and the folder with no node_modules beside it', async () => {
   const folder = await bundleFolder();
-  const server = await startServe(folder, [], join(folder, 'dist', 'cli.js'));
+  const server = await startServe(folder, [], join(folder, 'ez'));
   running.push(server);
 
   const listing = await fetch(`${server.url}/api/scenes`);

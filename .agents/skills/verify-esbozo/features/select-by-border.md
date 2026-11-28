@@ -42,7 +42,7 @@ cat >"$RUN_DIR/borders.json" <<'EOF'
 }
 EOF
 
-node dist/cli.js serve "$RUN_DIR" --port 0 >"$RUN_DIR/serve.log" 2>&1 &
+dist/ez serve "$RUN_DIR" --port 0 >"$RUN_DIR/serve.log" 2>&1 &
 SERVE_PID=$!
 while ! grep -q 'http://127\.0\.0\.1:' "$RUN_DIR/serve.log"; do sleep 0.1; done
 export SERVE_URL="$(sed -n 's|.*\(http://127\.0\.0\.1:[0-9]*\).*|\1|p' "$RUN_DIR/serve.log" | head -n 1)"
@@ -118,12 +118,12 @@ export default async function ({ page }) {
 }
 EOF
 
-node dist/cli.js check "$RUN_DIR/borders.json"
+dist/ez check "$RUN_DIR/borders.json"
 kill "$SERVE_PID" && wait "$SERVE_PID" 2>/dev/null || true
 rm -rf "$RUN_DIR"
 ```
 
-On a fixed build, `pnpm probe` prints `selected: true` with `rectX: 50`, `.e2e/results/verify/issue-27/border-1x.png` shows selection handles around `rect`, and `node dist/cli.js check "$RUN_DIR/borders.json"` exits `0`. On commit `d2d280c` before the fix, the same probe prints `selected: false` with `rectX: 40`.
+On a fixed build, `pnpm probe` prints `selected: true` with `rectX: 50`, `.e2e/results/verify/issue-27/border-1x.png` shows selection handles around `rect`, and `dist/ez check "$RUN_DIR/borders.json"` exits `0`. On commit `d2d280c` before the fix, the same probe prints `selected: false` with `rectX: 40`.
 
 ### Additional checks
 
@@ -142,5 +142,5 @@ git worktree list
 - Clicking the Element's stored box edge misses the bug on commit `d2d280c` because roughness draws ink outside the stored box. Aim at the outermost dark pixel of the rendered stroke, not the nominal `x` coordinate.
 - Older commits such as `d2d280c` predate the `.esbozo` extension and `/api/health`. Use a `.json` Scene filename (such as `borders.json`) when reproducing regressions against older commits.
 - When piping a probe via stdin, resolve `tests/pixels.ts` with `pathToFileURL(resolve('tests/pixels.ts')).href` because stdin probes run from `$TMPDIR/esbozo-probe-*`.
-- When comparing an older commit's build with `pnpm probe --folder <other-dist>` or `node <other>/dist/cli.js serve`, start a separate `$RUN_DIR` per build so a nudge from one run does not shift coordinates for the next.
+- When comparing an older commit's build with `pnpm probe --folder <other-dist>` or `<other>/dist/ez serve`, start a separate `$RUN_DIR` per build so a nudge from one run does not shift coordinates for the next.
 - Pressing `Shift+ArrowRight` saves asynchronously. Wait for the `PUT /api/scenes/<name>` response (or a brief settle) before reading the file from disk.

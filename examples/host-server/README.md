@@ -1,6 +1,6 @@
 # Reference host server
 
-This folder contains example code for a host endpoint that speaks the esbozo save API. It is not part of `src/` and does not ship in the npm package. Copy `server.mjs` into your own host application and adapt it to your routes and authentication.
+This folder contains example code for a host endpoint that speaks the esbozo save API. It is not part of `src/`: copy `server.mjs` into your own host application and adapt it to your routes and authentication.
 
 ## Run the server
 

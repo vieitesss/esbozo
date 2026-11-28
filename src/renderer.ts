@@ -1089,6 +1089,8 @@ const HEAD_STEP = 0.25;
 
 const HEAD_CROSSING_STEPS = 24;
 
+const HEAD_FIT_PROBES = 3;
+
 function headFacesOf(heads: readonly PlacedHead[], radius: number): HeadFaces {
   const faces: { start: HeadFace | null; end: HeadFace | null } = { start: null, end: null };
   for (const head of heads) {
@@ -1120,6 +1122,8 @@ interface HeadCut {
   readonly pieces: readonly ShaftPiece[];
   readonly removed: number;
 }
+
+type CurvedShaftPiece = Exclude<ShaftPiece, { readonly kind: 'straight' }>;
 
 function shaftBehindHeads(pieces: readonly ShaftPiece[], faces: HeadFaces): HeadCut {
   const start = faces.start === null ? { pieces, removed: 0 } : behindHead(pieces, faces.start, 'start');
@@ -1157,19 +1161,65 @@ function coveredFrom(inward: readonly ShaftPiece[], face: HeadFace, at: 'start' 
   const total = inward.reduce((sum, piece) => sum + piece.length, 0);
   const limit = Math.min(face.reach, total);
   const under = (arc: number): boolean => underHead(face, pointWalked(inward, arc, at));
-  const into = (arc: number): boolean => intoTriangle(face, pointWalked(inward, arc, at));
+  if (bendsWithinReach(inward, limit)) {
+    return walkedCover(inward, face, at, limit, under);
+  }
+  const hidesWholeShaft = limit === total && under(limit);
+  if (hidesWholeShaft) {
+    return limit;
+  }
+  const fitted = fittedCover(face, limit, under);
+  return fitted ?? walkedCover(inward, face, at, limit, under);
+}
+
+function bendsWithinReach(inward: readonly ShaftPiece[], limit: number): boolean {
+  const nearest = inward[0];
+  return nearest === undefined || nearest.length < limit;
+}
+
+function penFitsBehind(face: HeadFace): number {
+  return (face.radius * Math.hypot(1, face.lean)) / face.lean;
+}
+
+function fittedCover(
+  face: HeadFace,
+  limit: number,
+  under: (arc: number) => boolean,
+): number | null {
+  const entry = Math.min(penFitsBehind(face), limit);
+  if (under(entry)) {
+    return entry;
+  }
+  const base = Math.min(face.reach - face.radius, limit);
+  for (let step = 1; step <= HEAD_FIT_PROBES; step += 1) {
+    const arc = entry + ((base - entry) * step) / HEAD_FIT_PROBES;
+    if (arc > entry && under(arc)) {
+      return arc;
+    }
+  }
+  return null;
+}
+
+function walkedCover(
+  inward: readonly ShaftPiece[],
+  face: HeadFace,
+  at: 'start' | 'end',
+  limit: number,
+  under: (arc: number) => boolean,
+): number {
   let entered = false;
   let covered = 0;
   let reached = 0;
   let arc = 0;
   while (arc < limit) {
     const next = Math.min(arc + HEAD_STEP, limit);
-    if (under(next)) {
+    const centre = pointWalked(inward, next, at);
+    if (underHead(face, centre)) {
       entered = true;
       covered = next;
     } else if (entered) {
       return edgeOfCover(under, arc, next);
-    } else if (into(next)) {
+    } else if (intoTriangle(face, centre)) {
       reached = next;
     }
     arc = next;
@@ -1178,7 +1228,11 @@ function coveredFrom(inward: readonly ShaftPiece[], face: HeadFace, at: 'start' 
     return covered;
   }
   const beyond = Math.min(reached + HEAD_STEP, limit);
-  return reached < beyond ? edgeOfCover(into, reached, beyond) : reached;
+  if (reached >= beyond) {
+    return reached;
+  }
+  const into = (arc: number): boolean => intoTriangle(face, pointWalked(inward, arc, at));
+  return edgeOfCover(into, reached, beyond);
 }
 
 function edgeOfCover(under: (arc: number) => boolean, inside: number, outside: number): number {
@@ -1199,7 +1253,7 @@ function pointWalked(pieces: readonly ShaftPiece[], arc: number, at: 'start' | '
   let walked = arc;
   for (const piece of pieces) {
     if (piece.length > 0 && walked <= piece.length) {
-      return halvedAt(piece, parameterWalked(piece, walked, at)).at;
+      return pointAtSplit(piece, parameterWalked(piece, walked, at));
     }
     walked -= piece.length;
   }
@@ -1241,16 +1295,38 @@ function halvedAt(
     const at = between(piece.from, piece.to, fraction);
     return { at, before: straight(piece.from, at), after: straight(at, piece.to) };
   }
-  const first = between(piece.from, piece.control1, fraction);
-  const second = between(piece.control1, piece.control2, fraction);
-  const third = between(piece.control2, piece.to, fraction);
-  const before = between(first, second, fraction);
-  const after = between(second, third, fraction);
-  const at = between(before, after, fraction);
+  const { at, before, after } = splitPoints(piece, fraction);
   return {
     at,
-    before: curve(piece.from, first, before, at),
-    after: curve(at, after, third, piece.to),
+    before: curve(piece.from, before.first, before.second, at),
+    after: curve(at, after.first, after.second, piece.to),
+  };
+}
+
+function pointAtSplit(piece: ShaftPiece, fraction: number): Point {
+  if (piece.kind === 'straight') {
+    return between(piece.from, piece.to, fraction);
+  }
+  return splitPoints(piece, fraction).at;
+}
+
+function splitPoints(
+  piece: CurvedShaftPiece,
+  fraction: number,
+): {
+  readonly at: Point;
+  readonly before: { readonly first: Point; readonly second: Point };
+  readonly after: { readonly first: Point; readonly second: Point };
+} {
+  const first = between(piece.from, piece.control1, fraction);
+  const middle = between(piece.control1, piece.control2, fraction);
+  const last = between(piece.control2, piece.to, fraction);
+  const beforeSecond = between(first, middle, fraction);
+  const afterFirst = between(middle, last, fraction);
+  return {
+    at: between(beforeSecond, afterFirst, fraction),
+    before: { first, second: beforeSecond },
+    after: { first: afterFirst, second: last },
   };
 }
 
