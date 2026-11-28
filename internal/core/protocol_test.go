@@ -19,6 +19,7 @@ var optionCommands = []struct {
 	{"png", PNGOptions{}},
 	{"anchor", AnchorOptions{}},
 	{"snap", SnapOptions{}},
+	{"names", namesRequest{}},
 }
 
 func TestExitCodesMatchTheCoresTable(t *testing.T) {
@@ -52,27 +53,21 @@ func TestOptionKeysMatchTheCoresCommands(t *testing.T) {
 
 	// Both ways, as the exit table is compared: a command Go knows and the core
 	// dropped, and a command the core declares that Go never sends, each break
-	// the same contract. `names` is the exception while Go still holds its own
-	// copy of the Scene file rules: the core declares it here, and Go calls it
-	// once it is on them.
-	known := make([]string, 0, len(optionCommands)+3)
+	// the same contract.
+	known := make([]string, 0, len(optionCommands)+2)
 	for _, entry := range optionCommands {
 		known = append(known, entry.kind)
 	}
-	known = append(known, "parse", "names", "describe")
+	known = append(known, "parse", "describe")
 	slices.Sort(known)
 	if declared := slices.Sorted(maps.Keys(described.takes)); !slices.Equal(declared, known) {
 		t.Fatalf("the core declares commands %v, and Go knows %v", declared, known)
 	}
 
-	// The three commands with no option struct: parse reads the Scene alone,
-	// describe declares no request keys at all, and names takes the file name
-	// Go has and the theme it may have.
+	// The two commands with no option struct: parse reads the Scene alone, and
+	// describe declares no request keys at all.
 	if !slices.Equal(described.takes["parse"], []string{"source"}) {
 		t.Fatalf("parse declares keys %v, and Go sends only the Scene", described.takes["parse"])
-	}
-	if takes := described.takes["names"]; !slices.Equal(takes, []string{"fileName", "theme"}) {
-		t.Fatalf("names declares keys %v, and a Scene's name and theme are two", takes)
 	}
 	if takes := described.takes["describe"]; len(takes) != 0 {
 		t.Fatalf("describe declares keys %v, and Go sends none", takes)
