@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"esbozo"
-	"esbozo/internal/core"
+	"esbozo/internal/nodeerr"
 )
 
 func runBundle(argv []string, stdout, stderr io.Writer) int {
@@ -27,7 +27,7 @@ func runBundle(argv []string, stdout, stderr io.Writer) int {
 		return exitWriteFailed
 	}
 	if err := os.WriteFile(outputPath, esbozo.EmbedBundle, 0o666); err != nil {
-		fmt.Fprintf(stderr, "cannot write %s: %s\n", outputPath, core.NodeMessage(err, outputPath, false))
+		fmt.Fprintf(stderr, "cannot write %s: %s\n", outputPath, nodeerr.Message(err, outputPath, false))
 		return exitWriteFailed
 	}
 	fmt.Fprintln(stdout, outputPath)

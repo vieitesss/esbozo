@@ -4,16 +4,15 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"strings"
 	"sync"
-	"syscall"
 	"unicode/utf8"
 
 	"github.com/dop251/goja"
 
 	"esbozo"
+	"esbozo/internal/nodeerr"
 	"esbozo/internal/resvg"
 )
 
@@ -56,7 +55,7 @@ func installHost(vm *goja.Runtime) error {
 		path := call.Argument(0).String()
 		bytes, err := os.ReadFile(path)
 		if err != nil {
-			panic(vm.NewGoError(errors.New(NodeMessage(err, path, true))))
+			panic(vm.NewGoError(errors.New(nodeerr.Message(err, path, true))))
 		}
 		return vm.ToValue(string(bytes))
 	}); err != nil {
@@ -67,7 +66,7 @@ func installHost(vm *goja.Runtime) error {
 		path := call.Argument(0).String()
 		bytes, err := os.ReadFile(path)
 		if err != nil {
-			panic(vm.NewGoError(errors.New(NodeMessage(err, path, true))))
+			panic(vm.NewGoError(errors.New(nodeerr.Message(err, path, true))))
 		}
 		return vm.ToValue(vm.NewArrayBuffer(bytes))
 	}); err != nil {
@@ -200,59 +199,4 @@ func bytesOf(value goja.Value) ([]byte, error) {
 		return bytes, nil
 	}
 	return nil, fmt.Errorf("expected bytes, got %s", value.ExportType())
-}
-
-// NodeMessage formats err in Node's fs error wording (e.g. "ENOENT: ..., open 'path'").
-// When reading is true, EISDIR formats as a read error.
-func NodeMessage(err error, path string, reading bool) string {
-	if reading && errors.Is(err, syscall.EISDIR) {
-		return "EISDIR: illegal operation on a directory, read"
-	}
-	return nodeMessage(err, path, "open")
-}
-
-// NodeMkdirMessage formats an os.MkdirAll error in Node's fs.mkdir wording.
-func NodeMkdirMessage(err error, dir string) string {
-	var pathErr *fs.PathError
-	if !errors.As(err, &pathErr) {
-		return err.Error()
-	}
-	taken := errors.Is(pathErr.Err, fs.ErrExist) ||
-		(errors.Is(pathErr.Err, syscall.ENOTDIR) && pathErr.Path == dir)
-	if !taken {
-		if errors.Is(pathErr.Err, syscall.ENOTDIR) {
-			return nodeMessage(pathErr.Err, dir, "mkdir")
-		}
-		return nodeMessage(pathErr.Err, pathErr.Path, "mkdir")
-	}
-	// Node probes dir before climbing, whereas os.MkdirAll reports the failing
-	// ancestor; stat dir to match Node's error code and path.
-	info, statErr := os.Stat(dir)
-	switch {
-	case statErr != nil && !errors.Is(statErr, fs.ErrNotExist):
-		return nodeMessage(statErr, dir, "mkdir")
-	case info != nil:
-		return nodeMessage(syscall.EEXIST, dir, "mkdir")
-	case pathErr.Path == dir:
-		return nodeMessage(statErr, dir, "mkdir")
-	}
-	return nodeMessage(syscall.ENOTDIR, pathErr.Path, "mkdir")
-}
-
-func nodeMessage(err error, path, call string) string {
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		return fmt.Sprintf("ENOENT: no such file or directory, %s '%s'", call, path)
-	case errors.Is(err, fs.ErrPermission):
-		return fmt.Sprintf("EACCES: permission denied, %s '%s'", call, path)
-	case errors.Is(err, syscall.EEXIST):
-		return fmt.Sprintf("EEXIST: file already exists, %s '%s'", call, path)
-	case errors.Is(err, syscall.ELOOP):
-		return fmt.Sprintf("ELOOP: too many symbolic links encountered, %s '%s'", call, path)
-	case errors.Is(err, syscall.EISDIR):
-		return fmt.Sprintf("EISDIR: illegal operation on a directory, %s '%s'", call, path)
-	case errors.Is(err, syscall.ENOTDIR):
-		return fmt.Sprintf("ENOTDIR: not a directory, %s '%s'", call, path)
-	}
-	return err.Error()
 }

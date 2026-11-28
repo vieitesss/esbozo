@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"esbozo/internal/core"
+	"esbozo/internal/nodeerr"
 )
 
 type anchorArguments struct {
@@ -121,12 +122,12 @@ func editScene(
 		return edited.ExitCode
 	}
 	if readErr != nil {
-		fmt.Fprintf(stderr, "cannot read Scene %s: %s\n", scenePath, core.NodeMessage(readErr, scenePath, true))
+		fmt.Fprintf(stderr, "cannot read Scene %s: %s\n", scenePath, nodeerr.Message(readErr, scenePath, true))
 		return exitInvalidScene
 	}
 
 	if err := os.WriteFile(scenePath, []byte(edited.Scene), 0o666); err != nil {
-		fmt.Fprintf(stderr, "cannot write Scene %s: %s\n", scenePath, core.NodeMessage(err, scenePath, false))
+		fmt.Fprintf(stderr, "cannot write Scene %s: %s\n", scenePath, nodeerr.Message(err, scenePath, false))
 		return exitWriteFailed
 	}
 	for _, line := range edited.Lines {
