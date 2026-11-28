@@ -2,6 +2,7 @@
  * Exit codes for `ez` and `internal/core`'s `Result.ExitCode`:
  *
  *   0  ok (clean Scene, rendered, PNG/bundle written, or server stopped)
+ *   1  `ez update` did not update this folder: it refused, or the install script failed
  *   2  wrong arguments (unknown command, missing/extra arguments, bad flag)
  *   3  Scene could not be read or parsed
  *   4  output could not be written, server could not start, or editor not built
