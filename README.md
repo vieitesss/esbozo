@@ -4,6 +4,8 @@
 [![check](https://github.com/vieitesss/esbozo/actions/workflows/ci.yml/badge.svg)](https://github.com/vieitesss/esbozo/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
+<img width="1176" height="885" alt="SCR-20261128-pspr" src="https://github.com/user-attachments/assets/3063c76f-c91e-4126-81bd-2a46b3205aaa" />
+
 A small canvas for hand-drawn diagrams, drawn by people and written by agents.
 
 A diagram is a Scene, a JSON file named `<name>.esbozo` that you edit in a browser and an agent writes directly. The `ez` binary checks a Scene, renders it to an SVG that reads colours and font from CSS variables, exports light and dark PNGs, and serves the browser editor. Everything ships inside one static binary with no runtime dependencies.
