@@ -15,6 +15,8 @@
  * the global themselves.
  */
 export interface EzHost {
+  // Every answer is a plain value (never a promise): goja cannot await one, so
+  // the core's host calls settle synchronously.
   readText(path: string): string;
   readBytes(path: string): ArrayBuffer;
   encodeUtf8(text: string): ArrayBuffer;

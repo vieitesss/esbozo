@@ -38,7 +38,11 @@ func ezHostMethodNames(t *testing.T) []string {
 		case inside && line == "}":
 			inside = false
 		case inside:
-			if name, _, found := strings.Cut(strings.TrimSpace(line), "("); found {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "/*") || strings.HasPrefix(trimmed, "*") {
+				continue
+			}
+			if name, _, found := strings.Cut(trimmed, "("); found {
 				declared = append(declared, name)
 			}
 		}
