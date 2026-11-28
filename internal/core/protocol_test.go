@@ -50,6 +50,19 @@ func TestOptionKeysMatchTheCoresCommands(t *testing.T) {
 		}
 	}
 
+	// Both ways, as the exit table is compared: a command Go knows and the core
+	// dropped, and a command the core declares that Go never sends, each break
+	// the same contract.
+	known := make([]string, 0, len(optionCommands)+2)
+	for _, entry := range optionCommands {
+		known = append(known, entry.kind)
+	}
+	known = append(known, "parse", "describe")
+	slices.Sort(known)
+	if declared := slices.Sorted(maps.Keys(described.takes)); !slices.Equal(declared, known) {
+		t.Fatalf("the core declares commands %v, and Go knows %v", declared, known)
+	}
+
 	// The two commands with no option struct: parse reads the Scene alone, and
 	// describe declares no request keys at all.
 	if !slices.Equal(described.takes["parse"], []string{"source"}) {
